@@ -23,7 +23,7 @@ models::ConnectResponse errorResponse(const QString& msg) {
     return r;
 }
 
-}  // namespace
+} // namespace
 
 HTTPClient::HTTPClient(QObject* parent) : QObject(parent), nam_(new QNetworkAccessManager(this)) {
     nam_->setTransferTimeout(kTimeoutMs);
@@ -33,8 +33,8 @@ HTTPClient::~HTTPClient() = default;
 
 void HTTPClient::connectAsync(const QString& ip, int port, const QString& deviceId, Callback cb) {
     const QString url = QStringLiteral("http://%1:%2/api/connections").arg(ip).arg(port);
-    const auto body = QJsonDocument(QJsonObject{{"deviceId", deviceId}}).toJson(
-        QJsonDocument::Compact);
+    const auto body =
+        QJsonDocument(QJsonObject{{"deviceId", deviceId}}).toJson(QJsonDocument::Compact);
     perform(url, "POST", body, std::move(cb));
 }
 
@@ -42,8 +42,8 @@ void HTTPClient::disconnectAsync(const QString& ip, int port, const QString& con
                                  const QString& deviceId, Callback cb) {
     const QString url =
         QStringLiteral("http://%1:%2/api/connections/%3").arg(ip).arg(port).arg(connectionId);
-    const auto body = QJsonDocument(QJsonObject{{"deviceId", deviceId}}).toJson(
-        QJsonDocument::Compact);
+    const auto body =
+        QJsonDocument(QJsonObject{{"deviceId", deviceId}}).toJson(QJsonDocument::Compact);
     perform(url, "DELETE", body, std::move(cb));
 }
 
@@ -68,4 +68,4 @@ void HTTPClient::perform(const QString& url, const QByteArray& method, const QBy
     });
 }
 
-}  // namespace dish::net
+} // namespace dish::net

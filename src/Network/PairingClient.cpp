@@ -29,14 +29,12 @@ models::PairResponse makeError(const char* msg) {
     return r;
 }
 
-}  // namespace
+} // namespace
 
 models::PairResponse PairingClient::pair(const QString& ip, int port, const QString& deviceId,
                                          const QString& deviceName, const QString& pin) {
     const int sock = ::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-    if (sock < 0) {
-        return makeError("socket failed");
-    }
+    if (sock < 0) { return makeError("socket failed"); }
 
     const int flags = ::fcntl(sock, F_GETFL, 0);
     ::fcntl(sock, F_SETFL, flags | O_NONBLOCK);
@@ -89,9 +87,7 @@ models::PairResponse PairingClient::pair(const QString& ip, int port, const QStr
     char buf[512];
     const ssize_t n = ::recv(sock, buf, sizeof(buf), 0);
     ::close(sock);
-    if (n <= 0) {
-        return makeError("no response");
-    }
+    if (n <= 0) { return makeError("no response"); }
 
     QJsonParseError err{};
     const auto doc = QJsonDocument::fromJson(QByteArray(buf, static_cast<int>(n)), &err);
@@ -101,4 +97,4 @@ models::PairResponse PairingClient::pair(const QString& ip, int port, const QStr
     return models::PairResponse::fromJson(doc.object());
 }
 
-}  // namespace dish::net
+} // namespace dish::net

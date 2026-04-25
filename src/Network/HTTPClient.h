@@ -19,7 +19,7 @@ namespace dish::net {
 // HTTP/1.1 on :9877. Callbacks fire on the network manager's home thread.
 class HTTPClient : public QObject {
     Q_OBJECT
-public:
+  public:
     using Callback = std::function<void(const models::ConnectResponse&)>;
 
     explicit HTTPClient(QObject* parent = nullptr);
@@ -32,11 +32,10 @@ public:
     void disconnectAsync(const QString& ip, int port, const QString& connectionId,
                          const QString& deviceId, Callback cb);
 
-private:
-    void perform(const QString& url, const QByteArray& method, const QByteArray& body,
-                 Callback cb);
+  private:
+    void perform(const QString& url, const QByteArray& method, const QByteArray& body, Callback cb);
 
     QNetworkAccessManager* nam_;
 };
 
-}  // namespace dish::net
+} // namespace dish::net

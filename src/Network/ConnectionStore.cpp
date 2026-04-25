@@ -15,36 +15,28 @@ constexpr const char* kDeviceIdKey = "deviceId";
 constexpr const char* kWifiListKey = "wifi_list";
 constexpr const char* kSharedKeyPrefix = "wifi_shared_key/";
 
-}  // namespace
+} // namespace
 
 ConnectionStore::ConnectionStore(std::unique_ptr<QSettings> settings) {
-    settings_ = settings ? std::move(settings)
-                         : std::make_unique<QSettings>(QStringLiteral("Dish"),
-                                                        QStringLiteral("Dish"));
+    settings_ = settings
+                    ? std::move(settings)
+                    : std::make_unique<QSettings>(QStringLiteral("Dish"), QStringLiteral("Dish"));
 }
 
 QString ConnectionStore::getOrCreateDeviceId() {
     const auto existing = settings_->value(QLatin1String(kDeviceIdKey)).toString();
-    if (!existing.isEmpty()) {
-        return existing;
-    }
-    const auto fresh = QUuid::createUuid()
-                           .toString(QUuid::WithoutBraces)
-                           .remove(QLatin1Char('-'))
-                           .toLower();
+    if (!existing.isEmpty()) { return existing; }
+    const auto fresh =
+        QUuid::createUuid().toString(QUuid::WithoutBraces).remove(QLatin1Char('-')).toLower();
     settings_->setValue(QLatin1String(kDeviceIdKey), fresh);
     return fresh;
 }
 
 QList<models::RememberedWifi> ConnectionStore::remembered() const {
     const auto raw = settings_->value(QLatin1String(kWifiListKey)).toByteArray();
-    if (raw.isEmpty()) {
-        return {};
-    }
+    if (raw.isEmpty()) { return {}; }
     const auto doc = QJsonDocument::fromJson(raw);
-    if (!doc.isArray()) {
-        return {};
-    }
+    if (!doc.isArray()) { return {}; }
     return models::rememberedListFromJson(doc.array());
 }
 
@@ -81,9 +73,7 @@ void ConnectionStore::persist(const QList<models::RememberedWifi>& list) {
 
 std::optional<QString> ConnectionStore::sharedKey(const QString& id) const {
     const auto v = settings_->value(QLatin1String(kSharedKeyPrefix) + id).toString();
-    if (v.isEmpty()) {
-        return std::nullopt;
-    }
+    if (v.isEmpty()) { return std::nullopt; }
     return v;
 }
 
@@ -91,4 +81,4 @@ void ConnectionStore::setSharedKey(const QString& keyHex, const QString& id) {
     settings_->setValue(QLatin1String(kSharedKeyPrefix) + id, keyHex);
 }
 
-}  // namespace dish::net
+} // namespace dish::net

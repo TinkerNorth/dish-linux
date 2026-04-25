@@ -26,7 +26,21 @@ jobs:
             build-essential cmake ninja-build pkg-config \
             qt6-base-dev qt6-base-dev-tools \
             libsodium-dev libsdl2-dev \
-            clang-format clang-tidy
+            clang-tidy
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # Pinned to match satellite + dish-android + dish-mac. Ubuntu 24.04 ships
+      # clang-format 18 which disagrees with brew's 22.x on braced-init lists,
+      # so we pull the matching wheel from PyPI to keep the four repos in sync.
+      - name: Install clang-format (pinned 22.1.4)
+        run: |
+          pipx install clang-format==22.1.4
+          pipx ensurepath
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
       - name: clang-format (check only)
         run: |

@@ -67,9 +67,7 @@ void SlotCard::onBindClicked() {
         emit unbindRequested(slot_.id);
         return;
     }
-    if (available_.isEmpty()) {
-        return;
-    }
+    if (available_.isEmpty()) { return; }
     QMenu menu(this);
     for (const auto& c : available_) {
         auto* act = menu.addAction(c.label);
@@ -80,4 +78,4 @@ void SlotCard::onBindClicked() {
     menu.exec(bindButton_->mapToGlobal(QPoint(0, bindButton_->height())));
 }
 
-}  // namespace dish::ui
+} // namespace dish::ui

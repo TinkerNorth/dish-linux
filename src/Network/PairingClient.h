@@ -12,9 +12,9 @@ namespace dish::net {
 // Blocking TCP pair handshake on :9878. Mirrors dish-mac/Network/PairingClient.swift
 // and satellite_jni.cpp::pair. Single JSON request line, single JSON response.
 class PairingClient {
-public:
+  public:
     static models::PairResponse pair(const QString& ip, int port, const QString& deviceId,
                                      const QString& deviceName, const QString& pin);
 };
 
-}  // namespace dish::net
+} // namespace dish::net

@@ -16,17 +16,17 @@ namespace dish::ui {
 // One row in the slots list. Mirrors the Mac SlotCard / Android slot row.
 class SlotCard : public QFrame {
     Q_OBJECT
-public:
+  public:
     explicit SlotCard(QWidget* parent = nullptr);
 
     void setSlot(const models::ControllerSlot& slot,
                  const QList<models::ConnectionSummary>& available);
 
-signals:
+  signals:
     void bindRequested(const QString& slotId, const QString& connectionId);
     void unbindRequested(const QString& slotId);
 
-private:
+  private:
     void onBindClicked();
 
     QLabel* nameLabel_;
@@ -38,4 +38,4 @@ private:
     QList<models::ConnectionSummary> available_;
 };
 
-}  // namespace dish::ui
+} // namespace dish::ui

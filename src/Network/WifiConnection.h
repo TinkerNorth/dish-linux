@@ -23,7 +23,7 @@ enum class WifiState { Idle, Connecting, Connected };
 // main thread (markConnected/markDisconnected); reads from the SDL gamepad
 // thread on every report. Guarded by std::mutex.
 class ClientRef {
-public:
+  public:
     std::shared_ptr<SatelliteClient> get() const {
         std::lock_guard<std::mutex> lock(mtx_);
         return value_;
@@ -33,7 +33,7 @@ public:
         value_ = std::move(v);
     }
 
-private:
+  private:
     mutable std::mutex mtx_;
     std::shared_ptr<SatelliteClient> value_;
 };
@@ -42,7 +42,7 @@ private:
 // dish-mac/Network/WifiConnection.swift.
 class WifiConnection : public QObject {
     Q_OBJECT
-public:
+  public:
     static QString idFor(const models::DiscoveredServer& s) { return s.id(); }
 
     WifiConnection(QString id, models::DiscoveredServer server, QObject* parent = nullptr);
@@ -68,10 +68,10 @@ public:
     void sendReport(std::uint16_t buttons, std::uint8_t lt, std::uint8_t rt, std::int16_t lx,
                     std::int16_t ly, std::int16_t rx, std::int16_t ry);
 
-signals:
+  signals:
     void changed();
 
-private:
+  private:
     static constexpr int kDefaultCtrlIndex = 0;
     static constexpr std::uint16_t kDefaultCaps = 0x0003;
     static constexpr int kAckWaitAttempts = 20;
@@ -92,4 +92,4 @@ private:
     int pendingControllerType_ = 0;
 };
 
-}  // namespace dish::net
+} // namespace dish::net

@@ -31,7 +31,7 @@
 namespace dish::net {
 
 class SatelliteClient {
-public:
+  public:
     static constexpr std::uint16_t kMsgGamepadData = 0x0001;
     static constexpr std::uint16_t kMsgHeartbeatPing = 0x0002;
     static constexpr std::uint16_t kMsgHeartbeatAck = 0x0003;
@@ -80,14 +80,12 @@ public:
     std::int32_t lastControllerAck() const {
         return lastControllerAck_.load(std::memory_order_relaxed);
     }
-    std::int8_t vigemAvailable() const {
-        return vigemAvailable_.load(std::memory_order_relaxed);
-    }
+    std::int8_t vigemAvailable() const { return vigemAvailable_.load(std::memory_order_relaxed); }
     std::int8_t activeControllerCount() const {
         return activeControllerCount_.load(std::memory_order_relaxed);
     }
 
-private:
+  private:
     // Test-only seam: SatelliteClient with test-injected socket pair. Internal
     // function visible to friends; declared but never defined in production.
     friend class SatelliteClientTestAccess;
@@ -116,4 +114,4 @@ private:
     std::atomic<std::int8_t> activeControllerCount_{-1};
 };
 
-}  // namespace dish::net
+} // namespace dish::net

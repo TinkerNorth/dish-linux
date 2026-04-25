@@ -40,12 +40,8 @@ void GamepadInputProcessor::zeroAndSendAll() {
         }
         snapshot = sender_;
     }
-    if (!snapshot) {
-        return;
-    }
-    for (const auto& id : ids) {
-        snapshot(id, 0, 0, 0, 0, 0, 0, 0);
-    }
+    if (!snapshot) { return; }
+    for (const auto& id : ids) { snapshot(id, 0, 0, 0, 0, 0, 0, 0); }
 }
 
 void GamepadInputProcessor::remove(const DeviceId& id) {
@@ -74,4 +70,4 @@ std::uint8_t scaleTrigger(float v) {
     return static_cast<std::uint8_t>(std::clamp(scaled, 0, 255));
 }
 
-}  // namespace dish::input
+} // namespace dish::input

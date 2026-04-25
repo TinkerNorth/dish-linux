@@ -23,13 +23,14 @@ namespace dish::ui {
 // footer, and a "Manage" button that opens ConnectionsDialog.
 class MainWindow : public QMainWindow {
     Q_OBJECT
-public:
+  public:
     explicit MainWindow(AppModel* model, QWidget* parent = nullptr);
 
-private:
+  private:
+    void onStateChanged();
     void rebuildHeader();
     void rebuildSlotList();
-    void onPairingTargetChanged();
+    void showPairingPrompt();
     void onError(const QString& msg);
     void onTelemetryTick();
     void onManageClicked();
@@ -51,4 +52,4 @@ private:
     quint64 telemetryTotal_ = 0;
 };
 
-}  // namespace dish::ui
+} // namespace dish::ui

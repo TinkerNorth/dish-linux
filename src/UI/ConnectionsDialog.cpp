@@ -92,15 +92,11 @@ void ConnectionsDialog::rebuildLists() {
     }
 }
 
-void ConnectionsDialog::onScanClicked() {
-    model_->wifi()->startDiscovery();
-}
+void ConnectionsDialog::onScanClicked() { model_->wifi()->startDiscovery(); }
 
 void ConnectionsDialog::onConnectClicked() {
     auto* item = discoveredList_->currentItem();
-    if (item == nullptr) {
-        return;
-    }
+    if (item == nullptr) { return; }
     const auto wantedId = item->data(Qt::UserRole).toString();
     for (const auto& s : model_->wifi()->discoveredServers()) {
         if (s.id() == wantedId) {
@@ -112,10 +108,8 @@ void ConnectionsDialog::onConnectClicked() {
 
 void ConnectionsDialog::onForgetClicked() {
     auto* item = rememberedList_->currentItem();
-    if (item == nullptr) {
-        return;
-    }
+    if (item == nullptr) { return; }
     model_->wifi()->forget(item->data(Qt::UserRole).toString());
 }
 
-}  // namespace dish::ui
+} // namespace dish::ui

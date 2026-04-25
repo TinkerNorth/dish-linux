@@ -1,52 +1,51 @@
----
+# TinkerNorth — canonical clang-tidy configuration.
+# This exact file is shared by satellite, dish-android (JNI), dish-linux,
+# and dish-mac (any C/C++ source).
+#
+# HeaderFilterRegex matches headers under src/, app/src/main/cpp/, or tests/
+# so the same config covers every repo without per-repo overrides.
+
 Checks: >
   -*,
   bugprone-*,
-  clang-analyzer-*,
-  cppcoreguidelines-*,
-  modernize-*,
-  performance-*,
-  portability-*,
-  readability-*,
   -bugprone-easily-swappable-parameters,
-  -cppcoreguidelines-avoid-magic-numbers,
-  -cppcoreguidelines-pro-bounds-array-to-pointer-decay,
-  -cppcoreguidelines-pro-bounds-pointer-arithmetic,
-  -cppcoreguidelines-pro-bounds-constant-array-index,
-  -cppcoreguidelines-pro-type-reinterpret-cast,
-  -cppcoreguidelines-pro-type-vararg,
-  -cppcoreguidelines-non-private-member-variables-in-classes,
-  -cppcoreguidelines-owning-memory,
-  -cppcoreguidelines-avoid-non-const-global-variables,
-  -modernize-use-trailing-return-type,
-  -modernize-avoid-c-arrays,
-  -portability-avoid-pragma-once,
-  -readability-magic-numbers,
-  -readability-identifier-length,
-  -readability-function-cognitive-complexity,
-  -readability-redundant-access-specifiers
+  -bugprone-narrowing-conversions,
+  cert-*,
+  -cert-err58-cpp,
+  cppcoreguidelines-init-variables,
+  cppcoreguidelines-avoid-goto,
+  misc-redundant-expression,
+  misc-unused-using-decls,
+  modernize-use-auto,
+  modernize-use-nullptr,
+  modernize-use-override,
+  modernize-use-using,
+  modernize-loop-convert,
+  modernize-redundant-void-arg,
+  modernize-return-braced-init-list,
+  performance-*,
+  -performance-no-int-to-ptr,
+  readability-braces-around-statements,
+  readability-const-return-type,
+  readability-container-size-empty,
+  readability-duplicate-include,
+  readability-else-after-return,
+  readability-implicit-bool-conversion,
+  readability-inconsistent-declaration-parameter-name,
+  readability-misleading-indentation,
+  readability-redundant-control-flow,
+  readability-redundant-string-cstr,
+  readability-simplify-boolean-expr,
+  readability-string-compare,
+
 WarningsAsErrors: ''
-HeaderFilterRegex: '^.*/dish-linux/src/.*$'
-FormatStyle: file
+
+HeaderFilterRegex: '.*/(src|app/src/main/cpp|tests)/.*\.h$'
+
 CheckOptions:
-  - key: readability-identifier-naming.ClassCase
-    value: CamelCase
-  - key: readability-identifier-naming.StructCase
-    value: CamelCase
-  - key: readability-identifier-naming.EnumCase
-    value: CamelCase
-  - key: readability-identifier-naming.FunctionCase
-    value: camelBack
-  - key: readability-identifier-naming.VariableCase
-    value: camelBack
-  - key: readability-identifier-naming.PrivateMemberSuffix
-    value: _
-  - key: readability-identifier-naming.ConstexprVariableCase
-    value: CamelCase
-  - key: readability-identifier-naming.ConstexprVariablePrefix
-    value: k
-  - key: readability-identifier-naming.GlobalConstantCase
-    value: CamelCase
-  - key: readability-identifier-naming.GlobalConstantPrefix
-    value: k
----
+  - key: modernize-use-auto.MinTypeNameLength
+    value: 5
+  - key: readability-braces-around-statements.ShortStatementLines
+    value: 1
+  - key: performance-move-const-arg.CheckTriviallyCopyableMove
+    value: false

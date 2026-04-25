@@ -41,10 +41,8 @@ inline std::uint32_t readU32Be(const std::uint8_t* src) noexcept {
 
 inline std::uint64_t readU64Be(const std::uint8_t* src) noexcept {
     std::uint64_t v = 0;
-    for (std::size_t i = 0; i < 8; ++i) {
-        v = (v << 8) | static_cast<std::uint64_t>(src[i]);
-    }
+    for (std::size_t i = 0; i < 8; ++i) { v = (v << 8) | static_cast<std::uint64_t>(src[i]); }
     return v;
 }
 
-}  // namespace dish::util
+} // namespace dish::util

@@ -1,38 +1,34 @@
 #!/usr/bin/env bash
-# Dish Linux pre-commit hook: runs clang-format (check) and clang-tidy
-# (warnings → errors) on staged C++ sources. Skips gracefully if either
-# tool is missing so contributors who haven't run setup-hooks.sh aren't
-# blocked — CI enforces both checks in strict mode.
+# Dish Linux pre-commit hook: autofixes clang-format on staged C/C++ sources
+# (mirroring the satellite and dish-mac hook semantics) and runs clang-tidy
+# in advisory mode. Skips gracefully if either tool is missing — CI enforces
+# both checks in strict mode.
 set -euo pipefail
 
 repo_root=$(git rev-parse --show-toplevel)
 cd "$repo_root"
 
-# Collect staged C/C++ sources under src/ and tests/ (added/copied/modified).
-mapfile -t staged < <(
-    git diff --cached --name-only --diff-filter=ACM \
-        -- 'src/*.cpp' 'src/*.h' 'src/*.hpp' 'tests/*.cpp' 'tests/*.h'
-)
-
-if [ "${#staged[@]}" -eq 0 ]; then
+# Collect staged C/C++ sources under src/ and tests/ (added/copied/modified),
+# NUL-separated to handle paths with spaces.
+staged=$(git diff --cached --name-only --diff-filter=ACM -z \
+    -- 'src/*.cpp' 'src/*.h' 'src/*.hpp' 'tests/*.cpp' 'tests/*.h' \
+    | tr '\0' '\n' | sed '/^$/d')
+if [ -z "$staged" ]; then
     exit 0
 fi
 
-format_ok=1
-tidy_ok=1
-
-# ── clang-format ─────────────────────────────────────────────────────────
+# ── clang-format (autofix) ───────────────────────────────────────────────
 if command -v clang-format >/dev/null 2>&1; then
-    echo "▶ clang-format --dry-run --Werror (${#staged[@]} file(s))"
-    if ! clang-format --dry-run --Werror "${staged[@]}"; then
-        echo "  run: clang-format -i ${staged[*]}"
-        format_ok=0
-    fi
+    echo "▶ clang-format (staged files)"
+    echo "$staged" | while IFS= read -r file; do
+        clang-format -i "$file"
+        git add "$file"
+    done
 else
-    echo "⚠  clang-format not installed — skipping (install clang-format)"
+    echo "⚠  clang-format not installed — skipping (sudo apt install clang-format)"
 fi
 
-# ── clang-tidy ───────────────────────────────────────────────────────────
+# ── clang-tidy (advisory) ────────────────────────────────────────────────
 # Needs a compile_commands.json. We generate one in build-debug via CMake
 # (CMAKE_EXPORT_COMPILE_COMMANDS is ON in CMakeLists.txt). Match CI: report
 # warnings but don't block the commit on stylistic findings — .clang-tidy's
@@ -40,11 +36,11 @@ fi
 if command -v clang-tidy >/dev/null 2>&1; then
     if [ -f build-debug/compile_commands.json ]; then
         cpp_files=()
-        for f in "${staged[@]}"; do
+        while IFS= read -r f; do
             case "$f" in
                 *.cpp) cpp_files+=("$f") ;;
             esac
-        done
+        done <<<"$staged"
         if [ "${#cpp_files[@]}" -gt 0 ]; then
             echo "▶ clang-tidy -p build-debug (${#cpp_files[@]} file(s))"
             clang-tidy -p build-debug --quiet "${cpp_files[@]}" || true
@@ -53,11 +49,5 @@ if command -v clang-tidy >/dev/null 2>&1; then
         echo "⚠  build-debug/compile_commands.json missing — run scripts/build.sh debug"
     fi
 else
-    echo "⚠  clang-tidy not installed — skipping (install clang-tidy)"
-fi
-
-if [ "$format_ok" -eq 0 ] || [ "$tidy_ok" -eq 0 ]; then
-    echo
-    echo "✗ pre-commit failed — fix the issues above and re-stage."
-    exit 1
+    echo "⚠  clang-tidy not installed — skipping (sudo apt install clang-tidy)"
 fi

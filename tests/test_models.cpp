@@ -57,8 +57,8 @@ TEST_CASE("PairResponse parses ok/error/sharedKey", "[models]") {
 }
 
 TEST_CASE("ConnectResponse parses connectionId + token", "[models]") {
-    const auto r = ConnectResponse::fromJson(
-        QJsonObject{{"connectionId", "abc-123"}, {"token", "tok"}});
+    const auto r =
+        ConnectResponse::fromJson(QJsonObject{{"connectionId", "abc-123"}, {"token", "tok"}});
     REQUIRE(r.connectionId.has_value());
     REQUIRE(*r.connectionId == "abc-123");
     REQUIRE(r.token.has_value());

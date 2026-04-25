@@ -29,7 +29,7 @@ QString hex(QRgb c) {
         .arg(qGreen(c), 2, 16, QLatin1Char('0'))
         .arg(qBlue(c), 2, 16, QLatin1Char('0'));
 }
-}  // namespace
+} // namespace
 
 MainWindow::MainWindow(AppModel* model, QWidget* parent) : QMainWindow(parent), model_(model) {
     setWindowTitle(QStringLiteral("Dish"));
@@ -54,7 +54,8 @@ MainWindow::MainWindow(AppModel* model, QWidget* parent) : QMainWindow(parent), 
     headerRow->addWidget(manageButton_, 0, Qt::AlignVCenter);
 
     summaryText_ = new QLabel(central);
-    summaryText_->setStyleSheet(QStringLiteral("color: %1; font-size: 12px;").arg(hex(Theme::muted)));
+    summaryText_->setStyleSheet(
+        QStringLiteral("color: %1; font-size: 12px;").arg(hex(Theme::muted)));
 
     auto* headerBox = new QVBoxLayout;
     headerBox->setSpacing(6);
@@ -80,7 +81,8 @@ MainWindow::MainWindow(AppModel* model, QWidget* parent) : QMainWindow(parent), 
     slotsLayout_->setContentsMargins(0, 0, 0, 0);
     slotsLayout_->setSpacing(8);
     slotsEmpty_ = new QLabel(QStringLiteral("No controllers connected"), slotsContainer);
-    slotsEmpty_->setStyleSheet(QStringLiteral("color: %1; font-size: 12px;").arg(hex(Theme::muted)));
+    slotsEmpty_->setStyleSheet(
+        QStringLiteral("color: %1; font-size: 12px;").arg(hex(Theme::muted)));
     slotsLayout_->addWidget(slotsEmpty_);
     slotsLayout_->addStretch(1);
     scroll->setWidget(slotsContainer);
@@ -90,8 +92,9 @@ MainWindow::MainWindow(AppModel* model, QWidget* parent) : QMainWindow(parent), 
     auto* footer = new QHBoxLayout;
     telemetryLeft_ = new QLabel(central);
     telemetryRight_ = new QLabel(central);
-    const QString footerStyle = QStringLiteral(
-        "color: %1; font-family: monospace; font-size: 10px;").arg(hex(Theme::muted));
+    const QString footerStyle =
+        QStringLiteral("color: %1; font-family: monospace; font-size: 10px;")
+            .arg(hex(Theme::muted));
     telemetryLeft_->setStyleSheet(footerStyle);
     telemetryRight_->setStyleSheet(footerStyle);
     footer->addWidget(telemetryLeft_);
@@ -102,16 +105,9 @@ MainWindow::MainWindow(AppModel* model, QWidget* parent) : QMainWindow(parent), 
     setCentralWidget(central);
 
     QObject::connect(manageButton_, &QPushButton::clicked, this, &MainWindow::onManageClicked);
-    QObject::connect(model_, &AppModel::slotsChanged, this, [this] {
-        rebuildHeader();
-        rebuildSlotList();
-    });
-    QObject::connect(model_, &AppModel::connectionsChanged, this, [this] {
-        rebuildHeader();
-        rebuildSlotList();
-    });
-    QObject::connect(model_, &AppModel::pairingTargetChanged, this,
-                     &MainWindow::onPairingTargetChanged);
+    // Single observer on the canonical state slice — rebuild header + slot list
+    // and react to any pending pairing prompt every time state changes.
+    QObject::connect(model_, &AppModel::stateChanged, this, &MainWindow::onStateChanged);
     QObject::connect(model_, &AppModel::errorMessage, this, &MainWindow::onError);
 
     telemetryTimer_ = new QTimer(this);
@@ -119,21 +115,24 @@ MainWindow::MainWindow(AppModel* model, QWidget* parent) : QMainWindow(parent), 
     QObject::connect(telemetryTimer_, &QTimer::timeout, this, &MainWindow::onTelemetryTick);
     telemetryTimer_->start();
 
-    rebuildHeader();
-    rebuildSlotList();
+    onStateChanged();
     onTelemetryTick();
 }
 
+void MainWindow::onStateChanged() {
+    rebuildHeader();
+    rebuildSlotList();
+    if (model_->state().pairingTarget.has_value()) { showPairingPrompt(); }
+}
+
 void MainWindow::rebuildHeader() {
-    const auto conns = model_->connections();
+    const auto& conns = model_->state().connections;
     int live = 0;
     QString firstLabel;
     for (const auto& c : conns) {
         if (c.live == models::ConnectionLive::Connected) {
             ++live;
-            if (firstLabel.isEmpty()) {
-                firstLabel = c.label;
-            }
+            if (firstLabel.isEmpty()) { firstLabel = c.label; }
         }
     }
     const int total = static_cast<int>(conns.size());
@@ -149,9 +148,8 @@ void MainWindow::rebuildHeader() {
     }
     statusText_->setText(status);
     statusDot_->setStyleSheet(dotQss(live > 0 ? Theme::success : Theme::muted));
-    statusText_->setStyleSheet(QStringLiteral(
-        "font-size: 17px; font-weight: 600; color: %1;")
-        .arg(hex(live > 0 ? Theme::success : Theme::muted)));
+    statusText_->setStyleSheet(QStringLiteral("font-size: 17px; font-weight: 600; color: %1;")
+                                   .arg(hex(live > 0 ? Theme::success : Theme::muted)));
 
     QString summary;
     if (live == 0 && total == 0) {
@@ -166,24 +164,20 @@ void MainWindow::rebuildHeader() {
 
 void MainWindow::rebuildSlotList() {
     // Note: Qt's `slots` keyword/macro precludes naming a local `slots`.
-    const auto slotItems = model_->slotList();
-    const auto conns = model_->connections();
+    const auto& slotItems = model_->state().slotList;
+    const auto& conns = model_->state().connections;
 
     // Available connections for binding = those not bound to another slot.
     QList<models::ConnectionSummary> available;
     for (const auto& c : conns) {
-        if (!c.boundSlotId.has_value()) {
-            available.append(c);
-        }
+        if (!c.boundSlotId.has_value()) { available.append(c); }
     }
 
     // Drop existing SlotCards (keep the trailing stretch + the empty label).
     for (int i = slotsLayout_->count() - 1; i >= 0; --i) {
         auto* item = slotsLayout_->itemAt(i);
         if (auto* w = item->widget()) {
-            if (w == slotsEmpty_) {
-                continue;
-            }
+            if (w == slotsEmpty_) { continue; }
             slotsLayout_->removeWidget(w);
             w->deleteLater();
         }
@@ -201,17 +195,13 @@ void MainWindow::rebuildSlotList() {
     }
 }
 
-void MainWindow::onPairingTargetChanged() {
-    auto target = model_->pairingTarget();
-    if (!target.has_value()) {
-        return;
-    }
+void MainWindow::showPairingPrompt() {
+    auto target = model_->state().pairingTarget;
+    if (!target.has_value()) { return; }
     PairingDialog dlg(*target, this);
     const auto server = *target;
     model_->clearPairingTarget();
-    if (dlg.exec() == QDialog::Accepted) {
-        model_->wifi()->pairWithPin(server, dlg.pin());
-    }
+    if (dlg.exec() == QDialog::Accepted) { model_->wifi()->pairWithPin(server, dlg.pin()); }
 }
 
 void MainWindow::onError(const QString& msg) {
@@ -235,8 +225,6 @@ void MainWindow::onBindRequested(const QString& slotId, const QString& connectio
     model_->hub()->bind(slotId, connectionId);
 }
 
-void MainWindow::onUnbindRequested(const QString& slotId) {
-    model_->hub()->unbind(slotId);
-}
+void MainWindow::onUnbindRequested(const QString& slotId) { model_->hub()->unbind(slotId); }
 
-}  // namespace dish::ui
+} // namespace dish::ui

@@ -15,7 +15,7 @@ namespace dish::net {
 // Listens on UDP :9879 for Satellite beacon broadcasts. Mirrors
 // dish-mac/Network/LANDiscovery.swift and satellite_jni.cpp::discoverServers.
 class LANDiscovery {
-public:
+  public:
     static constexpr int kDefaultPort = 9879;
     static constexpr int kDefaultTimeoutMs = 4000;
 
@@ -32,4 +32,4 @@ public:
                                                                const QString& observedIp);
 };
 
-}  // namespace dish::net
+} // namespace dish::net

@@ -19,10 +19,10 @@ namespace dish::ui {
 // ConnectionsView.
 class ConnectionsDialog : public QDialog {
     Q_OBJECT
-public:
+  public:
     ConnectionsDialog(AppModel* model, QWidget* parent = nullptr);
 
-private:
+  private:
     void rebuildLists();
     void onScanClicked();
     void onConnectClicked();
@@ -35,4 +35,4 @@ private:
     QLabel* statusLabel_;
 };
 
-}  // namespace dish::ui
+} // namespace dish::ui

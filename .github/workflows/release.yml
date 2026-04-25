@@ -1,0 +1,105 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to release (must already exist)"
+        required: true
+
+# Builds a release binary, packages it as both a .deb (for Debian / Ubuntu /
+# derivatives) and a self-contained AppImage (for every other distro), and
+# uploads both to the GitHub Releases page for the tag.
+#
+# Linux binaries are not signed by default; if you wire a GPG key in later,
+# extend this workflow to dpkg-sig the .deb.
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-22.04 # match the oldest LTS we want to support at runtime
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake ninja-build pkg-config \
+            qt6-base-dev qt6-base-dev-tools \
+            libsodium-dev libsdl2-dev \
+            file fakeroot rsync wget
+
+      - name: Build release
+        run: |
+          cmake -S . -B build-release -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DDISH_BUILD_TESTS=OFF
+          cmake --build build-release --parallel --target Dish
+          install -Dm755 build-release/dish dist/usr/bin/dish
+          install -Dm644 packaging/dish.desktop dist/usr/share/applications/dish.desktop
+
+      - name: Stage version
+        id: ver
+        run: |
+          tag="${GITHUB_REF_NAME:-${{ inputs.tag }}}"
+          # strip leading 'v' for debian version + AppImage filename
+          version="${tag#v}"
+          echo "tag=${tag}"        >> "$GITHUB_OUTPUT"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+
+      - name: Build .deb
+        run: |
+          pkg="${RUNNER_TEMP}/dish-deb"
+          mkdir -p "${pkg}/DEBIAN" "${pkg}/usr/bin" "${pkg}/usr/share/applications"
+          cp dist/usr/bin/dish "${pkg}/usr/bin/"
+          cp dist/usr/share/applications/dish.desktop "${pkg}/usr/share/applications/"
+          cat > "${pkg}/DEBIAN/control" <<EOF
+          Package: dish
+          Version: ${{ steps.ver.outputs.version }}
+          Section: games
+          Priority: optional
+          Architecture: amd64
+          Depends: libqt6core6, libqt6gui6, libqt6widgets6, libqt6network6, libsodium23, libsdl2-2.0-0
+          Maintainer: TinkerNorth <noreply@tinkernorth.invalid>
+          Description: Wireless gamepad client for the Satellite server.
+           Streams local SDL gamepad input to a Satellite server over an
+           encrypted UDP channel. Mirrors the Android and macOS clients.
+          EOF
+          fakeroot dpkg-deb --build "${pkg}" "dist/dish_${{ steps.ver.outputs.version }}_amd64.deb"
+
+      - name: Build AppImage
+        run: |
+          # Pull linuxdeploy + the Qt plugin
+          wget -q https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage -O linuxdeploy
+          wget -q https://github.com/linuxdeploy/linuxdeploy-plugin-qt/releases/download/continuous/linuxdeploy-plugin-qt-x86_64.AppImage -O linuxdeploy-plugin-qt
+          chmod +x linuxdeploy linuxdeploy-plugin-qt
+
+          appdir="${RUNNER_TEMP}/Dish.AppDir"
+          mkdir -p "${appdir}"
+          ./linuxdeploy --appdir "${appdir}" \
+            --executable build-release/dish \
+            --desktop-file packaging/dish.desktop \
+            --plugin qt \
+            --output appimage
+          mv Dish*.AppImage "dist/dish-${{ steps.ver.outputs.version }}-x86_64.AppImage"
+
+      - name: Upload to GitHub Releases
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.ver.outputs.tag }}
+          generate_release_notes: true
+          files: |
+            dist/*.deb
+            dist/*.AppImage

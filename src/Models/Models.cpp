@@ -14,18 +14,15 @@ QString optString(const QJsonObject& obj, const char* key) {
 
 int intOr(const QJsonObject& obj, const char* key, int fallback) {
     const auto v = obj.value(QLatin1String(key));
-    if (v.isDouble()) {
-        return v.toInt(fallback);
-    }
+    if (v.isDouble()) { return v.toInt(fallback); }
     return fallback;
 }
 
-}  // namespace
+} // namespace
 
 QJsonObject DiscoveredServer::toJson() const {
     return QJsonObject{
-        {"name", name},          {"ip", ip},
-        {"udpPort", udpPort},    {"pairPort", pairPort},
+        {"name", name},         {"ip", ip}, {"udpPort", udpPort}, {"pairPort", pairPort},
         {"httpPort", httpPort},
     };
 }
@@ -43,26 +40,16 @@ DiscoveredServer DiscoveredServer::fromJson(const QJsonObject& obj) {
 PairResponse PairResponse::fromJson(const QJsonObject& obj) {
     PairResponse r;
     r.ok = obj.value("ok").toBool(false);
-    if (auto e = optString(obj, "error"); !e.isEmpty()) {
-        r.error = e;
-    }
-    if (auto k = optString(obj, "sharedKey"); !k.isEmpty()) {
-        r.sharedKey = k;
-    }
+    if (auto e = optString(obj, "error"); !e.isEmpty()) { r.error = e; }
+    if (auto k = optString(obj, "sharedKey"); !k.isEmpty()) { r.sharedKey = k; }
     return r;
 }
 
 ConnectResponse ConnectResponse::fromJson(const QJsonObject& obj) {
     ConnectResponse r;
-    if (auto v = optString(obj, "connectionId"); !v.isEmpty()) {
-        r.connectionId = v;
-    }
-    if (auto v = optString(obj, "token"); !v.isEmpty()) {
-        r.token = v;
-    }
-    if (auto v = optString(obj, "error"); !v.isEmpty()) {
-        r.error = v;
-    }
+    if (auto v = optString(obj, "connectionId"); !v.isEmpty()) { r.connectionId = v; }
+    if (auto v = optString(obj, "token"); !v.isEmpty()) { r.token = v; }
+    if (auto v = optString(obj, "error"); !v.isEmpty()) { r.error = v; }
     return r;
 }
 
@@ -78,7 +65,7 @@ DiscoveredServer RememberedWifi::toDiscovered() const {
 
 QJsonObject RememberedWifi::toJson() const {
     return QJsonObject{
-        {"id", id},          {"name", name},        {"ip", ip},
+        {"id", id},           {"name", name},         {"ip", ip},
         {"udpPort", udpPort}, {"pairPort", pairPort}, {"httpPort", httpPort},
     };
 }
@@ -96,9 +83,7 @@ RememberedWifi RememberedWifi::fromJson(const QJsonObject& obj) {
 
 QJsonArray rememberedListToJson(const QList<RememberedWifi>& list) {
     QJsonArray arr;
-    for (const auto& r : list) {
-        arr.append(r.toJson());
-    }
+    for (const auto& r : list) { arr.append(r.toJson()); }
     return arr;
 }
 
@@ -106,11 +91,9 @@ QList<RememberedWifi> rememberedListFromJson(const QJsonArray& arr) {
     QList<RememberedWifi> out;
     out.reserve(arr.size());
     for (const auto& v : arr) {
-        if (v.isObject()) {
-            out.append(RememberedWifi::fromJson(v.toObject()));
-        }
+        if (v.isObject()) { out.append(RememberedWifi::fromJson(v.toObject())); }
     }
     return out;
 }
 
-}  // namespace dish::models
+} // namespace dish::models

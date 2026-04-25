@@ -44,13 +44,9 @@ TEST_CASE("AtomicCounter increments are atomic across threads", "[atomic_counter
     workers.reserve(kThreads);
     for (int i = 0; i < kThreads; ++i) {
         workers.emplace_back([&] {
-            for (int j = 0; j < kPerThread; ++j) {
-                (void)c.next();
-            }
+            for (int j = 0; j < kPerThread; ++j) { (void)c.next(); }
         });
     }
-    for (auto& t : workers) {
-        t.join();
-    }
+    for (auto& t : workers) { t.join(); }
     REQUIRE(c.load() == static_cast<std::uint64_t>(kThreads) * kPerThread);
 }
