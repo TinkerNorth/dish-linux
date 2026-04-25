@@ -1,0 +1,58 @@
+# Build directories
+build/
+build-*/
+out/
+cmake-build-*/
+_deps/
+
+# CMake
+CMakeFiles/
+CMakeCache.txt
+CMakeUserPresets.json
+cmake_install.cmake
+Makefile
+compile_commands.json
+install_manifest.txt
+
+# Compiler / linker artefacts
+*.o
+*.a
+*.so
+*.so.*
+*.dylib
+*.dSYM/
+*.exe
+*.pdb
+*.ilk
+*.idb
+
+# Qt artefacts
+moc_*.cpp
+moc_*.h
+qrc_*.cpp
+ui_*.h
+*.user
+
+# Editor / IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+.cache/
+.ccls-cache/
+.clangd/
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# Generated docs / coverage
+coverage/
+*.gcda
+*.gcno
+*.gcov
+lcov.info
+
+# Local logs / scratch
+*.log
+.scratch/

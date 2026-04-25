@@ -1,0 +1,70 @@
+name: Linux CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ci:
+    name: Build, test, lint, format
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake ninja-build pkg-config \
+            qt6-base-dev qt6-base-dev-tools \
+            libsodium-dev libsdl2-dev \
+            clang-format clang-tidy
+
+      - name: clang-format (check only)
+        run: |
+          find src tests -type f \( -name '*.cpp' -o -name '*.h' \) \
+            -print0 | xargs -0 clang-format --dry-run --Werror
+
+      - name: Configure (Debug, tests on)
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DDISH_BUILD_TESTS=ON
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      - name: Run tests
+        working-directory: build
+        run: ctest --output-on-failure --parallel
+
+      - name: clang-tidy
+        run: |
+          cmake -S . -B build-tidy -G Ninja \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+            -DDISH_BUILD_TESTS=OFF
+          # Build first so generated mocs exist for clang-tidy.
+          cmake --build build-tidy --parallel
+          find src -type f \( -name '*.cpp' -o -name '*.h' \) \
+            ! -path 'src/UI/*' \
+            -print0 | xargs -0 -n1 -P"$(nproc)" \
+              clang-tidy -p build-tidy --quiet
+
+      - name: Configure (Release)
+        run: cmake -S . -B build-release -G Ninja -DCMAKE_BUILD_TYPE=Release -DDISH_BUILD_TESTS=OFF
+
+      - name: Build release binary
+        run: cmake --build build-release --parallel --target Dish
+
+      - name: Upload release binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: dish-linux-x86_64
+          path: build-release/dish
+          retention-days: 14

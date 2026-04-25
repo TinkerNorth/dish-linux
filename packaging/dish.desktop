@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Dish
+GenericName=Wireless Gamepad Client
+Comment=Stream a Linux gamepad to a Satellite server over the LAN
+Exec=dish
+Icon=dish
+Terminal=false
+Categories=Game;ActionGame;
+Keywords=gamepad;controller;xinput;satellite;remote;
+StartupNotify=true
+StartupWMClass=Dish
