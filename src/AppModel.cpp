@@ -14,7 +14,8 @@ AppModel::AppModel(QObject* parent)
     QObject::connect(hub_, &net::ConnectionHub::changed, this, &AppModel::onHubChanged);
     QObject::connect(bridge_, &input::SDLGamepadBridge::devicesChanged, this,
                      &AppModel::onBridgeDevicesChanged);
-    QObject::connect(wifi_, &net::WifiConnectionManager::event, this, &AppModel::onWifiEvent);
+    QObject::connect(wifi_, &net::WifiConnectionManager::connectionEvent, this,
+                     &AppModel::onWifiEvent);
 
     autoReconnectTimer_->setInterval(15'000);
     QObject::connect(autoReconnectTimer_, &QTimer::timeout, this,

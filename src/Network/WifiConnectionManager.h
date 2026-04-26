@@ -49,7 +49,10 @@ class WifiConnectionManager : public QObject {
     void poolChanged();
     void discoveredChanged();
     void scanningChanged();
-    void event(const dish::net::ConnectionEvent& evt);
+    // Named `connectionEvent` (not `event`) so the signal does not shadow
+    // QObject::event(QEvent*), which clang flags with
+    // -Wclang-diagnostic-overloaded-virtual.
+    void connectionEvent(const dish::net::ConnectionEvent& evt);
 
   private:
     WifiConnection* ensureConnection(const models::DiscoveredServer& server);

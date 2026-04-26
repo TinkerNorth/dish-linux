@@ -44,7 +44,8 @@ void WifiConnectionManager::startDiscovery() {
         emit discoveredChanged();
         emit scanningChanged();
         if (discovered_.isEmpty()) {
-            emit event(makeError(QStringLiteral("No servers found — check your network")));
+            emit connectionEvent(
+                makeError(QStringLiteral("No servers found — check your network")));
         }
         watcher->deleteLater();
     });
@@ -92,9 +93,10 @@ void WifiConnectionManager::pairAndConnect(WifiConnection* conn,
             if (!pair.ok || !pair.sharedKey.has_value()) {
                 conn->markDisconnected();
                 if (pin.isEmpty()) {
-                    emit event(pairingRequired(server));
+                    emit connectionEvent(pairingRequired(server));
                 } else {
-                    emit event(makeError(pair.error.value_or(QStringLiteral("Pairing failed"))));
+                    emit connectionEvent(
+                        makeError(pair.error.value_or(QStringLiteral("Pairing failed"))));
                 }
                 return;
             }
@@ -112,13 +114,13 @@ void WifiConnectionManager::openSession(WifiConnection* conn,
     const auto keyHex = store_->sharedKey(id);
     if (!keyHex.has_value() || keyHex->size() != 64) {
         conn->markDisconnected();
-        emit event(makeError(QStringLiteral("No shared key — re-pair needed")));
+        emit connectionEvent(makeError(QStringLiteral("No shared key — re-pair needed")));
         return;
     }
     const auto keyBytes = util::fromHex(keyHex->toStdString());
     if (!keyBytes || keyBytes->size() != 32) {
         conn->markDisconnected();
-        emit event(makeError(QStringLiteral("Bad shared key — re-pair needed")));
+        emit connectionEvent(makeError(QStringLiteral("Bad shared key — re-pair needed")));
         return;
     }
     std::array<std::uint8_t, 32> key{};
@@ -129,7 +131,7 @@ void WifiConnectionManager::openSession(WifiConnection* conn,
         [this, conn, server, key](const models::ConnectResponse& resp) {
             if (!resp.connectionId.has_value() || !resp.token.has_value()) {
                 conn->markDisconnected();
-                emit event(
+                emit connectionEvent(
                     makeError(QStringLiteral("Error: %1")
                                   .arg(resp.error.value_or(QStringLiteral("connection failed")))));
                 return;
@@ -137,7 +139,7 @@ void WifiConnectionManager::openSession(WifiConnection* conn,
             const auto tok = util::fromHex(resp.token->toStdString());
             if (!tok || tok->size() != 4) {
                 conn->markDisconnected();
-                emit event(makeError(QStringLiteral("Bad token from server")));
+                emit connectionEvent(makeError(QStringLiteral("Bad token from server")));
                 return;
             }
             std::array<std::uint8_t, 4> token{};
