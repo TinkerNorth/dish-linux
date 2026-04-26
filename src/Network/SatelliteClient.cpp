@@ -26,15 +26,11 @@ SatelliteClient::SatelliteClient() {
     }
 }
 
-SatelliteClient::~SatelliteClient() {
-    closeSocket();
-}
+SatelliteClient::~SatelliteClient() { closeSocket(); }
 
 bool SatelliteClient::openSocket(const std::string& ip, int port) {
     const int s = ::socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
-    if (s < 0) {
-        return false;
-    }
+    if (s < 0) { return false; }
 
     // DSCP EF (Expedited Forwarding). Best-effort — many Wi-Fi stacks silently
     // strip TOS but never error, matching the Android JNI / Mac client.
@@ -80,8 +76,8 @@ void SatelliteClient::setConnectionParams(const std::array<std::uint8_t, 4>& tok
 }
 
 void SatelliteClient::sendReport(int controllerIndex, std::uint16_t buttons, std::uint8_t lt,
-                                 std::uint8_t rt, std::int16_t lx, std::int16_t ly,
-                                 std::int16_t rx, std::int16_t ry) {
+                                 std::uint8_t rt, std::int16_t lx, std::int16_t ly, std::int16_t rx,
+                                 std::int16_t ry) {
     // Payload: controllerIndex(1) + XUSB_REPORT(12 LE) = 13 bytes.
     std::uint8_t payload[13]{};
     payload[0] = static_cast<std::uint8_t>(controllerIndex);
@@ -121,17 +117,13 @@ void SatelliteClient::sendControllerType(int index, int type) {
 
 void SatelliteClient::sendEncrypted(std::uint16_t msgType, const std::uint8_t* payload,
                                     std::size_t len) {
-    if (sock_ < 0) {
-        return;
-    }
+    if (sock_ < 0) { return; }
     // Inner: msgType(BE16) + payloadLen(BE16) + payload
     const std::size_t innerLen = 4 + len;
     std::vector<std::uint8_t> inner(innerLen);
     putU16Be(inner.data(), msgType);
     putU16Be(inner.data() + 2, static_cast<std::uint16_t>(len));
-    if (len > 0) {
-        std::memcpy(inner.data() + 4, payload, len);
-    }
+    if (len > 0) { std::memcpy(inner.data() + 4, payload, len); }
 
     const auto ctr = static_cast<std::uint32_t>(counter_.next());
 
@@ -144,37 +136,29 @@ void SatelliteClient::sendEncrypted(std::uint16_t msgType, const std::uint8_t* p
     putU32Be(packet.data() + 4, ctr);
 
     unsigned long long cipherLen = 0;
-    if (crypto_aead_chacha20poly1305_ietf_encrypt(
-            packet.data() + 8, &cipherLen, inner.data(), inner.size(), token_.data(), token_.size(),
-            nullptr, nonce, key_.data()) != 0) {
+    if (crypto_aead_chacha20poly1305_ietf_encrypt(packet.data() + 8, &cipherLen, inner.data(),
+                                                  inner.size(), token_.data(), token_.size(),
+                                                  nullptr, nonce, key_.data()) != 0) {
         return;
     }
     packet.resize(8 + cipherLen);
 
     std::lock_guard<std::mutex> lock(sendLock_);
-    if (sock_ < 0) {
-        return;
-    }
-    ::sendto(sock_, packet.data(), packet.size(), MSG_NOSIGNAL,
-             reinterpret_cast<sockaddr*>(&dest_), sizeof(dest_));
+    if (sock_ < 0) { return; }
+    ::sendto(sock_, packet.data(), packet.size(), MSG_NOSIGNAL, reinterpret_cast<sockaddr*>(&dest_),
+             sizeof(dest_));
 }
 
 void SatelliteClient::startHeartbeat() {
-    if (heartbeatRunning_.exchange(true)) {
-        return;
-    }
+    if (heartbeatRunning_.exchange(true)) { return; }
     missedAcks_.store(0, std::memory_order_relaxed);
     connectionAlive_.store(true, std::memory_order_relaxed);
     heartbeatThread_ = std::thread([this] { heartbeatLoop(); });
 }
 
 void SatelliteClient::stopHeartbeat() {
-    if (!heartbeatRunning_.exchange(false)) {
-        return;
-    }
-    if (heartbeatThread_.joinable()) {
-        heartbeatThread_.join();
-    }
+    if (!heartbeatRunning_.exchange(false)) { return; }
+    if (heartbeatThread_.joinable()) { heartbeatThread_.join(); }
 }
 
 void SatelliteClient::heartbeatLoop() {
@@ -195,45 +179,33 @@ void SatelliteClient::heartbeatLoop() {
 }
 
 void SatelliteClient::startReceiveLoop() {
-    if (ackRunning_.exchange(true)) {
-        return;
-    }
+    if (ackRunning_.exchange(true)) { return; }
     ackThread_ = std::thread([this] { receiveLoop(); });
 }
 
 void SatelliteClient::stopReceiveLoop() {
-    if (!ackRunning_.exchange(false)) {
-        return;
-    }
-    if (ackThread_.joinable()) {
-        ackThread_.join();
-    }
+    if (!ackRunning_.exchange(false)) { return; }
+    if (ackThread_.joinable()) { ackThread_.join(); }
 }
 
 void SatelliteClient::receiveLoop() {
     std::uint8_t buf[256];
     while (ackRunning_.load(std::memory_order_relaxed)) {
-        if (sock_ < 0) {
-            break;
-        }
+        if (sock_ < 0) { break; }
         sockaddr_in from{};
         socklen_t fl = sizeof(from);
         const ssize_t n =
             ::recvfrom(sock_, buf, sizeof(buf), 0, reinterpret_cast<sockaddr*>(&from), &fl);
         if (n <= 0) {
-            continue;  // EAGAIN/EWOULDBLOCK on RCVTIMEO
+            continue; // EAGAIN/EWOULDBLOCK on RCVTIMEO
         }
         processIncoming(buf, static_cast<std::size_t>(n));
     }
 }
 
 void SatelliteClient::processIncoming(const std::uint8_t* buf, std::size_t n) {
-    if (n < 8 + crypto_aead_chacha20poly1305_IETF_ABYTES) {
-        return;
-    }
-    if (std::memcmp(buf, token_.data(), 4) != 0) {
-        return;
-    }
+    if (n < 8 + crypto_aead_chacha20poly1305_IETF_ABYTES) { return; }
+    if (std::memcmp(buf, token_.data(), 4) != 0) { return; }
 
     std::uint8_t nonce[12] = {0};
     std::memcpy(&nonce[8], buf + 4, 4);
@@ -245,9 +217,7 @@ void SatelliteClient::processIncoming(const std::uint8_t* buf, std::size_t n) {
                                                   key_.data()) != 0) {
         return;
     }
-    if (plainLen < 4) {
-        return;
-    }
+    if (plainLen < 4) { return; }
     const std::uint16_t msgType = util::readU16Be(plain.data());
     const std::uint16_t msgLen = util::readU16Be(plain.data() + 2);
 
@@ -264,9 +234,8 @@ void SatelliteClient::processIncoming(const std::uint8_t* buf, std::size_t n) {
         lastControllerAck_.store(packed, std::memory_order_relaxed);
     } else if (msgType == kMsgServerStatus && msgLen >= 2 && plainLen >= 6) {
         vigemAvailable_.store(plain[4] == 0 ? 0 : 1, std::memory_order_relaxed);
-        activeControllerCount_.store(static_cast<std::int8_t>(plain[5]),
-                                     std::memory_order_relaxed);
+        activeControllerCount_.store(static_cast<std::int8_t>(plain[5]), std::memory_order_relaxed);
     }
 }
 
-}  // namespace dish::net
+} // namespace dish::net

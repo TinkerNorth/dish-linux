@@ -18,7 +18,7 @@ namespace dish::net {
 // Backed by QSettings (XDG: ~/.config/Dish/Dish.conf), the Linux analogue of
 // SharedPreferences / UserDefaults. Mirrors dish-mac/Network/ConnectionStore.
 class ConnectionStore {
-public:
+  public:
     explicit ConnectionStore(std::unique_ptr<QSettings> settings = nullptr);
 
     QString getOrCreateDeviceId();
@@ -30,10 +30,10 @@ public:
     std::optional<QString> sharedKey(const QString& id) const;
     void setSharedKey(const QString& keyHex, const QString& id);
 
-private:
+  private:
     void persist(const QList<models::RememberedWifi>& list);
 
     std::unique_ptr<QSettings> settings_;
 };
 
-}  // namespace dish::net
+} // namespace dish::net

@@ -92,4 +92,4 @@ struct RememberedWifi {
 QJsonArray rememberedListToJson(const QList<RememberedWifi>& list);
 QList<RememberedWifi> rememberedListFromJson(const QJsonArray& arr);
 
-}  // namespace dish::models
+} // namespace dish::models

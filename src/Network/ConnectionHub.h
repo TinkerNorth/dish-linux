@@ -22,10 +22,9 @@ namespace dish::net {
 // ConnectionHub.kt — no Bluetooth-HID-Device on Linux desktop).
 class ConnectionHub : public QObject {
     Q_OBJECT
-public:
-    using ReportSender = std::function<void(std::uint16_t, std::uint8_t, std::uint8_t,
-                                            std::int16_t, std::int16_t, std::int16_t,
-                                            std::int16_t)>;
+  public:
+    using ReportSender = std::function<void(std::uint16_t, std::uint8_t, std::uint8_t, std::int16_t,
+                                            std::int16_t, std::int16_t, std::int16_t)>;
 
     ConnectionHub(WifiConnectionManager* wifi, ConnectionStore* store, QObject* parent = nullptr);
 
@@ -43,16 +42,16 @@ public:
     std::optional<models::ConnectionSummary> boundConnection(const QString& slotId) const;
     std::optional<models::ConnectionSummary> summary(const QString& id) const;
 
-signals:
+  signals:
     void changed();
 
-private:
+  private:
     void rebuild();
 
     WifiConnectionManager* wifi_;
     ConnectionStore* store_;
     QList<models::ConnectionSummary> summaries_;
-    QHash<QString, QString> bindings_;  // slotId -> connectionId
+    QHash<QString, QString> bindings_; // slotId -> connectionId
 };
 
-}  // namespace dish::net
+} // namespace dish::net

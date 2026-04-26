@@ -20,16 +20,29 @@
 
 namespace dish {
 
+// Single immutable slice of state consumed by the UI. Mirrors the shape of
+// dish-android's MainUiState so all three Dish clients (Android Kotlin,
+// macOS Swift, Linux C++) expose one canonical state object instead of a
+// fan of independent fields + signals.
+struct MainUiState {
+    // Named `slotList` (not `slots`) because Qt's moc treats `slots` as a
+    // reserved keyword via the `Q_SLOTS` macro and won't parse a member
+    // with that name.
+    QList<models::ControllerSlot> slotList;
+    QList<models::ConnectionSummary> connections;
+    std::optional<models::DiscoveredServer> pairingTarget;
+};
+
 // Top-level application state. Owns the network + input layers and stitches
 // them together the same way the Mac AppModel and Android MainViewModel do.
 //
 //   * exposes a flat slot list (1 virtual + 1 per attached SDL gamepad),
 //   * maintains a slotId -> WifiConnection routing table updated from the Qt
 //     main thread and consulted from the SDL gamepad thread on every report,
-//   * surfaces a transient error banner + a pairing-required signal.
+//   * surfaces a transient errorMessage signal for one-shot toasts.
 class AppModel : public QObject {
     Q_OBJECT
-public:
+  public:
     explicit AppModel(QObject* parent = nullptr);
     ~AppModel() override;
 
@@ -39,22 +52,27 @@ public:
     input::GamepadInputProcessor* processor() { return &processor_; }
     input::SDLGamepadBridge* bridge() { return bridge_; }
 
-    QList<models::ControllerSlot> slotList() const { return slots_; }
-    QList<models::ConnectionSummary> connections() const { return connections_; }
-    std::optional<models::DiscoveredServer> pairingTarget() const { return pairingTarget_; }
+    // Single read-only accessor — the UI reads everything off this slice
+    // and re-renders on stateChanged().
+    const MainUiState& state() const { return state_; }
 
-    void clearPairingTarget() { pairingTarget_.reset(); }
+    // The pairingTarget is a one-shot UI trigger: the dialog reads it on
+    // stateChanged() and clears it before showing the prompt.
+    void clearPairingTarget();
 
     void start();
 
-signals:
-    void slotsChanged();
-    void connectionsChanged();
-    void pairingTargetChanged();
+  signals:
+    // Emitted after any field of state() changes. Replaces the previous
+    // slotsChanged / connectionsChanged / pairingTargetChanged trio.
+    void stateChanged();
+
+    // Transient one-shot — errors are events, not state, and are surfaced
+    // as toasts/dialogs by MainWindow.
     void errorMessage(const QString& msg);
 
-private:
-    void rebuildSlots();
+  private:
+    void rebuild();
     void onHubChanged();
     void onBridgeDevicesChanged();
     void onWifiEvent(const net::ConnectionEvent& evt);
@@ -66,9 +84,7 @@ private:
     input::SDLGamepadBridge* bridge_;
     QTimer* autoReconnectTimer_;
 
-    QList<models::ControllerSlot> slots_;
-    QList<models::ConnectionSummary> connections_;
-    std::optional<models::DiscoveredServer> pairingTarget_;
+    MainUiState state_;
 
     // slotId -> active sender. Read on the SDL gamepad thread; written on the
     // Qt main thread. Guarded by routingMtx_ for both directions.
@@ -76,4 +92,4 @@ private:
     QHash<QString, net::ConnectionHub::ReportSender> routing_;
 };
 
-}  // namespace dish
+} // namespace dish

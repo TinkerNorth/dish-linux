@@ -17,7 +17,7 @@ namespace dish::input {
 // server expects. Mirrors dish-mac/Input/GamepadInputProcessor.swift and
 // dish-android/GamepadInputProcessor.kt. Pure logic; no Qt or SDL dependency.
 class GamepadInputProcessor {
-public:
+  public:
     // XUSB button bits (identical to Android BUTTON_MAP).
     struct Buttons {
         static constexpr std::uint16_t kDpadUp = 0x0001;
@@ -40,10 +40,9 @@ public:
 
     // Invoked every time a report is emitted. Called on the caller's thread
     // (typically the SDL gamepad thread) for lowest latency.
-    using ReportSender =
-        std::function<void(const DeviceId& id, std::uint16_t wButtons, std::uint8_t lt,
-                           std::uint8_t rt, std::int16_t lx, std::int16_t ly, std::int16_t rx,
-                           std::int16_t ry)>;
+    using ReportSender = std::function<void(const DeviceId& id, std::uint16_t wButtons,
+                                            std::uint8_t lt, std::uint8_t rt, std::int16_t lx,
+                                            std::int16_t ly, std::int16_t rx, std::int16_t ry)>;
 
     struct DeviceState {
         std::uint16_t wButtons = 0;
@@ -54,8 +53,8 @@ public:
         std::int16_t rx = 0;
         std::int16_t ry = 0;
         bool operator==(const DeviceState& o) const {
-            return wButtons == o.wButtons && lt == o.lt && rt == o.rt && lx == o.lx &&
-                   ly == o.ly && rx == o.rx && ry == o.ry;
+            return wButtons == o.wButtons && lt == o.lt && rt == o.rt && lx == o.lx && ly == o.ly &&
+                   rx == o.rx && ry == o.ry;
         }
     };
 
@@ -71,7 +70,7 @@ public:
     void remove(const DeviceId& id);
     TelemetrySnapshot drainTelemetry();
 
-private:
+  private:
     std::mutex mtx_;
     std::unordered_map<DeviceId, DeviceState> states_;
     ReportSender sender_;
@@ -84,4 +83,4 @@ private:
 std::int16_t scaleAxis(float v, float maxMagnitude);
 std::uint8_t scaleTrigger(float v);
 
-}  // namespace dish::input
+} // namespace dish::input

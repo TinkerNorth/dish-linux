@@ -18,8 +18,8 @@ enum class ConnectionEventKind { PairingRequired, Error };
 
 struct ConnectionEvent {
     ConnectionEventKind kind;
-    models::DiscoveredServer server;  // only meaningful for PairingRequired
-    QString message;                  // only meaningful for Error
+    models::DiscoveredServer server; // only meaningful for PairingRequired
+    QString message;                 // only meaningful for Error
 };
 
 // Owns the pool of live + remembered WiFi sessions. Each session runs its own
@@ -27,7 +27,7 @@ struct ConnectionEvent {
 // parallel. Mirrors dish-mac/Network/WifiConnectionManager.swift.
 class WifiConnectionManager : public QObject {
     Q_OBJECT
-public:
+  public:
     explicit WifiConnectionManager(ConnectionStore* store, QObject* parent = nullptr);
     ~WifiConnectionManager() override;
 
@@ -45,13 +45,16 @@ public:
 
     QList<models::RememberedWifi> remembered() const { return store_->remembered(); }
 
-signals:
+  signals:
     void poolChanged();
     void discoveredChanged();
     void scanningChanged();
-    void event(const dish::net::ConnectionEvent& evt);
+    // Named `connectionEvent` (not `event`) so the signal does not shadow
+    // QObject::event(QEvent*), which clang flags with
+    // -Wclang-diagnostic-overloaded-virtual.
+    void connectionEvent(const dish::net::ConnectionEvent& evt);
 
-private:
+  private:
     WifiConnection* ensureConnection(const models::DiscoveredServer& server);
     void pairAndConnect(WifiConnection* conn, const models::DiscoveredServer& server,
                         const QString& pin);
@@ -67,4 +70,4 @@ private:
     bool scanning_ = false;
 };
 
-}  // namespace dish::net
+} // namespace dish::net

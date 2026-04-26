@@ -13,10 +13,11 @@ scripts/build.sh debug test
 scripts/setup-hooks.sh
 ```
 
-The pre-commit hook runs `clang-format --dry-run --Werror` and
-`clang-tidy -p build-debug --warnings-as-errors=*` on staged C++ files.
-It skips gracefully if the tools aren't installed — CI re-runs both in
-strict mode, so anything that slips locally fails the PR.
+The pre-commit hook runs `clang-format -i` (autofix, re-stages) and
+`clang-tidy -p build-debug` (advisory) on staged C++ files. It skips
+gracefully if the tools aren't installed — CI re-runs `clang-format
+--dry-run --Werror` and `clang-tidy` in strict mode, so anything that
+slips locally fails the PR.
 
 ## License headers
 

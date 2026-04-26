@@ -26,8 +26,8 @@ PairingDialog::PairingDialog(const models::DiscoveredServer& server, QWidget* pa
     header->setStyleSheet(sectionHeaderQss());
     layout->addWidget(header);
 
-    auto* msg = new QLabel(
-        QStringLiteral("Enter the 6-digit PIN displayed on %1").arg(server.name), this);
+    auto* msg =
+        new QLabel(QStringLiteral("Enter the 6-digit PIN displayed on %1").arg(server.name), this);
     msg->setWordWrap(true);
     layout->addWidget(msg);
 
@@ -45,8 +45,6 @@ PairingDialog::PairingDialog(const models::DiscoveredServer& server, QWidget* pa
     layout->addWidget(buttons);
 }
 
-QString PairingDialog::pin() const {
-    return pinEdit_->text().trimmed();
-}
+QString PairingDialog::pin() const { return pinEdit_->text().trimmed(); }
 
-}  // namespace dish::ui
+} // namespace dish::ui

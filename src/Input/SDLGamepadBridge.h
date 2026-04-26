@@ -28,7 +28,7 @@ namespace dish::input {
 // of the input callback for minimum latency.
 class SDLGamepadBridge : public QObject {
     Q_OBJECT
-public:
+  public:
     explicit SDLGamepadBridge(GamepadInputProcessor* processor, QObject* parent = nullptr);
     ~SDLGamepadBridge() override;
 
@@ -42,10 +42,10 @@ public:
     };
     QList<Device> devices() const;
 
-signals:
+  signals:
     void devicesChanged();
 
-private:
+  private:
     void runLoop();
     void rebuildState(int iid);
 
@@ -61,4 +61,4 @@ private:
     std::unordered_map<int, QString> deviceNames_;
 };
 
-}  // namespace dish::input
+} // namespace dish::input

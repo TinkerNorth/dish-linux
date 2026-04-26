@@ -20,4 +20,4 @@ std::string toHex(const std::vector<std::uint8_t>& bytes);
 // invalid input (odd length or non-hex characters).
 std::optional<std::vector<std::uint8_t>> fromHex(std::string_view hex);
 
-}  // namespace dish::util
+} // namespace dish::util

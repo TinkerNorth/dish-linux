@@ -1,45 +1,62 @@
----
-Language: Cpp
-BasedOnStyle: Google
+# TinkerNorth — canonical clang-format configuration.
+# This exact file is shared by satellite, dish-android (JNI), dish-linux,
+# and dish-mac (any C/C++ source). Pinned to clang-format 22.1.4 in CI;
+# older versions may produce small diffs on braced-init lists.
+# Run:  clang-format -i <files>
+
+BasedOnStyle: LLVM
+
+# Indentation
 IndentWidth: 4
 TabWidth: 4
 UseTab: Never
-ColumnLimit: 110
-AccessModifierOffset: -4
+IndentCaseLabels: false
+NamespaceIndentation: None
+
+# Braces
+BreakBeforeBraces: Attach            # K&R: opening brace on same line
+AllowShortBlocksOnASingleLine: Always
+AllowShortFunctionsOnASingleLine: All
+AllowShortIfStatementsOnASingleLine: WithoutElse
+AllowShortLoopsOnASingleLine: true
+AllowShortLambdasOnASingleLine: All
+
+# Line length
+ColumnLimit: 100
+
+# Alignment
 AlignAfterOpenBracket: Align
+AlignConsecutiveAssignments: false
+AlignConsecutiveDeclarations: false
+AlignOperands: Align
 AlignTrailingComments: true
-AllowShortFunctionsOnASingleLine: Inline
-AllowShortIfStatementsOnASingleLine: Never
-AllowShortLoopsOnASingleLine: false
-AlwaysBreakTemplateDeclarations: Yes
-BinPackArguments: false
-BinPackParameters: false
-BreakBeforeBraces: Attach
+
+# Spaces
+SpaceBeforeParens: ControlStatements  # if (...) but func(...)
+SpaceAfterCStyleCast: false
+SpacesInParentheses: false
+SpacesInSquareBrackets: false
+SpaceBeforeSquareBrackets: false
+
+# Includes
+SortIncludes: false                   # don't reorder — Windows headers are order-sensitive
+IncludeBlocks: Preserve
+
+# Pointer/reference alignment
+PointerAlignment: Left                # char* buf  (not  char *buf)
+ReferenceAlignment: Left
+
+# Other
+AllowAllParametersOfDeclarationOnNextLine: true
+BinPackArguments: true
+BinPackParameters: true
 BreakConstructorInitializers: BeforeColon
-ConstructorInitializerAllOnOneLineOrOnePerLine: true
+ConstructorInitializerIndentWidth: 4
 ContinuationIndentWidth: 4
 Cpp11BracedListStyle: true
 DerivePointerAlignment: false
 FixNamespaceComments: true
-IncludeBlocks: Preserve
-IndentCaseLabels: true
-IndentPPDirectives: None
-KeepEmptyLinesAtTheStartOfBlocks: false
-NamespaceIndentation: None
-PointerAlignment: Left
+MaxEmptyLinesToKeep: 1
 ReflowComments: true
-SortIncludes: CaseInsensitive
-SortUsingDeclarations: true
-SpaceAfterCStyleCast: false
-SpaceAfterTemplateKeyword: false
-SpaceBeforeAssignmentOperators: true
-SpaceBeforeParens: ControlStatements
-SpaceInEmptyParentheses: false
-SpacesBeforeTrailingComments: 2
-SpacesInAngles: false
-SpacesInCStyleCastParentheses: false
-SpacesInContainerLiterals: false
-SpacesInParentheses: false
-SpacesInSquareBrackets: false
+SpaceBeforeCpp11BracedList: false
 Standard: c++17
----

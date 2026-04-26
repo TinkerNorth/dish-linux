@@ -37,8 +37,8 @@ TEST_CASE("parseBeacon rejects beacons with an empty name", "[discovery]") {
 }
 
 TEST_CASE("parseBeacon overrides any beacon-supplied ip with the observed source", "[discovery]") {
-    const QString payload = QStringLiteral(
-        R"({"service":"satellite","name":"office","ip":"1.1.1.1"})");
+    const QString payload =
+        QStringLiteral(R"({"service":"satellite","name":"office","ip":"1.1.1.1"})");
     const auto s = LANDiscovery::parseBeacon(payload, "10.0.0.7");
     REQUIRE(s.has_value());
     REQUIRE(s->ip == "10.0.0.7");

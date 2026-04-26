@@ -10,9 +10,7 @@ namespace dish::net {
 WifiConnection::WifiConnection(QString id, models::DiscoveredServer server, QObject* parent)
     : QObject(parent), id_(std::move(id)), server_(std::move(server)) {}
 
-WifiConnection::~WifiConnection() {
-    markDisconnected();
-}
+WifiConnection::~WifiConnection() { markDisconnected(); }
 
 void WifiConnection::updateServer(const models::DiscoveredServer& s) {
     server_ = s;
@@ -20,18 +18,14 @@ void WifiConnection::updateServer(const models::DiscoveredServer& s) {
 }
 
 void WifiConnection::markConnecting() {
-    if (state_ == WifiState::Connected) {
-        return;
-    }
+    if (state_ == WifiState::Connected) { return; }
     state_ = WifiState::Connecting;
     emit changed();
 }
 
 void WifiConnection::markConnected(std::shared_ptr<SatelliteClient> client,
                                    const QString& connectionId, std::function<void()> onDead) {
-    if (state_ != WifiState::Connecting) {
-        return;
-    }
+    if (state_ != WifiState::Connecting) { return; }
     clientRef_.set(client);
     connectionId_ = connectionId;
     state_ = WifiState::Connected;
@@ -51,9 +45,7 @@ void WifiConnection::markConnected(std::shared_ptr<SatelliteClient> client,
         const auto c = clientRef_.get();
         if (!c || !c->isAlive()) {
             const auto cb = onDead_;
-            if (cb) {
-                cb();
-            }
+            if (cb) { cb(); }
         }
     });
     aliveTimer_->start();
@@ -66,9 +58,7 @@ void WifiConnection::markConnected(std::shared_ptr<SatelliteClient> client,
 
 void WifiConnection::markDisconnected() {
     auto existing = clientRef_.get();
-    if (state_ == WifiState::Idle && !existing) {
-        return;
-    }
+    if (state_ == WifiState::Idle && !existing) { return; }
     if (aliveTimer_ != nullptr) {
         aliveTimer_->stop();
         aliveTimer_->deleteLater();
@@ -89,21 +79,15 @@ void WifiConnection::markDisconnected() {
 void WifiConnection::attachSlot(const QString& slotId, int controllerType) {
     boundSlotId_ = slotId;
     pendingControllerType_ = controllerType;
-    if (state_ == WifiState::Connected && !controllerAdded_) {
-        registerController(controllerType);
-    }
+    if (state_ == WifiState::Connected && !controllerAdded_) { registerController(controllerType); }
     emit changed();
 }
 
 void WifiConnection::detachSlot() {
-    if (!boundSlotId_.has_value()) {
-        return;
-    }
+    if (!boundSlotId_.has_value()) { return; }
     boundSlotId_.reset();
     if (controllerAdded_) {
-        if (auto c = clientRef_.get()) {
-            c->controllerRemove(kDefaultCtrlIndex);
-        }
+        if (auto c = clientRef_.get()) { c->controllerRemove(kDefaultCtrlIndex); }
     }
     controllerAdded_ = false;
     emit changed();
@@ -111,9 +95,7 @@ void WifiConnection::detachSlot() {
 
 void WifiConnection::registerController(int type) {
     auto c = clientRef_.get();
-    if (!c) {
-        return;
-    }
+    if (!c) { return; }
     c->resetControllerAck();
     c->controllerAdd(kDefaultCtrlIndex, kDefaultCaps);
     // Spin briefly waiting for the server's controller ACK; same shape as the
@@ -136,4 +118,4 @@ void WifiConnection::sendReport(std::uint16_t buttons, std::uint8_t lt, std::uin
     }
 }
 
-}  // namespace dish::net
+} // namespace dish::net

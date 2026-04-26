@@ -15,12 +15,12 @@ namespace dish::ui {
 // Mirrors dish-mac/UI/PairingSheet.swift.
 class PairingDialog : public QDialog {
     Q_OBJECT
-public:
+  public:
     PairingDialog(const models::DiscoveredServer& server, QWidget* parent = nullptr);
     QString pin() const;
 
-private:
+  private:
     QLineEdit* pinEdit_;
 };
 
-}  // namespace dish::ui
+} // namespace dish::ui
