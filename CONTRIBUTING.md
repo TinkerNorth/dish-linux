@@ -53,15 +53,81 @@ license — the project is LGPL-3.0-or-later end-to-end (`LICENSE`,
 
 ## What CI runs
 
-`.github/workflows/linux-ci.yml` runs on every PR:
+Build + style:
 
-1. `clang-format --dry-run --Werror` over the source tree.
-2. Debug build + `ctest` (Catch2 suite under `tests/`).
-3. `clang-tidy -p build-debug` over `src/`.
-4. Release build, uploads `dish` as a CI artifact.
+- `linux-ci.yml`: `clang-format --dry-run --Werror`, Debug build + `ctest`
+  (Catch2 suite under `tests/`), `clang-tidy -p build-debug` over `src/`,
+  Release build that uploads `dish` as a CI artifact.
 
-If any step fails, the PR is blocked. Reproduce locally with
-`scripts/build.sh debug test`.
+Security gates (also blocking):
+
+- `security.yml`: action-pin lint, vulnerability allowlist expiry,
+  OSV-Scanner against the worktree, gitleaks secret scan, GitHub
+  `dependency-review-action`.
+- `codeql.yml`: CodeQL `cpp` analysis (security-extended +
+  security-and-quality query packs).
+
+Reproduce build steps locally with `scripts/build.sh debug test`.
+
+## Security
+
+### Adding a vulnerability allowlist entry
+
+Open a PR that adds an entry to [`.security/allowlist.yaml`](.security/allowlist.yaml)
+(see the schema in the file). Required fields: `cve`, `reason`, `owner`,
+`expires`. CI rejects the PR if any field is missing or `expires` is in
+the past. Renew or remove on or before `expires` — there is no silent
+suppression.
+
+### Running security checks locally
+
+```bash
+# Action-pin lint (40-char SHA enforcement on every uses: line)
+grep -REn '^\s*uses:' .github/workflows/ \
+  | grep -vE '@[0-9a-f]{40}\b' \
+  || echo "all pinned"
+
+# Allowlist expiry
+python3 - <<'PY'
+import datetime, yaml, sys
+data = yaml.safe_load(open('.security/allowlist.yaml').read()) or {}
+for e in data.get('exceptions', []) or []:
+    if datetime.date.fromisoformat(str(e['expires'])) < datetime.date.today():
+        print('EXPIRED:', e); sys.exit(1)
+PY
+
+# OSV-Scanner
+osv-scanner --recursive --skip-git .
+
+# Gitleaks
+gitleaks detect --no-banner --redact --source .
+```
+
+### Verifying a release artifact
+
+Each GitHub Release ships the `.deb` + `.AppImage`, `*.sig`/`*.crt`
+(cosign keyless), `SHA256SUMS` + `SHA256SUMS.sig`/`*.crt`, the SPDX
++ CycloneDX SBOMs, and `dish-linux.intoto.jsonl` (SLSA L3 provenance).
+
+```bash
+sha256sum -c SHA256SUMS
+
+cosign verify-blob \
+  --certificate SHA256SUMS.crt \
+  --signature   SHA256SUMS.sig \
+  --certificate-identity-regexp '^https://github\.com/TinkerNorth/dish-linux/\.github/workflows/release\.yml@refs/tags/v.*$' \
+  --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
+  SHA256SUMS
+
+slsa-verifier verify-artifact \
+  --provenance-path dish-linux.intoto.jsonl \
+  --source-uri      github.com/TinkerNorth/dish-linux \
+  --source-tag      vX.Y.Z \
+  dish_X.Y.Z_amd64.deb
+```
+
+The full cross-repo verification recipe lives in
+[`SECURITY.md`](SECURITY.md).
 
 ## Touching the hot path
 
