@@ -1,0 +1,23 @@
+# gitleaks configuration for dish-linux.
+#
+# Default rule set is inherited from gitleaks 8.x. The allowlists below
+# suppress known false-positives (LGPL header, wire-protocol constants).
+#
+# Reference: https://github.com/gitleaks/gitleaks#configuration
+
+title = "dish-linux gitleaks config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Allowlist for known non-secret strings in dish-linux."
+paths = [
+    '''COPYING\.GPL3''',
+    '''LICENSE''',
+]
+
+regexes = [
+    # Wire-protocol port numbers (documented in CONTRIBUTING.md).
+    '''9876|9877|9878|9879''',
+]

@@ -218,5 +218,23 @@ or later**. See [`LICENSE`](LICENSE) (LGPL) and [`COPYING.GPL3`](COPYING.GPL3)
 Changes should land on `main` through a pull request. The `Linux CI`
 workflow (`.github/workflows/linux-ci.yml`) runs the `clang-format` check, the
 debug build + ctest, `clang-tidy`, and a release build on every PR and on
-`main` pushes. See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the LGPL
-header policy, branching, and hook setup.
+`main` pushes. The `Security` workflow (`.github/workflows/security.yml`)
+and `CodeQL` workflow (`.github/workflows/codeql.yml`) run alongside it
+— action-pin lint, OSV-Scanner, gitleaks, dependency review, allowlist-
+expiry check, and CodeQL `cpp` analysis. See
+[`CONTRIBUTING.md`](CONTRIBUTING.md) for the LGPL header policy,
+branching, hook setup, and the local-equivalent security commands.
+
+> **Note on branch protection.** GitHub's branch-protection and repository-
+> ruleset features are not available for private repositories on the free
+> org plan this repo lives under, so direct pushes to `main` are not
+> blocked at the platform level. Treat the PR-based flow as a convention
+> and rely on the CI workflows as the quality gate.
+
+## Security
+
+Vulnerability disclosure: [`SECURITY.md`](SECURITY.md). Every
+release ships cosign keyless signatures, SHA256SUMS, SBOMs (SPDX +
+CycloneDX), and SLSA L3 provenance — see
+[`CONTRIBUTING.md#security`](CONTRIBUTING.md#security) for the
+verification recipe.
