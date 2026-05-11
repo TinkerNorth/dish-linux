@@ -12,16 +12,22 @@ Satellite local web UI.
 
 Colors (in `dish::ui::Theme`):
 
-- `background` — body background
-- `surface` — card / raised panel
-- `surfaceDim` — recessed / empty state
-- `primary` — main accent (amber)
-- `primaryDark` — pressed / disabled primary
-- `onPrimary` — text/icon on top of primary
-- `onSurface` — body text on surface
-- `muted` — secondary text
-- `outline` — borders / dividers
-- `success`, `error`, `warning` — status
+Palette: **cyan / deep-space** — mirrors dish-website.
+
+| Token | Value | Role |
+|---|---|---|
+| `background` | `0xFF060818` | Body (`--tn-ink`) |
+| `surface` | `0xFF0C1027` | Card (`--tn-night`) |
+| `surfaceDim` | `0xFF131A3A` | Recessed (`--tn-deep`) |
+| `primary` | `0xFF4FE3FF` | Main accent — cyan (`--tn-signal`) |
+| `primaryDark` | `0xFF2C93AD` | Pressed / disabled (`--tn-signal-dim`) |
+| `onPrimary` | `0xFF060818` | Text on primary |
+| `onSurface` | `0xFFE6ECFF` | Body text (`--body-color`) |
+| `muted` | `0xFF93A0C8` | Secondary text (`--muted`) |
+| `outline` | `0x2E4FE3FF` | Borders — cyan @ ~18% alpha |
+| `success` | `0xFF22C55E` | Status — success |
+| `error` | `0xFFE74C3C` | Status — error |
+| `warning` | `0xFFF59E0B` | Status — warning |
 
 ## How to use
 
