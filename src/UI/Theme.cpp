@@ -7,16 +7,12 @@
 
 namespace dish::ui {
 
-namespace {
-
 QString hex(QRgb c) {
     return QStringLiteral("#%1%2%3")
         .arg(qRed(c), 2, 16, QLatin1Char('0'))
         .arg(qGreen(c), 2, 16, QLatin1Char('0'))
         .arg(qBlue(c), 2, 16, QLatin1Char('0'));
 }
-
-} // namespace
 
 void applyDishTheme(QApplication& app) {
     QPalette p;
@@ -48,8 +44,8 @@ void applyDishTheme(QApplication& app) {
             "                font-size: 11px; }"
             "QPushButton { background: transparent; color: %5; border: 1px solid %5; "
             "             border-radius: 6px; padding: 6px 12px; font-weight: 500; }"
-            "QPushButton:hover { background-color: rgba(255,193,7,0.12); }"
-            "QPushButton:pressed { background-color: rgba(255,193,7,0.18); }"
+            "QPushButton:hover { background-color: rgba(79,227,255,0.12); }"
+            "QPushButton:pressed { background-color: rgba(79,227,255,0.18); }"
             "QPushButton:disabled { color: %6; border-color: %6; }"
             "QPushButton#primary { background-color: %5; color: %7; border: none; }"
             "QPushButton#primary:hover { background-color: %8; }"

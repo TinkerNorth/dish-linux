@@ -28,9 +28,11 @@ SlotCard::SlotCard(QWidget* parent) : QFrame(parent) {
     auto* textLayout = new QVBoxLayout;
     textLayout->setSpacing(2);
     nameLabel_ = new QLabel(this);
-    nameLabel_->setStyleSheet(QStringLiteral("font-weight: 600; color: #EAEAEA;"));
+    nameLabel_->setStyleSheet(
+        QStringLiteral("font-weight: 600; color: %1;").arg(hex(Theme::onSurface)));
     boundLabel_ = new QLabel(this);
-    boundLabel_->setStyleSheet(QStringLiteral("color: #6B7280; font-size: 11px;"));
+    boundLabel_->setStyleSheet(
+        QStringLiteral("color: %1; font-size: 11px;").arg(hex(Theme::muted)));
     textLayout->addWidget(nameLabel_);
     textLayout->addWidget(boundLabel_);
 
