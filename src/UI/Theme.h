@@ -31,6 +31,9 @@ struct Theme {
 // Apply the global Qt palette + a stylesheet matching dish-android's themes.
 void applyDishTheme(QApplication& app);
 
+// Format a QRgb as a `#RRGGBB` string for embedding in QSS.
+QString hex(QRgb c);
+
 // Style helpers used by the dialogs / SlotCard.
 QString sectionHeaderQss();
 QString outlinedButtonQss();

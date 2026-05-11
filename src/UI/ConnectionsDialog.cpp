@@ -33,7 +33,7 @@ ConnectionsDialog::ConnectionsDialog(AppModel* model, QWidget* parent)
     auto* row = new QHBoxLayout;
     scanButton_ = new QPushButton(QStringLiteral("Scan"), this);
     statusLabel_ = new QLabel(this);
-    statusLabel_->setStyleSheet(QStringLiteral("color: #6B7280;"));
+    statusLabel_->setStyleSheet(QStringLiteral("color: %1;").arg(hex(Theme::muted)));
     auto* connectBtn = new QPushButton(QStringLiteral("Connect"), this);
     connectBtn->setObjectName(QStringLiteral("primary"));
     row->addWidget(scanButton_);

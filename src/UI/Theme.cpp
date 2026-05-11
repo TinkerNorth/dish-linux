@@ -7,16 +7,12 @@
 
 namespace dish::ui {
 
-namespace {
-
 QString hex(QRgb c) {
     return QStringLiteral("#%1%2%3")
         .arg(qRed(c), 2, 16, QLatin1Char('0'))
         .arg(qGreen(c), 2, 16, QLatin1Char('0'))
         .arg(qBlue(c), 2, 16, QLatin1Char('0'));
 }
-
-} // namespace
 
 void applyDishTheme(QApplication& app) {
     QPalette p;
