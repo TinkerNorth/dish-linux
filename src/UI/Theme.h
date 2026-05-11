@@ -14,18 +14,17 @@
 namespace dish::ui {
 
 struct Theme {
-    // Cyan / deep-space palette — mirrors dish-website tokens (tn-ink,
-    // tn-night, tn-deep, tn-signal, tn-signal-dim, body-color, muted) so
-    // every Dish client matches the marketing site.
-    static constexpr QRgb background = 0xFF060818; // tn-ink
-    static constexpr QRgb surface = 0xFF0C1027; // tn-night
-    static constexpr QRgb surfaceDim = 0xFF131A3A; // tn-deep
-    static constexpr QRgb primary = 0xFF4FE3FF; // tn-signal (cyan)
-    static constexpr QRgb primaryDark = 0xFF2C93AD; // tn-signal-dim
+    // Cyan / deep-space palette — mirrors dish-website. See DESIGN.md for
+    // the token name <-> hex mapping and the cross-repo schema.
+    static constexpr QRgb background = 0xFF060818;
+    static constexpr QRgb surface = 0xFF0C1027;
+    static constexpr QRgb surfaceDim = 0xFF131A3A;
+    static constexpr QRgb primary = 0xFF4FE3FF;
+    static constexpr QRgb primaryDark = 0xFF2C93AD;
     static constexpr QRgb onPrimary = 0xFF060818;
-    static constexpr QRgb onSurface = 0xFFE6ECFF; // body-color
-    static constexpr QRgb muted = 0xFF93A0C8; // muted
-    // Web uses rgba(79,227,255,0.18); ARGB equivalent (0.18*255≈46=0x2E).
+    static constexpr QRgb onSurface = 0xFFE6ECFF;
+    static constexpr QRgb muted = 0xFF93A0C8;
+    // outline is web rgba(79,227,255,0.18) expressed as ARGB (alpha 0x2E).
     static constexpr QRgb outline = 0x2E4FE3FF;
     static constexpr QRgb success = 0xFF22C55E;
     static constexpr QRgb error = 0xFFE74C3C;
