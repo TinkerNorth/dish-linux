@@ -130,6 +130,16 @@ target_link_libraries(Dish PRIVATE dish_core Qt6::Widgets Qt6::Gui dish_warnings
 
 install(TARGETS Dish RUNTIME DESTINATION bin)
 
+# Desktop entry + icon — so the app shows up in app menus with the correct
+# launcher icon. Icon=dish in dish.desktop resolves to dish.png in pixmaps.
+include(GNUInstallDirs)
+install(FILES packaging/dish.desktop
+        DESTINATION ${CMAKE_INSTALL_DATADIR}/applications)
+install(FILES packaging/dish.png
+        DESTINATION ${CMAKE_INSTALL_DATADIR}/pixmaps)
+install(FILES packaging/dish.svg
+        DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/scalable/apps)
+
 # --------------------------------------------------------------------------
 # Tests
 # --------------------------------------------------------------------------
