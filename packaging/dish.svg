@@ -9,6 +9,7 @@
     </g>
     <path d="M 88 118 L 112 118 L 68 196 L 46 196 Z"></path>
     <path d="M 88 118 L 112 118 L 154 196 L 132 196 Z"></path>
+    <rect x="42" y="182" width="116" height="14" rx="3"></rect>
     <g stroke="black" stroke-width="18" fill="none" stroke-linecap="round">
       <path d="M 140 50 a 12 12 0 0 1 8 12"></path>
       <path d="M 152 40 a 22 22 0 0 1 14 22"></path>
