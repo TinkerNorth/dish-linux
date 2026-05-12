@@ -57,7 +57,7 @@ endif()
 # Dependencies
 # --------------------------------------------------------------------------
 find_package(Threads REQUIRED)
-find_package(Qt6 6.2 REQUIRED COMPONENTS Core Gui Widgets Network)
+find_package(Qt6 6.2 REQUIRED COMPONENTS Core Gui Widgets Network DBus)
 
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(SODIUM REQUIRED IMPORTED_TARGET libsodium)
@@ -71,6 +71,10 @@ set(DISH_CORE_SOURCES
     src/Util/Hex.h
     src/Util/Hex.cpp
     src/Util/Endian.h
+    src/Util/DisplaySleepInhibitor.h
+    src/Util/DisplaySleepInhibitor.cpp
+    src/Util/ScreenWakeController.h
+    src/Util/ScreenWakeController.cpp
     src/Models/Models.h
     src/Models/Models.cpp
     src/Network/SatelliteClient.h
@@ -100,7 +104,7 @@ add_library(dish_core STATIC ${DISH_CORE_SOURCES})
 target_include_directories(dish_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_link_libraries(dish_core
     PUBLIC
-        Qt6::Core Qt6::Network
+        Qt6::Core Qt6::Network Qt6::DBus
         PkgConfig::SODIUM
         PkgConfig::SDL2
         Threads::Threads

@@ -10,6 +10,9 @@
 #include <QHostInfo>
 #include <QtConcurrent/QtConcurrent>
 
+#include <type_traits>
+#include <variant>
+
 namespace dish::net {
 
 namespace {
@@ -83,6 +86,19 @@ void WifiConnectionManager::pairWithPin(const models::DiscoveredServer& server,
 void WifiConnectionManager::pairAndConnect(WifiConnection* conn,
                                            const models::DiscoveredServer& server,
                                            const QString& pin) {
+    // Auto-reconnect fast path (pin.isEmpty()): if we already have a shared
+    // key saved for this server, skip the TCP pair handshake entirely and
+    // go straight to openSession. A moved/offline server then fails fast in
+    // the HTTP layer instead of bouncing through pair → PairingRequired and
+    // trapping the user behind a PIN prompt that can't be satisfied. Mirrors
+    // dish-android PR #43.
+    if (pin.isEmpty()) {
+        const auto saved = store_->sharedKey(WifiConnection::idFor(server));
+        if (saved.has_value() && saved->size() == 64) {
+            openSession(conn, server);
+            return;
+        }
+    }
     const QString did = deviceId_;
     const QString dname = deviceName_;
     auto* watcher = new QFutureWatcher<models::PairResponse>(this);
@@ -90,18 +106,29 @@ void WifiConnectionManager::pairAndConnect(WifiConnection* conn,
         watcher, &QFutureWatcherBase::finished, this, [this, watcher, conn, server, pin] {
             const auto pair = watcher->result();
             watcher->deleteLater();
-            if (!pair.ok || !pair.sharedKey.has_value()) {
-                conn->markDisconnected();
-                if (pin.isEmpty()) {
-                    emit connectionEvent(pairingRequired(server));
-                } else {
-                    emit connectionEvent(
-                        makeError(pair.error.value_or(QStringLiteral("Pairing failed"))));
-                }
-                return;
-            }
-            store_->setSharedKey(*pair.sharedKey, WifiConnection::idFor(server));
-            openSession(conn, server);
+            const auto outcome = PairingClient::classify(pair);
+            std::visit(
+                [&](auto&& arm) {
+                    using T = std::decay_t<decltype(arm)>;
+                    if constexpr (std::is_same_v<T, PairingClient::Success>) {
+                        store_->setSharedKey(arm.sharedKeyHex, WifiConnection::idFor(server));
+                        openSession(conn, server);
+                    } else if constexpr (std::is_same_v<T, PairingClient::AuthRequired>) {
+                        conn->markDisconnected();
+                        if (pin.isEmpty()) {
+                            emit connectionEvent(pairingRequired(server));
+                        } else {
+                            emit connectionEvent(makeError(
+                                pair.error.value_or(QStringLiteral("Pairing failed"))));
+                        }
+                    } else if constexpr (std::is_same_v<T, PairingClient::Unreachable>) {
+                        conn->markDisconnected();
+                        emit connectionEvent(makeError(
+                            QStringLiteral("Server unreachable — has it moved networks? (%1)")
+                                .arg(arm.message)));
+                    }
+                },
+                outcome);
         });
     watcher->setFuture(QtConcurrent::run([server, did, dname, pin] {
         return PairingClient::pair(server.ip, server.pairPort, did, dname, pin);

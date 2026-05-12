@@ -6,11 +6,15 @@
 namespace dish {
 
 AppModel::AppModel(QObject* parent)
+    : AppModel(std::make_unique<util::FreedesktopScreenSaverInhibitor>(), parent) {}
+
+AppModel::AppModel(std::unique_ptr<util::DisplaySleepInhibitor> inhibitor, QObject* parent)
     : QObject(parent), store_(std::make_unique<net::ConnectionStore>()),
       wifi_(new net::WifiConnectionManager(store_.get(), this)),
       hub_(new net::ConnectionHub(wifi_, store_.get(), this)),
       bridge_(new input::SDLGamepadBridge(&processor_, this)),
-      autoReconnectTimer_(new QTimer(this)) {
+      autoReconnectTimer_(new QTimer(this)), inhibitor_(std::move(inhibitor)),
+      wake_(inhibitor_.get()) {
     QObject::connect(hub_, &net::ConnectionHub::changed, this, &AppModel::onHubChanged);
     QObject::connect(bridge_, &input::SDLGamepadBridge::devicesChanged, this,
                      &AppModel::onBridgeDevicesChanged);
@@ -111,6 +115,17 @@ void AppModel::rebuild() {
         std::lock_guard<std::mutex> lock(routingMtx_);
         routing_ = std::move(nextRouting);
     }
+
+    // Drive the display-sleep inhibitor off bindings × hub.connections. The
+    // 0↔positive transitions inside ScreenWakeController acquire / release
+    // the D-Bus cookie; intermediate same-count emissions are no-ops so a
+    // noisy hub feed doesn't thrash the session bus.
+    QHash<QString, models::ConnectionLive> connectionStates;
+    for (const auto& summary : state_.connections) {
+        connectionStates.insert(summary.id, summary.live);
+    }
+    const int streamingCount = util::ScreenWakeController::streamingCount(bindings, connectionStates);
+    wake_.update(streamingCount);
 
     emit stateChanged();
 }

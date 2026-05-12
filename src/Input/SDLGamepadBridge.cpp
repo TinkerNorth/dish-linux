@@ -5,6 +5,7 @@
 
 #include <SDL2/SDL.h>
 
+#include <QLoggingCategory>
 #include <QMetaObject>
 
 #include <cstdint>
@@ -12,6 +13,15 @@
 namespace dish::input {
 
 namespace {
+
+Q_LOGGING_CATEGORY(lcDishInput, "dish.input")
+
+// Conservative noise-floor defaults applied to every newly-attached controller.
+// ~10 % of the int16 stick range and ~5 % of the 0..255 trigger range. Mirrors
+// the per-device flat values Android pulls out of
+// `InputDevice.getMotionRange(axis).getFlat()`. SDL2 has no equivalent.
+constexpr std::int16_t kDefaultStickFlat = 3277;
+constexpr std::uint8_t kDefaultTriggerFlat = 13;
 
 // SDL_GameController axes are int16 [-32768, 32767]; pass through directly.
 std::int16_t axisValue(SDL_GameController* gc, SDL_GameControllerAxis axis) {
@@ -71,12 +81,35 @@ void SDLGamepadBridge::runLoop() {
             SDL_Joystick* js = SDL_GameControllerGetJoystick(gc);
             const int iid = SDL_JoystickInstanceID(js);
             const auto* name = SDL_GameControllerName(gc);
+            const QString deviceId = QStringLiteral("sdl:%1").arg(iid);
+            const QString deviceName = QString::fromUtf8(name != nullptr ? name : "Gamepad");
             {
                 std::lock_guard<std::mutex> lock(mtx_);
                 openControllers_[iid] = gc;
-                deviceIds_[iid] = QStringLiteral("sdl:%1").arg(iid);
-                deviceNames_[iid] = QString::fromUtf8(name != nullptr ? name : "Gamepad");
+                deviceIds_[iid] = deviceId;
+                deviceNames_[iid] = deviceName;
             }
+            // One-shot device-capability dump — mirrors the SatelliteJNI
+            // DEVCAPS log on Android (PR #44/#47). SDL reports the controller
+            // type it negotiated (Xbox 360 / DualSense / generic), the vendor
+            // / product id, and the GUID; together that pins what mapping was
+            // applied so users reporting "my pad doesn't work" get a usable
+            // diagnostic without a debugger.
+            const auto type = SDL_GameControllerGetType(gc);
+            const auto vid = SDL_GameControllerGetVendor(gc);
+            const auto pid = SDL_GameControllerGetProduct(gc);
+            char guidBuf[64] = {0};
+            SDL_JoystickGetGUIDString(SDL_JoystickGetGUID(js), guidBuf, sizeof(guidBuf));
+            qCInfo(lcDishInput) << "DEVCAPS id=" << deviceId << "name=" << deviceName
+                                << "type=" << static_cast<int>(type)
+                                << "vid=" << QString::number(vid, 16)
+                                << "pid=" << QString::number(pid, 16) << "guid=" << guidBuf;
+            // Push the default deadzone profile so the processor filters
+            // out controller noise from the first event. The default lives
+            // inside the bridge (not the processor) because the bridge is
+            // the only thing that knows when a device shows up.
+            processor_->setDeadzones(deviceId.toStdString(),
+                                     {kDefaultStickFlat, kDefaultTriggerFlat});
             QMetaObject::invokeMethod(this, "devicesChanged", Qt::QueuedConnection);
             rebuildState(iid);
             break;

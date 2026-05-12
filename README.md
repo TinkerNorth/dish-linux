@@ -61,6 +61,44 @@ SDL thread publishes lock-free.
 - **`MSG_NOSIGNAL`** on every send so a server disconnect can't kill the
   process.
 
+## Cross-platform behaviour parity
+
+The following behaviours mirror dish-android and dish-mac, so user-visible
+behaviour stays predictable across platforms:
+
+- **Display-sleep inhibitor while streaming.** A `ScreenWakeController` reads
+  `hub.bindings × hub.connections`, derives a streaming-slot count, and flips
+  the `org.freedesktop.ScreenSaver.Inhibit` D-Bus cookie on every 0↔positive
+  transition. The cookie is released on the last unbind / disconnect, so a
+  forgotten session doesn't pin the display awake forever. Works under every
+  modern desktop environment that implements the freedesktop ScreenSaver
+  portal (GNOME, KDE, Xfce, MATE, Cinnamon, Sway/swayidle, …).
+- **Connection state recovery.** `PairingClient` carries a `reachable` flag
+  on every `PairResponse` (true iff we received a JSON body). `classify(...)`
+  splits the outcome into `Success | AuthRequired | Unreachable`; the manager
+  fans those out to either `openSession`, a PIN dialog, or an error toast.
+  A moved/offline server now surfaces a clear
+  *"Server unreachable — has it moved networks?"* message instead of trapping
+  the user behind an unanswerable PIN prompt. Mirrors dish-android PR #43.
+- **Auto-reconnect fast path.** `WifiConnectionManager::pairAndConnect`
+  skips the TCP pair handshake entirely when an empty PIN comes in and a
+  64-char shared key is already on disk, going straight to `openSession`.
+  A moved server then fails fast in the HTTP layer rather than bouncing
+  through pair → `PairingRequired`.
+- **Per-device deadzones.** `GamepadInputProcessor` carries a per-device
+  `Deadzones { stickFlat, triggerFlat }` table; reports are filtered
+  (`|v| <= flat → 0`) before they leave the processor. The default profile
+  (~10 % stick / ~5 % trigger) is installed by `SDLGamepadBridge` when each
+  controller attaches. SDL2 has no OS-level "flat" query equivalent to
+  Android's `InputDevice.getMotionRange(axis).getFlat()`, so the default
+  is the noise-floor we ship; future builds can read a per-device override
+  from the settings file.
+- **Device-capability log on attach.** Every `SDL_CONTROLLERDEVICEADDED` logs
+  a one-shot `DEVCAPS` line via the `dish.input` Qt logging category,
+  carrying the stable id, controller name + type (SDL's `SDL_GameControllerType`
+  enum), USB VID / PID, and the SDL GUID. Aimed at users reporting *"my pad
+  doesn't work"* — same idea as Android's SatelliteJNI `DEVCAPS` log.
+
 ## Requirements
 
 - A reasonably current Linux distro (Ubuntu 22.04+, Fedora 38+, Arch, …)
@@ -77,9 +115,13 @@ SDL thread publishes lock-free.
 ```bash
 sudo apt install -y \
     build-essential cmake ninja-build pkg-config \
-    qt6-base-dev libsodium-dev libsdl2-dev \
+    qt6-base-dev qt6-tools-dev libsodium-dev libsdl2-dev \
     clang-format clang-tidy
 ```
+
+Note: `qt6-base-dev` already pulls in QtDBus on Debian/Ubuntu — required for
+the `org.freedesktop.ScreenSaver.Inhibit` call that keeps the display awake
+while streaming.
 
 **Fedora (38+)**
 ```bash
@@ -183,10 +225,14 @@ ctest --test-dir build-debug --output-on-failure
 ```
 
 Unit tests cover the hex/byte-packing utilities, the big-endian helpers, the
-XUSB input mapping (axis and trigger scaling, button bitfield, zero-on-disconnect
-fan-out), the lock-free atomic counter under contention, the lenient beacon
-JSON decoder, and the model codable round-trips. They run in well under a
-second and do not open sockets.
+XUSB input mapping (axis and trigger scaling, button bitfield, per-device
+deadzone application, zero-on-disconnect fan-out), the lock-free atomic
+counter under contention, the lenient beacon JSON decoder, the model codable
+round-trips, the `PairingClient::classify` outcome arms (Success /
+AuthRequired / Unreachable), and the `ScreenWakeController` acquire/release
+lifecycle via a fake `DisplaySleepInhibitor` (so the suite never has to
+talk to a session bus). They run in well under a second and do not open
+sockets.
 
 ## Development
 
