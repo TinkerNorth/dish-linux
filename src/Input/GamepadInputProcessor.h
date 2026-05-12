@@ -72,27 +72,17 @@ class GamepadInputProcessor {
         }
     };
 
-    struct TelemetrySnapshot {
-        int events = 0;
-        int sends = 0;
-        std::uint64_t totalSent = 0;
-    };
-
     void setReportSender(ReportSender sender);
     void setDeadzones(const DeviceId& id, const Deadzones& dz);
     void publish(const DeviceId& id, const DeviceState& state);
     void zeroAndSendAll();
     void remove(const DeviceId& id);
-    TelemetrySnapshot drainTelemetry();
 
   private:
     std::mutex mtx_;
     std::unordered_map<DeviceId, DeviceState> states_;
     std::unordered_map<DeviceId, Deadzones> deadzones_;
     ReportSender sender_;
-    int telEvents_ = 0;
-    int telSends_ = 0;
-    std::uint64_t telTotalSent_ = 0;
 };
 
 // Pure helpers — easily testable.

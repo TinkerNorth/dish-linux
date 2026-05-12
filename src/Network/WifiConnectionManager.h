@@ -53,6 +53,10 @@ class WifiConnectionManager : public QObject {
     // QObject::event(QEvent*), which clang flags with
     // -Wclang-diagnostic-overloaded-virtual.
     void connectionEvent(const dish::net::ConnectionEvent& evt);
+    // Forwarded from per-connection WifiConnection::registrationFailed so
+    // ConnectionHub can roll back a binding when the server rejects a
+    // controller add.
+    void slotRegistrationFailed(const QString& slotId);
 
   private:
     WifiConnection* ensureConnection(const models::DiscoveredServer& server);

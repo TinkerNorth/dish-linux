@@ -69,18 +69,13 @@ struct ConnectionSummary {
     std::optional<QString> boundSlotId;
 };
 
-enum class SlotInputType { Virtual, Physical };
-
 struct ControllerSlot {
     QString id;
-    SlotInputType inputType = SlotInputType::Virtual;
     QString name;
     QString physicalDeviceId;
     std::optional<QString> boundConnectionId;
     std::optional<ConnectionSummary> boundStatus;
 };
-
-inline constexpr const char* kVirtualSlotId = "virtual";
 
 struct RememberedWifi {
     QString id;

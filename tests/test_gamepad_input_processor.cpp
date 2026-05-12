@@ -72,27 +72,6 @@ TEST_CASE("zeroAndSendAll emits a neutral report for every known device", "[inpu
     REQUIRE(zeros == 2);
 }
 
-TEST_CASE("drainTelemetry resets per-second counters and keeps lifetime total", "[input]") {
-    GamepadInputProcessor p;
-    p.setReportSender([](const std::string&, std::uint16_t, std::uint8_t, std::uint8_t,
-                         std::int16_t, std::int16_t, std::int16_t, std::int16_t) {});
-
-    GamepadInputProcessor::DeviceState s;
-    p.publish("pad", s);
-    p.publish("pad", s);
-    p.publish("pad", s);
-
-    auto snap = p.drainTelemetry();
-    REQUIRE(snap.events == 3);
-    REQUIRE(snap.sends == 3);
-    REQUIRE(snap.totalSent == 3);
-
-    auto snap2 = p.drainTelemetry();
-    REQUIRE(snap2.events == 0);
-    REQUIRE(snap2.sends == 0);
-    REQUIRE(snap2.totalSent == 3);
-}
-
 // ---------------------------------------------------------------------------
 // Per-device deadzones — mirrors the dish-mac GamepadInputProcessor tests
 // and the Android per-device `flat` pipeline. Pinning these here keeps the

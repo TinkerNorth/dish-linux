@@ -49,15 +49,18 @@ void applyDishTheme(QApplication& app) {
             "QPushButton:disabled { color: %6; border-color: %6; }"
             "QPushButton#primary { background-color: %5; color: %7; border: none; }"
             "QPushButton#primary:hover { background-color: %8; }"
+            "QPushButton#primary:disabled { background-color: %9; color: %6; border: none; }"
             "QListWidget, QTreeWidget { background-color: %3; border: 1px solid %4; "
             "                          border-radius: 8px; padding: 4px; }"
             "QStatusBar { background-color: %3; color: %6; }"
             "QLineEdit { background-color: %3; color: %2; border: 1px solid %4; "
             "           border-radius: 6px; padding: 6px 8px; }"
-            "QLineEdit:focus { border-color: %5; }")
+            "QLineEdit:focus { border-color: %5; }"
+            "QProgressBar { background-color: %3; border: 1px solid %4; border-radius: 2px; }"
+            "QProgressBar::chunk { background-color: %5; border-radius: 2px; }")
             .arg(hex(Theme::background), hex(Theme::onSurface), hex(Theme::surface),
                  hex(Theme::outline), hex(Theme::primary), hex(Theme::muted), hex(Theme::onPrimary),
-                 hex(Theme::primaryDark));
+                 hex(Theme::primaryDark), hex(Theme::surfaceDim));
     app.setStyleSheet(qss);
 }
 

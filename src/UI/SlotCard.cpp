@@ -61,7 +61,7 @@ void SlotCard::setSlot(const models::ControllerSlot& slot,
         dot_->setStyleSheet(dotQss(Theme::muted));
         bindButton_->setText(QStringLiteral("Bind\u2026"));
     }
-    bindButton_->setEnabled(!slot.boundConnectionId.has_value() || !available.isEmpty());
+    bindButton_->setEnabled(slot.boundConnectionId.has_value() || !available.isEmpty());
 }
 
 void SlotCard::onBindClicked() {

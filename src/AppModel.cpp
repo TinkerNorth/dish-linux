@@ -80,15 +80,9 @@ void AppModel::onWifiEvent(const net::ConnectionEvent& evt) {
 
 void AppModel::rebuild() {
     QList<models::ControllerSlot> next;
-    models::ControllerSlot virt;
-    virt.id = QString::fromLatin1(models::kVirtualSlotId);
-    virt.inputType = models::SlotInputType::Virtual;
-    virt.name = QStringLiteral("Virtual Controller");
-    next.append(virt);
     for (const auto& d : bridge_->devices()) {
         models::ControllerSlot s;
         s.id = d.id;
-        s.inputType = models::SlotInputType::Physical;
         s.name = d.name;
         s.physicalDeviceId = d.id;
         next.append(s);
@@ -104,6 +98,15 @@ void AppModel::rebuild() {
         }
     }
     state_.slotList = std::move(next);
+
+    bool busy = false;
+    for (auto* conn : wifi_->connections()) {
+        if (conn->isRegisteringController()) {
+            busy = true;
+            break;
+        }
+    }
+    state_.busy = busy;
 
     // Update the routing table to mirror the new slot/binding shape.
     QHash<QString, net::ConnectionHub::ReportSender> nextRouting;

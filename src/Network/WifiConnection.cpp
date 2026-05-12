@@ -3,9 +3,30 @@
 
 #include "WifiConnection.h"
 
-#include <QThread>
-
 namespace dish::net {
+
+namespace {
+
+QString controllerAckErrorMessage(std::uint8_t result) {
+    // Matches the satellite/src/core/types.h codes verbatim.
+    switch (result) {
+    case 0x01:
+        return QStringLiteral(
+            "Server has no virtual gamepad backend — controller cannot be created");
+    case 0x02:
+        return QStringLiteral("Server has no free controller slots");
+    case 0x03:
+        return QStringLiteral("Controller already added on the server");
+    case 0x04:
+        return QStringLiteral("Controller not found on the server");
+    case 0x05:
+        return QStringLiteral("Server failed to plug in the virtual controller");
+    default:
+        return QStringLiteral("Server rejected controller add (code %1)").arg(result);
+    }
+}
+
+} // namespace
 
 WifiConnection::WifiConnection(QString id, models::DiscoveredServer server, QObject* parent)
     : QObject(parent), id_(std::move(id)), server_(std::move(server)) {}
@@ -64,6 +85,8 @@ void WifiConnection::markDisconnected() {
         aliveTimer_->deleteLater();
         aliveTimer_ = nullptr;
     }
+    if (ackPollTimer_ != nullptr) { ackPollTimer_->stop(); }
+    controllerRegistering_ = false;
     if (existing) {
         existing->stopHeartbeat();
         existing->stopReceiveLoop();
@@ -96,18 +119,57 @@ void WifiConnection::detachSlot() {
 void WifiConnection::registerController(int type) {
     auto c = clientRef_.get();
     if (!c) { return; }
+    pendingControllerType_ = type;
     c->resetControllerAck();
     c->controllerAdd(kDefaultCtrlIndex, kDefaultCaps);
-    // Spin briefly waiting for the server's controller ACK; same shape as the
-    // Mac client. This blocks the calling (main) thread for up to ~2s in the
-    // worst case, but the satellite normally responds within a few ms.
-    for (int i = 0; i < kAckWaitAttempts && c->lastControllerAck() == -1; ++i) {
-        QThread::msleep(kAckWaitIntervalMs);
+    ackPollCount_ = 0;
+    controllerRegistering_ = true;
+    if (ackPollTimer_ == nullptr) {
+        ackPollTimer_ = new QTimer(this);
+        ackPollTimer_->setInterval(kAckWaitIntervalMs);
+        QObject::connect(ackPollTimer_, &QTimer::timeout, this, &WifiConnection::pollControllerAck);
     }
-    if (c->lastControllerAck() != -1) {
-        c->sendControllerType(kDefaultCtrlIndex, type);
+    ackPollTimer_->start();
+    emit changed();
+}
+
+void WifiConnection::pollControllerAck() {
+    auto c = clientRef_.get();
+    if (!c) {
+        const auto slotId = boundSlotId_.value_or(QString());
+        finishRegistration();
+        emit errorOccurred(QStringLiteral("Connection dropped before controller acknowledgement"));
+        if (!slotId.isEmpty()) { emit registrationFailed(slotId); }
+        return;
+    }
+    const auto ack = c->lastControllerAck();
+    if (ack == -1) {
+        if (++ackPollCount_ >= kAckWaitAttempts) {
+            const auto slotId = boundSlotId_.value_or(QString());
+            finishRegistration();
+            emit errorOccurred(
+                QStringLiteral("Server did not acknowledge controller add (timeout)"));
+            if (!slotId.isEmpty()) { emit registrationFailed(slotId); }
+        }
+        return;
+    }
+    const std::uint8_t result = static_cast<std::uint8_t>(ack & 0xFF);
+    if (result == 0x00 /* ACK_OK */) {
+        c->sendControllerType(kDefaultCtrlIndex, pendingControllerType_);
         controllerAdded_ = true;
+        finishRegistration();
+    } else {
+        const auto slotId = boundSlotId_.value_or(QString());
+        finishRegistration();
+        emit errorOccurred(controllerAckErrorMessage(result));
+        if (!slotId.isEmpty()) { emit registrationFailed(slotId); }
     }
+}
+
+void WifiConnection::finishRegistration() {
+    if (ackPollTimer_ != nullptr) { ackPollTimer_->stop(); }
+    controllerRegistering_ = false;
+    emit changed();
 }
 
 void WifiConnection::sendReport(std::uint16_t buttons, std::uint8_t lt, std::uint8_t rt,
