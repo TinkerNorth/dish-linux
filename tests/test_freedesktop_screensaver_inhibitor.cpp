@@ -42,7 +42,7 @@ class QtAppSingleton {
         // first test creates would tear it down in the middle of a later
         // test's teardown if Catch2 reorders cases.
         static auto* app = new QCoreApplication(argc, argv);
-        (void) app;
+        (void)app;
     }
 };
 

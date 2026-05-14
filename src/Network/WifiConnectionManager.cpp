@@ -122,8 +122,8 @@ void WifiConnectionManager::pairAndConnect(WifiConnection* conn,
                         if (pin.isEmpty()) {
                             emit connectionEvent(pairingRequired(server));
                         } else {
-                            emit connectionEvent(makeError(
-                                pair.error.value_or(QStringLiteral("Pairing failed"))));
+                            emit connectionEvent(
+                                makeError(pair.error.value_or(QStringLiteral("Pairing failed"))));
                         }
                     } else if constexpr (std::is_same_v<T, PairingClient::Unreachable>) {
                         conn->markDisconnected();

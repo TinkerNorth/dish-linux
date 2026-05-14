@@ -8,13 +8,12 @@
 
 #include <QJsonObject>
 
-using dish::net::PairingClient;
 using dish::models::PairResponse;
+using dish::net::PairingClient;
 
 namespace {
 
-template <typename Arm>
-bool holds(const PairingClient::Outcome& o) {
+template <typename Arm> bool holds(const PairingClient::Outcome& o) {
     return std::holds_alternative<Arm>(o);
 }
 

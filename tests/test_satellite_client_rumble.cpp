@@ -39,8 +39,8 @@ std::array<std::uint8_t, 8> mandatoryPayload(std::uint8_t ctrlIdx, std::uint16_t
 
 // 11-byte payload with the lightbar flag set + RGB tail.
 std::array<std::uint8_t, 11> lightbarPayload(std::uint8_t ctrlIdx, std::uint16_t strong,
-                                             std::uint16_t weak, std::uint16_t dur,
-                                             std::uint8_t r, std::uint8_t g, std::uint8_t b) {
+                                             std::uint16_t weak, std::uint16_t dur, std::uint8_t r,
+                                             std::uint8_t g, std::uint8_t b) {
     return {
         ctrlIdx,
         static_cast<std::uint8_t>(strong >> 8),
@@ -50,7 +50,9 @@ std::array<std::uint8_t, 11> lightbarPayload(std::uint8_t ctrlIdx, std::uint16_t
         static_cast<std::uint8_t>(dur >> 8),
         static_cast<std::uint8_t>(dur & 0xFF),
         0x01, // flags bit 0 = lightbar present
-        r, g, b,
+        r,
+        g,
+        b,
     };
 }
 
@@ -104,7 +106,8 @@ TEST_CASE("parseRumbleMessage rejects truncated mandatory section", "[rumble]") 
     // Anything shorter than 8 bytes is malformed — the satellite never emits
     // such a packet, but a malicious / racing peer could.
     std::array<std::uint8_t, 7> shortPayload{};
-    REQUIRE_FALSE(SatelliteClient::parseRumbleMessage(shortPayload.data(), shortPayload.size()).has_value());
+    REQUIRE_FALSE(
+        SatelliteClient::parseRumbleMessage(shortPayload.data(), shortPayload.size()).has_value());
 
     REQUIRE_FALSE(SatelliteClient::parseRumbleMessage(nullptr, 0).has_value());
     REQUIRE_FALSE(SatelliteClient::parseRumbleMessage(shortPayload.data(), 0).has_value());
