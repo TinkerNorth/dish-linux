@@ -70,6 +70,14 @@ class WifiConnection : public QObject {
     void sendReport(std::uint16_t buttons, std::uint8_t lt, std::uint8_t rt, std::int16_t lx,
                     std::int16_t ly, std::int16_t rx, std::int16_t ry);
 
+    // Install the per-connection rumble handler. The handler is invoked from
+    // the SatelliteClient's receive thread on every MSG_RUMBLE we decode.
+    // Stored on the WifiConnection (not the per-session SatelliteClient) so
+    // it survives reconnects: markConnected() re-installs it on the new
+    // client instance.
+    using RumbleHandler = std::function<void(const SatelliteClient::RumbleMessage&)>;
+    void setRumbleHandler(RumbleHandler handler);
+
   signals:
     void changed();
     void errorOccurred(const QString& message);
@@ -102,6 +110,10 @@ class WifiConnection : public QObject {
     std::function<void()> onDead_;
     bool controllerAdded_ = false;
     int pendingControllerType_ = 0;
+
+    // Set once during composition; re-applied to each fresh SatelliteClient
+    // in markConnected() so we don't lose rumble across reconnects.
+    RumbleHandler rumbleHandler_;
 };
 
 } // namespace dish::net

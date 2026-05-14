@@ -9,6 +9,7 @@
 #include <QString>
 
 #include <atomic>
+#include <cstdint>
 #include <thread>
 #include <unordered_map>
 
@@ -41,6 +42,23 @@ class SDLGamepadBridge : public QObject {
         QString name;
     };
     QList<Device> devices() const;
+
+    // Drive the physical controller's rumble motors. `strongMagnitude` and
+    // `weakMagnitude` are 16-bit magnitudes matching XInput's scale so they
+    // can flow through the SDL2 API verbatim. `durationMs == 0` is a "stop"
+    // signal — SDL itself treats 0 as "do not run", so we forward as-is.
+    //
+    // If the controller exposes a lightbar (DualShock 4 / DualSense) and the
+    // satellite published one, we also call SDL_GameControllerSetLED. Failures
+    // are silent — many pads don't support either operation and SDL just
+    // returns -1 in that case.
+    //
+    // Thread-safety: callable from any thread; takes the same internal mutex
+    // that guards the device map. Intended to be invoked from the
+    // SatelliteClient receive thread.
+    void applyRumble(const QString& deviceId, std::uint16_t strongMagnitude,
+                     std::uint16_t weakMagnitude, std::uint16_t durationMs, bool hasLightbar,
+                     std::uint8_t lightbarR, std::uint8_t lightbarG, std::uint8_t lightbarB);
 
   signals:
     void devicesChanged();

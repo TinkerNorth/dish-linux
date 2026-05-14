@@ -235,7 +235,46 @@ void SatelliteClient::processIncoming(const std::uint8_t* buf, std::size_t n) {
     } else if (msgType == kMsgServerStatus && msgLen >= 2 && plainLen >= 6) {
         vigemAvailable_.store(plain[4] == 0 ? 0 : 1, std::memory_order_relaxed);
         activeControllerCount_.store(static_cast<std::int8_t>(plain[5]), std::memory_order_relaxed);
+    } else if (msgType == kMsgRumble) {
+        // The inner header bytes are at plain[0..3]; the payload starts at +4.
+        // parseRumbleMessage works on the payload region for parity with the
+        // unit-test seam, so adjust the pointer/length accordingly.
+        if (plainLen < 4) { return; }
+        const auto rm = parseRumbleMessage(plain.data() + 4,
+                                           static_cast<std::size_t>(plainLen) - 4);
+        if (!rm) { return; }
+        RumbleHandler handler;
+        {
+            std::lock_guard<std::mutex> lock(rumbleHandlerMtx_);
+            handler = rumbleHandler_;
+        }
+        if (handler) { handler(*rm); }
     }
+}
+
+void SatelliteClient::setRumbleHandler(RumbleHandler handler) {
+    std::lock_guard<std::mutex> lock(rumbleHandlerMtx_);
+    rumbleHandler_ = std::move(handler);
+}
+
+std::optional<SatelliteClient::RumbleMessage>
+SatelliteClient::parseRumbleMessage(const std::uint8_t* payload, std::size_t len) {
+    // Mandatory fields: ctrlIdx + strong + weak + dur + flags = 8 bytes.
+    if (payload == nullptr || len < 8) { return std::nullopt; }
+    RumbleMessage rm;
+    rm.controllerIndex = payload[0];
+    rm.strongMagnitude = util::readU16Be(payload + 1);
+    rm.weakMagnitude = util::readU16Be(payload + 3);
+    rm.durationMs = util::readU16Be(payload + 5);
+    const std::uint8_t flags = payload[7];
+    rm.hasLightbar = (flags & 0x01) != 0;
+    if (rm.hasLightbar) {
+        if (len < 11) { return std::nullopt; } // declared lightbar but truncated
+        rm.lightbarR = payload[8];
+        rm.lightbarG = payload[9];
+        rm.lightbarB = payload[10];
+    }
+    return rm;
 }
 
 } // namespace dish::net
