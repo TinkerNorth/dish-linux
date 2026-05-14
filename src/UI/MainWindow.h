@@ -3,13 +3,16 @@
 
 #pragma once
 
+#include "Models/Models.h"
+
 #include <QList>
 #include <QMainWindow>
 
 class QLabel;
 class QListWidget;
+class QProgressBar;
 class QPushButton;
-class QTimer;
+class QStackedWidget;
 class QVBoxLayout;
 
 namespace dish {
@@ -18,26 +21,43 @@ class AppModel;
 
 namespace dish::ui {
 
-// Dashboard window — mirrors dish-mac MainView and dish-android activity_main.
-// Status header, controllers section (one SlotCard per slot), telemetry
-// footer, and a "Manage" button that opens ConnectionsDialog.
+class ConnectionsPage;
+class ErrorBanner;
+class PairingPage;
+
+// Dashboard window. Owns a QStackedWidget that swaps between the Dashboard,
+// Connections, and Pairing pages — replaces the prior stack of modal dialogs.
+// Mirrors dish-mac MainView and dish-android activity_main.
 class MainWindow : public QMainWindow {
     Q_OBJECT
   public:
     explicit MainWindow(AppModel* model, QWidget* parent = nullptr);
 
   private:
+    void buildDashboardPage();
     void onStateChanged();
     void rebuildHeader();
     void rebuildSlotList();
-    void showPairingPrompt();
+    void maybeShowPairingPage();
     void onError(const QString& msg);
-    void onTelemetryTick();
     void onManageClicked();
     void onBindRequested(const QString& slotId, const QString& connectionId);
     void onUnbindRequested(const QString& slotId);
+    void showDashboard();
+    void returnFromPairing();
+    void onPairSubmit(const models::DiscoveredServer& server, const QString& pin);
 
     AppModel* model_;
+
+    QStackedWidget* stack_;
+    QWidget* dashboardPage_;
+    ConnectionsPage* connectionsPage_;
+    PairingPage* pairingPage_;
+    ErrorBanner* errorBanner_;
+    QProgressBar* dashboardSpinner_;
+    QWidget* pairingReturnPage_ = nullptr;
+    bool awaitingPair_ = false;
+    QString awaitingPairConnectionId_;
 
     QLabel* statusDot_;
     QLabel* statusText_;
@@ -45,11 +65,6 @@ class MainWindow : public QMainWindow {
     QPushButton* manageButton_;
     QVBoxLayout* slotsLayout_;
     QLabel* slotsEmpty_;
-    QLabel* telemetryLeft_;
-    QLabel* telemetryRight_;
-
-    QTimer* telemetryTimer_;
-    quint64 telemetryTotal_ = 0;
 };
 
 } // namespace dish::ui

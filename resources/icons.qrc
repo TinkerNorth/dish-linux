@@ -1,0 +1,5 @@
+<RCC>
+  <qresource prefix="/icons">
+    <file alias="dish.svg">../packaging/dish.svg</file>
+  </qresource>
+</RCC>
