@@ -9,6 +9,8 @@
 #include "Network/ConnectionHub.h"
 #include "Network/ConnectionStore.h"
 #include "Network/WifiConnectionManager.h"
+#include "Util/DisplaySleepInhibitor.h"
+#include "Util/ScreenWakeController.h"
 
 #include <QHash>
 #include <QObject>
@@ -43,7 +45,10 @@ struct MainUiState {
 class AppModel : public QObject {
     Q_OBJECT
   public:
+    // Production constructor: builds a FreedesktopScreenSaverInhibitor under
+    // the hood. The unique_ptr overload below lets tests inject a fake.
     explicit AppModel(QObject* parent = nullptr);
+    AppModel(std::unique_ptr<util::DisplaySleepInhibitor> inhibitor, QObject* parent = nullptr);
     ~AppModel() override;
 
     net::ConnectionStore* store() { return store_.get(); }
@@ -51,6 +56,7 @@ class AppModel : public QObject {
     net::ConnectionHub* hub() { return hub_; }
     input::GamepadInputProcessor* processor() { return &processor_; }
     input::SDLGamepadBridge* bridge() { return bridge_; }
+    util::ScreenWakeController* wake() { return &wake_; }
 
     // Single read-only accessor — the UI reads everything off this slice
     // and re-renders on stateChanged().
@@ -83,6 +89,11 @@ class AppModel : public QObject {
     input::GamepadInputProcessor processor_;
     input::SDLGamepadBridge* bridge_;
     QTimer* autoReconnectTimer_;
+    // Owned in unique_ptr so we can swap a FakeDisplaySleepInhibitor in
+    // tests. ScreenWakeController holds a raw back-pointer; lifetime is
+    // tied to the AppModel.
+    std::unique_ptr<util::DisplaySleepInhibitor> inhibitor_;
+    util::ScreenWakeController wake_;
 
     MainUiState state_;
 

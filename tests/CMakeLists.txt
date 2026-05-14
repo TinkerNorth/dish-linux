@@ -20,7 +20,10 @@ set(DISH_TEST_SOURCES
     test_endian.cpp
     test_models.cpp
     test_beacon_parser.cpp
-    test_gamepad_input_processor.cpp)
+    test_gamepad_input_processor.cpp
+    test_pairing_client_classify.cpp
+    test_screen_wake_controller.cpp
+    test_freedesktop_screensaver_inhibitor.cpp)
 
 add_executable(DishTests ${DISH_TEST_SOURCES})
 target_link_libraries(DishTests

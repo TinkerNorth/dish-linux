@@ -41,6 +41,12 @@ struct PairResponse {
     bool ok = false;
     std::optional<QString> error;
     std::optional<QString> sharedKey;
+    // True iff we received any JSON body from the server. False for synthesized
+    // failure responses (socket / connect / send errors). Not on the wire —
+    // the server never sends this field; it's set client-side by
+    // `PairingClient::pair` so the manager can distinguish "moved networks"
+    // from "needs PIN". Mirrors dish-mac PairResponse.reachable.
+    bool reachable = false;
 
     static PairResponse fromJson(const QJsonObject& obj);
 };

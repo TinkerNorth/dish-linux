@@ -7,7 +7,10 @@
 
 #include <cstdint>
 #include <optional>
+#include <string>
+#include <unordered_map>
 
+using dish::input::applyDeadzones;
 using dish::input::GamepadInputProcessor;
 using dish::input::scaleAxis;
 using dish::input::scaleTrigger;
@@ -88,4 +91,126 @@ TEST_CASE("drainTelemetry resets per-second counters and keeps lifetime total", 
     REQUIRE(snap2.events == 0);
     REQUIRE(snap2.sends == 0);
     REQUIRE(snap2.totalSent == 3);
+}
+
+// ---------------------------------------------------------------------------
+// Per-device deadzones — mirrors the dish-mac GamepadInputProcessor tests
+// and the Android per-device `flat` pipeline. Pinning these here keeps the
+// wire format identical across all three clients.
+// ---------------------------------------------------------------------------
+
+TEST_CASE("applyDeadzones zeroes sticks at or below threshold", "[input]") {
+    GamepadInputProcessor::Deadzones dz{3277, 13};
+    GamepadInputProcessor::DeviceState s;
+    s.lx = 1500;
+    s.ly = -2000;
+    s.rx = 3277;
+    s.ry = -3277;
+    const auto out = applyDeadzones(s, dz);
+    REQUIRE(out.lx == 0);
+    REQUIRE(out.ly == 0);
+    REQUIRE(out.rx == 0);
+    REQUIRE(out.ry == 0);
+}
+
+TEST_CASE("applyDeadzones passes sticks above threshold", "[input]") {
+    GamepadInputProcessor::Deadzones dz{3277, 13};
+    GamepadInputProcessor::DeviceState s;
+    s.lx = 3278;
+    s.ly = -3278;
+    s.rx = 32767;
+    s.ry = -32767;
+    const auto out = applyDeadzones(s, dz);
+    REQUIRE(out.lx == 3278);
+    REQUIRE(out.ly == -3278);
+    REQUIRE(out.rx == 32767);
+    REQUIRE(out.ry == -32767);
+}
+
+TEST_CASE("applyDeadzones zeroes triggers at or below threshold", "[input]") {
+    GamepadInputProcessor::Deadzones dz{0, 13};
+    GamepadInputProcessor::DeviceState s;
+    s.lt = 5;
+    s.rt = 13;
+    const auto out = applyDeadzones(s, dz);
+    REQUIRE(out.lt == 0);
+    REQUIRE(out.rt == 0);
+}
+
+TEST_CASE("applyDeadzones passes triggers above threshold", "[input]") {
+    GamepadInputProcessor::Deadzones dz{0, 13};
+    GamepadInputProcessor::DeviceState s;
+    s.lt = 14;
+    s.rt = 255;
+    const auto out = applyDeadzones(s, dz);
+    REQUIRE(out.lt == 14);
+    REQUIRE(out.rt == 255);
+}
+
+TEST_CASE("applyDeadzones never touches buttons", "[input]") {
+    GamepadInputProcessor::Deadzones dz{32767, 255};
+    GamepadInputProcessor::DeviceState s;
+    s.wButtons = 0xABCD;
+    const auto out = applyDeadzones(s, dz);
+    REQUIRE(out.wButtons == 0xABCD);
+}
+
+TEST_CASE("publish uses per-device deadzones", "[input]") {
+    GamepadInputProcessor p;
+    std::int16_t lastLx = -1;
+    std::int16_t lastLy = -1;
+    std::uint8_t lastLt = 0xFF;
+    std::uint8_t lastRt = 0xFF;
+    p.setReportSender([&](const std::string&, std::uint16_t, std::uint8_t lt, std::uint8_t rt,
+                          std::int16_t lx, std::int16_t ly, std::int16_t, std::int16_t) {
+        lastLx = lx;
+        lastLy = ly;
+        lastLt = lt;
+        lastRt = rt;
+    });
+    p.setDeadzones("pad-1", {5000, 20});
+    GamepadInputProcessor::DeviceState s;
+    s.lx = 4999;
+    s.ly = 5001;
+    s.lt = 18;
+    s.rt = 21;
+    p.publish("pad-1", s);
+    REQUIRE(lastLx == 0);
+    REQUIRE(lastLy == 5001);
+    REQUIRE(lastLt == 0);
+    REQUIRE(lastRt == 21);
+}
+
+TEST_CASE("publish applies different deadzones per device", "[input]") {
+    GamepadInputProcessor p;
+    std::unordered_map<std::string, std::int16_t> byId;
+    p.setReportSender([&](const std::string& id, std::uint16_t, std::uint8_t, std::uint8_t,
+                          std::int16_t lx, std::int16_t, std::int16_t, std::int16_t) {
+        byId[id] = lx;
+    });
+    p.setDeadzones("lax", {0, 0});
+    p.setDeadzones("strict", {10000, 0});
+    GamepadInputProcessor::DeviceState s;
+    s.lx = 500;
+    p.publish("lax", s);
+    p.publish("strict", s);
+    REQUIRE(byId["lax"] == 500);
+    REQUIRE(byId["strict"] == 0);
+}
+
+TEST_CASE("remove clears deadzones too", "[input]") {
+    GamepadInputProcessor p;
+    std::int16_t lastLx = -1;
+    p.setReportSender([&](const std::string&, std::uint16_t, std::uint8_t, std::uint8_t,
+                          std::int16_t lx, std::int16_t, std::int16_t, std::int16_t) {
+        lastLx = lx;
+    });
+    p.setDeadzones("pad", {5000, 0});
+    p.remove("pad");
+    // After remove, a fresh publish should not pull the old deadzone — small
+    // input passes through.
+    GamepadInputProcessor::DeviceState s;
+    s.lx = 100;
+    p.publish("pad", s);
+    REQUIRE(lastLx == 100);
 }

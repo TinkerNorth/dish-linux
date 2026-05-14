@@ -42,6 +42,10 @@ PairResponse PairResponse::fromJson(const QJsonObject& obj) {
     r.ok = obj.value("ok").toBool(false);
     if (auto e = optString(obj, "error"); !e.isEmpty()) { r.error = e; }
     if (auto k = optString(obj, "sharedKey"); !k.isEmpty()) { r.sharedKey = k; }
+    // We got far enough to parse a JSON body, so the server is reachable —
+    // even if ok=false. PairingClient sets reachable=false explicitly on
+    // every network-level error path.
+    r.reachable = true;
     return r;
 }
 

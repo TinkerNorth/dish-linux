@@ -26,10 +26,24 @@ models::PairResponse makeError(const char* msg) {
     models::PairResponse r;
     r.ok = false;
     r.error = QString::fromLatin1(msg);
+    // Synthesized network-error responses are unreachable by construction —
+    // we never made it far enough to receive a JSON body. fromJson flips this
+    // to true on the success path.
+    r.reachable = false;
     return r;
 }
 
 } // namespace
+
+PairingClient::Outcome PairingClient::classify(const models::PairResponse& response) {
+    if (response.ok && response.sharedKey.has_value() && !response.sharedKey->isEmpty()) {
+        return Success{*response.sharedKey};
+    }
+    if (response.reachable) {
+        return AuthRequired{};
+    }
+    return Unreachable{response.error.value_or(QStringLiteral("Server unreachable"))};
+}
 
 models::PairResponse PairingClient::pair(const QString& ip, int port, const QString& deviceId,
                                          const QString& deviceName, const QString& pin) {

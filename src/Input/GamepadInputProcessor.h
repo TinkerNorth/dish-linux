@@ -58,6 +58,20 @@ class GamepadInputProcessor {
         }
     };
 
+    // Per-axis deadzone thresholds. Values whose absolute magnitude is at or
+    // below the flat are zeroed before the report leaves the processor —
+    // mirrors the per-device `flat` values Android pulls out of
+    // `InputDevice.getMotionRange(axis).getFlat()`. SDL2 doesn't surface an
+    // OS-level equivalent, so SDLGamepadBridge installs a sensible default
+    // when each device attaches.
+    struct Deadzones {
+        std::int16_t stickFlat = 0;
+        std::uint8_t triggerFlat = 0;
+        bool operator==(const Deadzones& o) const {
+            return stickFlat == o.stickFlat && triggerFlat == o.triggerFlat;
+        }
+    };
+
     struct TelemetrySnapshot {
         int events = 0;
         int sends = 0;
@@ -65,6 +79,7 @@ class GamepadInputProcessor {
     };
 
     void setReportSender(ReportSender sender);
+    void setDeadzones(const DeviceId& id, const Deadzones& dz);
     void publish(const DeviceId& id, const DeviceState& state);
     void zeroAndSendAll();
     void remove(const DeviceId& id);
@@ -73,6 +88,7 @@ class GamepadInputProcessor {
   private:
     std::mutex mtx_;
     std::unordered_map<DeviceId, DeviceState> states_;
+    std::unordered_map<DeviceId, Deadzones> deadzones_;
     ReportSender sender_;
     int telEvents_ = 0;
     int telSends_ = 0;
@@ -82,5 +98,11 @@ class GamepadInputProcessor {
 // Pure helpers — easily testable.
 std::int16_t scaleAxis(float v, float maxMagnitude);
 std::uint8_t scaleTrigger(float v);
+
+// Pure deadzone application. Sticks: `|v| <= flat → 0`. Triggers: `v <= flat
+// → 0`. Buttons are passed through. Extracted as a free function so tests can
+// pin the arithmetic without the processor's lock plumbing.
+GamepadInputProcessor::DeviceState applyDeadzones(const GamepadInputProcessor::DeviceState& state,
+                                                  const GamepadInputProcessor::Deadzones& dz);
 
 } // namespace dish::input
