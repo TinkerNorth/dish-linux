@@ -47,7 +47,13 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
         -Wshadow -Wnon-virtual-dtor -Wold-style-cast
         -Wcast-align -Wunused -Woverloaded-virtual
         -Wconversion -Wsign-conversion -Wnull-dereference
-        -Wdouble-promotion -Wformat=2)
+        -Wdouble-promotion -Wformat=2
+        # Qt's qC{Debug,Info,Warning,Critical} logging macros are declared
+        # as `(category, ...)`. The streaming form `qCInfo(cat) << "msg"`
+        # passes zero variadic args, which -Wpedantic flags as
+        # gnu-zero-variadic-macro-arguments (an error under clang-tidy's
+        # frontend). The streaming form is the standard Qt idiom; suppress.
+        -Wno-gnu-zero-variadic-macro-arguments)
     if(DISH_ENABLE_WARNINGS)
         target_compile_options(dish_strict INTERFACE -Werror)
     endif()
