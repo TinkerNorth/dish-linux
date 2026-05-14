@@ -160,7 +160,8 @@ void AppModel::rebuild() {
     for (const auto& summary : state_.connections) {
         connectionStates.insert(summary.id, summary.live);
     }
-    const int streamingCount = util::ScreenWakeController::streamingCount(bindings, connectionStates);
+    const int streamingCount =
+        util::ScreenWakeController::streamingCount(bindings, connectionStates);
     wake_.update(streamingCount);
 
     emit stateChanged();

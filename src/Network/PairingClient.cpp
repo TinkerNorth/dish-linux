@@ -39,9 +39,7 @@ PairingClient::Outcome PairingClient::classify(const models::PairResponse& respo
     if (response.ok && response.sharedKey.has_value() && !response.sharedKey->isEmpty()) {
         return Success{*response.sharedKey};
     }
-    if (response.reachable) {
-        return AuthRequired{};
-    }
+    if (response.reachable) { return AuthRequired{}; }
     return Unreachable{response.error.value_or(QStringLiteral("Server unreachable"))};
 }
 

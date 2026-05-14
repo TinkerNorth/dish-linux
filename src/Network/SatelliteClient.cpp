@@ -240,8 +240,8 @@ void SatelliteClient::processIncoming(const std::uint8_t* buf, std::size_t n) {
         // parseRumbleMessage works on the payload region for parity with the
         // unit-test seam, so adjust the pointer/length accordingly.
         if (plainLen < 4) { return; }
-        const auto rm = parseRumbleMessage(plain.data() + 4,
-                                           static_cast<std::size_t>(plainLen) - 4);
+        const auto rm =
+            parseRumbleMessage(plain.data() + 4, static_cast<std::size_t>(plainLen) - 4);
         if (!rm) { return; }
         RumbleHandler handler;
         {
