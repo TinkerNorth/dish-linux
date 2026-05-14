@@ -3,11 +3,12 @@
 
 #pragma once
 
-#include <QDialog>
+#include <QWidget>
 
-class QListWidget;
-class QPushButton;
 class QLabel;
+class QListWidget;
+class QProgressBar;
+class QPushButton;
 
 namespace dish {
 class AppModel;
@@ -15,12 +16,15 @@ class AppModel;
 
 namespace dish::ui {
 
-// "Manage connections" sheet — discovery, connect, forget. Mirrors the Mac
-// ConnectionsView.
-class ConnectionsDialog : public QDialog {
+// Connections page — discovery, connect, forget. Lives inside the
+// MainWindow QStackedWidget. Replaces the prior modal ConnectionsDialog.
+class ConnectionsPage : public QWidget {
     Q_OBJECT
   public:
-    ConnectionsDialog(AppModel* model, QWidget* parent = nullptr);
+    ConnectionsPage(AppModel* model, QWidget* parent = nullptr);
+
+  signals:
+    void backRequested();
 
   private:
     void rebuildLists();
@@ -32,6 +36,9 @@ class ConnectionsDialog : public QDialog {
     QListWidget* discoveredList_;
     QListWidget* rememberedList_;
     QPushButton* scanButton_;
+    QPushButton* connectButton_;
+    QPushButton* forgetButton_;
+    QProgressBar* scanSpinner_;
     QLabel* statusLabel_;
 };
 

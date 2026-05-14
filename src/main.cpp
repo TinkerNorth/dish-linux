@@ -7,6 +7,7 @@
 
 #include <QApplication>
 #include <QGuiApplication>
+#include <QIcon>
 
 #include <sodium.h>
 
@@ -23,6 +24,7 @@ int main(int argc, char* argv[]) {
     QCoreApplication::setOrganizationDomain(QStringLiteral("tinkernorth.dev"));
     QCoreApplication::setApplicationName(QStringLiteral("Dish"));
     QGuiApplication::setDesktopFileName(QStringLiteral("dish"));
+    QGuiApplication::setWindowIcon(QIcon(QStringLiteral(":/icons/dish.svg")));
 
     dish::ui::applyDishTheme(app);
 

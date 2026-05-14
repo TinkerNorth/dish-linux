@@ -27,9 +27,6 @@ void GamepadInputProcessor::publish(const DeviceId& id, const DeviceState& state
         if (auto it = deadzones_.find(id); it != deadzones_.end()) { dz = it->second; }
         filtered = applyDeadzones(state, dz);
         states_[id] = filtered;
-        ++telEvents_;
-        ++telSends_;
-        ++telTotalSent_;
         snapshot = sender_;
     }
     if (snapshot) {
@@ -58,14 +55,6 @@ void GamepadInputProcessor::remove(const DeviceId& id) {
     std::lock_guard<std::mutex> lock(mtx_);
     states_.erase(id);
     deadzones_.erase(id);
-}
-
-GamepadInputProcessor::TelemetrySnapshot GamepadInputProcessor::drainTelemetry() {
-    std::lock_guard<std::mutex> lock(mtx_);
-    TelemetrySnapshot snap{telEvents_, telSends_, telTotalSent_};
-    telEvents_ = 0;
-    telSends_ = 0;
-    return snap;
 }
 
 std::int16_t scaleAxis(float v, float maxMagnitude) {

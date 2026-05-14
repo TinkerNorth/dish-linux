@@ -64,12 +64,19 @@ class WifiConnection : public QObject {
     void attachSlot(const QString& slotId, int controllerType);
     void detachSlot();
 
+    bool isRegisteringController() const { return controllerRegistering_; }
+
     // Hot path: called directly from the SDL gamepad thread.
     void sendReport(std::uint16_t buttons, std::uint8_t lt, std::uint8_t rt, std::int16_t lx,
                     std::int16_t ly, std::int16_t rx, std::int16_t ry);
 
   signals:
     void changed();
+    void errorOccurred(const QString& message);
+    // Emitted when the in-flight controller registration for `slotId` was
+    // rejected or timed out. Listened to by ConnectionHub to roll back the
+    // local binding so the UI reflects reality.
+    void registrationFailed(const QString& slotId);
 
   private:
     static constexpr int kDefaultCtrlIndex = 0;
@@ -78,6 +85,8 @@ class WifiConnection : public QObject {
     static constexpr int kAckWaitIntervalMs = 100;
 
     void registerController(int type);
+    void pollControllerAck();
+    void finishRegistration();
 
     QString id_;
     models::DiscoveredServer server_;
@@ -87,6 +96,9 @@ class WifiConnection : public QObject {
 
     ClientRef clientRef_;
     QTimer* aliveTimer_ = nullptr;
+    QTimer* ackPollTimer_ = nullptr;
+    int ackPollCount_ = 0;
+    bool controllerRegistering_ = false;
     std::function<void()> onDead_;
     bool controllerAdded_ = false;
     int pendingControllerType_ = 0;

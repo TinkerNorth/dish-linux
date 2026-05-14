@@ -120,12 +120,15 @@ set(DISH_UI_SOURCES
     src/UI/Theme.cpp
     src/UI/SlotCard.h
     src/UI/SlotCard.cpp
-    src/UI/PairingDialog.h
-    src/UI/PairingDialog.cpp
-    src/UI/ConnectionsDialog.h
-    src/UI/ConnectionsDialog.cpp
+    src/UI/PairingPage.h
+    src/UI/PairingPage.cpp
+    src/UI/ConnectionsPage.h
+    src/UI/ConnectionsPage.cpp
+    src/UI/ErrorBanner.h
+    src/UI/ErrorBanner.cpp
     src/UI/MainWindow.h
     src/UI/MainWindow.cpp
+    resources/icons.qrc
     src/main.cpp)
 
 add_executable(Dish ${DISH_UI_SOURCES})

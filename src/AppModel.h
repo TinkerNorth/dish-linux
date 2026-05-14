@@ -33,6 +33,9 @@ struct MainUiState {
     QList<models::ControllerSlot> slotList;
     QList<models::ConnectionSummary> connections;
     std::optional<models::DiscoveredServer> pairingTarget;
+    // True while any WiFi connection is registering a controller. Drives the
+    // dashboard's indeterminate spinner.
+    bool busy = false;
 };
 
 // Top-level application state. Owns the network + input layers and stitches

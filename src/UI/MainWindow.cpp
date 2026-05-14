@@ -4,20 +4,22 @@
 #include "MainWindow.h"
 
 #include "AppModel.h"
-#include "ConnectionsDialog.h"
+#include "ConnectionsPage.h"
+#include "ErrorBanner.h"
 #include "Network/ConnectionHub.h"
+#include "Network/WifiConnection.h"
 #include "Network/WifiConnectionManager.h"
-#include "PairingDialog.h"
+#include "PairingPage.h"
 #include "SlotCard.h"
 #include "Theme.h"
 
 #include <QHBoxLayout>
+#include <QIcon>
 #include <QLabel>
-#include <QMessageBox>
+#include <QProgressBar>
 #include <QPushButton>
 #include <QScrollArea>
-#include <QStatusBar>
-#include <QTimer>
+#include <QStackedWidget>
 #include <QVBoxLayout>
 
 namespace dish::ui {
@@ -27,24 +29,60 @@ MainWindow::MainWindow(AppModel* model, QWidget* parent) : QMainWindow(parent), 
     resize(520, 640);
 
     auto* central = new QWidget(this);
-    auto* root = new QVBoxLayout(central);
+    auto* centralLayout = new QVBoxLayout(central);
+    centralLayout->setContentsMargins(0, 0, 0, 0);
+    centralLayout->setSpacing(0);
+    setCentralWidget(central);
+
+    stack_ = new QStackedWidget(central);
+    centralLayout->addWidget(stack_, 1);
+
+    errorBanner_ = new ErrorBanner(central);
+    auto* bannerWrap = new QHBoxLayout;
+    bannerWrap->setContentsMargins(20, 0, 20, 16);
+    bannerWrap->addWidget(errorBanner_);
+    centralLayout->addLayout(bannerWrap);
+
+    dashboardPage_ = new QWidget(stack_);
+    buildDashboardPage();
+    stack_->addWidget(dashboardPage_);
+
+    connectionsPage_ = new ConnectionsPage(model_, stack_);
+    stack_->addWidget(connectionsPage_);
+
+    pairingPage_ = new PairingPage(stack_);
+    stack_->addWidget(pairingPage_);
+
+    QObject::connect(connectionsPage_, &ConnectionsPage::backRequested, this,
+                     &MainWindow::showDashboard);
+    QObject::connect(pairingPage_, &PairingPage::cancelRequested, this,
+                     &MainWindow::returnFromPairing);
+    QObject::connect(pairingPage_, &PairingPage::pairRequested, this, &MainWindow::onPairSubmit);
+
+    QObject::connect(model_, &AppModel::stateChanged, this, &MainWindow::onStateChanged);
+    QObject::connect(model_, &AppModel::errorMessage, this, &MainWindow::onError);
+
+    onStateChanged();
+}
+
+void MainWindow::buildDashboardPage() {
+    auto* root = new QVBoxLayout(dashboardPage_);
     root->setContentsMargins(20, 20, 20, 20);
     root->setSpacing(16);
 
-    // Header --------------------------------------------------------------
     auto* headerRow = new QHBoxLayout;
     headerRow->setSpacing(10);
-    statusDot_ = new QLabel(central);
+    statusDot_ = new QLabel(dashboardPage_);
     statusDot_->setFixedSize(8, 8);
     statusDot_->setStyleSheet(dotQss(Theme::muted));
-    statusText_ = new QLabel(central);
+    statusText_ = new QLabel(dashboardPage_);
     statusText_->setStyleSheet(QStringLiteral("font-size: 17px; font-weight: 600;"));
-    manageButton_ = new QPushButton(QStringLiteral("Manage"), central);
+    manageButton_ = new QPushButton(QStringLiteral("Manage"), dashboardPage_);
     headerRow->addWidget(statusDot_, 0, Qt::AlignVCenter);
     headerRow->addWidget(statusText_, 1, Qt::AlignVCenter);
     headerRow->addWidget(manageButton_, 0, Qt::AlignVCenter);
 
-    summaryText_ = new QLabel(central);
+    summaryText_ = new QLabel(dashboardPage_);
     summaryText_->setStyleSheet(
         QStringLiteral("color: %1; font-size: 12px;").arg(hex(Theme::muted)));
 
@@ -54,17 +92,26 @@ MainWindow::MainWindow(AppModel* model, QWidget* parent) : QMainWindow(parent), 
     headerBox->addWidget(summaryText_);
     root->addLayout(headerBox);
 
-    auto* divider = new QFrame(central);
+    dashboardSpinner_ = new QProgressBar(dashboardPage_);
+    dashboardSpinner_->setRange(0, 0);
+    dashboardSpinner_->setTextVisible(false);
+    dashboardSpinner_->setFixedHeight(4);
+    auto dashSp = dashboardSpinner_->sizePolicy();
+    dashSp.setRetainSizeWhenHidden(true);
+    dashboardSpinner_->setSizePolicy(dashSp);
+    dashboardSpinner_->setVisible(false);
+    root->addWidget(dashboardSpinner_);
+
+    auto* divider = new QFrame(dashboardPage_);
     divider->setFrameShape(QFrame::HLine);
     divider->setStyleSheet(QStringLiteral("color: %1;").arg(hex(Theme::outline)));
     root->addWidget(divider);
 
-    // Controllers section -------------------------------------------------
-    auto* slotsHeader = new QLabel(QStringLiteral("CONTROLLERS"), central);
+    auto* slotsHeader = new QLabel(QStringLiteral("CONTROLLERS"), dashboardPage_);
     slotsHeader->setStyleSheet(sectionHeaderQss());
     root->addWidget(slotsHeader);
 
-    auto* scroll = new QScrollArea(central);
+    auto* scroll = new QScrollArea(dashboardPage_);
     scroll->setWidgetResizable(true);
     scroll->setFrameShape(QFrame::NoFrame);
     auto* slotsContainer = new QWidget(scroll);
@@ -79,41 +126,25 @@ MainWindow::MainWindow(AppModel* model, QWidget* parent) : QMainWindow(parent), 
     scroll->setWidget(slotsContainer);
     root->addWidget(scroll, 1);
 
-    // Telemetry footer ----------------------------------------------------
-    auto* footer = new QHBoxLayout;
-    telemetryLeft_ = new QLabel(central);
-    telemetryRight_ = new QLabel(central);
-    const QString footerStyle =
-        QStringLiteral("color: %1; font-family: monospace; font-size: 10px;")
-            .arg(hex(Theme::muted));
-    telemetryLeft_->setStyleSheet(footerStyle);
-    telemetryRight_->setStyleSheet(footerStyle);
-    footer->addWidget(telemetryLeft_);
-    footer->addStretch(1);
-    footer->addWidget(telemetryRight_);
-    root->addLayout(footer);
-
-    setCentralWidget(central);
-
     QObject::connect(manageButton_, &QPushButton::clicked, this, &MainWindow::onManageClicked);
-    // Single observer on the canonical state slice — rebuild header + slot list
-    // and react to any pending pairing prompt every time state changes.
-    QObject::connect(model_, &AppModel::stateChanged, this, &MainWindow::onStateChanged);
-    QObject::connect(model_, &AppModel::errorMessage, this, &MainWindow::onError);
-
-    telemetryTimer_ = new QTimer(this);
-    telemetryTimer_->setInterval(1'000);
-    QObject::connect(telemetryTimer_, &QTimer::timeout, this, &MainWindow::onTelemetryTick);
-    telemetryTimer_->start();
-
-    onStateChanged();
-    onTelemetryTick();
 }
 
 void MainWindow::onStateChanged() {
     rebuildHeader();
     rebuildSlotList();
-    if (model_->state().pairingTarget.has_value()) { showPairingPrompt(); }
+    dashboardSpinner_->setVisible(model_->state().busy);
+    if (awaitingPair_) {
+        for (const auto& c : model_->state().connections) {
+            if (c.id == awaitingPairConnectionId_ && c.live == models::ConnectionLive::Connected) {
+                awaitingPair_ = false;
+                awaitingPairConnectionId_.clear();
+                pairingPage_->setPending(false);
+                returnFromPairing();
+                break;
+            }
+        }
+    }
+    if (model_->state().pairingTarget.has_value()) { maybeShowPairingPage(); }
 }
 
 void MainWindow::rebuildHeader() {
@@ -186,36 +217,48 @@ void MainWindow::rebuildSlotList() {
     }
 }
 
-void MainWindow::showPairingPrompt() {
+void MainWindow::maybeShowPairingPage() {
     auto target = model_->state().pairingTarget;
     if (!target.has_value()) { return; }
-    PairingDialog dlg(*target, this);
-    const auto server = *target;
+    pairingPage_->setServer(*target);
     model_->clearPairingTarget();
-    if (dlg.exec() == QDialog::Accepted) { model_->wifi()->pairWithPin(server, dlg.pin()); }
+    auto* current = stack_->currentWidget();
+    pairingReturnPage_ = (current == pairingPage_) ? dashboardPage_ : current;
+    stack_->setCurrentWidget(pairingPage_);
 }
 
 void MainWindow::onError(const QString& msg) {
-    QMessageBox::warning(this, QStringLiteral("Error"), msg);
+    if (awaitingPair_) {
+        awaitingPair_ = false;
+        awaitingPairConnectionId_.clear();
+        pairingPage_->setPending(false);
+    }
+    errorBanner_->showError(msg);
 }
 
-void MainWindow::onTelemetryTick() {
-    auto snap = model_->processor()->drainTelemetry();
-    telemetryTotal_ = snap.totalSent;
-    telemetryLeft_->setText(
-        QStringLiteral("events/s %1   sends/s %2").arg(snap.events).arg(snap.sends));
-    telemetryRight_->setText(QStringLiteral("total %1").arg(telemetryTotal_));
-}
-
-void MainWindow::onManageClicked() {
-    ConnectionsDialog dlg(model_, this);
-    dlg.exec();
-}
+void MainWindow::onManageClicked() { stack_->setCurrentWidget(connectionsPage_); }
 
 void MainWindow::onBindRequested(const QString& slotId, const QString& connectionId) {
     model_->hub()->bind(slotId, connectionId);
 }
 
 void MainWindow::onUnbindRequested(const QString& slotId) { model_->hub()->unbind(slotId); }
+
+void MainWindow::showDashboard() { stack_->setCurrentWidget(dashboardPage_); }
+
+void MainWindow::returnFromPairing() {
+    awaitingPair_ = false;
+    awaitingPairConnectionId_.clear();
+    pairingPage_->setPending(false);
+    stack_->setCurrentWidget(pairingReturnPage_ != nullptr ? pairingReturnPage_ : dashboardPage_);
+    pairingReturnPage_ = nullptr;
+}
+
+void MainWindow::onPairSubmit(const models::DiscoveredServer& server, const QString& pin) {
+    awaitingPair_ = true;
+    awaitingPairConnectionId_ = net::WifiConnection::idFor(server);
+    pairingPage_->setPending(true);
+    model_->wifi()->pairWithPin(server, pin);
+}
 
 } // namespace dish::ui

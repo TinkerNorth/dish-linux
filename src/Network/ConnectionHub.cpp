@@ -12,6 +12,8 @@ namespace dish::net {
 ConnectionHub::ConnectionHub(WifiConnectionManager* wifi, ConnectionStore* store, QObject* parent)
     : QObject(parent), wifi_(wifi), store_(store) {
     QObject::connect(wifi_, &WifiConnectionManager::poolChanged, this, &ConnectionHub::rebuild);
+    QObject::connect(wifi_, &WifiConnectionManager::slotRegistrationFailed, this,
+                     &ConnectionHub::unbind);
     rebuild();
 }
 
