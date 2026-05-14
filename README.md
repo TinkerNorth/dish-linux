@@ -99,6 +99,43 @@ behaviour stays predictable across platforms:
   enum), USB VID / PID, and the SDL GUID. Aimed at users reporting *"my pad
   doesn't work"* — same idea as Android's SatelliteJNI `DEVCAPS` log.
 
+## Rumble (return path)
+
+Rumble flows the opposite direction to the input hot path: a game on the
+satellite host writes to the virtual controller's vibration channel, the
+satellite forwards a `MSG_RUMBLE = 0x0009` packet back over the encrypted
+UDP socket, and the dish actuates the matching SDL controller.
+
+```
+  ┌──────────────────────┐      ┌──────────────────────┐      ┌──────────────────────┐
+  │ SatelliteClient      │ ───► │ WifiConnection       │ ───► │ SDLGamepadBridge     │
+  │  • receive thread    │      │  • per-conn handler  │      │  • applyRumble(...)  │
+  │  • parseRumbleMsg    │      │    (installed by     │      │    → SDL_Game-       │
+  │  • dispatch to       │      │     AppModel via     │      │      ControllerRumble│
+  │    handler           │      │     poolChanged)     │      │    → ...SetLED       │
+  └──────────────────────┘      └──────────────────────┘      └──────────┬───────────┘
+                                                                         │
+                                                                         ▼
+                                                                evdev EVIOCSFF
+                                                                (or BT-HID rumble)
+```
+
+The wire format is documented in
+[`satellite/README.md`](https://github.com/TinkerNorth/satellite#rumble-return-path).
+On the dish-linux side:
+
+* **Parser** — `SatelliteClient::parseRumbleMessage` is a pure static
+  decoder so unit tests can exercise byte layouts without a live socket
+  (see `tests/test_satellite_client_rumble.cpp`).
+* **Routing** — `AppModel::installRumbleHandlers` walks the `WifiConnection`
+  pool on every `poolChanged` and attaches a handler that resolves
+  `connId → slotId → deviceId` via the `ConnectionHub` bindings, then
+  calls `SDLGamepadBridge::applyRumble`.
+* **Actuation** — `SDL_GameControllerRumble(strong, weak, durMs)` for the
+  motors; `SDL_GameControllerSetLED(R, G, B)` when the satellite published
+  a DS4 lightbar colour. Failures are silent — many pads don't support
+  either operation and there's nothing actionable for the player.
+
 ## Requirements
 
 - A reasonably current Linux distro (Ubuntu 22.04+, Fedora 38+, Arch, …)
