@@ -53,6 +53,7 @@ void WifiConnection::markConnected(std::shared_ptr<SatelliteClient> client,
     onDead_ = std::move(onDead);
 
     client->resetControllerAck();
+    if (rumbleHandler_) { client->setRumbleHandler(rumbleHandler_); }
     client->startReceiveLoop();
     client->startHeartbeat();
 
@@ -178,6 +179,13 @@ void WifiConnection::sendReport(std::uint16_t buttons, std::uint8_t lt, std::uin
     if (auto c = clientRef_.get()) {
         c->sendReport(kDefaultCtrlIndex, buttons, lt, rt, lx, ly, rx, ry);
     }
+}
+
+void WifiConnection::setRumbleHandler(RumbleHandler handler) {
+    rumbleHandler_ = std::move(handler);
+    // Apply immediately if a session is already live; otherwise markConnected
+    // will pick up the new handler the next time it runs.
+    if (auto c = clientRef_.get()) { c->setRumbleHandler(rumbleHandler_); }
 }
 
 } // namespace dish::net

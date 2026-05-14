@@ -23,7 +23,9 @@
 #include <array>
 #include <atomic>
 #include <cstdint>
+#include <functional>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <thread>
 #include <vector>
@@ -40,6 +42,7 @@ class SatelliteClient {
     static constexpr std::uint16_t kMsgControllerAck = 0x0006;
     static constexpr std::uint16_t kMsgServerStatus = 0x0007;
     static constexpr std::uint16_t kMsgControllerType = 0x0008;
+    static constexpr std::uint16_t kMsgRumble = 0x0009;
 
     static constexpr std::uint32_t kHeartbeatIntervalMs = 2000;
     static constexpr int kHeartbeatMissMax = 5;
@@ -68,6 +71,40 @@ class SatelliteClient {
     void controllerRemove(int index);
     void sendControllerType(int index, int type);
     void resetControllerAck() { lastControllerAck_.store(-1, std::memory_order_relaxed); }
+
+    // Decoded rumble message from the satellite. `lightbar*` are valid only
+    // when `hasLightbar` is true (the wire format's optional trailing 3 bytes).
+    struct RumbleMessage {
+        int controllerIndex = 0;
+        std::uint16_t strongMagnitude = 0;
+        std::uint16_t weakMagnitude = 0;
+        std::uint16_t durationMs = 0;
+        bool hasLightbar = false;
+        std::uint8_t lightbarR = 0;
+        std::uint8_t lightbarG = 0;
+        std::uint8_t lightbarB = 0;
+    };
+
+    // Install (or replace) the rumble callback. Invoked from the receive
+    // loop's thread for every parsed MSG_RUMBLE packet. The handler is
+    // expected to enqueue / forward to the actuator without blocking; we
+    // hold an internal lock around assignment to avoid a TOCTOU on the read
+    // side, but the call itself runs unlocked.
+    using RumbleHandler = std::function<void(const RumbleMessage&)>;
+    void setRumbleHandler(RumbleHandler handler);
+
+    // Pure decoder for the MSG_RUMBLE inner payload (the 4-byte header
+    // {type, length} has already been stripped). Returns std::nullopt on
+    // truncation; see ClientAdapter::sendRumble for the producer side. Kept
+    // public + static so it can be exercised by unit tests without a live
+    // socket.
+    //
+    // Wire layout:
+    //   ctrlIdx(1) strong(2 BE) weak(2 BE) durMs(2 BE) flags(1) [R(1) G(1) B(1)]
+    //
+    // `flags` bit 0 set ⇒ trailing R/G/B bytes are present (DS4 lightbar).
+    static std::optional<RumbleMessage> parseRumbleMessage(const std::uint8_t* payload,
+                                                           std::size_t len);
 
     void startHeartbeat();
     void stopHeartbeat();
@@ -112,6 +149,12 @@ class SatelliteClient {
     std::atomic<std::int32_t> lastControllerAck_{-1};
     std::atomic<std::int8_t> vigemAvailable_{-1};
     std::atomic<std::int8_t> activeControllerCount_{-1};
+
+    // Read on every parsed MSG_RUMBLE on the receive thread; written from
+    // the owning thread (Qt main) via setRumbleHandler. A short critical
+    // section (handler copy under lock) keeps the hot-path call unlocked.
+    std::mutex rumbleHandlerMtx_;
+    RumbleHandler rumbleHandler_;
 };
 
 } // namespace dish::net

@@ -20,6 +20,11 @@ AppModel::AppModel(std::unique_ptr<util::DisplaySleepInhibitor> inhibitor, QObje
                      &AppModel::onBridgeDevicesChanged);
     QObject::connect(wifi_, &net::WifiConnectionManager::connectionEvent, this,
                      &AppModel::onWifiEvent);
+    // poolChanged fires every time a WifiConnection is created or transitions
+    // state — perfect place to make sure new connections have a rumble
+    // handler. Idempotent on already-wired connections.
+    QObject::connect(wifi_, &net::WifiConnectionManager::poolChanged, this,
+                     &AppModel::installRumbleHandlers);
 
     autoReconnectTimer_->setInterval(15'000);
     QObject::connect(autoReconnectTimer_, &QTimer::timeout, this,
@@ -42,6 +47,34 @@ AppModel::AppModel(std::unique_ptr<util::DisplaySleepInhibitor> inhibitor, QObje
 }
 
 AppModel::~AppModel() { bridge_->stop(); }
+
+void AppModel::installRumbleHandlers() {
+    for (auto* conn : wifi_->connections()) {
+        const QString id = conn->id();
+        if (rumbleWiredConnections_.contains(id)) { continue; }
+        rumbleWiredConnections_.insert(id);
+        // Capture `this` and the connection id by value. The handler runs on
+        // the SatelliteClient receive thread; it only reads structures
+        // protected by their own locks (hub bindings, bridge device map).
+        conn->setRumbleHandler([this, id](const net::SatelliteClient::RumbleMessage& rm) {
+            // Find the slot bound to this connection.
+            QString deviceId;
+            const auto bindings = hub_->bindings();
+            for (auto it = bindings.cbegin(); it != bindings.cend(); ++it) {
+                if (it.value() == id) {
+                    deviceId = it.key();
+                    break;
+                }
+            }
+            if (deviceId.isEmpty()) { return; }
+            // For dish-linux, slot.id == physical device.id (set in rebuild()),
+            // so the slot id IS the bridge's device id. Hand it straight to
+            // the SDL bridge.
+            bridge_->applyRumble(deviceId, rm.strongMagnitude, rm.weakMagnitude, rm.durationMs,
+                                 rm.hasLightbar, rm.lightbarR, rm.lightbarG, rm.lightbarB);
+        });
+    }
+}
 
 void AppModel::start() {
     bridge_->start();

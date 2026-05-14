@@ -153,6 +153,33 @@ void SDLGamepadBridge::runLoop() {
     SDL_QuitSubSystem(SDL_INIT_GAMECONTROLLER | SDL_INIT_JOYSTICK);
 }
 
+void SDLGamepadBridge::applyRumble(const QString& deviceId, std::uint16_t strongMagnitude,
+                                   std::uint16_t weakMagnitude, std::uint16_t durationMs,
+                                   bool hasLightbar, std::uint8_t lightbarR,
+                                   std::uint8_t lightbarG, std::uint8_t lightbarB) {
+    SDL_GameController* gc = nullptr;
+    {
+        std::lock_guard<std::mutex> lock(mtx_);
+        for (const auto& [iid, did] : deviceIds_) {
+            if (did == deviceId) {
+                if (auto it = openControllers_.find(iid); it != openControllers_.end()) {
+                    gc = it->second;
+                }
+                break;
+            }
+        }
+    }
+    if (gc == nullptr) { return; }
+    // SDL2's `SDL_GameControllerRumble` returns 0 on success, -1 if the device
+    // doesn't support rumble — silent: the caller has no recourse beyond the
+    // satellite-side game already running, which doesn't know either way.
+    SDL_GameControllerRumble(gc, strongMagnitude, weakMagnitude, durationMs);
+    if (hasLightbar) {
+        // SDL_GameControllerSetLED is a no-op on pads without a lightbar.
+        SDL_GameControllerSetLED(gc, lightbarR, lightbarG, lightbarB);
+    }
+}
+
 void SDLGamepadBridge::rebuildState(int iid) {
     SDL_GameController* gc = nullptr;
     std::string deviceId;
