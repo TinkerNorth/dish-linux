@@ -164,9 +164,8 @@ TEST_CASE("publish applies different deadzones per device", "[input]") {
     GamepadInputProcessor p;
     std::unordered_map<std::string, std::int16_t> byId;
     p.setReportSender([&](const std::string& id, std::uint16_t, std::uint8_t, std::uint8_t,
-                          std::int16_t lx, std::int16_t, std::int16_t, std::int16_t) {
-        byId[id] = lx;
-    });
+                          std::int16_t lx, std::int16_t, std::int16_t,
+                          std::int16_t) { byId[id] = lx; });
     p.setDeadzones("lax", {0, 0});
     p.setDeadzones("strict", {10000, 0});
     GamepadInputProcessor::DeviceState s;
@@ -181,9 +180,8 @@ TEST_CASE("remove clears deadzones too", "[input]") {
     GamepadInputProcessor p;
     std::int16_t lastLx = -1;
     p.setReportSender([&](const std::string&, std::uint16_t, std::uint8_t, std::uint8_t,
-                          std::int16_t lx, std::int16_t, std::int16_t, std::int16_t) {
-        lastLx = lx;
-    });
+                          std::int16_t lx, std::int16_t, std::int16_t,
+                          std::int16_t) { lastLx = lx; });
     p.setDeadzones("pad", {5000, 0});
     p.remove("pad");
     // After remove, a fresh publish should not pull the old deadzone — small

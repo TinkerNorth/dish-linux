@@ -155,8 +155,8 @@ void SDLGamepadBridge::runLoop() {
 
 void SDLGamepadBridge::applyRumble(const QString& deviceId, std::uint16_t strongMagnitude,
                                    std::uint16_t weakMagnitude, std::uint16_t durationMs,
-                                   bool hasLightbar, std::uint8_t lightbarR,
-                                   std::uint8_t lightbarG, std::uint8_t lightbarB) {
+                                   bool hasLightbar, std::uint8_t lightbarR, std::uint8_t lightbarG,
+                                   std::uint8_t lightbarB) {
     SDL_GameController* gc = nullptr;
     {
         std::lock_guard<std::mutex> lock(mtx_);
