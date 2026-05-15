@@ -181,6 +181,19 @@ void WifiConnection::sendReport(std::uint16_t buttons, std::uint8_t lt, std::uin
     }
 }
 
+void WifiConnection::sendMotion(std::int16_t gyroX, std::int16_t gyroY, std::int16_t gyroZ,
+                                std::int16_t accelX, std::int16_t accelY, std::int16_t accelZ,
+                                std::uint32_t timestampDeltaUs) {
+    if (auto c = clientRef_.get()) {
+        c->sendMotion(kDefaultCtrlIndex, gyroX, gyroY, gyroZ, accelX, accelY, accelZ,
+                      timestampDeltaUs);
+    }
+}
+
+void WifiConnection::sendBattery(std::uint8_t level, std::uint8_t status) {
+    if (auto c = clientRef_.get()) { c->sendBattery(kDefaultCtrlIndex, level, status); }
+}
+
 void WifiConnection::setRumbleHandler(RumbleHandler handler) {
     rumbleHandler_ = std::move(handler);
     // Apply immediately if a session is already live; otherwise markConnected

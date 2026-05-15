@@ -70,6 +70,16 @@ class WifiConnection : public QObject {
     void sendReport(std::uint16_t buttons, std::uint8_t lt, std::uint8_t rt, std::int16_t lx,
                     std::int16_t ly, std::int16_t rx, std::int16_t ry);
 
+    // Hot path: forward an IMU sample to the satellite. Called from the
+    // GamepadInputProcessor's motion publish path on the SDL sensor thread.
+    void sendMotion(std::int16_t gyroX, std::int16_t gyroY, std::int16_t gyroZ,
+                    std::int16_t accelX, std::int16_t accelY, std::int16_t accelZ,
+                    std::uint32_t timestampDeltaUs);
+
+    // Forward a battery sample to the satellite. Called from the battery-poll
+    // path on the SDL gamepad thread (30 s default cadence).
+    void sendBattery(std::uint8_t level, std::uint8_t status);
+
     // Install the per-connection rumble handler. The handler is invoked from
     // the SatelliteClient's receive thread on every MSG_RUMBLE we decode.
     // Stored on the WifiConnection (not the per-session SatelliteClient) so

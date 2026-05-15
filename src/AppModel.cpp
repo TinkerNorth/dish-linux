@@ -43,6 +43,27 @@ AppModel::AppModel(std::unique_ptr<util::DisplaySleepInhibitor> inhibitor, QObje
         if (sender) { sender(buttons, lt, rt, lx, ly, rx, ry); }
     });
 
+    processor_.setMotionSender([this](const std::string& did, std::int16_t gx, std::int16_t gy,
+                                      std::int16_t gz, std::int16_t ax, std::int16_t ay,
+                                      std::int16_t az, std::uint32_t dtUs) {
+        net::ConnectionHub::MotionSender sender;
+        {
+            std::lock_guard<std::mutex> lock(routingMtx_);
+            sender = motionRouting_.value(QString::fromStdString(did));
+        }
+        if (sender) { sender(gx, gy, gz, ax, ay, az, dtUs); }
+    });
+
+    processor_.setBatterySender(
+        [this](const std::string& did, std::uint8_t level, std::uint8_t status) {
+            net::ConnectionHub::BatterySender sender;
+            {
+                std::lock_guard<std::mutex> lock(routingMtx_);
+                sender = batteryRouting_.value(QString::fromStdString(did));
+            }
+            if (sender) { sender(level, status); }
+        });
+
     rebuild();
 }
 
@@ -141,15 +162,26 @@ void AppModel::rebuild() {
     }
     state_.busy = busy;
 
-    // Update the routing table to mirror the new slot/binding shape.
+    // Update the routing tables to mirror the new slot/binding shape.
     QHash<QString, net::ConnectionHub::ReportSender> nextRouting;
+    QHash<QString, net::ConnectionHub::MotionSender> nextMotion;
+    QHash<QString, net::ConnectionHub::BatterySender> nextBattery;
     for (const auto& slot : state_.slotList) {
-        auto sender = hub_->reportSenderForSlot(slot.id);
-        if (sender) { nextRouting.insert(slot.id, std::move(sender)); }
+        if (auto sender = hub_->reportSenderForSlot(slot.id)) {
+            nextRouting.insert(slot.id, std::move(sender));
+        }
+        if (auto sender = hub_->motionSenderForSlot(slot.id)) {
+            nextMotion.insert(slot.id, std::move(sender));
+        }
+        if (auto sender = hub_->batterySenderForSlot(slot.id)) {
+            nextBattery.insert(slot.id, std::move(sender));
+        }
     }
     {
         std::lock_guard<std::mutex> lock(routingMtx_);
         routing_ = std::move(nextRouting);
+        motionRouting_ = std::move(nextMotion);
+        batteryRouting_ = std::move(nextBattery);
     }
 
     // Drive the display-sleep inhibitor off bindings × hub.connections. The

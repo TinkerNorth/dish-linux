@@ -4,6 +4,7 @@
 #include "GamepadInputProcessor.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 
 namespace dish::input {
@@ -11,6 +12,16 @@ namespace dish::input {
 void GamepadInputProcessor::setReportSender(ReportSender sender) {
     std::lock_guard<std::mutex> lock(mtx_);
     sender_ = std::move(sender);
+}
+
+void GamepadInputProcessor::setMotionSender(MotionSender sender) {
+    std::lock_guard<std::mutex> lock(mtx_);
+    motionSender_ = std::move(sender);
+}
+
+void GamepadInputProcessor::setBatterySender(BatterySender sender) {
+    std::lock_guard<std::mutex> lock(mtx_);
+    batterySender_ = std::move(sender);
 }
 
 void GamepadInputProcessor::setDeadzones(const DeviceId& id, const Deadzones& dz) {
@@ -55,6 +66,59 @@ void GamepadInputProcessor::remove(const DeviceId& id) {
     std::lock_guard<std::mutex> lock(mtx_);
     states_.erase(id);
     deadzones_.erase(id);
+    lastMotionUs_.erase(id);
+    lastBattery_.erase(id);
+}
+
+bool GamepadInputProcessor::publishMotionAt(const DeviceId& id, const MotionSample& sample,
+                                            std::uint64_t nowUs) {
+    MotionSender snapshot;
+    std::uint32_t deltaUs = 0;
+    {
+        std::lock_guard<std::mutex> lock(mtx_);
+        auto it = lastMotionUs_.find(id);
+        const std::uint64_t prev = (it != lastMotionUs_.end()) ? it->second : 0;
+        if (prev != 0 && nowUs - prev < kMotionMinIntervalUs) {
+            // Inside the rate-limit window — drop. Deliberately do NOT update
+            // `prev`; otherwise a hot stream of dropped samples would push the
+            // gate forward and starve the legitimate sender for longer than
+            // one period.
+            return false;
+        }
+        if (prev != 0) {
+            const std::uint64_t d = nowUs - prev;
+            deltaUs = (d > 0xFFFFFFFFULL) ? 0xFFFFFFFFU : static_cast<std::uint32_t>(d);
+        }
+        lastMotionUs_[id] = nowUs;
+        snapshot = motionSender_;
+    }
+    if (snapshot) {
+        snapshot(id, sample.gyroX, sample.gyroY, sample.gyroZ, sample.accelX, sample.accelY,
+                 sample.accelZ, deltaUs);
+    }
+    return true;
+}
+
+void GamepadInputProcessor::publishMotion(const DeviceId& id, const MotionSample& sample) {
+    const auto now = std::chrono::steady_clock::now();
+    const auto us = static_cast<std::uint64_t>(
+        std::chrono::duration_cast<std::chrono::microseconds>(now.time_since_epoch()).count());
+    (void)publishMotionAt(id, sample, us);
+}
+
+void GamepadInputProcessor::publishBattery(const DeviceId& id, const BatterySample& sample) {
+    BatterySender snapshot;
+    {
+        std::lock_guard<std::mutex> lock(mtx_);
+        auto it = lastBattery_.find(id);
+        if (it != lastBattery_.end() && it->second == sample) {
+            // Coalesced — no state transition since the last successful send.
+            return;
+        }
+        lastBattery_[id] = sample;
+        snapshot = batterySender_;
+    }
+    if (snapshot) { snapshot(id, sample.level, sample.status); }
 }
 
 std::int16_t scaleAxis(float v, float maxMagnitude) {
