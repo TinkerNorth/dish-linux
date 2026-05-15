@@ -63,6 +63,11 @@ class SDLGamepadBridge : public QObject {
                      std::uint16_t weakMagnitude, std::uint16_t durationMs, bool hasLightbar,
                      std::uint8_t lightbarR, std::uint8_t lightbarG, std::uint8_t lightbarB);
 
+    // Drive the physical controller's LED to the given colour, independent of
+    // any rumble event. Wraps SDL_GameControllerSetLED for the device bound to
+    // `deviceId`. No-op for pads without an LED.
+    void applyLightbar(const QString& deviceId, std::uint8_t r, std::uint8_t g, std::uint8_t b);
+
   signals:
     void devicesChanged();
 

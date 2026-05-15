@@ -303,12 +303,40 @@ void SatelliteClient::processIncoming(const std::uint8_t* buf, std::size_t n) {
             handler = rumbleHandler_;
         }
         if (handler) { handler(*rm); }
+    } else if (msgType == kMsgLightbar) {
+        if (plainLen < 4) { return; }
+        const auto lm =
+            parseLightbarMessage(plain.data() + 4, static_cast<std::size_t>(plainLen) - 4);
+        if (!lm) { return; }
+        LightbarHandler handler;
+        {
+            std::lock_guard<std::mutex> lock(lightbarHandlerMtx_);
+            handler = lightbarHandler_;
+        }
+        if (handler) { handler(*lm); }
     }
 }
 
 void SatelliteClient::setRumbleHandler(RumbleHandler handler) {
     std::lock_guard<std::mutex> lock(rumbleHandlerMtx_);
     rumbleHandler_ = std::move(handler);
+}
+
+void SatelliteClient::setLightbarHandler(LightbarHandler handler) {
+    std::lock_guard<std::mutex> lock(lightbarHandlerMtx_);
+    lightbarHandler_ = std::move(handler);
+}
+
+std::optional<SatelliteClient::LightbarMessage>
+SatelliteClient::parseLightbarMessage(const std::uint8_t* payload, std::size_t len) {
+    // ctrlIdx + r + g + b = 4 bytes exactly.
+    if (payload == nullptr || len < 4) { return std::nullopt; }
+    LightbarMessage lm;
+    lm.controllerIndex = payload[0];
+    lm.r = payload[1];
+    lm.g = payload[2];
+    lm.b = payload[3];
+    return lm;
 }
 
 std::optional<SatelliteClient::RumbleMessage>

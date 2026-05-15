@@ -94,6 +94,19 @@ void AppModel::installRumbleHandlers() {
             bridge_->applyRumble(deviceId, rm.strongMagnitude, rm.weakMagnitude, rm.durationMs,
                                  rm.hasLightbar, rm.lightbarR, rm.lightbarG, rm.lightbarB);
         });
+        // Parallel handler for the dedicated MSG_LIGHTBAR stream (Task 1.4).
+        conn->setLightbarHandler([this, id](const net::SatelliteClient::LightbarMessage& lm) {
+            QString deviceId;
+            const auto bindings = hub_->bindings();
+            for (auto it = bindings.cbegin(); it != bindings.cend(); ++it) {
+                if (it.value() == id) {
+                    deviceId = it.key();
+                    break;
+                }
+            }
+            if (deviceId.isEmpty()) { return; }
+            bridge_->applyLightbar(deviceId, lm.r, lm.g, lm.b);
+        });
     }
 }
 

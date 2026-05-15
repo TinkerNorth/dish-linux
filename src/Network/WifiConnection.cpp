@@ -54,6 +54,7 @@ void WifiConnection::markConnected(std::shared_ptr<SatelliteClient> client,
 
     client->resetControllerAck();
     if (rumbleHandler_) { client->setRumbleHandler(rumbleHandler_); }
+    if (lightbarHandler_) { client->setLightbarHandler(lightbarHandler_); }
     client->startReceiveLoop();
     client->startHeartbeat();
 
@@ -199,6 +200,11 @@ void WifiConnection::setRumbleHandler(RumbleHandler handler) {
     // Apply immediately if a session is already live; otherwise markConnected
     // will pick up the new handler the next time it runs.
     if (auto c = clientRef_.get()) { c->setRumbleHandler(rumbleHandler_); }
+}
+
+void WifiConnection::setLightbarHandler(LightbarHandler handler) {
+    lightbarHandler_ = std::move(handler);
+    if (auto c = clientRef_.get()) { c->setLightbarHandler(lightbarHandler_); }
 }
 
 } // namespace dish::net

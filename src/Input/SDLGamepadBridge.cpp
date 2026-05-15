@@ -363,6 +363,24 @@ void SDLGamepadBridge::pollBatteries() {
     }
 }
 
+void SDLGamepadBridge::applyLightbar(const QString& deviceId, std::uint8_t r, std::uint8_t g,
+                                     std::uint8_t b) {
+    SDL_GameController* gc = nullptr;
+    {
+        std::lock_guard<std::mutex> lock(mtx_);
+        for (const auto& [iid, did] : deviceIds_) {
+            if (did == deviceId) {
+                if (auto it = openControllers_.find(iid); it != openControllers_.end()) {
+                    gc = it->second;
+                }
+                break;
+            }
+        }
+    }
+    if (gc == nullptr) { return; }
+    SDL_GameControllerSetLED(gc, r, g, b);
+}
+
 void SDLGamepadBridge::rebuildState(int iid) {
     SDL_GameController* gc = nullptr;
     std::string deviceId;
