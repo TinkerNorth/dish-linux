@@ -4,10 +4,12 @@
 #include "WifiConnectionManager.h"
 
 #include "LANDiscovery.h"
+#include "MdnsDiscovery.h"
 #include "PairingClient.h"
 #include "Util/Hex.h"
 
 #include <QHostInfo>
+#include <QSet>
 #include <QtConcurrent/QtConcurrent>
 
 #include <type_traits>
@@ -52,7 +54,29 @@ void WifiConnectionManager::startDiscovery() {
         }
         watcher->deleteLater();
     });
-    watcher->setFuture(QtConcurrent::run([] { return LANDiscovery::discover(); }));
+    // Two discovery paths in parallel, merged by ip:udpPort: the legacy UDP
+    // broadcast beacon and mDNS / Bonjour. mDNS reaches subnets that drop
+    // broadcast; the beacon stays as the fallback for pre-responder
+    // satellites. The mDNS scan runs on a second pool thread so the combined
+    // wall time is one timeout, not two.
+    watcher->setFuture(QtConcurrent::run([] {
+        auto mdnsFuture = QtConcurrent::run([] { return MdnsDiscovery::discover(); });
+        const QList<models::DiscoveredServer> beacon = LANDiscovery::discover();
+        const QList<models::DiscoveredServer> mdns = mdnsFuture.result();
+
+        QList<models::DiscoveredServer> merged;
+        QSet<QString> seen;
+        for (const auto* list : {&beacon, &mdns}) {
+            for (const auto& server : *list) {
+                const QString key =
+                    server.ip + QStringLiteral(":") + QString::number(server.udpPort);
+                if (seen.contains(key)) { continue; }
+                seen.insert(key);
+                merged.append(server);
+            }
+        }
+        return merged;
+    }));
 }
 
 WifiConnection* WifiConnectionManager::ensureConnection(const models::DiscoveredServer& server) {

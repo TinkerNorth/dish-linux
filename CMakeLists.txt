@@ -87,6 +87,8 @@ set(DISH_CORE_SOURCES
     src/Network/SatelliteClient.cpp
     src/Network/LANDiscovery.h
     src/Network/LANDiscovery.cpp
+    src/Network/MdnsDiscovery.h
+    src/Network/MdnsDiscovery.cpp
     src/Network/PairingClient.h
     src/Network/PairingClient.cpp
     src/Network/HTTPClient.h
