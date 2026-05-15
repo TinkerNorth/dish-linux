@@ -56,10 +56,10 @@ class GamepadInputProcessor {
         std::int16_t accelY = 0;
         std::int16_t accelZ = 0;
     };
-    using MotionSender = std::function<void(const DeviceId& id, std::int16_t gyroX,
-                                            std::int16_t gyroY, std::int16_t gyroZ,
-                                            std::int16_t accelX, std::int16_t accelY,
-                                            std::int16_t accelZ, std::uint32_t timestampDeltaUs)>;
+    using MotionSender =
+        std::function<void(const DeviceId& id, std::int16_t gyroX, std::int16_t gyroY,
+                           std::int16_t gyroZ, std::int16_t accelX, std::int16_t accelY,
+                           std::int16_t accelZ, std::uint32_t timestampDeltaUs)>;
 
     // Periodic battery sample destined for MSG_BATTERY. The processor
     // coalesces identical back-to-back values per device so a static

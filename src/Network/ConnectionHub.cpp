@@ -96,9 +96,8 @@ ConnectionHub::MotionSender ConnectionHub::motionSenderForSlot(const QString& sl
     auto* conn = wifi_->get(cid);
     if (conn == nullptr) { return {}; }
     return [conn](std::int16_t gx, std::int16_t gy, std::int16_t gz, std::int16_t ax,
-                  std::int16_t ay, std::int16_t az, std::uint32_t dtUs) {
-        conn->sendMotion(gx, gy, gz, ax, ay, az, dtUs);
-    };
+                  std::int16_t ay, std::int16_t az,
+                  std::uint32_t dtUs) { conn->sendMotion(gx, gy, gz, ax, ay, az, dtUs); };
 }
 
 ConnectionHub::BatterySender ConnectionHub::batterySenderForSlot(const QString& slotId) const {

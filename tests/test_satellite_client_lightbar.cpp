@@ -26,8 +26,8 @@ TEST_CASE("parseLightbarMessage decodes the 4-byte payload", "[lightbar]") {
 
 TEST_CASE("parseLightbarMessage rejects short payloads", "[lightbar]") {
     std::array<std::uint8_t, 3> shortPayload{};
-    REQUIRE_FALSE(
-        SatelliteClient::parseLightbarMessage(shortPayload.data(), shortPayload.size()).has_value());
+    REQUIRE_FALSE(SatelliteClient::parseLightbarMessage(shortPayload.data(), shortPayload.size())
+                      .has_value());
 
     REQUIRE_FALSE(SatelliteClient::parseLightbarMessage(nullptr, 0).has_value());
     REQUIRE_FALSE(SatelliteClient::parseLightbarMessage(shortPayload.data(), 0).has_value());

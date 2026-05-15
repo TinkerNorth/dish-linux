@@ -344,9 +344,7 @@ void SDLGamepadBridge::handleTouchpadEvent(const SDL_ControllerTouchpadEvent& ev
             deviceId = it->second.toStdString();
         }
         if (deviceId.empty()) { return; }
-        if (auto it = openControllers_.find(iid); it != openControllers_.end()) {
-            gc = it->second;
-        }
+        if (auto it = openControllers_.find(iid); it != openControllers_.end()) { gc = it->second; }
         // SDL's `finger` is the 0-based slot within the touchpad. The DS4 /
         // DualSense pad tracks up to two simultaneous contacts; ignore any
         // higher slot index defensively.

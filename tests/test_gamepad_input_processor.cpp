@@ -228,8 +228,10 @@ TEST_CASE("publishMotionAt forwards once the 4 ms gate elapses", "[motion]") {
     int calls = 0;
     std::uint32_t lastDt = 0;
     p.setMotionSender([&](const std::string&, std::int16_t, std::int16_t, std::int16_t,
-                          std::int16_t, std::int16_t, std::int16_t,
-                          std::uint32_t dt) { ++calls; lastDt = dt; });
+                          std::int16_t, std::int16_t, std::int16_t, std::uint32_t dt) {
+        ++calls;
+        lastDt = dt;
+    });
 
     GamepadInputProcessor::MotionSample s{};
     REQUIRE(p.publishMotionAt("pad-1", s, 0));
@@ -277,8 +279,10 @@ TEST_CASE("remove resets the motion rate-limit for that device", "[motion]") {
     int calls = 0;
     std::uint32_t lastDt = 99;
     p.setMotionSender([&](const std::string&, std::int16_t, std::int16_t, std::int16_t,
-                          std::int16_t, std::int16_t, std::int16_t,
-                          std::uint32_t dt) { ++calls; lastDt = dt; });
+                          std::int16_t, std::int16_t, std::int16_t, std::uint32_t dt) {
+        ++calls;
+        lastDt = dt;
+    });
 
     GamepadInputProcessor::MotionSample s{};
     REQUIRE(p.publishMotionAt("pad", s, 0));

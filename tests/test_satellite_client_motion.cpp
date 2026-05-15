@@ -53,15 +53,15 @@ TEST_CASE("encodeMotionPayload writes gyro / accel as LE int16", "[motion]") {
 }
 
 TEST_CASE("encodeMotionPayload writes timestampDeltaUs as LE uint32", "[motion]") {
-    const auto out = SatelliteClient::encodeMotionPayload(
-        0, 0, 0, 0, 0, 0, 0, /*dtUs=*/0xDEADBEEFU);
+    const auto out =
+        SatelliteClient::encodeMotionPayload(0, 0, 0, 0, 0, 0, 0, /*dtUs=*/0xDEADBEEFU);
     REQUIRE(readLe32(&out[13]) == 0xDEADBEEFU);
 }
 
 TEST_CASE("encodeMotionPayload handles full int16 range without overflow", "[motion]") {
-    const auto out = SatelliteClient::encodeMotionPayload(
-        0xFF, /*gx=*/-32768, /*gy=*/32767, /*gz=*/0,
-        /*ax=*/-32768, /*ay=*/32767, /*az=*/-1, /*dtUs=*/0);
+    const auto out =
+        SatelliteClient::encodeMotionPayload(0xFF, /*gx=*/-32768, /*gy=*/32767, /*gz=*/0,
+                                             /*ax=*/-32768, /*ay=*/32767, /*az=*/-1, /*dtUs=*/0);
     REQUIRE(out[0] == 0xFFU);
     REQUIRE(readLe16(&out[1]) == -32768);
     REQUIRE(readLe16(&out[3]) == 32767);

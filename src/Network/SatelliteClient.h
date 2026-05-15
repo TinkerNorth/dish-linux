@@ -104,9 +104,9 @@ class SatelliteClient {
     // for the same controller on this connection. 0 on the very first packet.
     //
     // Hot path: called from the SDL sensor-update thread.
-    void sendMotion(int controllerIndex, std::int16_t gyroX, std::int16_t gyroY,
-                    std::int16_t gyroZ, std::int16_t accelX, std::int16_t accelY,
-                    std::int16_t accelZ, std::uint32_t timestampDeltaUs);
+    void sendMotion(int controllerIndex, std::int16_t gyroX, std::int16_t gyroY, std::int16_t gyroZ,
+                    std::int16_t accelX, std::int16_t accelY, std::int16_t accelZ,
+                    std::uint32_t timestampDeltaUs);
 
     // Forward a single battery sample. `level` is 0..100 inclusive, or
     // `kBatteryLevelUnknown` (0xFF). `status` is one of the kBatteryStatus*
@@ -132,26 +132,26 @@ class SatelliteClient {
     // statically so unit tests can pin the byte format without bringing
     // up a live socket — the same pattern that parseRumbleMessage uses
     // for the return path.
-    static std::array<std::uint8_t, 17> encodeMotionPayload(
-        std::uint8_t controllerIndex, std::int16_t gyroX, std::int16_t gyroY, std::int16_t gyroZ,
-        std::int16_t accelX, std::int16_t accelY, std::int16_t accelZ,
-        std::uint32_t timestampDeltaUs);
+    static std::array<std::uint8_t, 17>
+    encodeMotionPayload(std::uint8_t controllerIndex, std::int16_t gyroX, std::int16_t gyroY,
+                        std::int16_t gyroZ, std::int16_t accelX, std::int16_t accelY,
+                        std::int16_t accelZ, std::uint32_t timestampDeltaUs);
 
     // Pure encoder for the MSG_BATTERY inner payload. Three bytes total:
     // ctrlIdx + level + status.
-    static std::array<std::uint8_t, 3> encodeBatteryPayload(std::uint8_t controllerIndex,
-                                                            std::uint8_t level,
-                                                            std::uint8_t status);
+    static std::array<std::uint8_t, 3>
+    encodeBatteryPayload(std::uint8_t controllerIndex, std::uint8_t level, std::uint8_t status);
 
     // Pure encoder for the MSG_TOUCHPAD inner payload. 12 bytes:
     // ctrlIdx(1) + flags(1) + finger0(id1 + x2 + y2) + finger1(id1 + x2 + y2).
     // `flags` bit 0 = finger0 active, bit 1 = finger1 active, bit 2 = button.
     // Coordinates are host-LE int16. Exposed statically so unit tests can pin
     // the byte layout without a live socket.
-    static std::array<std::uint8_t, 12> encodeTouchpadPayload(
-        std::uint8_t controllerIndex, bool finger0Active, std::uint8_t finger0Id,
-        std::int16_t finger0X, std::int16_t finger0Y, bool finger1Active, std::uint8_t finger1Id,
-        std::int16_t finger1X, std::int16_t finger1Y, bool buttonPressed);
+    static std::array<std::uint8_t, 12>
+    encodeTouchpadPayload(std::uint8_t controllerIndex, bool finger0Active, std::uint8_t finger0Id,
+                          std::int16_t finger0X, std::int16_t finger0Y, bool finger1Active,
+                          std::uint8_t finger1Id, std::int16_t finger1X, std::int16_t finger1Y,
+                          bool buttonPressed);
 
     // Decoded rumble message from the satellite. `lightbar*` are valid only
     // when `hasLightbar` is true (the wire format's optional trailing 3 bytes).

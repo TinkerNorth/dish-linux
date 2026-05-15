@@ -195,9 +195,8 @@ void WifiConnection::sendBattery(std::uint8_t level, std::uint8_t status) {
     if (auto c = clientRef_.get()) { c->sendBattery(kDefaultCtrlIndex, level, status); }
 }
 
-void WifiConnection::sendTouchpad(bool finger0Active, std::uint8_t finger0Id,
-                                  std::int16_t finger0X, std::int16_t finger0Y,
-                                  bool finger1Active, std::uint8_t finger1Id,
+void WifiConnection::sendTouchpad(bool finger0Active, std::uint8_t finger0Id, std::int16_t finger0X,
+                                  std::int16_t finger0Y, bool finger1Active, std::uint8_t finger1Id,
                                   std::int16_t finger1X, std::int16_t finger1Y,
                                   bool buttonPressed) {
     if (auto c = clientRef_.get()) {

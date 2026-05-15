@@ -228,8 +228,7 @@ QList<models::DiscoveredServer> MdnsDiscovery::discover(int timeoutMs) {
     ::inet_pton(AF_INET, kMulticastGroup, &dest.sin_addr);
 
     const auto query = buildQuery();
-    ::sendto(sock, query.data(), query.size(), 0, reinterpret_cast<sockaddr*>(&dest),
-             sizeof(dest));
+    ::sendto(sock, query.data(), query.size(), 0, reinterpret_cast<sockaddr*>(&dest), sizeof(dest));
 
     QList<models::DiscoveredServer> result;
     QSet<QString> seen;

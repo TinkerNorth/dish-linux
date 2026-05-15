@@ -72,9 +72,8 @@ class WifiConnection : public QObject {
 
     // Hot path: forward an IMU sample to the satellite. Called from the
     // GamepadInputProcessor's motion publish path on the SDL sensor thread.
-    void sendMotion(std::int16_t gyroX, std::int16_t gyroY, std::int16_t gyroZ,
-                    std::int16_t accelX, std::int16_t accelY, std::int16_t accelZ,
-                    std::uint32_t timestampDeltaUs);
+    void sendMotion(std::int16_t gyroX, std::int16_t gyroY, std::int16_t gyroZ, std::int16_t accelX,
+                    std::int16_t accelY, std::int16_t accelZ, std::uint32_t timestampDeltaUs);
 
     // Forward a battery sample to the satellite. Called from the battery-poll
     // path on the SDL gamepad thread (30 s default cadence).

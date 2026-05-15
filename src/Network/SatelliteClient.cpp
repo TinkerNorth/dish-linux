@@ -115,11 +115,9 @@ void SatelliteClient::sendControllerType(int index, int type) {
     sendEncrypted(kMsgControllerType, payload, sizeof(payload));
 }
 
-std::array<std::uint8_t, 17>
-SatelliteClient::encodeMotionPayload(std::uint8_t controllerIndex, std::int16_t gyroX,
-                                     std::int16_t gyroY, std::int16_t gyroZ, std::int16_t accelX,
-                                     std::int16_t accelY, std::int16_t accelZ,
-                                     std::uint32_t timestampDeltaUs) {
+std::array<std::uint8_t, 17> SatelliteClient::encodeMotionPayload(
+    std::uint8_t controllerIndex, std::int16_t gyroX, std::int16_t gyroY, std::int16_t gyroZ,
+    std::int16_t accelX, std::int16_t accelY, std::int16_t accelZ, std::uint32_t timestampDeltaUs) {
     // ctrlIdx(1) + 6×int16 LE + uint32 LE = 1 + 12 + 4 = 17 bytes.
     // Matches MotionReport's host-native struct layout: the receiver does
     // memcpy(&report, payload + 1, sizeof(MotionReport)). Every supported
@@ -151,9 +149,9 @@ SatelliteClient::encodeMotionPayload(std::uint8_t controllerIndex, std::int16_t 
 void SatelliteClient::sendMotion(int controllerIndex, std::int16_t gyroX, std::int16_t gyroY,
                                  std::int16_t gyroZ, std::int16_t accelX, std::int16_t accelY,
                                  std::int16_t accelZ, std::uint32_t timestampDeltaUs) {
-    const auto payload = encodeMotionPayload(static_cast<std::uint8_t>(controllerIndex), gyroX,
-                                             gyroY, gyroZ, accelX, accelY, accelZ,
-                                             timestampDeltaUs);
+    const auto payload =
+        encodeMotionPayload(static_cast<std::uint8_t>(controllerIndex), gyroX, gyroY, gyroZ, accelX,
+                            accelY, accelZ, timestampDeltaUs);
     sendEncrypted(kMsgMotion, payload.data(), payload.size());
 }
 
@@ -169,12 +167,10 @@ void SatelliteClient::sendBattery(int controllerIndex, std::uint8_t level, std::
     sendEncrypted(kMsgBattery, payload.data(), payload.size());
 }
 
-std::array<std::uint8_t, 12>
-SatelliteClient::encodeTouchpadPayload(std::uint8_t controllerIndex, bool finger0Active,
-                                       std::uint8_t finger0Id, std::int16_t finger0X,
-                                       std::int16_t finger0Y, bool finger1Active,
-                                       std::uint8_t finger1Id, std::int16_t finger1X,
-                                       std::int16_t finger1Y, bool buttonPressed) {
+std::array<std::uint8_t, 12> SatelliteClient::encodeTouchpadPayload(
+    std::uint8_t controllerIndex, bool finger0Active, std::uint8_t finger0Id, std::int16_t finger0X,
+    std::int16_t finger0Y, bool finger1Active, std::uint8_t finger1Id, std::int16_t finger1X,
+    std::int16_t finger1Y, bool buttonPressed) {
     // ctrlIdx(1) + flags(1) + f0(id1 + x2 + y2) + f1(id1 + x2 + y2) = 12 bytes.
     std::array<std::uint8_t, 12> out{};
     out[0] = controllerIndex;
@@ -197,9 +193,8 @@ SatelliteClient::encodeTouchpadPayload(std::uint8_t controllerIndex, bool finger
     return out;
 }
 
-void SatelliteClient::sendTouchpad(int controllerIndex, bool finger0Active,
-                                   std::uint8_t finger0Id, std::int16_t finger0X,
-                                   std::int16_t finger0Y, bool finger1Active,
+void SatelliteClient::sendTouchpad(int controllerIndex, bool finger0Active, std::uint8_t finger0Id,
+                                   std::int16_t finger0X, std::int16_t finger0Y, bool finger1Active,
                                    std::uint8_t finger1Id, std::int16_t finger1X,
                                    std::int16_t finger1Y, bool buttonPressed) {
     const auto payload = encodeTouchpadPayload(
