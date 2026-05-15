@@ -121,6 +121,20 @@ void GamepadInputProcessor::publishBattery(const DeviceId& id, const BatterySamp
     if (snapshot) { snapshot(id, sample.level, sample.status); }
 }
 
+void GamepadInputProcessor::setTouchpadSender(TouchpadSender sender) {
+    std::lock_guard<std::mutex> lock(mtx_);
+    touchpadSender_ = std::move(sender);
+}
+
+void GamepadInputProcessor::publishTouchpad(const DeviceId& id, const TouchpadSample& sample) {
+    TouchpadSender snapshot;
+    {
+        std::lock_guard<std::mutex> lock(mtx_);
+        snapshot = touchpadSender_;
+    }
+    if (snapshot) { snapshot(id, sample); }
+}
+
 std::int16_t scaleAxis(float v, float maxMagnitude) {
     const auto clamped = std::clamp(v, -1.0f, 1.0f);
     const auto scaled = static_cast<int>(clamped * maxMagnitude);

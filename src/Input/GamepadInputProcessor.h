@@ -74,6 +74,23 @@ class GamepadInputProcessor {
     using BatterySender =
         std::function<void(const DeviceId& id, std::uint8_t level, std::uint8_t status)>;
 
+    // Touchpad sample destined for MSG_TOUCHPAD (DualSense / DS4). Up to two
+    // fingers; coordinates are normalised int16. Touchpad input is genuinely
+    // event-driven (finger down/move/up), so unlike motion it is neither
+    // rate-limited nor coalesced — every assembled state change is forwarded.
+    struct TouchpadSample {
+        bool finger0Active = false;
+        std::uint8_t finger0Id = 0;
+        std::int16_t finger0X = 0;
+        std::int16_t finger0Y = 0;
+        bool finger1Active = false;
+        std::uint8_t finger1Id = 0;
+        std::int16_t finger1X = 0;
+        std::int16_t finger1Y = 0;
+        bool buttonPressed = false;
+    };
+    using TouchpadSender = std::function<void(const DeviceId& id, const TouchpadSample& sample)>;
+
     // Maximum forwarded MSG_MOTION rate per controller. Roadmap acceptance:
     // packets are rate-limited to ≤ 250 Hz by default. Samples arriving
     // faster than this drop on the floor; the next within-budget sample
@@ -113,6 +130,7 @@ class GamepadInputProcessor {
     void setReportSender(ReportSender sender);
     void setMotionSender(MotionSender sender);
     void setBatterySender(BatterySender sender);
+    void setTouchpadSender(TouchpadSender sender);
     void setDeadzones(const DeviceId& id, const Deadzones& dz);
     void publish(const DeviceId& id, const DeviceState& state);
 
@@ -128,6 +146,12 @@ class GamepadInputProcessor {
     // sample → dropped. Otherwise forwarded to the BatterySender.
     void publishBattery(const DeviceId& id, const BatterySample& sample);
 
+    // Publish a touchpad sample for `id`. Pure pass-through to the
+    // TouchpadSender — the SDL bridge has already assembled the full
+    // two-finger state, and a touchpad is an absolute surface so there is no
+    // deadzone / rate-limit / coalesce step.
+    void publishTouchpad(const DeviceId& id, const TouchpadSample& sample);
+
     void zeroAndSendAll();
     void remove(const DeviceId& id);
 
@@ -138,6 +162,7 @@ class GamepadInputProcessor {
     ReportSender sender_;
     MotionSender motionSender_;
     BatterySender batterySender_;
+    TouchpadSender touchpadSender_;
 
     // Per-device last-emit timestamp (microseconds, steady_clock basis or
     // test-supplied) used to rate-limit motion. 0 = no prior emission.

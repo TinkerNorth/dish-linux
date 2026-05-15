@@ -49,6 +49,13 @@ std::int16_t accelMps2ToInt16(float mps2) {
     return clampInt16((mps2 / kGravityMps2) * kAccelInt16PerG);
 }
 
+// SDL reports touchpad coordinates as 0..1 (top-left origin). The wire wants
+// a resolution-independent signed int16 spanning the pad, so map
+// 0 → -32768, 1 → +32767.
+std::int16_t touchpadCoordToInt16(float v) {
+    return clampInt16(std::clamp(v, 0.0f, 1.0f) * 65535.0f - 32768.0f);
+}
+
 // Map SDL2's joystick power level to the satellite battery wire constants
 // + a coarse percent. SDL doesn't expose a continuous level on Windows
 // (XInput gamepads only report EMPTY/LOW/MEDIUM/FULL); HID DualSense and
@@ -216,6 +223,7 @@ void SDLGamepadBridge::runLoop() {
                 deviceNames_.erase(iid);
                 motionCapable_.erase(iid);
                 lastBatteryPoll_.erase(iid);
+                touchState_.erase(iid);
             }
             if (!deviceId.empty()) { processor_->remove(deviceId); }
             QMetaObject::invokeMethod(this, "devicesChanged", Qt::QueuedConnection);
@@ -228,6 +236,11 @@ void SDLGamepadBridge::runLoop() {
             break;
         case SDL_CONTROLLERSENSORUPDATE:
             handleSensorEvent(ev.csensor);
+            break;
+        case SDL_CONTROLLERTOUCHPADDOWN:
+        case SDL_CONTROLLERTOUCHPADMOTION:
+        case SDL_CONTROLLERTOUCHPADUP:
+            handleTouchpadEvent(ev.ctouchpad);
             break;
         default:
             break;
@@ -318,6 +331,57 @@ void SDLGamepadBridge::handleSensorEvent(const SDL_ControllerSensorEvent& ev) {
     sample.accelZ = accelMps2ToInt16(accel.az);
 
     processor_->publishMotion(deviceId, sample);
+}
+
+void SDLGamepadBridge::handleTouchpadEvent(const SDL_ControllerTouchpadEvent& ev) {
+    std::string deviceId;
+    SDL_GameController* gc = nullptr;
+    TouchState state;
+    {
+        std::lock_guard<std::mutex> lock(mtx_);
+        const int iid = ev.which;
+        if (auto it = deviceIds_.find(iid); it != deviceIds_.end()) {
+            deviceId = it->second.toStdString();
+        }
+        if (deviceId.empty()) { return; }
+        if (auto it = openControllers_.find(iid); it != openControllers_.end()) {
+            gc = it->second;
+        }
+        // SDL's `finger` is the 0-based slot within the touchpad. The DS4 /
+        // DualSense pad tracks up to two simultaneous contacts; ignore any
+        // higher slot index defensively.
+        TouchState& ts = touchState_[iid];
+        if (ev.finger >= 0 && ev.finger < 2) {
+            TouchFinger& f = ts.fingers[ev.finger];
+            if (ev.type == SDL_CONTROLLERTOUCHPADUP) {
+                f.active = false;
+            } else {
+                f.active = true;
+                f.x = touchpadCoordToInt16(ev.x);
+                f.y = touchpadCoordToInt16(ev.y);
+            }
+        }
+        state = ts;
+    }
+
+    // The clickable-pad switch is exposed as an ordinary SDL button; read its
+    // live state rather than tracking it separately.
+    bool button = false;
+    if (gc != nullptr) {
+        button = SDL_GameControllerGetButton(gc, SDL_CONTROLLER_BUTTON_TOUCHPAD) == 1;
+    }
+
+    GamepadInputProcessor::TouchpadSample sample{};
+    sample.finger0Active = state.fingers[0].active;
+    sample.finger0Id = 0;
+    sample.finger0X = state.fingers[0].x;
+    sample.finger0Y = state.fingers[0].y;
+    sample.finger1Active = state.fingers[1].active;
+    sample.finger1Id = 1;
+    sample.finger1X = state.fingers[1].x;
+    sample.finger1Y = state.fingers[1].y;
+    sample.buttonPressed = button;
+    processor_->publishTouchpad(deviceId, sample);
 }
 
 void SDLGamepadBridge::pollBatteries() {

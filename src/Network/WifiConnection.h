@@ -80,6 +80,12 @@ class WifiConnection : public QObject {
     // path on the SDL gamepad thread (30 s default cadence).
     void sendBattery(std::uint8_t level, std::uint8_t status);
 
+    // Forward a touchpad sample to the satellite. Called from the SDL
+    // touchpad-event path. Up to two fingers + the clickable-pad button.
+    void sendTouchpad(bool finger0Active, std::uint8_t finger0Id, std::int16_t finger0X,
+                      std::int16_t finger0Y, bool finger1Active, std::uint8_t finger1Id,
+                      std::int16_t finger1X, std::int16_t finger1Y, bool buttonPressed);
+
     // Install the per-connection rumble handler. The handler is invoked from
     // the SatelliteClient's receive thread on every MSG_RUMBLE we decode.
     // Stored on the WifiConnection (not the per-session SatelliteClient) so

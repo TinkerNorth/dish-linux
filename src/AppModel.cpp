@@ -64,6 +64,19 @@ AppModel::AppModel(std::unique_ptr<util::DisplaySleepInhibitor> inhibitor, QObje
             if (sender) { sender(level, status); }
         });
 
+    processor_.setTouchpadSender(
+        [this](const std::string& did, const input::GamepadInputProcessor::TouchpadSample& s) {
+            net::ConnectionHub::TouchpadSender sender;
+            {
+                std::lock_guard<std::mutex> lock(routingMtx_);
+                sender = touchpadRouting_.value(QString::fromStdString(did));
+            }
+            if (sender) {
+                sender(s.finger0Active, s.finger0Id, s.finger0X, s.finger0Y, s.finger1Active,
+                       s.finger1Id, s.finger1X, s.finger1Y, s.buttonPressed);
+            }
+        });
+
     rebuild();
 }
 
@@ -179,6 +192,7 @@ void AppModel::rebuild() {
     QHash<QString, net::ConnectionHub::ReportSender> nextRouting;
     QHash<QString, net::ConnectionHub::MotionSender> nextMotion;
     QHash<QString, net::ConnectionHub::BatterySender> nextBattery;
+    QHash<QString, net::ConnectionHub::TouchpadSender> nextTouchpad;
     for (const auto& slot : state_.slotList) {
         if (auto sender = hub_->reportSenderForSlot(slot.id)) {
             nextRouting.insert(slot.id, std::move(sender));
@@ -189,12 +203,16 @@ void AppModel::rebuild() {
         if (auto sender = hub_->batterySenderForSlot(slot.id)) {
             nextBattery.insert(slot.id, std::move(sender));
         }
+        if (auto sender = hub_->touchpadSenderForSlot(slot.id)) {
+            nextTouchpad.insert(slot.id, std::move(sender));
+        }
     }
     {
         std::lock_guard<std::mutex> lock(routingMtx_);
         routing_ = std::move(nextRouting);
         motionRouting_ = std::move(nextMotion);
         batteryRouting_ = std::move(nextBattery);
+        touchpadRouting_ = std::move(nextTouchpad);
     }
 
     // Drive the display-sleep inhibitor off bindings × hub.connections. The

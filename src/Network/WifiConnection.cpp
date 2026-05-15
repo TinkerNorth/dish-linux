@@ -195,6 +195,17 @@ void WifiConnection::sendBattery(std::uint8_t level, std::uint8_t status) {
     if (auto c = clientRef_.get()) { c->sendBattery(kDefaultCtrlIndex, level, status); }
 }
 
+void WifiConnection::sendTouchpad(bool finger0Active, std::uint8_t finger0Id,
+                                  std::int16_t finger0X, std::int16_t finger0Y,
+                                  bool finger1Active, std::uint8_t finger1Id,
+                                  std::int16_t finger1X, std::int16_t finger1Y,
+                                  bool buttonPressed) {
+    if (auto c = clientRef_.get()) {
+        c->sendTouchpad(kDefaultCtrlIndex, finger0Active, finger0Id, finger0X, finger0Y,
+                        finger1Active, finger1Id, finger1X, finger1Y, buttonPressed);
+    }
+}
+
 void WifiConnection::setRumbleHandler(RumbleHandler handler) {
     rumbleHandler_ = std::move(handler);
     // Apply immediately if a session is already live; otherwise markConnected

@@ -34,6 +34,11 @@ class ConnectionHub : public QObject {
     // Battery sender: level (0..100 or 0xFF), status (BATTERY_STATUS_*).
     using BatterySender = std::function<void(std::uint8_t, std::uint8_t)>;
 
+    // Touchpad sender: finger0(active,id,x,y), finger1(active,id,x,y), button.
+    using TouchpadSender =
+        std::function<void(bool, std::uint8_t, std::int16_t, std::int16_t, bool, std::uint8_t,
+                           std::int16_t, std::int16_t, bool)>;
+
     ConnectionHub(WifiConnectionManager* wifi, ConnectionStore* store, QObject* parent = nullptr);
 
     QList<models::ConnectionSummary> connections() const { return summaries_; }
@@ -49,6 +54,7 @@ class ConnectionHub : public QObject {
     // returned as a closure capturing the connection pointer.
     MotionSender motionSenderForSlot(const QString& slotId) const;
     BatterySender batterySenderForSlot(const QString& slotId) const;
+    TouchpadSender touchpadSenderForSlot(const QString& slotId) const;
 
     void bind(const QString& slotId, const QString& connectionId);
     void unbind(const QString& slotId);

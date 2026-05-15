@@ -119,6 +119,7 @@ class AppModel : public QObject {
     // on the Qt main thread under the same routingMtx_.
     QHash<QString, net::ConnectionHub::MotionSender> motionRouting_;
     QHash<QString, net::ConnectionHub::BatterySender> batteryRouting_;
+    QHash<QString, net::ConnectionHub::TouchpadSender> touchpadRouting_;
 };
 
 } // namespace dish

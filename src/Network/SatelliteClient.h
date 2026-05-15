@@ -45,6 +45,7 @@ class SatelliteClient {
     static constexpr std::uint16_t kMsgRumble = 0x0009;
     static constexpr std::uint16_t kMsgMotion = 0x000A;
     static constexpr std::uint16_t kMsgBattery = 0x000B;
+    static constexpr std::uint16_t kMsgTouchpad = 0x000C;
     static constexpr std::uint16_t kMsgLightbar = 0x000D;
 
     // Controller-add capability bits. Bits 0x01 / 0x02 are documented in
@@ -113,6 +114,18 @@ class SatelliteClient {
     // call this; partial readers (status-only) should send level=0xFF.
     void sendBattery(int controllerIndex, std::uint8_t level, std::uint8_t status);
 
+    // Forward a touchpad sample (MSG_TOUCHPAD, 0x000C — DualSense / DS4).
+    // Up to two fingers; `fingerNActive` gates whether that finger's id +
+    // coordinates are meaningful. Coordinates are normalised int16
+    // (-32768..32767) on both axes so the wire is resolution-independent.
+    // `buttonPressed` is the clickable-pad switch.
+    //
+    // Hot path: called from the SDL touchpad-event thread.
+    void sendTouchpad(int controllerIndex, bool finger0Active, std::uint8_t finger0Id,
+                      std::int16_t finger0X, std::int16_t finger0Y, bool finger1Active,
+                      std::uint8_t finger1Id, std::int16_t finger1X, std::int16_t finger1Y,
+                      bool buttonPressed);
+
     // Pure encoder for the MSG_MOTION inner payload (after the 4-byte
     // type+length header). The wire layout is host-LE for the int16 / uint32
     // fields, matching satellite/src/core/types.h::MotionReport. Exposed
@@ -129,6 +142,16 @@ class SatelliteClient {
     static std::array<std::uint8_t, 3> encodeBatteryPayload(std::uint8_t controllerIndex,
                                                             std::uint8_t level,
                                                             std::uint8_t status);
+
+    // Pure encoder for the MSG_TOUCHPAD inner payload. 12 bytes:
+    // ctrlIdx(1) + flags(1) + finger0(id1 + x2 + y2) + finger1(id1 + x2 + y2).
+    // `flags` bit 0 = finger0 active, bit 1 = finger1 active, bit 2 = button.
+    // Coordinates are host-LE int16. Exposed statically so unit tests can pin
+    // the byte layout without a live socket.
+    static std::array<std::uint8_t, 12> encodeTouchpadPayload(
+        std::uint8_t controllerIndex, bool finger0Active, std::uint8_t finger0Id,
+        std::int16_t finger0X, std::int16_t finger0Y, bool finger1Active, std::uint8_t finger1Id,
+        std::int16_t finger1X, std::int16_t finger1Y, bool buttonPressed);
 
     // Decoded rumble message from the satellite. `lightbar*` are valid only
     // when `hasLightbar` is true (the wire format's optional trailing 3 bytes).

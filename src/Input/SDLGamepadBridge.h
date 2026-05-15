@@ -22,6 +22,7 @@ extern "C" {
 struct _SDL_GameController;
 using SDL_GameController = struct _SDL_GameController;
 struct SDL_ControllerSensorEvent;
+struct SDL_ControllerTouchpadEvent;
 }
 
 namespace dish::input {
@@ -75,6 +76,7 @@ class SDLGamepadBridge : public QObject {
     void runLoop();
     void rebuildState(int iid);
     void handleSensorEvent(const SDL_ControllerSensorEvent& ev);
+    void handleTouchpadEvent(const SDL_ControllerTouchpadEvent& ev);
     void pollBatteries();
 
     GamepadInputProcessor* processor_;
@@ -107,6 +109,20 @@ class SDLGamepadBridge : public QObject {
     // Per-device last battery poll wall-clock. The runLoop polls battery on
     // every iteration but the per-device gate collapses it to 30 s.
     std::unordered_map<int, std::chrono::steady_clock::time_point> lastBatteryPoll_;
+
+    // Per-device touchpad finger state. SDL delivers per-finger down/move/up
+    // events; we accumulate them here and emit the full two-finger snapshot
+    // on every change (MSG_TOUCHPAD carries both fingers at once).
+    // Input-thread-only. `x`/`y` are already scaled to the wire int16.
+    struct TouchFinger {
+        bool active = false;
+        std::int16_t x = 0;
+        std::int16_t y = 0;
+    };
+    struct TouchState {
+        TouchFinger fingers[2];
+    };
+    std::unordered_map<int, TouchState> touchState_;
 };
 
 } // namespace dish::input

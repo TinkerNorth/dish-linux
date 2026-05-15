@@ -169,6 +169,45 @@ void SatelliteClient::sendBattery(int controllerIndex, std::uint8_t level, std::
     sendEncrypted(kMsgBattery, payload.data(), payload.size());
 }
 
+std::array<std::uint8_t, 12>
+SatelliteClient::encodeTouchpadPayload(std::uint8_t controllerIndex, bool finger0Active,
+                                       std::uint8_t finger0Id, std::int16_t finger0X,
+                                       std::int16_t finger0Y, bool finger1Active,
+                                       std::uint8_t finger1Id, std::int16_t finger1X,
+                                       std::int16_t finger1Y, bool buttonPressed) {
+    // ctrlIdx(1) + flags(1) + f0(id1 + x2 + y2) + f1(id1 + x2 + y2) = 12 bytes.
+    std::array<std::uint8_t, 12> out{};
+    out[0] = controllerIndex;
+    std::uint8_t flags = 0;
+    if (finger0Active) { flags |= 0x01U; }
+    if (finger1Active) { flags |= 0x02U; }
+    if (buttonPressed) { flags |= 0x04U; }
+    out[1] = flags;
+    auto storeLe16 = [&out](int off, std::int16_t v) {
+        const auto u = static_cast<std::uint16_t>(v);
+        out[off] = static_cast<std::uint8_t>(u & 0xFFU);
+        out[off + 1] = static_cast<std::uint8_t>((u >> 8) & 0xFFU);
+    };
+    out[2] = finger0Id;
+    storeLe16(3, finger0X);
+    storeLe16(5, finger0Y);
+    out[7] = finger1Id;
+    storeLe16(8, finger1X);
+    storeLe16(10, finger1Y);
+    return out;
+}
+
+void SatelliteClient::sendTouchpad(int controllerIndex, bool finger0Active,
+                                   std::uint8_t finger0Id, std::int16_t finger0X,
+                                   std::int16_t finger0Y, bool finger1Active,
+                                   std::uint8_t finger1Id, std::int16_t finger1X,
+                                   std::int16_t finger1Y, bool buttonPressed) {
+    const auto payload = encodeTouchpadPayload(
+        static_cast<std::uint8_t>(controllerIndex), finger0Active, finger0Id, finger0X, finger0Y,
+        finger1Active, finger1Id, finger1X, finger1Y, buttonPressed);
+    sendEncrypted(kMsgTouchpad, payload.data(), payload.size());
+}
+
 void SatelliteClient::sendEncrypted(std::uint16_t msgType, const std::uint8_t* payload,
                                     std::size_t len) {
     if (sock_ < 0) { return; }

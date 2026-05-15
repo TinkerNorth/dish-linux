@@ -109,6 +109,17 @@ ConnectionHub::BatterySender ConnectionHub::batterySenderForSlot(const QString& 
     return [conn](std::uint8_t level, std::uint8_t status) { conn->sendBattery(level, status); };
 }
 
+ConnectionHub::TouchpadSender ConnectionHub::touchpadSenderForSlot(const QString& slotId) const {
+    const auto cid = bindings_.value(slotId);
+    if (cid.isEmpty()) { return {}; }
+    auto* conn = wifi_->get(cid);
+    if (conn == nullptr) { return {}; }
+    return [conn](bool f0a, std::uint8_t f0id, std::int16_t f0x, std::int16_t f0y, bool f1a,
+                  std::uint8_t f1id, std::int16_t f1x, std::int16_t f1y, bool button) {
+        conn->sendTouchpad(f0a, f0id, f0x, f0y, f1a, f1id, f1x, f1y, button);
+    };
+}
+
 void ConnectionHub::bind(const QString& slotId, const QString& connectionId) {
     QHash<QString, QString> current = bindings_;
     QString priorSlot;
