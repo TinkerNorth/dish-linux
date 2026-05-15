@@ -78,6 +78,9 @@ class WifiConnection : public QObject {
     using RumbleHandler = std::function<void(const SatelliteClient::RumbleMessage&)>;
     void setRumbleHandler(RumbleHandler handler);
 
+    using LightbarHandler = std::function<void(const SatelliteClient::LightbarMessage&)>;
+    void setLightbarHandler(LightbarHandler handler);
+
   signals:
     void changed();
     void errorOccurred(const QString& message);
@@ -114,6 +117,7 @@ class WifiConnection : public QObject {
     // Set once during composition; re-applied to each fresh SatelliteClient
     // in markConnected() so we don't lose rumble across reconnects.
     RumbleHandler rumbleHandler_;
+    LightbarHandler lightbarHandler_;
 };
 
 } // namespace dish::net
