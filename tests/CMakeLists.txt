@@ -24,7 +24,8 @@ set(DISH_TEST_SOURCES
     test_pairing_client_classify.cpp
     test_screen_wake_controller.cpp
     test_freedesktop_screensaver_inhibitor.cpp
-    test_satellite_client_rumble.cpp)
+    test_satellite_client_rumble.cpp
+    test_satellite_client_motion.cpp)
 
 add_executable(DishTests ${DISH_TEST_SOURCES})
 target_link_libraries(DishTests

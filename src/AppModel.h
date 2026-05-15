@@ -114,6 +114,11 @@ class AppModel : public QObject {
     // Qt main thread. Guarded by routingMtx_ for both directions.
     mutable std::mutex routingMtx_;
     QHash<QString, net::ConnectionHub::ReportSender> routing_;
+    // Parallel motion + battery routes. Read on the SDL sensor / battery-
+    // poll threads (both currently inside SDLGamepadBridge::runLoop), written
+    // on the Qt main thread under the same routingMtx_.
+    QHash<QString, net::ConnectionHub::MotionSender> motionRouting_;
+    QHash<QString, net::ConnectionHub::BatterySender> batteryRouting_;
 };
 
 } // namespace dish

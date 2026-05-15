@@ -9,9 +9,11 @@
 #include <QString>
 
 #include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <thread>
 #include <unordered_map>
+#include <unordered_set>
 
 // Mirror SDL2's own typedef so we can keep <SDL.h> out of this header.
 // The leading underscore is dictated by SDL's struct tag, not our choice.
@@ -19,6 +21,7 @@ extern "C" {
 // NOLINTNEXTLINE(bugprone-reserved-identifier)
 struct _SDL_GameController;
 using SDL_GameController = struct _SDL_GameController;
+struct SDL_ControllerSensorEvent;
 }
 
 namespace dish::input {
@@ -66,6 +69,8 @@ class SDLGamepadBridge : public QObject {
   private:
     void runLoop();
     void rebuildState(int iid);
+    void handleSensorEvent(const SDL_ControllerSensorEvent& ev);
+    void pollBatteries();
 
     GamepadInputProcessor* processor_;
     std::thread thread_;
@@ -77,6 +82,26 @@ class SDLGamepadBridge : public QObject {
     std::unordered_map<int, SDL_GameController*> openControllers_;
     std::unordered_map<int, QString> deviceIds_;
     std::unordered_map<int, QString> deviceNames_;
+
+    // Devices that successfully had at least one of SDL_SENSOR_GYRO /
+    // SDL_SENSOR_ACCEL enabled. Used to skip the sensor-event dispatch
+    // overhead for Xbox 360 / Xbox One pads. Manipulated only on the
+    // input thread, but the read in handleSensorEvent goes through mtx_.
+    std::unordered_set<int> motionCapable_;
+
+    // Latest accelerometer reading per device (m/s²). Updated when an accel
+    // SDL_CONTROLLERSENSORUPDATE arrives; merged with the next gyro update
+    // into a single MotionSample. Input-thread-only.
+    struct AccelCache {
+        float ax = 0.0f;
+        float ay = 0.0f;
+        float az = 0.0f;
+    };
+    std::unordered_map<int, AccelCache> lastAccel_;
+
+    // Per-device last battery poll wall-clock. The runLoop polls battery on
+    // every iteration but the per-device gate collapses it to 30 s.
+    std::unordered_map<int, std::chrono::steady_clock::time_point> lastBatteryPoll_;
 };
 
 } // namespace dish::input

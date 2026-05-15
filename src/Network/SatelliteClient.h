@@ -43,6 +43,24 @@ class SatelliteClient {
     static constexpr std::uint16_t kMsgServerStatus = 0x0007;
     static constexpr std::uint16_t kMsgControllerType = 0x0008;
     static constexpr std::uint16_t kMsgRumble = 0x0009;
+    static constexpr std::uint16_t kMsgMotion = 0x000A;
+    static constexpr std::uint16_t kMsgBattery = 0x000B;
+
+    // Controller-add capability bits. Bits 0x01 / 0x02 are documented in
+    // satellite/docs/protocol.md (analog triggers, rumble). Bit 0x04 is the
+    // motion (gyro + accel) cap — the satellite uses it to advertise motion
+    // on the virtual device where the backend supports a motion surface.
+    static constexpr std::uint16_t kCapAnalogTriggers = 0x0001;
+    static constexpr std::uint16_t kCapRumble = 0x0002;
+    static constexpr std::uint16_t kCapMotion = 0x0004;
+
+    // Battery wire constants (satellite/src/core/types.h mirrors).
+    static constexpr std::uint8_t kBatteryLevelUnknown = 0xFF;
+    static constexpr std::uint8_t kBatteryStatusUnknown = 0;
+    static constexpr std::uint8_t kBatteryStatusDischarging = 1;
+    static constexpr std::uint8_t kBatteryStatusCharging = 2;
+    static constexpr std::uint8_t kBatteryStatusFull = 3;
+    static constexpr std::uint8_t kBatteryStatusWired = 4;
 
     static constexpr std::uint32_t kHeartbeatIntervalMs = 2000;
     static constexpr int kHeartbeatMissMax = 5;
@@ -71,6 +89,45 @@ class SatelliteClient {
     void controllerRemove(int index);
     void sendControllerType(int index, int type);
     void resetControllerAck() { lastControllerAck_.store(-1, std::memory_order_relaxed); }
+
+    // Forward a single IMU sample. Axes follow the satellite's
+    // Cemuhook-compatible convention (right-handed, +X right, +Y up,
+    // +Z toward player). Caller is responsible for applying any
+    // manufacturer rotation matrix (DualSense, Joy-Con) before encoding.
+    //
+    // Scale: gyro int16 LSB = 2000/32767 deg/s; accel int16 LSB = 4/32767 g.
+    // See satellite/docs/protocol.md §0x000A for the canonical reference.
+    //
+    // `timestampDeltaUs` is microseconds since the previous motion packet
+    // for the same controller on this connection. 0 on the very first packet.
+    //
+    // Hot path: called from the SDL sensor-update thread.
+    void sendMotion(int controllerIndex, std::int16_t gyroX, std::int16_t gyroY,
+                    std::int16_t gyroZ, std::int16_t accelX, std::int16_t accelY,
+                    std::int16_t accelZ, std::uint32_t timestampDeltaUs);
+
+    // Forward a single battery sample. `level` is 0..100 inclusive, or
+    // `kBatteryLevelUnknown` (0xFF). `status` is one of the kBatteryStatus*
+    // constants. Senders that have no battery information at all MUST NOT
+    // call this; partial readers (status-only) should send level=0xFF.
+    void sendBattery(int controllerIndex, std::uint8_t level, std::uint8_t status);
+
+    // Pure encoder for the MSG_MOTION inner payload (after the 4-byte
+    // type+length header). The wire layout is host-LE for the int16 / uint32
+    // fields, matching satellite/src/core/types.h::MotionReport. Exposed
+    // statically so unit tests can pin the byte format without bringing
+    // up a live socket — the same pattern that parseRumbleMessage uses
+    // for the return path.
+    static std::array<std::uint8_t, 17> encodeMotionPayload(
+        std::uint8_t controllerIndex, std::int16_t gyroX, std::int16_t gyroY, std::int16_t gyroZ,
+        std::int16_t accelX, std::int16_t accelY, std::int16_t accelZ,
+        std::uint32_t timestampDeltaUs);
+
+    // Pure encoder for the MSG_BATTERY inner payload. Three bytes total:
+    // ctrlIdx + level + status.
+    static std::array<std::uint8_t, 3> encodeBatteryPayload(std::uint8_t controllerIndex,
+                                                            std::uint8_t level,
+                                                            std::uint8_t status);
 
     // Decoded rumble message from the satellite. `lightbar*` are valid only
     // when `hasLightbar` is true (the wire format's optional trailing 3 bytes).

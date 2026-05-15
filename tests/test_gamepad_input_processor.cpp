@@ -191,3 +191,197 @@ TEST_CASE("remove clears deadzones too", "[input]") {
     p.publish("pad", s);
     REQUIRE(lastLx == 100);
 }
+
+// ── Motion rate limiting + dispatch ─────────────────────────────────────────
+
+TEST_CASE("publishMotionAt forwards the first sample with delta 0", "[motion]") {
+    GamepadInputProcessor p;
+    int calls = 0;
+    std::uint32_t lastDt = 99;
+    p.setMotionSender([&](const std::string& id, std::int16_t, std::int16_t, std::int16_t,
+                          std::int16_t, std::int16_t, std::int16_t, std::uint32_t dt) {
+        ++calls;
+        lastDt = dt;
+        REQUIRE(id == "pad-1");
+    });
+
+    GamepadInputProcessor::MotionSample s{1, 2, 3, 4, 5, 6};
+    REQUIRE(p.publishMotionAt("pad-1", s, 1'000'000));
+    REQUIRE(calls == 1);
+    REQUIRE(lastDt == 0U);
+}
+
+TEST_CASE("publishMotionAt drops samples inside the 4 ms gate", "[motion]") {
+    GamepadInputProcessor p;
+    int calls = 0;
+    p.setMotionSender([&](const std::string&, std::int16_t, std::int16_t, std::int16_t,
+                          std::int16_t, std::int16_t, std::int16_t, std::uint32_t) { ++calls; });
+
+    GamepadInputProcessor::MotionSample s{};
+    REQUIRE(p.publishMotionAt("pad-1", s, 1'000'000));
+    REQUIRE_FALSE(p.publishMotionAt("pad-1", s, 1'000'000 + 3'999));
+    REQUIRE(calls == 1);
+}
+
+TEST_CASE("publishMotionAt forwards once the 4 ms gate elapses", "[motion]") {
+    GamepadInputProcessor p;
+    int calls = 0;
+    std::uint32_t lastDt = 0;
+    p.setMotionSender([&](const std::string&, std::int16_t, std::int16_t, std::int16_t,
+                          std::int16_t, std::int16_t, std::int16_t,
+                          std::uint32_t dt) { ++calls; lastDt = dt; });
+
+    GamepadInputProcessor::MotionSample s{};
+    REQUIRE(p.publishMotionAt("pad-1", s, 0));
+    REQUIRE(p.publishMotionAt("pad-1", s, GamepadInputProcessor::kMotionMinIntervalUs));
+    REQUIRE(calls == 2);
+    REQUIRE(lastDt == GamepadInputProcessor::kMotionMinIntervalUs);
+}
+
+TEST_CASE("publishMotionAt does NOT advance the gate on a dropped sample", "[motion]") {
+    GamepadInputProcessor p;
+    int calls = 0;
+    p.setMotionSender([&](const std::string&, std::int16_t, std::int16_t, std::int16_t,
+                          std::int16_t, std::int16_t, std::int16_t, std::uint32_t) { ++calls; });
+
+    GamepadInputProcessor::MotionSample s{};
+    REQUIRE(p.publishMotionAt("pad-1", s, 0));
+    REQUIRE_FALSE(p.publishMotionAt("pad-1", s, 1'000));
+    REQUIRE_FALSE(p.publishMotionAt("pad-1", s, 2'000));
+    REQUIRE_FALSE(p.publishMotionAt("pad-1", s, 3'000));
+    REQUIRE(p.publishMotionAt("pad-1", s, 4'000));
+    REQUIRE(calls == 2);
+}
+
+TEST_CASE("publishMotionAt rate-limits each device independently", "[motion]") {
+    GamepadInputProcessor p;
+    int aCalls = 0;
+    int bCalls = 0;
+    p.setMotionSender([&](const std::string& id, std::int16_t, std::int16_t, std::int16_t,
+                          std::int16_t, std::int16_t, std::int16_t, std::uint32_t) {
+        if (id == "a") { ++aCalls; }
+        if (id == "b") { ++bCalls; }
+    });
+
+    GamepadInputProcessor::MotionSample s{};
+    REQUIRE(p.publishMotionAt("a", s, 0));
+    REQUIRE(p.publishMotionAt("b", s, 0));
+    REQUIRE_FALSE(p.publishMotionAt("a", s, 1'000));
+    REQUIRE_FALSE(p.publishMotionAt("b", s, 1'000));
+    REQUIRE(aCalls == 1);
+    REQUIRE(bCalls == 1);
+}
+
+TEST_CASE("remove resets the motion rate-limit for that device", "[motion]") {
+    GamepadInputProcessor p;
+    int calls = 0;
+    std::uint32_t lastDt = 99;
+    p.setMotionSender([&](const std::string&, std::int16_t, std::int16_t, std::int16_t,
+                          std::int16_t, std::int16_t, std::int16_t,
+                          std::uint32_t dt) { ++calls; lastDt = dt; });
+
+    GamepadInputProcessor::MotionSample s{};
+    REQUIRE(p.publishMotionAt("pad", s, 0));
+    p.remove("pad");
+    REQUIRE(p.publishMotionAt("pad", s, 1));
+    REQUIRE(calls == 2);
+    REQUIRE(lastDt == 0U);
+}
+
+TEST_CASE("publishMotion passes through gyro + accel sample data verbatim", "[motion]") {
+    GamepadInputProcessor p;
+    GamepadInputProcessor::MotionSample observed{};
+    bool called = false;
+    p.setMotionSender([&](const std::string&, std::int16_t gx, std::int16_t gy, std::int16_t gz,
+                          std::int16_t ax, std::int16_t ay, std::int16_t az, std::uint32_t) {
+        observed = {gx, gy, gz, ax, ay, az};
+        called = true;
+    });
+
+    GamepadInputProcessor::MotionSample s{100, -200, 300, -400, 500, -600};
+    p.publishMotionAt("pad", s, 0);
+    REQUIRE(called);
+    REQUIRE(observed.gyroX == 100);
+    REQUIRE(observed.gyroY == -200);
+    REQUIRE(observed.gyroZ == 300);
+    REQUIRE(observed.accelX == -400);
+    REQUIRE(observed.accelY == 500);
+    REQUIRE(observed.accelZ == -600);
+}
+
+// ── Battery coalescing ─────────────────────────────────────────────────────
+
+TEST_CASE("publishBattery forwards the first sample", "[battery]") {
+    GamepadInputProcessor p;
+    int calls = 0;
+    std::uint8_t lastLevel = 0;
+    std::uint8_t lastStatus = 0;
+    p.setBatterySender([&](const std::string& id, std::uint8_t l, std::uint8_t st) {
+        ++calls;
+        lastLevel = l;
+        lastStatus = st;
+        REQUIRE(id == "pad");
+    });
+    p.publishBattery("pad", {75, 1});
+    REQUIRE(calls == 1);
+    REQUIRE(lastLevel == 75);
+    REQUIRE(lastStatus == 1);
+}
+
+TEST_CASE("publishBattery coalesces identical samples", "[battery]") {
+    GamepadInputProcessor p;
+    int calls = 0;
+    p.setBatterySender([&](const std::string&, std::uint8_t, std::uint8_t) { ++calls; });
+
+    p.publishBattery("pad", {100, 4});
+    p.publishBattery("pad", {100, 4});
+    p.publishBattery("pad", {100, 4});
+    REQUIRE(calls == 1);
+}
+
+TEST_CASE("publishBattery emits on level change", "[battery]") {
+    GamepadInputProcessor p;
+    int calls = 0;
+    p.setBatterySender([&](const std::string&, std::uint8_t, std::uint8_t) { ++calls; });
+
+    p.publishBattery("pad", {75, 1});
+    p.publishBattery("pad", {74, 1});
+    p.publishBattery("pad", {73, 1});
+    REQUIRE(calls == 3);
+}
+
+TEST_CASE("publishBattery emits on status change at the same level", "[battery]") {
+    GamepadInputProcessor p;
+    int calls = 0;
+    std::uint8_t lastStatus = 0xFF;
+    p.setBatterySender([&](const std::string&, std::uint8_t, std::uint8_t st) {
+        ++calls;
+        lastStatus = st;
+    });
+
+    p.publishBattery("pad", {80, 1});
+    p.publishBattery("pad", {80, 2});
+    REQUIRE(calls == 2);
+    REQUIRE(lastStatus == 2);
+}
+
+TEST_CASE("publishBattery coalesces independently per device", "[battery]") {
+    GamepadInputProcessor p;
+    int calls = 0;
+    p.setBatterySender([&](const std::string&, std::uint8_t, std::uint8_t) { ++calls; });
+
+    p.publishBattery("a", {50, 1});
+    p.publishBattery("b", {50, 1});
+    REQUIRE(calls == 2);
+}
+
+TEST_CASE("remove clears the battery coalesce cache", "[battery]") {
+    GamepadInputProcessor p;
+    int calls = 0;
+    p.setBatterySender([&](const std::string&, std::uint8_t, std::uint8_t) { ++calls; });
+
+    p.publishBattery("pad", {50, 1});
+    p.remove("pad");
+    p.publishBattery("pad", {50, 1});
+    REQUIRE(calls == 2);
+}

@@ -90,6 +90,25 @@ ConnectionHub::ReportSender ConnectionHub::reportSenderForSlot(const QString& sl
                   std::int16_t ry) { conn->sendReport(buttons, lt, rt, lx, ly, rx, ry); };
 }
 
+ConnectionHub::MotionSender ConnectionHub::motionSenderForSlot(const QString& slotId) const {
+    const auto cid = bindings_.value(slotId);
+    if (cid.isEmpty()) { return {}; }
+    auto* conn = wifi_->get(cid);
+    if (conn == nullptr) { return {}; }
+    return [conn](std::int16_t gx, std::int16_t gy, std::int16_t gz, std::int16_t ax,
+                  std::int16_t ay, std::int16_t az, std::uint32_t dtUs) {
+        conn->sendMotion(gx, gy, gz, ax, ay, az, dtUs);
+    };
+}
+
+ConnectionHub::BatterySender ConnectionHub::batterySenderForSlot(const QString& slotId) const {
+    const auto cid = bindings_.value(slotId);
+    if (cid.isEmpty()) { return {}; }
+    auto* conn = wifi_->get(cid);
+    if (conn == nullptr) { return {}; }
+    return [conn](std::uint8_t level, std::uint8_t status) { conn->sendBattery(level, status); };
+}
+
 void ConnectionHub::bind(const QString& slotId, const QString& connectionId) {
     QHash<QString, QString> current = bindings_;
     QString priorSlot;

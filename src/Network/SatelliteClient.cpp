@@ -115,6 +115,60 @@ void SatelliteClient::sendControllerType(int index, int type) {
     sendEncrypted(kMsgControllerType, payload, sizeof(payload));
 }
 
+std::array<std::uint8_t, 17>
+SatelliteClient::encodeMotionPayload(std::uint8_t controllerIndex, std::int16_t gyroX,
+                                     std::int16_t gyroY, std::int16_t gyroZ, std::int16_t accelX,
+                                     std::int16_t accelY, std::int16_t accelZ,
+                                     std::uint32_t timestampDeltaUs) {
+    // ctrlIdx(1) + 6×int16 LE + uint32 LE = 1 + 12 + 4 = 17 bytes.
+    // Matches MotionReport's host-native struct layout: the receiver does
+    // memcpy(&report, payload + 1, sizeof(MotionReport)). Every supported
+    // sender / receiver platform is little-endian; senders therefore write
+    // LE explicitly so byte order is independent of compiler layout.
+    std::array<std::uint8_t, 17> out{};
+    out[0] = controllerIndex;
+    auto storeLe16 = [&out](int off, std::int16_t v) {
+        const auto u = static_cast<std::uint16_t>(v);
+        out[off] = static_cast<std::uint8_t>(u & 0xFFU);
+        out[off + 1] = static_cast<std::uint8_t>((u >> 8) & 0xFFU);
+    };
+    auto storeLe32 = [&out](int off, std::uint32_t v) {
+        out[off] = static_cast<std::uint8_t>(v & 0xFFU);
+        out[off + 1] = static_cast<std::uint8_t>((v >> 8) & 0xFFU);
+        out[off + 2] = static_cast<std::uint8_t>((v >> 16) & 0xFFU);
+        out[off + 3] = static_cast<std::uint8_t>((v >> 24) & 0xFFU);
+    };
+    storeLe16(1, gyroX);
+    storeLe16(3, gyroY);
+    storeLe16(5, gyroZ);
+    storeLe16(7, accelX);
+    storeLe16(9, accelY);
+    storeLe16(11, accelZ);
+    storeLe32(13, timestampDeltaUs);
+    return out;
+}
+
+void SatelliteClient::sendMotion(int controllerIndex, std::int16_t gyroX, std::int16_t gyroY,
+                                 std::int16_t gyroZ, std::int16_t accelX, std::int16_t accelY,
+                                 std::int16_t accelZ, std::uint32_t timestampDeltaUs) {
+    const auto payload = encodeMotionPayload(static_cast<std::uint8_t>(controllerIndex), gyroX,
+                                             gyroY, gyroZ, accelX, accelY, accelZ,
+                                             timestampDeltaUs);
+    sendEncrypted(kMsgMotion, payload.data(), payload.size());
+}
+
+std::array<std::uint8_t, 3> SatelliteClient::encodeBatteryPayload(std::uint8_t controllerIndex,
+                                                                  std::uint8_t level,
+                                                                  std::uint8_t status) {
+    return {controllerIndex, level, status};
+}
+
+void SatelliteClient::sendBattery(int controllerIndex, std::uint8_t level, std::uint8_t status) {
+    const auto payload =
+        encodeBatteryPayload(static_cast<std::uint8_t>(controllerIndex), level, status);
+    sendEncrypted(kMsgBattery, payload.data(), payload.size());
+}
+
 void SatelliteClient::sendEncrypted(std::uint16_t msgType, const std::uint8_t* payload,
                                     std::size_t len) {
     if (sock_ < 0) { return; }
