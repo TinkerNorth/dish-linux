@@ -76,20 +76,20 @@ bool GamepadInputProcessor::publishMotionAt(const DeviceId& id, const MotionSamp
     std::uint32_t deltaUs = 0;
     {
         std::lock_guard<std::mutex> lock(mtx_);
-        auto it = lastMotionUs_.find(id);
-        const std::uint64_t prev = (it != lastMotionUs_.end()) ? it->second : 0;
-        if (prev != 0 && nowUs - prev < kMotionMinIntervalUs) {
+        MotionGate& gate = lastMotionUs_[id];
+        if (gate.hasEmitted && nowUs - gate.lastUs < kMotionMinIntervalUs) {
             // Inside the rate-limit window — drop. Deliberately do NOT update
-            // `prev`; otherwise a hot stream of dropped samples would push the
-            // gate forward and starve the legitimate sender for longer than
+            // the gate; otherwise a hot stream of dropped samples would push
+            // it forward and starve the legitimate sender for longer than
             // one period.
             return false;
         }
-        if (prev != 0) {
-            const std::uint64_t d = nowUs - prev;
+        if (gate.hasEmitted) {
+            const std::uint64_t d = nowUs - gate.lastUs;
             deltaUs = (d > 0xFFFFFFFFULL) ? 0xFFFFFFFFU : static_cast<std::uint32_t>(d);
         }
-        lastMotionUs_[id] = nowUs;
+        gate.lastUs = nowUs;
+        gate.hasEmitted = true;
         snapshot = motionSender_;
     }
     if (snapshot) {

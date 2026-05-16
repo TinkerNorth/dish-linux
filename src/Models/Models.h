@@ -69,12 +69,24 @@ struct ConnectionSummary {
     std::optional<QString> boundSlotId;
 };
 
+// What a physical controller's hardware exposes, detected once at attach.
+// Mirrors dish-mac's ControllerCapabilities. Distinct from any user setting
+// for whether a feature is forwarded — a chip being present means "this
+// controller has the hardware". dish-linux currently forwards every detected
+// capability unconditionally (no per-feature on/off setting), so `hasMotion`
+// alone is enough for the UI to tell "no gyro" apart from "gyro present".
+struct ControllerCapabilities {
+    bool hasMotion = false;
+};
+
 struct ControllerSlot {
     QString id;
     QString name;
     QString physicalDeviceId;
     std::optional<QString> boundConnectionId;
     std::optional<ConnectionSummary> boundStatus;
+    // Hardware capabilities detected at attach (see SDLGamepadBridge).
+    ControllerCapabilities capabilities;
 };
 
 struct RememberedWifi {

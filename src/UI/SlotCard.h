@@ -8,12 +8,14 @@
 #include <QFrame>
 #include <QString>
 
+class QHBoxLayout;
 class QLabel;
 class QPushButton;
 
 namespace dish::ui {
 
-// One row in the slots list. Mirrors the Mac SlotCard / Android slot row.
+// One row in the slots list. Mirrors the Mac SlotCard / Android slot row,
+// including the per-controller hardware-capability chips.
 class SlotCard : public QFrame {
     Q_OBJECT
   public:
@@ -28,11 +30,16 @@ class SlotCard : public QFrame {
 
   private:
     void onBindClicked();
+    // Refresh the capability chips (currently just motion/gyro) from slot_.
+    void updateCapabilities();
 
     QLabel* nameLabel_;
     QLabel* boundLabel_;
     QLabel* dot_;
     QPushButton* bindButton_;
+    // Capability-chip row, kept under the name/binding text.
+    QHBoxLayout* capabilityRow_;
+    QLabel* motionChip_;
 
     models::ControllerSlot slot_;
     QList<models::ConnectionSummary> available_;

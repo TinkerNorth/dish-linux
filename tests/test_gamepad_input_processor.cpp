@@ -223,6 +223,26 @@ TEST_CASE("publishMotionAt drops samples inside the 4 ms gate", "[motion]") {
     REQUIRE(calls == 1);
 }
 
+TEST_CASE("publishMotionAt drops the second sample even when the clock starts at 0", "[motion]") {
+    // Regression for the rate-limiter "never emitted" sentinel bug: the gate
+    // used to overload `lastUs == 0` as "no prior emission". A monotonic or
+    // test clock can legitimately report 0 for the very first sample — with
+    // the old sentinel the second sample at t=0..3999 µs was misread as
+    // *another* first sample and forwarded, blowing the 250 Hz cap. The gate
+    // now carries an explicit `hasEmitted` flag, so a first sample at exactly
+    // nowUs=0 still arms the gate and the next within-window sample drops.
+    GamepadInputProcessor p;
+    int calls = 0;
+    p.setMotionSender([&](const std::string&, std::int16_t, std::int16_t, std::int16_t,
+                          std::int16_t, std::int16_t, std::int16_t, std::uint32_t) { ++calls; });
+
+    GamepadInputProcessor::MotionSample s{};
+    REQUIRE(p.publishMotionAt("pad-1", s, 0));               // first sample at t=0
+    REQUIRE_FALSE(p.publishMotionAt("pad-1", s, 1));          // 1 µs later — inside gate, drop
+    REQUIRE_FALSE(p.publishMotionAt("pad-1", s, 3'999));      // still inside the 4 ms gate, drop
+    REQUIRE(calls == 1);
+}
+
 TEST_CASE("publishMotionAt forwards once the 4 ms gate elapses", "[motion]") {
     GamepadInputProcessor p;
     int calls = 0;

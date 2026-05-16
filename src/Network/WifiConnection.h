@@ -106,7 +106,12 @@ class WifiConnection : public QObject {
 
   private:
     static constexpr int kDefaultCtrlIndex = 0;
-    static constexpr std::uint16_t kDefaultCaps = 0x0003;
+    // Capability word advertised in MSG_CONTROLLER_ADD: analog triggers
+    // (0x0001) | rumble (0x0002) | motion (0x0004 — this client streams
+    // MSG_MOTION gyro/accel samples). See SatelliteClient::kCap* mirrors.
+    static constexpr std::uint16_t kDefaultCaps =
+        SatelliteClient::kCapAnalogTriggers | SatelliteClient::kCapRumble |
+        SatelliteClient::kCapMotion;
     static constexpr int kAckWaitAttempts = 20;
     static constexpr int kAckWaitIntervalMs = 100;
 

@@ -26,7 +26,9 @@ set(DISH_TEST_SOURCES
     test_freedesktop_screensaver_inhibitor.cpp
     test_satellite_client_rumble.cpp
     test_satellite_client_motion.cpp
-    test_satellite_client_lightbar.cpp)
+    test_satellite_client_touchpad.cpp
+    test_satellite_client_lightbar.cpp
+    test_sdl_motion_convert.cpp)
 
 add_executable(DishTests ${DISH_TEST_SOURCES})
 target_link_libraries(DishTests

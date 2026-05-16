@@ -81,4 +81,21 @@ QString dotQss(QRgb color) {
     return QStringLiteral("background-color: %1; border-radius: 4px;").arg(hex(color));
 }
 
+QString capabilityChipQss(bool on) {
+    // `on`  : primary text on a faint primary fill, no border — "feature live".
+    // `off` : muted text, transparent fill, muted border — "hardware absent".
+    // The faint fill reuses the same rgba(79,227,255,0.14) tint the QPushButton
+    // hover state uses, so the chip sits in the established palette.
+    if (on) {
+        return QStringLiteral("color: %1; background-color: rgba(79,227,255,0.14); "
+                              "border: 1px solid transparent; border-radius: 5px; "
+                              "padding: 2px 7px; font-size: 10px; font-weight: 500;")
+            .arg(hex(Theme::primary));
+    }
+    return QStringLiteral("color: %1; background-color: transparent; "
+                          "border: 1px solid %1; border-radius: 5px; "
+                          "padding: 2px 7px; font-size: 10px; font-weight: 500;")
+        .arg(hex(Theme::muted));
+}
+
 } // namespace dish::ui

@@ -36,6 +36,19 @@ SlotCard::SlotCard(QWidget* parent) : QFrame(parent) {
     textLayout->addWidget(nameLabel_);
     textLayout->addWidget(boundLabel_);
 
+    // Capability-chip row. Each chip says the controller HAS a piece of
+    // hardware; its colour says whether the feature is active. The motion
+    // chip is always shown — coloured "Gyro" when the pad has an IMU,
+    // dimmed "No gyro" when it doesn't — so a player can tell "off" apart
+    // from "not available". Mirrors the dish-mac SlotCard capability row.
+    capabilityRow_ = new QHBoxLayout;
+    capabilityRow_->setSpacing(6);
+    capabilityRow_->setContentsMargins(0, 4, 0, 0);
+    motionChip_ = new QLabel(this);
+    capabilityRow_->addWidget(motionChip_, 0, Qt::AlignVCenter);
+    capabilityRow_->addStretch(1);
+    textLayout->addLayout(capabilityRow_);
+
     bindButton_ = new QPushButton(this);
     QObject::connect(bindButton_, &QPushButton::clicked, this, &SlotCard::onBindClicked);
 
@@ -62,6 +75,25 @@ void SlotCard::setSlot(const models::ControllerSlot& slot,
         bindButton_->setText(QStringLiteral("Bind\u2026"));
     }
     bindButton_->setEnabled(slot.boundConnectionId.has_value() || !available.isEmpty());
+    updateCapabilities();
+}
+
+void SlotCard::updateCapabilities() {
+    // Two unambiguous states for motion. dish-linux has no per-feature on/off
+    // setting, so a controller with an IMU always forwards motion — there is
+    // no "available but off" state to render here; the chip is "Gyro" (on)
+    // when the hardware is present and "No gyro" (dimmed) when it is not.
+    const bool hasMotion = slot_.capabilities.hasMotion;
+    motionChip_->setText(hasMotion ? QStringLiteral("Gyro")
+                                   : QStringLiteral("No gyro"));
+    motionChip_->setStyleSheet(capabilityChipQss(hasMotion));
+    motionChip_->setToolTip(
+        hasMotion
+            ? QStringLiteral("Gyro and accelerometer detected — motion is forwarded "
+                             "to the satellite for gyro aim.")
+            : QStringLiteral("This controller has no motion sensor — gyro aim is "
+                             "unavailable. Xbox pads have no gyro; DualSense, "
+                             "DualShock 4 and Switch Pro pads do."));
 }
 
 void SlotCard::onBindClicked() {

@@ -40,10 +40,15 @@ class SDLGamepadBridge : public QObject {
     void start();
     void stop();
 
-    // List of currently-attached devices in (deviceId, displayName) form.
+    // List of currently-attached devices in (deviceId, displayName) form,
+    // plus whether the device exposes a motion sensor (gyro/accelerometer).
+    // `motionCapable` is true only for pads that have an IMU and had at least
+    // one of SDL_SENSOR_GYRO / SDL_SENSOR_ACCEL successfully enabled — i.e.
+    // DualSense / DS4 / Switch-class pads, never Xbox 360 / Xbox One pads.
     struct Device {
         QString id;
         QString name;
+        bool motionCapable = false;
     };
     QList<Device> devices() const;
 

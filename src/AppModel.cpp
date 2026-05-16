@@ -165,6 +165,7 @@ void AppModel::rebuild() {
         s.id = d.id;
         s.name = d.name;
         s.physicalDeviceId = d.id;
+        s.capabilities.hasMotion = d.motionCapable;
         next.append(s);
     }
 

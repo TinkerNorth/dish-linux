@@ -3,14 +3,14 @@
 
 #include "SDLGamepadBridge.h"
 
+#include "SdlMotionConvert.h"
+
 #include <SDL2/SDL.h>
 
 #include <QLoggingCategory>
 #include <QMetaObject>
 
-#include <algorithm>
 #include <chrono>
-#include <cmath>
 #include <cstdint>
 
 namespace dish::input {
@@ -26,35 +26,10 @@ Q_LOGGING_CATEGORY(lcDishInput, "dish.input")
 constexpr std::int16_t kDefaultStickFlat = 3277;
 constexpr std::uint8_t kDefaultTriggerFlat = 13;
 
-// Wire scale matching satellite/src/core/types.h. Kept private to this TU
-// since they're an implementation detail of the SDL → wire conversion.
-//
-//   gyro:  SDL gives rad/s; convert to deg/s, then to int16 LSB = 2000/32767
-//   accel: SDL gives m/s²;  convert to g (÷ 9.80665), then to int16 LSB = 4/32767
-constexpr float kRadPerSecToDegPerSec = 57.295779513f; // 180 / π
-constexpr float kGyroInt16PerDegPerSec = 32767.0f / 2000.0f;
-constexpr float kAccelInt16PerG = 32767.0f / 4.0f;
-constexpr float kGravityMps2 = 9.80665f;
-
-std::int16_t clampInt16(float v) {
-    const float c = std::clamp(v, -32768.0f, 32767.0f);
-    return static_cast<std::int16_t>(std::lround(c));
-}
-
-std::int16_t gyroRadPerSecToInt16(float radPerSec) {
-    return clampInt16(radPerSec * kRadPerSecToDegPerSec * kGyroInt16PerDegPerSec);
-}
-
-std::int16_t accelMps2ToInt16(float mps2) {
-    return clampInt16((mps2 / kGravityMps2) * kAccelInt16PerG);
-}
-
-// SDL reports touchpad coordinates as 0..1 (top-left origin). The wire wants
-// a resolution-independent signed int16 spanning the pad, so map
-// 0 → -32768, 1 → +32767.
-std::int16_t touchpadCoordToInt16(float v) {
-    return clampInt16(std::clamp(v, 0.0f, 1.0f) * 65535.0f - 32768.0f);
-}
+// The SDL → wire conversion helpers (gyroRadPerSecToInt16, accelMps2ToInt16,
+// touchpadCoordToInt16) now live in SdlMotionConvert.{h,cpp} so they can be
+// unit-tested without SDL/Qt. They are used unqualified below — both this TU
+// and the helpers are in namespace dish::input.
 
 // Map SDL2's joystick power level to the satellite battery wire constants
 // + a coarse percent. SDL doesn't expose a continuous level on Windows
@@ -131,7 +106,9 @@ QList<SDLGamepadBridge::Device> SDLGamepadBridge::devices() const {
     std::lock_guard<std::mutex> lock(mtx_);
     QList<Device> out;
     out.reserve(static_cast<int>(deviceIds_.size()));
-    for (const auto& [iid, did] : deviceIds_) { out.append({did, deviceNames_.at(iid)}); }
+    for (const auto& [iid, did] : deviceIds_) {
+        out.append({did, deviceNames_.at(iid), motionCapable_.count(iid) != 0});
+    }
     return out;
 }
 
@@ -319,7 +296,16 @@ void SDLGamepadBridge::handleSensorEvent(const SDL_ControllerSensorEvent& ev) {
             // a first cut — gyro-less pads aren't useful for gyro aim.
             return;
         }
-        if (auto it = lastAccel_.find(iid); it != lastAccel_.end()) { accel = it->second; }
+        auto accelIt = lastAccel_.find(iid);
+        if (accelIt == lastAccel_.end()) {
+            // Gyro arrived before the first accelerometer sample for this
+            // device. Emitting now would ship an accel triple of {0,0,0},
+            // which the satellite would interpret as the pad in free-fall.
+            // Drop this gyro event; the next one (after a cached accel) is
+            // < 4 ms away on every IMU pad we support.
+            return;
+        }
+        accel = accelIt->second;
     }
 
     GamepadInputProcessor::MotionSample sample{};

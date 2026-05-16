@@ -103,6 +103,8 @@ set(DISH_CORE_SOURCES
     src/Network/ConnectionStore.cpp
     src/Input/GamepadInputProcessor.h
     src/Input/GamepadInputProcessor.cpp
+    src/Input/SdlMotionConvert.h
+    src/Input/SdlMotionConvert.cpp
     src/Input/SDLGamepadBridge.h
     src/Input/SDLGamepadBridge.cpp
     src/AppModel.h
