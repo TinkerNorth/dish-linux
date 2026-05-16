@@ -46,7 +46,7 @@ jobs:
             libsodium-dev libsdl2-dev
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@662472033e021d55d94146f66f6058822b0b39fd # v3.27.0
+        uses: github/codeql-action/init@9e0d7b8d25671d64c341c19c0152d693099fb5ba # v4.35.5
         with:
           languages: ${{ matrix.language }}
           queries: security-extended,security-and-quality
@@ -64,7 +64,7 @@ jobs:
         # findings in the logs while GHAS enablement is still pending —
         # see HANDOFF.md item 5.
         continue-on-error: true
-        uses: github/codeql-action/analyze@662472033e021d55d94146f66f6058822b0b39fd # v3.27.0
+        uses: github/codeql-action/analyze@9e0d7b8d25671d64c341c19c0152d693099fb5ba # v4.35.5
         with:
           category: "/language:${{ matrix.language }}"
           upload: failure-only
