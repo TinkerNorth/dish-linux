@@ -4,6 +4,7 @@
 #include "SDLGamepadBridge.h"
 
 #include "SdlMotionConvert.h"
+#include "Util/HostBattery.h"
 
 #include <SDL2/SDL.h>
 
@@ -36,18 +37,17 @@ constexpr std::uint8_t kDefaultTriggerFlat = 13;
 // (XInput gamepads only report EMPTY/LOW/MEDIUM/FULL); HID DualSense and
 // some 8BitDo pads return UNKNOWN with charging info routed via separate
 // hidraw paths. Bucket SDL's coarse enum to (level, status) that the
-// satellite + ViGEm DS4 backend understands. Wired pads report 100 % +
-// WIRED so Steam Big Picture shows full charge.
-struct BatteryReading {
-    std::uint8_t level;
-    std::uint8_t status;
-};
-constexpr std::uint8_t kBatteryLevelUnknown = 0xFF;
-constexpr std::uint8_t kBatteryStatusUnknown = 0;
-constexpr std::uint8_t kBatteryStatusDischarging = 1;
-constexpr std::uint8_t kBatteryStatusCharging = 2;
-constexpr std::uint8_t kBatteryStatusFull = 3;
-constexpr std::uint8_t kBatteryStatusWired = 4;
+// satellite + ViGEm DS4 backend understands.
+//
+// EMPTY / LOW / MEDIUM / FULL are real wireless-pad readings — forwarded as
+// the controller's own battery. WIRED (a USB pad) and UNKNOWN (no usable
+// reading) carry no meaningful controller charge, so we substitute the HOST
+// machine's battery instead via util::readHostBattery(): the laptop's own
+// percentage + charging state, or 100 % / WIRED on a battery-less desktop.
+// The (level, status) type is util::BatteryReading — shared with the
+// HostBattery helper so the two code paths produce one wire shape.
+using dish::util::BatteryReading;
+using dish::util::kBatteryStatusDischarging;
 
 BatteryReading powerLevelToWire(SDL_JoystickPowerLevel pl) {
     switch (pl) {
@@ -60,10 +60,10 @@ BatteryReading powerLevelToWire(SDL_JoystickPowerLevel pl) {
     case SDL_JOYSTICK_POWER_FULL:
         return {100, kBatteryStatusDischarging};
     case SDL_JOYSTICK_POWER_WIRED:
-        return {100, kBatteryStatusWired};
     case SDL_JOYSTICK_POWER_UNKNOWN:
     default:
-        return {kBatteryLevelUnknown, kBatteryStatusUnknown};
+        // No usable controller reading — fall back to the host battery.
+        return dish::util::readHostBattery();
     }
 }
 
@@ -107,7 +107,12 @@ QList<SDLGamepadBridge::Device> SDLGamepadBridge::devices() const {
     QList<Device> out;
     out.reserve(static_cast<int>(deviceIds_.size()));
     for (const auto& [iid, did] : deviceIds_) {
-        out.append({did, deviceNames_.at(iid), motionCapable_.count(iid) != 0});
+        Device dev{did, deviceNames_.at(iid), motionCapable_.count(iid) != 0, 0xFF, 0};
+        if (auto it = lastBattery_.find(iid); it != lastBattery_.end()) {
+            dev.batteryLevel = it->second.level;
+            dev.batteryStatus = it->second.status;
+        }
+        out.append(dev);
     }
     return out;
 }
@@ -200,6 +205,7 @@ void SDLGamepadBridge::runLoop() {
                 deviceNames_.erase(iid);
                 motionCapable_.erase(iid);
                 lastBatteryPoll_.erase(iid);
+                lastBattery_.erase(iid);
                 touchState_.erase(iid);
             }
             if (!deviceId.empty()) { processor_->remove(deviceId); }
@@ -398,6 +404,7 @@ void SDLGamepadBridge::pollBatteries() {
         }
     }
 
+    bool anyChange = false;
     for (const auto& e : due) {
         SDL_Joystick* js = SDL_GameControllerGetJoystick(e.gc);
         if (js == nullptr) { continue; }
@@ -408,7 +415,20 @@ void SDLGamepadBridge::pollBatteries() {
         // 100 % WIRED won't actually emit a packet past the first one.
         GamepadInputProcessor::BatterySample sample{wire.level, wire.status};
         processor_->publishBattery(e.deviceId, sample);
+        // Record the sample for the UI battery chip. Note whether it changed
+        // so we only nudge the UI to re-render on an actual transition.
+        std::lock_guard<std::mutex> lock(mtx_);
+        BatterySnapshot& snap = lastBattery_[e.iid];
+        if (snap.level != wire.level || snap.status != wire.status) {
+            snap.level = wire.level;
+            snap.status = wire.status;
+            anyChange = true;
+        }
     }
+    // A changed battery sample means the SlotCard chip is stale; ask the UI
+    // to rebuild off devices() on the Qt main thread. Coalesced to one signal
+    // per poll batch — the 30 s gate already keeps this rare.
+    if (anyChange) { QMetaObject::invokeMethod(this, "devicesChanged", Qt::QueuedConnection); }
 }
 
 void SDLGamepadBridge::applyLightbar(const QString& deviceId, std::uint8_t r, std::uint8_t g,

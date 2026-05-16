@@ -98,4 +98,22 @@ QString capabilityChipQss(bool on) {
         .arg(hex(Theme::muted));
 }
 
+QString batteryChipQss(bool lowBattery) {
+    // Same pill geometry as capabilityChipQss's `on` branch. A healthy battery
+    // reuses the cyan `primary` tint; a low battery (< ~15 %) swaps to the
+    // amber `warning` token so the player can't miss it. The faint fill alpha
+    // is kept as a literal rgba() — QSS needs the alpha inline and there is no
+    // half-alpha colour token.
+    if (lowBattery) {
+        return QStringLiteral("color: %1; background-color: rgba(245,158,11,0.16); "
+                              "border: 1px solid transparent; border-radius: 5px; "
+                              "padding: 2px 7px; font-size: 10px; font-weight: 600;")
+            .arg(hex(Theme::warning));
+    }
+    return QStringLiteral("color: %1; background-color: rgba(79,227,255,0.14); "
+                          "border: 1px solid transparent; border-radius: 5px; "
+                          "padding: 2px 7px; font-size: 10px; font-weight: 500;")
+        .arg(hex(Theme::primary));
+}
+
 } // namespace dish::ui

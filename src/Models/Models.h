@@ -11,6 +11,7 @@
 #include <QJsonObject>
 #include <QString>
 
+#include <cstdint>
 #include <optional>
 
 namespace dish::models {
@@ -77,6 +78,16 @@ struct ConnectionSummary {
 // alone is enough for the UI to tell "no gyro" apart from "gyro present".
 struct ControllerCapabilities {
     bool hasMotion = false;
+
+    // Most recent battery sample for the pad — the same (level, status) pair
+    // forwarded on MSG_BATTERY. For a wireless pad this is the controller's
+    // own charge; for a wired/unknown pad it is the host machine's battery
+    // (the laptop's percentage, or 100 % / WIRED on a desktop). The slot card
+    // renders it as a battery chip. `batteryLevel` is 0..100 percent or 0xFF
+    // (unknown); `batteryStatus` is a SatelliteClient::kBatteryStatus*
+    // constant. 0xFF / 0 until the first 30 s poll completes.
+    std::uint8_t batteryLevel = 0xFF;
+    std::uint8_t batteryStatus = 0;
 };
 
 struct ControllerSlot {

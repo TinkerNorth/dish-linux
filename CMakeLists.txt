@@ -77,6 +77,8 @@ set(DISH_CORE_SOURCES
     src/Util/Hex.h
     src/Util/Hex.cpp
     src/Util/Endian.h
+    src/Util/HostBattery.h
+    src/Util/HostBattery.cpp
     src/Util/DisplaySleepInhibitor.h
     src/Util/DisplaySleepInhibitor.cpp
     src/Util/ScreenWakeController.h

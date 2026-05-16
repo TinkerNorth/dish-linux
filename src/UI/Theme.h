@@ -48,4 +48,9 @@ QString dotQss(QRgb color);
 // Mirrors the dish-mac CapabilityChip.
 QString capabilityChipQss(bool on);
 
+// Battery-chip pill used in SlotCard, sat next to the motion chip. Shares the
+// capability-chip pill geometry. `lowBattery` swaps the cyan/primary tint for
+// the amber `warning` token so a near-flat pad reads at a glance.
+QString batteryChipQss(bool lowBattery);
+
 } // namespace dish::ui

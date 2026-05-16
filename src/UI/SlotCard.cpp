@@ -13,6 +13,21 @@
 
 namespace dish::ui {
 
+namespace {
+
+// Battery wire status constants — mirrors SatelliteClient::kBatteryStatus*
+// and satellite/src/core/types.h. Duplicated here as plain locals so the UI
+// translation unit doesn't have to pull in the network header.
+constexpr std::uint8_t kBatteryLevelUnknown = 0xFF;
+constexpr std::uint8_t kBatteryStatusCharging = 2;
+constexpr std::uint8_t kBatteryStatusFull = 3;
+constexpr std::uint8_t kBatteryStatusWired = 4;
+
+// Below this percentage the battery chip switches to the amber warning style.
+constexpr std::uint8_t kLowBatteryThreshold = 15;
+
+} // namespace
+
 SlotCard::SlotCard(QWidget* parent) : QFrame(parent) {
     setObjectName(QStringLiteral("card"));
     setFrameShape(QFrame::NoFrame);
@@ -40,12 +55,15 @@ SlotCard::SlotCard(QWidget* parent) : QFrame(parent) {
     // hardware; its colour says whether the feature is active. The motion
     // chip is always shown — coloured "Gyro" when the pad has an IMU,
     // dimmed "No gyro" when it doesn't — so a player can tell "off" apart
-    // from "not available". Mirrors the dish-mac SlotCard capability row.
+    // from "not available". The battery chip joins it once a battery sample
+    // arrives. Mirrors the dish-mac SlotCard capability row.
     capabilityRow_ = new QHBoxLayout;
     capabilityRow_->setSpacing(6);
     capabilityRow_->setContentsMargins(0, 4, 0, 0);
     motionChip_ = new QLabel(this);
     capabilityRow_->addWidget(motionChip_, 0, Qt::AlignVCenter);
+    batteryChip_ = new QLabel(this);
+    capabilityRow_->addWidget(batteryChip_, 0, Qt::AlignVCenter);
     capabilityRow_->addStretch(1);
     textLayout->addLayout(capabilityRow_);
 
@@ -84,16 +102,57 @@ void SlotCard::updateCapabilities() {
     // no "available but off" state to render here; the chip is "Gyro" (on)
     // when the hardware is present and "No gyro" (dimmed) when it is not.
     const bool hasMotion = slot_.capabilities.hasMotion;
-    motionChip_->setText(hasMotion ? QStringLiteral("Gyro")
-                                   : QStringLiteral("No gyro"));
+    motionChip_->setText(hasMotion ? QStringLiteral("Gyro") : QStringLiteral("No gyro"));
     motionChip_->setStyleSheet(capabilityChipQss(hasMotion));
     motionChip_->setToolTip(
-        hasMotion
-            ? QStringLiteral("Gyro and accelerometer detected — motion is forwarded "
-                             "to the satellite for gyro aim.")
-            : QStringLiteral("This controller has no motion sensor — gyro aim is "
-                             "unavailable. Xbox pads have no gyro; DualSense, "
-                             "DualShock 4 and Switch Pro pads do."));
+        hasMotion ? QStringLiteral("Gyro and accelerometer detected — motion is forwarded "
+                                   "to the satellite for gyro aim.")
+                  : QStringLiteral("This controller has no motion sensor — gyro aim is "
+                                   "unavailable. Xbox pads have no gyro; DualSense, "
+                                   "DualShock 4 and Switch Pro pads do."));
+
+    // Battery chip. The (level, status) pair comes off the same MSG_BATTERY
+    // sample the satellite receives: a wireless pad's own charge, or — for a
+    // wired/unknown pad — the host machine's battery (a laptop's percentage,
+    // or 100 % / WIRED on a desktop). Hidden until the first 30 s poll lands a
+    // real reading; an unknown level (0xFF) has nothing meaningful to show.
+    const std::uint8_t batteryLevel = slot_.capabilities.batteryLevel;
+    const std::uint8_t batteryStatus = slot_.capabilities.batteryStatus;
+    if (batteryLevel == kBatteryLevelUnknown) {
+        batteryChip_->setVisible(false);
+    } else {
+        batteryChip_->setVisible(true);
+        const bool charging = batteryStatus == kBatteryStatusCharging;
+        const bool wired = batteryStatus == kBatteryStatusWired;
+        const bool full = batteryStatus == kBatteryStatusFull;
+        // A wired/full pad at 100 % is never "low"; only an actually-draining
+        // pack trips the warning style.
+        const bool lowBattery = batteryLevel < kLowBatteryThreshold && !charging && !wired;
+        QString label = QStringLiteral("Battery %1%").arg(batteryLevel);
+        if (charging) {
+            label = QStringLiteral("Battery %1% ↑").arg(batteryLevel); // up arrow
+        } else if (wired) {
+            label = QStringLiteral("Battery wired");
+        } else if (full) {
+            label = QStringLiteral("Battery full");
+        }
+        batteryChip_->setText(label);
+        batteryChip_->setStyleSheet(batteryChipQss(lowBattery));
+        QString tip;
+        if (wired) {
+            tip = QStringLiteral("This host has no internal battery (a desktop) — "
+                                 "reported as wired / full charge.");
+        } else if (charging) {
+            tip = QStringLiteral("Battery at %1% and charging.").arg(batteryLevel);
+        } else if (full) {
+            tip = QStringLiteral("Battery full (%1%).").arg(batteryLevel);
+        } else if (lowBattery) {
+            tip = QStringLiteral("Battery low — %1% remaining.").arg(batteryLevel);
+        } else {
+            tip = QStringLiteral("Battery at %1%.").arg(batteryLevel);
+        }
+        batteryChip_->setToolTip(tip);
+    }
 }
 
 void SlotCard::onBindClicked() {

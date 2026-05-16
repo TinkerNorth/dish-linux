@@ -30,7 +30,7 @@ class SlotCard : public QFrame {
 
   private:
     void onBindClicked();
-    // Refresh the capability chips (currently just motion/gyro) from slot_.
+    // Refresh the capability chips (motion/gyro + battery) from slot_.
     void updateCapabilities();
 
     QLabel* nameLabel_;
@@ -40,6 +40,10 @@ class SlotCard : public QFrame {
     // Capability-chip row, kept under the name/binding text.
     QHBoxLayout* capabilityRow_;
     QLabel* motionChip_;
+    // Battery chip: charge for this pad — the controller's own for a wireless
+    // pad, the host machine's for a wired/unknown one. Hidden until the first
+    // battery sample arrives (level 0xFF / unknown).
+    QLabel* batteryChip_;
 
     models::ControllerSlot slot_;
     QList<models::ConnectionSummary> available_;

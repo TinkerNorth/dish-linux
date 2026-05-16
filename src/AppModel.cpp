@@ -166,6 +166,11 @@ void AppModel::rebuild() {
         s.name = d.name;
         s.physicalDeviceId = d.id;
         s.capabilities.hasMotion = d.motionCapable;
+        // Carry the latest battery sample through so the slot card's battery
+        // chip can show charge — controller's own for a wireless pad, the
+        // host machine's for a wired/unknown one.
+        s.capabilities.batteryLevel = d.batteryLevel;
+        s.capabilities.batteryStatus = d.batteryStatus;
         next.append(s);
     }
 
