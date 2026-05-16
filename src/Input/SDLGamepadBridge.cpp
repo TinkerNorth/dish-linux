@@ -410,9 +410,10 @@ void SDLGamepadBridge::pollBatteries() {
         if (js == nullptr) { continue; }
         const auto pl = SDL_JoystickCurrentPowerLevel(js);
         const auto wire = powerLevelToWire(pl);
-        // The processor coalesces identical (level, status) tuples, so we
-        // can call publishBattery unconditionally — a wired pad sitting at
-        // 100 % WIRED won't actually emit a packet past the first one.
+        // Forward every poll. MSG_BATTERY is a fixed 30 s heartbeat: the
+        // receiver expects a packet each interval even when the value is
+        // unchanged, so a lost UDP packet self-heals on the next tick. The
+        // 30 s gate above is the cadence; publishBattery does not coalesce.
         GamepadInputProcessor::BatterySample sample{wire.level, wire.status};
         processor_->publishBattery(e.deviceId, sample);
         // Record the sample for the UI battery chip. Note whether it changed

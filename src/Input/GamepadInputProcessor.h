@@ -61,15 +61,14 @@ class GamepadInputProcessor {
                            std::int16_t gyroZ, std::int16_t accelX, std::int16_t accelY,
                            std::int16_t accelZ, std::uint32_t timestampDeltaUs)>;
 
-    // Periodic battery sample destined for MSG_BATTERY. The processor
-    // coalesces identical back-to-back values per device so a static
-    // 100 % reading isn't blasted onto the wire every poll tick.
+    // Periodic battery sample destined for MSG_BATTERY. Forwarded as-is:
+    // MSG_BATTERY is a fixed 30 s heartbeat (plus on-connect), so the
+    // receiver expects a packet every interval even when the value is
+    // unchanged — that is what lets a dropped UDP packet self-heal. The
+    // SDL bridge's per-device 30 s poll gate owns the cadence.
     struct BatterySample {
         std::uint8_t level = 0xFF;
         std::uint8_t status = 0;
-        bool operator==(const BatterySample& o) const {
-            return level == o.level && status == o.status;
-        }
     };
     using BatterySender =
         std::function<void(const DeviceId& id, std::uint8_t level, std::uint8_t status)>;
@@ -142,8 +141,10 @@ class GamepadInputProcessor {
     // (any monotonic basis). Returns whether the sample was forwarded.
     bool publishMotionAt(const DeviceId& id, const MotionSample& sample, std::uint64_t nowUs);
 
-    // Publish a battery sample for `id`. Identical to the previous published
-    // sample → dropped. Otherwise forwarded to the BatterySender.
+    // Publish a battery sample for `id`. Pure pass-through to the
+    // BatterySender — every poll tick is forwarded, unchanged or not, so the
+    // 30 s heartbeat actually reaches the wire. Cadence is owned by the SDL
+    // bridge's poll gate, not this method.
     void publishBattery(const DeviceId& id, const BatterySample& sample);
 
     // Publish a touchpad sample for `id`. Pure pass-through to the
@@ -175,9 +176,6 @@ class GamepadInputProcessor {
         bool hasEmitted = false;
     };
     std::unordered_map<DeviceId, MotionGate> lastMotionUs_;
-
-    // Per-device last battery sample, used for change-coalescing.
-    std::unordered_map<DeviceId, BatterySample> lastBattery_;
 };
 
 // Pure helpers — easily testable.

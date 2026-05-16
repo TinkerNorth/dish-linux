@@ -67,7 +67,6 @@ void GamepadInputProcessor::remove(const DeviceId& id) {
     states_.erase(id);
     deadzones_.erase(id);
     lastMotionUs_.erase(id);
-    lastBattery_.erase(id);
 }
 
 bool GamepadInputProcessor::publishMotionAt(const DeviceId& id, const MotionSample& sample,
@@ -107,15 +106,12 @@ void GamepadInputProcessor::publishMotion(const DeviceId& id, const MotionSample
 }
 
 void GamepadInputProcessor::publishBattery(const DeviceId& id, const BatterySample& sample) {
+    // Pure pass-through — no coalescing. MSG_BATTERY is a fixed 30 s
+    // heartbeat, so an unchanged sample must still reach the wire; the SDL
+    // bridge's 30 s poll gate is what bounds the rate.
     BatterySender snapshot;
     {
         std::lock_guard<std::mutex> lock(mtx_);
-        auto it = lastBattery_.find(id);
-        if (it != lastBattery_.end() && it->second == sample) {
-            // Coalesced — no state transition since the last successful send.
-            return;
-        }
-        lastBattery_[id] = sample;
         snapshot = batterySender_;
     }
     if (snapshot) { snapshot(id, sample.level, sample.status); }

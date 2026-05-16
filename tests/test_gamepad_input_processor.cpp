@@ -333,7 +333,7 @@ TEST_CASE("publishMotion passes through gyro + accel sample data verbatim", "[mo
     REQUIRE(observed.accelZ == -600);
 }
 
-// ── Battery coalescing ─────────────────────────────────────────────────────
+// ── Battery forwarding ─────────────────────────────────────────────────────
 
 TEST_CASE("publishBattery forwards the first sample", "[battery]") {
     GamepadInputProcessor p;
@@ -352,7 +352,10 @@ TEST_CASE("publishBattery forwards the first sample", "[battery]") {
     REQUIRE(lastStatus == 1);
 }
 
-TEST_CASE("publishBattery coalesces identical samples", "[battery]") {
+// MSG_BATTERY is a fixed 30 s heartbeat: an unchanged value must still reach
+// the wire every poll so a dropped UDP packet self-heals on the next tick.
+// publishBattery therefore forwards every sample — it does NOT coalesce.
+TEST_CASE("publishBattery forwards every sample, including unchanged ones", "[battery]") {
     GamepadInputProcessor p;
     int calls = 0;
     p.setBatterySender([&](const std::string&, std::uint8_t, std::uint8_t) { ++calls; });
@@ -360,7 +363,7 @@ TEST_CASE("publishBattery coalesces identical samples", "[battery]") {
     p.publishBattery("pad", {100, 4});
     p.publishBattery("pad", {100, 4});
     p.publishBattery("pad", {100, 4});
-    REQUIRE(calls == 1);
+    REQUIRE(calls == 3);
 }
 
 TEST_CASE("publishBattery emits on level change", "[battery]") {
@@ -389,23 +392,14 @@ TEST_CASE("publishBattery emits on status change at the same level", "[battery]"
     REQUIRE(lastStatus == 2);
 }
 
-TEST_CASE("publishBattery coalesces independently per device", "[battery]") {
+TEST_CASE("publishBattery forwards every device's samples", "[battery]") {
     GamepadInputProcessor p;
     int calls = 0;
     p.setBatterySender([&](const std::string&, std::uint8_t, std::uint8_t) { ++calls; });
 
     p.publishBattery("a", {50, 1});
     p.publishBattery("b", {50, 1});
-    REQUIRE(calls == 2);
-}
-
-TEST_CASE("remove clears the battery coalesce cache", "[battery]") {
-    GamepadInputProcessor p;
-    int calls = 0;
-    p.setBatterySender([&](const std::string&, std::uint8_t, std::uint8_t) { ++calls; });
-
-    p.publishBattery("pad", {50, 1});
-    p.remove("pad");
-    p.publishBattery("pad", {50, 1});
-    REQUIRE(calls == 2);
+    p.publishBattery("a", {50, 1});
+    p.publishBattery("b", {50, 1});
+    REQUIRE(calls == 4);
 }
