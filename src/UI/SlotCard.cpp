@@ -62,6 +62,8 @@ SlotCard::SlotCard(QWidget* parent) : QFrame(parent) {
     capabilityRow_->setContentsMargins(0, 4, 0, 0);
     motionChip_ = new QLabel(this);
     capabilityRow_->addWidget(motionChip_, 0, Qt::AlignVCenter);
+    lightbarChip_ = new QLabel(this);
+    capabilityRow_->addWidget(lightbarChip_, 0, Qt::AlignVCenter);
     batteryChip_ = new QLabel(this);
     capabilityRow_->addWidget(batteryChip_, 0, Qt::AlignVCenter);
     capabilityRow_->addStretch(1);
@@ -110,6 +112,23 @@ void SlotCard::updateCapabilities() {
                   : QStringLiteral("This controller has no motion sensor — gyro aim is "
                                    "unavailable. Xbox pads have no gyro; DualSense, "
                                    "DualShock 4 and Switch Pro pads do."));
+
+    // Lightbar-capability chip. Unlike the motion chip, this is shown ONLY
+    // when the pad actually has an addressable RGB LED (DualSense / DS4) —
+    // most pads have no lightbar and a "no lightbar" callout would be noise.
+    // Styled with the filled "present" pill, matching the motion/battery
+    // chips. The host game drives the colour over MSG_LIGHTBAR; the "Light
+    // bar" setting can switch that off without changing this hardware chip.
+    const bool hasLightbar = slot_.capabilities.hasLightbar;
+    lightbarChip_->setVisible(hasLightbar);
+    if (hasLightbar) {
+        lightbarChip_->setText(QStringLiteral("Lightbar"));
+        lightbarChip_->setStyleSheet(capabilityChipQss(true));
+        lightbarChip_->setToolTip(
+            QStringLiteral("Lightbar available — this controller has an RGB LED. "
+                           "It follows the host game's colour unless the Light bar "
+                           "setting is Off."));
+    }
 
     // Battery chip. The (level, status) pair comes off the same MSG_BATTERY
     // sample the satellite receives: a wireless pad's own charge, or — for a

@@ -4,6 +4,7 @@
 #pragma once
 
 #include "GamepadInputProcessor.h"
+#include "OutputCommandQueue.h"
 
 #include <QObject>
 #include <QString>
@@ -11,6 +12,7 @@
 #include <atomic>
 #include <chrono>
 #include <cstdint>
+#include <mutex>
 #include <thread>
 #include <unordered_map>
 #include <unordered_set>
@@ -46,6 +48,10 @@ class SDLGamepadBridge : public QObject {
     // one of SDL_SENSOR_GYRO / SDL_SENSOR_ACCEL successfully enabled — i.e.
     // DualSense / DS4 / Switch-class pads, never Xbox 360 / Xbox One pads.
     //
+    // `hasLightbar` is true iff SDL_GameControllerHasLED reported an
+    // addressable RGB LED for the device (DualSense / DualShock 4). It drives
+    // the SlotCard lightbar chip and the CAP_LIGHTBAR bit in MSG_CONTROLLER_ADD.
+    //
     // `batteryLevel` / `batteryStatus` carry the most recent battery sample
     // for the device — the same (level, status) pair pollBatteries() forwards
     // onto the wire (the controller's own charge for a wireless pad, the host
@@ -56,31 +62,35 @@ class SDLGamepadBridge : public QObject {
         QString id;
         QString name;
         bool motionCapable = false;
+        bool hasLightbar = false;
         std::uint8_t batteryLevel = 0xFF;
         std::uint8_t batteryStatus = 0;
     };
     QList<Device> devices() const;
 
-    // Drive the physical controller's rumble motors. `strongMagnitude` and
-    // `weakMagnitude` are 16-bit magnitudes matching XInput's scale so they
-    // can flow through the SDL2 API verbatim. `durationMs == 0` is a "stop"
-    // signal — SDL itself treats 0 as "do not run", so we forward as-is.
+    // Drive the physical controller's rumble motors — vibration ONLY. As of
+    // Task 1.4 the lightbar is fully decoupled from rumble: this never touches
+    // the LED. `strongMagnitude` and `weakMagnitude` are 16-bit magnitudes
+    // matching XInput's scale so they can flow through the SDL2 API verbatim.
+    // `durationMs == 0` is a "stop" signal — SDL itself treats 0 as "do not
+    // run", so we forward as-is.
     //
-    // If the controller exposes a lightbar (DualShock 4 / DualSense) and the
-    // satellite published one, we also call SDL_GameControllerSetLED. Failures
-    // are silent — many pads don't support either operation and SDL just
-    // returns -1 in that case.
-    //
-    // Thread-safety: callable from any thread; takes the same internal mutex
-    // that guards the device map. Intended to be invoked from the
-    // SatelliteClient receive thread.
+    // Thread-safety: callable from any thread. The SDL call is NOT made here:
+    // the request is pushed onto an internal mutex-guarded command queue and
+    // executed by runLoop() on the SDL thread, where the SDL_GameController*
+    // is resolved fresh — a controller closed in the meantime is simply
+    // skipped, so there is no use-after-close race. Intended to be invoked
+    // from the SatelliteClient receive thread.
     void applyRumble(const QString& deviceId, std::uint16_t strongMagnitude,
-                     std::uint16_t weakMagnitude, std::uint16_t durationMs, bool hasLightbar,
-                     std::uint8_t lightbarR, std::uint8_t lightbarG, std::uint8_t lightbarB);
+                     std::uint16_t weakMagnitude, std::uint16_t durationMs);
 
-    // Drive the physical controller's LED to the given colour, independent of
-    // any rumble event. Wraps SDL_GameControllerSetLED for the device bound to
-    // `deviceId`. No-op for pads without an LED.
+    // Drive the physical controller's LED to the given colour. The sole
+    // lightbar entry point: the dedicated MSG_LIGHTBAR stream routes here.
+    // No-op for pads without an LED.
+    //
+    // Thread-safety: same as applyRumble — the SDL_GameControllerSetLED call
+    // is marshalled onto the SDL thread via the command queue rather than
+    // made on the caller's (receive) thread.
     void applyLightbar(const QString& deviceId, std::uint8_t r, std::uint8_t g, std::uint8_t b);
 
   signals:
@@ -88,6 +98,9 @@ class SDLGamepadBridge : public QObject {
 
   private:
     void runLoop();
+    // Drain the pending-command queue and execute each SDL output call
+    // (rumble / SetLED) on the SDL thread. Called once per runLoop iteration.
+    void drainOutputCommands();
     void rebuildState(int iid);
     void handleSensorEvent(const SDL_ControllerSensorEvent& ev);
     void handleTouchpadEvent(const SDL_ControllerTouchpadEvent& ev);
@@ -109,6 +122,12 @@ class SDLGamepadBridge : public QObject {
     // overhead for Xbox 360 / Xbox One pads. Manipulated only on the
     // input thread, but the read in handleSensorEvent goes through mtx_.
     std::unordered_set<int> motionCapable_;
+
+    // Devices for which SDL_GameControllerHasLED returned true at attach
+    // (DualSense / DualShock 4). Surfaced through devices() as Device::
+    // hasLightbar so the UI can show a lightbar chip and WifiConnection can
+    // advertise CAP_LIGHTBAR. Same lifecycle / locking as motionCapable_.
+    std::unordered_set<int> lightbarCapable_;
 
     // Latest accelerometer reading per device (m/s²). Updated when an accel
     // SDL_CONTROLLERSENSORUPDATE arrives; merged with the next gyro update
@@ -146,6 +165,20 @@ class SDLGamepadBridge : public QObject {
         TouchFinger fingers[2];
     };
     std::unordered_map<int, TouchState> touchState_;
+
+    // Cross-thread output-command marshalling (Task 1.4 threading fix).
+    //
+    // SDL_GameControllerRumble / SDL_GameControllerSetLED must run on the SDL
+    // thread (the one in runLoop) because the SDL thread is also the only
+    // thread allowed to SDL_GameControllerClose a controller. applyRumble /
+    // applyLightbar are called from the SatelliteClient receive thread; if
+    // they called the SDL function directly they could race a close and use a
+    // freed SDL_GameController*. Instead they push onto this queue and runLoop
+    // drains it, resolving the device id → controller on the SDL thread (a
+    // closed controller is just skipped). OutputCommandQueue carries its own
+    // lock — independent of mtx_, so a flood of rumble packets on the receive
+    // thread never contends with the device map.
+    OutputCommandQueue outputQueue_;
 };
 
 } // namespace dish::input

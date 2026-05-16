@@ -79,6 +79,11 @@ struct ConnectionSummary {
 struct ControllerCapabilities {
     bool hasMotion = false;
 
+    // True iff SDL reported an addressable RGB LED for the device
+    // (SDL_GameControllerHasLED) — DualSense / DualShock 4. Drives the slot
+    // card's lightbar chip and the CAP_LIGHTBAR advertisement.
+    bool hasLightbar = false;
+
     // Most recent battery sample for the pad — the same (level, status) pair
     // forwarded on MSG_BATTERY. For a wireless pad this is the controller's
     // own charge; for a wired/unknown pad it is the host machine's battery

@@ -30,7 +30,8 @@ class SlotCard : public QFrame {
 
   private:
     void onBindClicked();
-    // Refresh the capability chips (motion/gyro + battery) from slot_.
+    // Refresh the capability chips (motion/gyro + lightbar + battery) from
+    // slot_.
     void updateCapabilities();
 
     QLabel* nameLabel_;
@@ -40,6 +41,11 @@ class SlotCard : public QFrame {
     // Capability-chip row, kept under the name/binding text.
     QHBoxLayout* capabilityRow_;
     QLabel* motionChip_;
+    // Capability chip: addressable RGB lightbar (DualSense / DualShock 4).
+    // Unlike the motion chip this is shown ONLY when the pad has an LED — a
+    // missing lightbar is the common case (Xbox / generic pads) and needs no
+    // "not available" callout.
+    QLabel* lightbarChip_;
     // Battery chip: charge for this pad — the controller's own for a wireless
     // pad, the host machine's for a wired/unknown one. Hidden until the first
     // battery sample arrives (level 0xFF / unknown).

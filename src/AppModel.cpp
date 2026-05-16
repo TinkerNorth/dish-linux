@@ -3,6 +3,8 @@
 
 #include "AppModel.h"
 
+#include "LightbarRouting.h"
+
 namespace dish {
 
 AppModel::AppModel(QObject* parent)
@@ -13,8 +15,8 @@ AppModel::AppModel(std::unique_ptr<util::DisplaySleepInhibitor> inhibitor, QObje
       wifi_(new net::WifiConnectionManager(store_.get(), this)),
       hub_(new net::ConnectionHub(wifi_, store_.get(), this)),
       bridge_(new input::SDLGamepadBridge(&processor_, this)),
-      autoReconnectTimer_(new QTimer(this)), inhibitor_(std::move(inhibitor)),
-      wake_(inhibitor_.get()) {
+      featureSettings_(new FeatureSettings(this)), autoReconnectTimer_(new QTimer(this)),
+      inhibitor_(std::move(inhibitor)), wake_(inhibitor_.get()) {
     QObject::connect(hub_, &net::ConnectionHub::changed, this, &AppModel::onHubChanged);
     QObject::connect(bridge_, &input::SDLGamepadBridge::devicesChanged, this,
                      &AppModel::onBridgeDevicesChanged);
@@ -77,6 +79,16 @@ AppModel::AppModel(std::unique_ptr<util::DisplaySleepInhibitor> inhibitor, QObje
             }
         });
 
+    // Teach the hub how to look up a slot's lightbar capability so a bind()
+    // can advertise CAP_LIGHTBAR. The slot id is the SDL bridge device id, so
+    // the lookup is a scan of bridge devices for the matching LED flag.
+    hub_->setLightbarCapabilityFn([this](const QString& slotId) {
+        for (const auto& d : bridge_->devices()) {
+            if (d.id == slotId) { return d.hasLightbar; }
+        }
+        return false;
+    });
+
     rebuild();
 }
 
@@ -103,12 +115,18 @@ void AppModel::installRumbleHandlers() {
             if (deviceId.isEmpty()) { return; }
             // For dish-linux, slot.id == physical device.id (set in rebuild()),
             // so the slot id IS the bridge's device id. Hand it straight to
-            // the SDL bridge.
-            bridge_->applyRumble(deviceId, rm.strongMagnitude, rm.weakMagnitude, rm.durationMs,
-                                 rm.hasLightbar, rm.lightbarR, rm.lightbarG, rm.lightbarB);
+            // the SDL bridge. Rumble = vibration only; the light bar has its
+            // own return path via MSG_LIGHTBAR.
+            bridge_->applyRumble(deviceId, rm.strongMagnitude, rm.weakMagnitude, rm.durationMs);
         });
         // Parallel handler for the dedicated MSG_LIGHTBAR stream (Task 1.4).
+        // Resolves the same slot/connection mapping and forwards to the
+        // bridge's standalone applyLightbar — independent of rumble. Gated by
+        // the light-bar setting: "Off" suppresses the colour entirely.
         conn->setLightbarHandler([this, id](const net::SatelliteClient::LightbarMessage& lm) {
+            const auto color =
+                lightbarColorFromLightbarMessage(lm, featureSettings_->lightbarFollowGame());
+            if (!color) { return; }
             QString deviceId;
             const auto bindings = hub_->bindings();
             for (auto it = bindings.cbegin(); it != bindings.cend(); ++it) {
@@ -118,7 +136,7 @@ void AppModel::installRumbleHandlers() {
                 }
             }
             if (deviceId.isEmpty()) { return; }
-            bridge_->applyLightbar(deviceId, lm.r, lm.g, lm.b);
+            bridge_->applyLightbar(deviceId, color->r, color->g, color->b);
         });
     }
 }
@@ -166,6 +184,9 @@ void AppModel::rebuild() {
         s.name = d.name;
         s.physicalDeviceId = d.id;
         s.capabilities.hasMotion = d.motionCapable;
+        // Likewise the addressable-LED capability — drives the lightbar chip
+        // and tells the hub when to advertise CAP_LIGHTBAR on bind.
+        s.capabilities.hasLightbar = d.hasLightbar;
         // Carry the latest battery sample through so the slot card's battery
         // chip can show charge — controller's own for a wireless pad, the
         // host machine's for a wired/unknown one.

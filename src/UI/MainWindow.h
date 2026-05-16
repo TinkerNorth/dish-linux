@@ -24,6 +24,7 @@ namespace dish::ui {
 class ConnectionsPage;
 class ErrorBanner;
 class PairingPage;
+class SettingsView;
 
 // Dashboard window. Owns a QStackedWidget that swaps between the Dashboard,
 // Connections, and Pairing pages — replaces the prior stack of modal dialogs.
@@ -41,6 +42,7 @@ class MainWindow : public QMainWindow {
     void maybeShowPairingPage();
     void onError(const QString& msg);
     void onManageClicked();
+    void onSettingsClicked();
     void onBindRequested(const QString& slotId, const QString& connectionId);
     void onUnbindRequested(const QString& slotId);
     void showDashboard();
@@ -53,6 +55,7 @@ class MainWindow : public QMainWindow {
     QWidget* dashboardPage_;
     ConnectionsPage* connectionsPage_;
     PairingPage* pairingPage_;
+    SettingsView* settingsPage_;
     ErrorBanner* errorBanner_;
     QProgressBar* dashboardSpinner_;
     QWidget* pairingReturnPage_ = nullptr;
@@ -62,6 +65,7 @@ class MainWindow : public QMainWindow {
     QLabel* statusDot_;
     QLabel* statusText_;
     QLabel* summaryText_;
+    QPushButton* settingsButton_;
     QPushButton* manageButton_;
     QVBoxLayout* slotsLayout_;
     QLabel* slotsEmpty_;

@@ -10,6 +10,7 @@
 #include "Network/WifiConnection.h"
 #include "Network/WifiConnectionManager.h"
 #include "PairingPage.h"
+#include "SettingsView.h"
 #include "SlotCard.h"
 #include "Theme.h"
 
@@ -53,11 +54,17 @@ MainWindow::MainWindow(AppModel* model, QWidget* parent) : QMainWindow(parent), 
     pairingPage_ = new PairingPage(stack_);
     stack_->addWidget(pairingPage_);
 
+    settingsPage_ = new SettingsView(model_->featureSettings(), stack_);
+    stack_->addWidget(settingsPage_);
+
     QObject::connect(connectionsPage_, &ConnectionsPage::backRequested, this,
                      &MainWindow::showDashboard);
     QObject::connect(pairingPage_, &PairingPage::cancelRequested, this,
                      &MainWindow::returnFromPairing);
     QObject::connect(pairingPage_, &PairingPage::pairRequested, this, &MainWindow::onPairSubmit);
+    // The settings page's Done button returns to the dashboard.
+    QObject::connect(settingsPage_, &SettingsView::closeRequested, this,
+                     &MainWindow::showDashboard);
 
     QObject::connect(model_, &AppModel::stateChanged, this, &MainWindow::onStateChanged);
     QObject::connect(model_, &AppModel::errorMessage, this, &MainWindow::onError);
@@ -77,9 +84,11 @@ void MainWindow::buildDashboardPage() {
     statusDot_->setStyleSheet(dotQss(Theme::muted));
     statusText_ = new QLabel(dashboardPage_);
     statusText_->setStyleSheet(QStringLiteral("font-size: 17px; font-weight: 600;"));
+    settingsButton_ = new QPushButton(QStringLiteral("Settings"), dashboardPage_);
     manageButton_ = new QPushButton(QStringLiteral("Manage"), dashboardPage_);
     headerRow->addWidget(statusDot_, 0, Qt::AlignVCenter);
     headerRow->addWidget(statusText_, 1, Qt::AlignVCenter);
+    headerRow->addWidget(settingsButton_, 0, Qt::AlignVCenter);
     headerRow->addWidget(manageButton_, 0, Qt::AlignVCenter);
 
     summaryText_ = new QLabel(dashboardPage_);
@@ -127,6 +136,7 @@ void MainWindow::buildDashboardPage() {
     root->addWidget(scroll, 1);
 
     QObject::connect(manageButton_, &QPushButton::clicked, this, &MainWindow::onManageClicked);
+    QObject::connect(settingsButton_, &QPushButton::clicked, this, &MainWindow::onSettingsClicked);
 }
 
 void MainWindow::onStateChanged() {
@@ -237,6 +247,8 @@ void MainWindow::onError(const QString& msg) {
 }
 
 void MainWindow::onManageClicked() { stack_->setCurrentWidget(connectionsPage_); }
+
+void MainWindow::onSettingsClicked() { stack_->setCurrentWidget(settingsPage_); }
 
 void MainWindow::onBindRequested(const QString& slotId, const QString& connectionId) {
     model_->hub()->bind(slotId, connectionId);

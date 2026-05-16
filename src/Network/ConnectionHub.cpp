@@ -135,7 +135,13 @@ void ConnectionHub::bind(const QString& slotId, const QString& connectionId) {
     current.insert(slotId, connectionId);
     bindings_ = current;
     rebuild();
-    if (auto* c = wifi_->get(connectionId)) { c->attachSlot(slotId, /*controllerType=*/0); }
+    // Resolve whether the slot's pad has an LED so the controller-add can
+    // advertise CAP_LIGHTBAR. The predicate is absent in tests / before the
+    // bridge is wired — treat that as "no lightbar".
+    const bool hasLightbar = lightbarCapabilityFn_ && lightbarCapabilityFn_(slotId);
+    if (auto* c = wifi_->get(connectionId)) {
+        c->attachSlot(slotId, /*controllerType=*/0, hasLightbar);
+    }
 }
 
 void ConnectionHub::unbind(const QString& slotId) {

@@ -375,21 +375,13 @@ SatelliteClient::parseLightbarMessage(const std::uint8_t* payload, std::size_t l
 
 std::optional<SatelliteClient::RumbleMessage>
 SatelliteClient::parseRumbleMessage(const std::uint8_t* payload, std::size_t len) {
-    // Mandatory fields: ctrlIdx + strong + weak + dur + flags = 8 bytes.
-    if (payload == nullptr || len < 8) { return std::nullopt; }
+    // Fixed 7-byte payload: ctrlIdx + strong + weak + dur.
+    if (payload == nullptr || len < kRumblePayloadLen) { return std::nullopt; }
     RumbleMessage rm;
     rm.controllerIndex = payload[0];
     rm.strongMagnitude = util::readU16Be(payload + 1);
     rm.weakMagnitude = util::readU16Be(payload + 3);
     rm.durationMs = util::readU16Be(payload + 5);
-    const std::uint8_t flags = payload[7];
-    rm.hasLightbar = (flags & 0x01) != 0;
-    if (rm.hasLightbar) {
-        if (len < 11) { return std::nullopt; } // declared lightbar but truncated
-        rm.lightbarR = payload[8];
-        rm.lightbarG = payload[9];
-        rm.lightbarB = payload[10];
-    }
     return rm;
 }
 

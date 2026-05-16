@@ -55,6 +55,11 @@ class SatelliteClient {
     static constexpr std::uint16_t kCapAnalogTriggers = 0x0001;
     static constexpr std::uint16_t kCapRumble = 0x0002;
     static constexpr std::uint16_t kCapMotion = 0x0004;
+    // CAP_LIGHTBAR (Task 1.4). Advertised per-controller in MSG_CONTROLLER_ADD
+    // only when the bound physical pad has an addressable RGB LED (DualSense /
+    // DualShock 4). A satellite that sees this bit sends lightbar colour via
+    // the dedicated MSG_LIGHTBAR (0x000D) stream.
+    static constexpr std::uint16_t kCapLightbar = 0x0008;
 
     // Battery wire constants (satellite/src/core/types.h mirrors).
     static constexpr std::uint8_t kBatteryLevelUnknown = 0xFF;
@@ -91,6 +96,15 @@ class SatelliteClient {
     void controllerRemove(int index);
     void sendControllerType(int index, int type);
     void resetControllerAck() { lastControllerAck_.store(-1, std::memory_order_relaxed); }
+
+    // Pure helper: fold the per-controller CAP_LIGHTBAR (0x0008) bit into a
+    // base capability word. Returns `base` unchanged when the bound pad has
+    // no addressable RGB LED, and `base | kCapLightbar` when it does. Kept
+    // public + static so the cap-advertisement rule is unit-testable without
+    // a live socket — see WifiConnection::registerController for the caller.
+    static std::uint16_t withLightbarCapability(std::uint16_t base, bool hasLightbar) {
+        return static_cast<std::uint16_t>(base | (hasLightbar ? kCapLightbar : 0));
+    }
 
     // Forward a single IMU sample. Axes follow the satellite's
     // Cemuhook-compatible convention (right-handed, +X right, +Y up,
@@ -153,17 +167,12 @@ class SatelliteClient {
                           std::uint8_t finger1Id, std::int16_t finger1X, std::int16_t finger1Y,
                           bool buttonPressed);
 
-    // Decoded rumble message from the satellite. `lightbar*` are valid only
-    // when `hasLightbar` is true (the wire format's optional trailing 3 bytes).
+    // Decoded rumble message from the satellite — motors + duration only.
     struct RumbleMessage {
         int controllerIndex = 0;
         std::uint16_t strongMagnitude = 0;
         std::uint16_t weakMagnitude = 0;
         std::uint16_t durationMs = 0;
-        bool hasLightbar = false;
-        std::uint8_t lightbarR = 0;
-        std::uint8_t lightbarG = 0;
-        std::uint8_t lightbarB = 0;
     };
 
     // Install (or replace) the rumble callback. Invoked from the receive
@@ -174,16 +183,18 @@ class SatelliteClient {
     using RumbleHandler = std::function<void(const RumbleMessage&)>;
     void setRumbleHandler(RumbleHandler handler);
 
+    // Length of the MSG_RUMBLE inner payload (after the 4-byte type+length
+    // header), in bytes: ctrlIdx(1) + strong(2) + weak(2) + durMs(2).
+    static constexpr std::size_t kRumblePayloadLen = 7;
+
     // Pure decoder for the MSG_RUMBLE inner payload (the 4-byte header
     // {type, length} has already been stripped). Returns std::nullopt on
     // truncation; see ClientAdapter::sendRumble for the producer side. Kept
     // public + static so it can be exercised by unit tests without a live
     // socket.
     //
-    // Wire layout:
-    //   ctrlIdx(1) strong(2 BE) weak(2 BE) durMs(2 BE) flags(1) [R(1) G(1) B(1)]
-    //
-    // `flags` bit 0 set ⇒ trailing R/G/B bytes are present (DS4 lightbar).
+    // Wire layout (fixed 7 bytes):
+    //   ctrlIdx(1) strong(2 BE) weak(2 BE) durMs(2 BE)
     static std::optional<RumbleMessage> parseRumbleMessage(const std::uint8_t* payload,
                                                            std::size_t len);
 

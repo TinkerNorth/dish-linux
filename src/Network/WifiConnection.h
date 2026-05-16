@@ -61,7 +61,12 @@ class WifiConnection : public QObject {
                        std::function<void()> onDead);
     void markDisconnected();
 
-    void attachSlot(const QString& slotId, int controllerType);
+    // Bind this connection to a controller slot. `controllerType` is the
+    // satellite virtual-device type. `hasLightbar` is true when the bound
+    // physical pad exposes an addressable RGB LED — it gates the CAP_LIGHTBAR
+    // (0x0008) bit in the MSG_CONTROLLER_ADD capability word. Stored so a
+    // later registration (on reconnect) advertises the same capability.
+    void attachSlot(const QString& slotId, int controllerType, bool hasLightbar);
     void detachSlot();
 
     bool isRegisteringController() const { return controllerRegistering_; }
@@ -106,12 +111,14 @@ class WifiConnection : public QObject {
 
   private:
     static constexpr int kDefaultCtrlIndex = 0;
-    // Capability word advertised in MSG_CONTROLLER_ADD: analog triggers
+    // Base capability word advertised in MSG_CONTROLLER_ADD: analog triggers
     // (0x0001) | rumble (0x0002) | motion (0x0004 — this client streams
-    // MSG_MOTION gyro/accel samples). See SatelliteClient::kCap* mirrors.
-    static constexpr std::uint16_t kDefaultCaps =
-        SatelliteClient::kCapAnalogTriggers | SatelliteClient::kCapRumble |
-        SatelliteClient::kCapMotion;
+    // MSG_MOTION gyro/accel samples). CAP_LIGHTBAR (0x0008) is NOT in here —
+    // it is per-controller (only pads with an LED) and is OR-ed in by
+    // registerController. See SatelliteClient::kCap* mirrors.
+    static constexpr std::uint16_t kDefaultCaps = SatelliteClient::kCapAnalogTriggers |
+                                                  SatelliteClient::kCapRumble |
+                                                  SatelliteClient::kCapMotion;
     static constexpr int kAckWaitAttempts = 20;
     static constexpr int kAckWaitIntervalMs = 100;
 
@@ -133,6 +140,9 @@ class WifiConnection : public QObject {
     std::function<void()> onDead_;
     bool controllerAdded_ = false;
     int pendingControllerType_ = 0;
+    // Whether the bound slot's physical pad has an addressable RGB LED. Set by
+    // attachSlot; consumed by registerController to advertise CAP_LIGHTBAR.
+    bool lightbarCapable_ = false;
 
     // Set once during composition; re-applied to each fresh SatelliteClient
     // in markConnected() so we don't lose rumble across reconnects.

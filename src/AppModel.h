@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include "FeatureSettings.h"
 #include "Input/GamepadInputProcessor.h"
 #include "Input/SDLGamepadBridge.h"
 #include "Models/Models.h"
@@ -61,6 +62,9 @@ class AppModel : public QObject {
     input::GamepadInputProcessor* processor() { return &processor_; }
     input::SDLGamepadBridge* bridge() { return bridge_; }
     util::ScreenWakeController* wake() { return &wake_; }
+    // Feature-forwarding preferences (light bar on/off). Owned by the model;
+    // the settings UI binds to it and the lightbar handlers gate on it.
+    FeatureSettings* featureSettings() { return featureSettings_; }
 
     // Single read-only accessor — the UI reads everything off this slice
     // and re-renders on stateChanged().
@@ -96,6 +100,7 @@ class AppModel : public QObject {
     net::ConnectionHub* hub_;
     input::GamepadInputProcessor processor_;
     input::SDLGamepadBridge* bridge_;
+    FeatureSettings* featureSettings_;
     QTimer* autoReconnectTimer_;
     // Owned in unique_ptr so we can swap a FakeDisplaySleepInhibitor in
     // tests. ScreenWakeController holds a raw back-pointer; lifetime is

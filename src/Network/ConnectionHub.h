@@ -13,6 +13,7 @@
 #include <QString>
 
 #include <functional>
+#include <utility>
 
 namespace dish::net {
 
@@ -54,6 +55,14 @@ class ConnectionHub : public QObject {
     BatterySender batterySenderForSlot(const QString& slotId) const;
     TouchpadSender touchpadSenderForSlot(const QString& slotId) const;
 
+    // Predicate answering "does the physical pad behind this slot have an
+    // addressable RGB LED?". Installed by AppModel (which owns the SDL bridge
+    // that detects the LED). bind() consults it so the resulting
+    // MSG_CONTROLLER_ADD advertises CAP_LIGHTBAR for an LED-bearing pad. When
+    // unset, slots are treated as having no lightbar.
+    using LightbarCapabilityFn = std::function<bool(const QString& slotId)>;
+    void setLightbarCapabilityFn(LightbarCapabilityFn fn) { lightbarCapabilityFn_ = std::move(fn); }
+
     void bind(const QString& slotId, const QString& connectionId);
     void unbind(const QString& slotId);
     std::optional<models::ConnectionSummary> boundConnection(const QString& slotId) const;
@@ -69,6 +78,7 @@ class ConnectionHub : public QObject {
     ConnectionStore* store_;
     QList<models::ConnectionSummary> summaries_;
     QHash<QString, QString> bindings_; // slotId -> connectionId
+    LightbarCapabilityFn lightbarCapabilityFn_;
 };
 
 } // namespace dish::net

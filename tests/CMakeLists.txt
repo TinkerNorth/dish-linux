@@ -28,6 +28,9 @@ set(DISH_TEST_SOURCES
     test_satellite_client_motion.cpp
     test_satellite_client_touchpad.cpp
     test_satellite_client_lightbar.cpp
+    test_output_command_queue.cpp
+    test_lightbar_routing.cpp
+    test_feature_settings.cpp
     test_sdl_motion_convert.cpp
     test_host_battery.cpp)
 

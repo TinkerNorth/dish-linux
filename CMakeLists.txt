@@ -107,8 +107,12 @@ set(DISH_CORE_SOURCES
     src/Input/GamepadInputProcessor.cpp
     src/Input/SdlMotionConvert.h
     src/Input/SdlMotionConvert.cpp
+    src/Input/OutputCommandQueue.h
     src/Input/SDLGamepadBridge.h
     src/Input/SDLGamepadBridge.cpp
+    src/FeatureSettings.h
+    src/FeatureSettings.cpp
+    src/LightbarRouting.h
     src/AppModel.h
     src/AppModel.cpp)
 
@@ -138,6 +142,8 @@ set(DISH_UI_SOURCES
     src/UI/ConnectionsPage.cpp
     src/UI/ErrorBanner.h
     src/UI/ErrorBanner.cpp
+    src/UI/SettingsView.h
+    src/UI/SettingsView.cpp
     src/UI/MainWindow.h
     src/UI/MainWindow.cpp
     resources/icons.qrc

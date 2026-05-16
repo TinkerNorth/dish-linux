@@ -107,7 +107,12 @@ QList<SDLGamepadBridge::Device> SDLGamepadBridge::devices() const {
     QList<Device> out;
     out.reserve(static_cast<int>(deviceIds_.size()));
     for (const auto& [iid, did] : deviceIds_) {
-        Device dev{did, deviceNames_.at(iid), motionCapable_.count(iid) != 0, 0xFF, 0};
+        Device dev{did,
+                   deviceNames_.at(iid),
+                   motionCapable_.count(iid) != 0,
+                   lightbarCapable_.count(iid) != 0,
+                   0xFF,
+                   0};
         if (auto it = lastBattery_.find(iid); it != lastBattery_.end()) {
             dev.batteryLevel = it->second.level;
             dev.batteryStatus = it->second.status;
@@ -155,12 +160,18 @@ void SDLGamepadBridge::runLoop() {
                     hasAccel = false;
                 }
             }
+            // Addressable RGB LED probe. SDL_GameControllerHasLED returns
+            // SDL_TRUE for DualSense / DualShock 4 (and a handful of LED-bearing
+            // third-party pads); SDL_FALSE for Xbox / Switch Pro / generic
+            // pads. Drives the per-controller CAP_LIGHTBAR advertisement.
+            const bool hasLed = SDL_GameControllerHasLED(gc) == SDL_TRUE;
             {
                 std::lock_guard<std::mutex> lock(mtx_);
                 openControllers_[iid] = gc;
                 deviceIds_[iid] = deviceId;
                 deviceNames_[iid] = deviceName;
                 if (hasGyro || hasAccel) { motionCapable_.insert(iid); }
+                if (hasLed) { lightbarCapable_.insert(iid); }
                 lastBatteryPoll_[iid] = std::chrono::steady_clock::time_point{};
             }
             // One-shot device-capability dump — mirrors the SatelliteJNI
@@ -178,7 +189,7 @@ void SDLGamepadBridge::runLoop() {
                                 << "type=" << static_cast<int>(type)
                                 << "vid=" << QString::number(vid, 16)
                                 << "pid=" << QString::number(pid, 16) << "guid=" << guidBuf
-                                << "gyro=" << hasGyro << "accel=" << hasAccel;
+                                << "gyro=" << hasGyro << "accel=" << hasAccel << "led=" << hasLed;
             // Push the default deadzone profile so the processor filters
             // out controller noise from the first event. The default lives
             // inside the bridge (not the processor) because the bridge is
@@ -204,6 +215,7 @@ void SDLGamepadBridge::runLoop() {
                 }
                 deviceNames_.erase(iid);
                 motionCapable_.erase(iid);
+                lightbarCapable_.erase(iid);
                 lastBatteryPoll_.erase(iid);
                 lastBattery_.erase(iid);
                 touchState_.erase(iid);
@@ -229,6 +241,11 @@ void SDLGamepadBridge::runLoop() {
             break;
         }
 
+        // Execute any rumble / lightbar commands queued by applyRumble /
+        // applyLightbar on the receive thread. Done here so every
+        // SDL_GameController* is resolved and used only on the SDL thread.
+        drainOutputCommands();
+
         // Poll battery on every event-loop iteration; the per-device gate
         // collapses to a 30 s cadence so this is cheap.
         pollBatteries();
@@ -245,30 +262,10 @@ void SDLGamepadBridge::runLoop() {
 }
 
 void SDLGamepadBridge::applyRumble(const QString& deviceId, std::uint16_t strongMagnitude,
-                                   std::uint16_t weakMagnitude, std::uint16_t durationMs,
-                                   bool hasLightbar, std::uint8_t lightbarR, std::uint8_t lightbarG,
-                                   std::uint8_t lightbarB) {
-    SDL_GameController* gc = nullptr;
-    {
-        std::lock_guard<std::mutex> lock(mtx_);
-        for (const auto& [iid, did] : deviceIds_) {
-            if (did == deviceId) {
-                if (auto it = openControllers_.find(iid); it != openControllers_.end()) {
-                    gc = it->second;
-                }
-                break;
-            }
-        }
-    }
-    if (gc == nullptr) { return; }
-    // SDL2's `SDL_GameControllerRumble` returns 0 on success, -1 if the device
-    // doesn't support rumble — silent: the caller has no recourse beyond the
-    // satellite-side game already running, which doesn't know either way.
-    SDL_GameControllerRumble(gc, strongMagnitude, weakMagnitude, durationMs);
-    if (hasLightbar) {
-        // SDL_GameControllerSetLED is a no-op on pads without a lightbar.
-        SDL_GameControllerSetLED(gc, lightbarR, lightbarG, lightbarB);
-    }
+                                   std::uint16_t weakMagnitude, std::uint16_t durationMs) {
+    // Queue the rumble for the SDL thread — see outputQueue_'s comment in the
+    // header. Vibration only: the lightbar is handled by applyLightbar.
+    outputQueue_.push(OutputCommand::rumble(deviceId, strongMagnitude, weakMagnitude, durationMs));
 }
 
 void SDLGamepadBridge::handleSensorEvent(const SDL_ControllerSensorEvent& ev) {
@@ -434,20 +431,45 @@ void SDLGamepadBridge::pollBatteries() {
 
 void SDLGamepadBridge::applyLightbar(const QString& deviceId, std::uint8_t r, std::uint8_t g,
                                      std::uint8_t b) {
-    SDL_GameController* gc = nullptr;
-    {
-        std::lock_guard<std::mutex> lock(mtx_);
-        for (const auto& [iid, did] : deviceIds_) {
-            if (did == deviceId) {
-                if (auto it = openControllers_.find(iid); it != openControllers_.end()) {
-                    gc = it->second;
+    // Queue the colour for the SDL thread — see outputQueue_'s comment in the
+    // header. The actual SDL_GameControllerSetLED runs in drainOutputCommands()
+    // so a controller closed on the SDL thread between now and then is skipped
+    // rather than used after free.
+    outputQueue_.push(OutputCommand::lightbar(deviceId, r, g, b));
+}
+
+void SDLGamepadBridge::drainOutputCommands() {
+    // Runs on the SDL thread. drain() atomically takes the batch so the
+    // receive thread can keep enqueueing while we execute it.
+    for (const auto& cmd : outputQueue_.drain()) {
+        // Resolve the device id → SDL_GameController* here, on the SDL thread.
+        // A controller removed since the command was enqueued is absent from
+        // openControllers_, so gc stays null and the command is dropped — no
+        // use-after-close. mtx_ guards the device map.
+        SDL_GameController* gc = nullptr;
+        {
+            std::lock_guard<std::mutex> lock(mtx_);
+            for (const auto& [iid, did] : deviceIds_) {
+                if (did == cmd.deviceId) {
+                    if (auto it = openControllers_.find(iid); it != openControllers_.end()) {
+                        gc = it->second;
+                    }
+                    break;
                 }
-                break;
             }
         }
+        if (gc == nullptr) { continue; }
+        if (cmd.kind == OutputKind::Rumble) {
+            // SDL2's SDL_GameControllerRumble returns 0 on success, -1 if the
+            // device doesn't support rumble — silent: the caller has no
+            // recourse, and the satellite-side game doesn't know either way.
+            SDL_GameControllerRumble(gc, cmd.strongMagnitude, cmd.weakMagnitude, cmd.durationMs);
+        } else {
+            // SDL_GameControllerSetLED is a no-op on pads without a lightbar;
+            // the failure is not surfaced for the same reason rumble's isn't.
+            SDL_GameControllerSetLED(gc, cmd.r, cmd.g, cmd.b);
+        }
     }
-    if (gc == nullptr) { return; }
-    SDL_GameControllerSetLED(gc, r, g, b);
 }
 
 void SDLGamepadBridge::rebuildState(int iid) {
