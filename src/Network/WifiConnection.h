@@ -62,11 +62,13 @@ class WifiConnection : public QObject {
     void markDisconnected();
 
     // Bind this connection to a controller slot. `controllerType` is the
-    // satellite virtual-device type. `hasLightbar` is true when the bound
-    // physical pad exposes an addressable RGB LED — it gates the CAP_LIGHTBAR
-    // (0x0008) bit in the MSG_CONTROLLER_ADD capability word. Stored so a
-    // later registration (on reconnect) advertises the same capability.
-    void attachSlot(const QString& slotId, int controllerType, bool hasLightbar);
+    // satellite virtual-device type (CONTROLLER_TYPE_*). `hasLightbar` is true
+    // when the bound physical pad exposes an addressable RGB LED — it gates
+    // the CAP_LIGHTBAR (0x0008) bit in the MSG_CONTROLLER_ADD capability word.
+    // `hasMotion` is true when the pad has a gyro / accelerometer — it gates
+    // the CAP_MOTION (0x0004) bit the same way. Both are stored so a later
+    // registration (on reconnect) advertises the same capabilities.
+    void attachSlot(const QString& slotId, int controllerType, bool hasLightbar, bool hasMotion);
     void detachSlot();
 
     bool isRegisteringController() const { return controllerRegistering_; }
@@ -112,13 +114,13 @@ class WifiConnection : public QObject {
   private:
     static constexpr int kDefaultCtrlIndex = 0;
     // Base capability word advertised in MSG_CONTROLLER_ADD: analog triggers
-    // (0x0001) | rumble (0x0002) | motion (0x0004 — this client streams
-    // MSG_MOTION gyro/accel samples). CAP_LIGHTBAR (0x0008) is NOT in here —
-    // it is per-controller (only pads with an LED) and is OR-ed in by
-    // registerController. See SatelliteClient::kCap* mirrors.
-    static constexpr std::uint16_t kDefaultCaps = SatelliteClient::kCapAnalogTriggers |
-                                                  SatelliteClient::kCapRumble |
-                                                  SatelliteClient::kCapMotion;
+    // (0x0001) | rumble (0x0002). Neither CAP_MOTION (0x0004) nor CAP_LIGHTBAR
+    // (0x0008) is in here — both are per-controller (CAP_MOTION only for pads
+    // with an IMU, CAP_LIGHTBAR only for pads with an LED) and are OR-ed in by
+    // registerController from motionCapable_ / lightbarCapable_. See
+    // SatelliteClient::kCap* mirrors.
+    static constexpr std::uint16_t kDefaultCaps =
+        SatelliteClient::kCapAnalogTriggers | SatelliteClient::kCapRumble;
     static constexpr int kAckWaitAttempts = 20;
     static constexpr int kAckWaitIntervalMs = 100;
 
@@ -143,6 +145,9 @@ class WifiConnection : public QObject {
     // Whether the bound slot's physical pad has an addressable RGB LED. Set by
     // attachSlot; consumed by registerController to advertise CAP_LIGHTBAR.
     bool lightbarCapable_ = false;
+    // Whether the bound slot's physical pad has a gyro / accelerometer. Set by
+    // attachSlot; consumed by registerController to advertise CAP_MOTION.
+    bool motionCapable_ = false;
 
     // Set once during composition; re-applied to each fresh SatelliteClient
     // in markConnected() so we don't lose rumble across reconnects.

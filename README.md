@@ -14,11 +14,16 @@ Qt6 Widgets (MainWindow, ConnectionsDialog, PairingDialog, SlotCard)
         ├── WifiConnectionManager
         │     └── WifiConnection (per-server)
         │           └── SatelliteClient  ── encrypted UDP + heartbeat + ACK loop
-        ├── LANDiscovery       ── UDP broadcast listener on :9879
+        ├── MdnsDiscovery      ── mDNS / Bonjour responder on :5353 (Task 1.6)
+        ├── LANDiscovery       ── legacy UDP broadcast listener on :9879
         ├── PairingClient      ── TCP pair handshake on :9878
         ├── HTTPClient         ── POST/DELETE /api/connections on :9877
         └── SDLGamepadBridge   ── SDL_GameController event pump (own thread)
-              └── GamepadInputProcessor → SatelliteClient.sendReport()
+              └── GamepadInputProcessor → SatelliteClient
+                    • sendReport()   gamepad XUSB report
+                    • sendMotion()   gyro / accel IMU stream
+                    • sendBattery()  30 s battery heartbeat
+                    • sendTouchpad() DS4 / DualSense two-finger trackpad
 ```
 
 ### Hot path (input → wire)
@@ -99,6 +104,24 @@ behaviour stays predictable across platforms:
   enum), USB VID / PID, and the SDL GUID. Aimed at users reporting *"my pad
   doesn't work"* — same idea as Android's SatelliteJNI `DEVCAPS` log.
 
+## Server discovery (Task 1.6)
+
+Dish finds Satellite servers on the LAN through **two** parallel paths and
+merges the results so a server heard on either shows up once:
+
+- **`MdnsDiscovery`** — the modern path. Browses for the Satellite mDNS /
+  Bonjour service (`_satellite._udp`) over multicast DNS on `:5353`, the same
+  mechanism `dns-sd` / Avahi use. No broadcast permission prompt, and it
+  crosses the subnet boundaries a UDP broadcast cannot.
+- **`LANDiscovery`** — the legacy UDP broadcast listener on `:9879`, kept as a
+  fallback for servers that predate the mDNS responder.
+
+Each `DiscoveredServer` records which path surfaced it (`DiscoverySource`:
+`Mdns`, `Broadcast`, or `Both`) and the connections list shows a short label
+(*"mDNS"* / *"UDP broadcast"* / *"mDNS + broadcast"*) so it is clear how a
+server was reached. The mDNS decoder is unit-tested in
+`tests/test_mdns_discovery.cpp`.
+
 ## Rumble (return path)
 
 Rumble flows the opposite direction to the input hot path: a game on the
@@ -168,6 +191,44 @@ vibration — still drives the pad. The satellite emits a dedicated
 
 The controller list also shows a *"Lightbar"* capability chip for any pad
 with an addressable RGB LED, next to the *"Gyro"* / *"No gyro"* chip.
+
+## Battery reporting (Task 1.2)
+
+Dish streams a periodic battery report so the Satellite web UI can show each
+controller's charge. `SDLGamepadBridge` polls `SDL_JoystickCurrentPowerLevel`
+on a per-device **30 s gate** and forwards a `MSG_BATTERY = 0x000B` packet
+(`controller_index(1) + level(1) + status(1)`) on every tick — a fixed
+heartbeat, so a dropped UDP packet self-heals on the next interval rather than
+being coalesced away.
+
+SDL's power enum is coarse (`EMPTY` / `LOW` / `MEDIUM` / `FULL` / `WIRED` /
+`UNKNOWN`), so the bridge buckets it to a `(level, status)` wire pair:
+
+- A real wireless reading (`EMPTY`…`FULL`) is forwarded as the **controller's
+  own** charge.
+- `WIRED` (a USB pad) and `UNKNOWN` (no usable reading) carry no meaningful
+  controller charge, so Dish substitutes the **host machine's** battery via
+  `util::readHostBattery()` — the laptop's own percentage and charging state,
+  or 100 % / `WIRED` on a battery-less desktop.
+
+The most recent sample also drives a battery chip on each `SlotCard`.
+
+## Touchpad capture (Task 1.3)
+
+For DualSense / DualShock 4 pads, Dish captures the two-finger trackpad and
+the clicky-pad button and forwards them as a `MSG_TOUCHPAD = 0x000C` packet
+(`controller_index(1) + flags(1) + finger0(5B) + finger1(5B)`).
+
+`SDLGamepadBridge` accumulates SDL's per-finger down / move / up events into a
+two-finger snapshot and emits the full frame on every change — touchpad input
+is genuinely event-driven, so unlike motion it is neither rate-limited nor
+coalesced. Finger coordinates are normalised to the resolution-independent
+signed int16 the wire expects (`touchpadCoordToInt16`, SDL's `0.0..1.0`
+top-left-origin float mapped via `v * 65535 - 32768`). Each finger also
+carries a **monotonic tracking id**, bumped on every fresh contact, so the
+receiver can tell a new touch apart from a continuation. The receiver routes
+each device's samples per its persisted touchpad mode (DS4 surface / relative
+mouse / off).
 
 ## Requirements
 

@@ -101,10 +101,12 @@ void WifiConnection::markDisconnected() {
     emit changed();
 }
 
-void WifiConnection::attachSlot(const QString& slotId, int controllerType, bool hasLightbar) {
+void WifiConnection::attachSlot(const QString& slotId, int controllerType, bool hasLightbar,
+                                bool hasMotion) {
     boundSlotId_ = slotId;
     pendingControllerType_ = controllerType;
     lightbarCapable_ = hasLightbar;
+    motionCapable_ = hasMotion;
     if (state_ == WifiState::Connected && !controllerAdded_) { registerController(controllerType); }
     emit changed();
 }
@@ -125,11 +127,11 @@ void WifiConnection::registerController(int type) {
     pendingControllerType_ = type;
     c->resetControllerAck();
     // Per-controller capability word: the static base (analog triggers,
-    // rumble, motion) plus CAP_LIGHTBAR only when the bound pad has an
-    // addressable RGB LED. Mirrors the spec's
-    //   caps = existingDefault | (hasLed ? 0x0008 : 0)
-    const std::uint16_t caps =
-        SatelliteClient::withLightbarCapability(kDefaultCaps, lightbarCapable_);
+    // rumble) plus CAP_MOTION only when the bound pad has a gyro / accel and
+    // CAP_LIGHTBAR only when it has an addressable RGB LED. Mirrors the spec's
+    //   caps = base | (hasMotion ? 0x0004 : 0) | (hasLed ? 0x0008 : 0)
+    const std::uint16_t caps = SatelliteClient::withLightbarCapability(
+        SatelliteClient::withMotionCapability(kDefaultCaps, motionCapable_), lightbarCapable_);
     c->controllerAdd(kDefaultCtrlIndex, caps);
     ackPollCount_ = 0;
     controllerRegistering_ = true;

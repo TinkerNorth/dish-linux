@@ -89,6 +89,27 @@ AppModel::AppModel(std::unique_ptr<util::DisplaySleepInhibitor> inhibitor, QObje
         return false;
     });
 
+    // Likewise for motion: bind() advertises CAP_MOTION only when the bound
+    // pad has a gyro / accelerometer. Same device-id scan as the lightbar
+    // resolver, reading the bridge's per-device IMU probe.
+    hub_->setMotionCapabilityFn([this](const QString& slotId) {
+        for (const auto& d : bridge_->devices()) {
+            if (d.id == slotId) { return d.motionCapable; }
+        }
+        return false;
+    });
+
+    // And the cosmetic controller type: bind() declares the real Xbox-vs-
+    // PlayStation kind in MSG_CONTROLLER_TYPE. Same device-id scan, reading
+    // the type SDL negotiated for the pad. Defaults to Xbox (0) for a slot
+    // with no matching bridge device.
+    hub_->setControllerTypeFn([this](const QString& slotId) {
+        for (const auto& d : bridge_->devices()) {
+            if (d.id == slotId) { return static_cast<int>(d.controllerType); }
+        }
+        return 0;
+    });
+
     rebuild();
 }
 

@@ -63,6 +63,24 @@ class ConnectionHub : public QObject {
     using LightbarCapabilityFn = std::function<bool(const QString& slotId)>;
     void setLightbarCapabilityFn(LightbarCapabilityFn fn) { lightbarCapabilityFn_ = std::move(fn); }
 
+    // Predicate answering "does the physical pad behind this slot have a
+    // motion sensor (gyro / accelerometer)?". Same source as the lightbar
+    // predicate — the SDL bridge's per-device IMU probe. bind() consults it
+    // so MSG_CONTROLLER_ADD advertises CAP_MOTION only for a pad that
+    // actually streams IMU samples. When unset, slots are treated as having
+    // no motion.
+    using MotionCapabilityFn = std::function<bool(const QString& slotId)>;
+    void setMotionCapabilityFn(MotionCapabilityFn fn) { motionCapabilityFn_ = std::move(fn); }
+
+    // Resolver answering "what cosmetic controller type (Xbox / PlayStation)
+    // is the physical pad behind this slot?". Same source as the capability
+    // predicates — SDL's SDL_GameControllerGetType(). bind() consults it so
+    // the MSG_CONTROLLER_TYPE (0x0008) declares the real type. Returns a
+    // CONTROLLER_TYPE_* wire value (0 = Xbox, 1 = PlayStation); when unset,
+    // slots default to Xbox.
+    using ControllerTypeFn = std::function<int(const QString& slotId)>;
+    void setControllerTypeFn(ControllerTypeFn fn) { controllerTypeFn_ = std::move(fn); }
+
     void bind(const QString& slotId, const QString& connectionId);
     void unbind(const QString& slotId);
     std::optional<models::ConnectionSummary> boundConnection(const QString& slotId) const;
@@ -79,6 +97,8 @@ class ConnectionHub : public QObject {
     QList<models::ConnectionSummary> summaries_;
     QHash<QString, QString> bindings_; // slotId -> connectionId
     LightbarCapabilityFn lightbarCapabilityFn_;
+    MotionCapabilityFn motionCapabilityFn_;
+    ControllerTypeFn controllerTypeFn_;
 };
 
 } // namespace dish::net

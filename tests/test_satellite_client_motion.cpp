@@ -4,10 +4,11 @@
 // Coverage for SatelliteClient::encodeMotionPayload / encodeBatteryPayload —
 // the pure encoders for MSG_MOTION (0x000A) and MSG_BATTERY (0x000B). The
 // wire layout these produce must match satellite/src/core/types.h::MotionReport
-// and BatteryReport byte-for-byte (the receiver decodes via memcpy onto the
-// host-LE struct). Same pattern as test_satellite_client_rumble.cpp — the
-// encoders are public + static so we can pin the byte order without driving
-// a live socket.
+// and BatteryReport byte-for-byte. The receiver decodes the motion payload
+// with decodeMotionReport() — explicit little-endian byte-shifts, NOT a
+// struct memcpy — so the wire is byte-order- and struct-layout-independent.
+// Same pattern as test_satellite_client_rumble.cpp — the encoders are
+// public + static so we can pin the byte order without driving a live socket.
 
 #include "Network/SatelliteClient.h"
 

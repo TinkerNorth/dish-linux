@@ -403,3 +403,102 @@ TEST_CASE("publishBattery forwards every device's samples", "[battery]") {
     p.publishBattery("b", {50, 1});
     REQUIRE(calls == 4);
 }
+
+// ── Touchpad forwarding ────────────────────────────────────────────────────
+// publishTouchpad is a pure pass-through to the TouchpadSender: the SDL bridge
+// has already assembled the full two-finger state, and a touchpad is an
+// absolute surface, so there is no deadzone / rate-limit / coalesce step.
+
+TEST_CASE("publishTouchpad forwards the sample verbatim to the sender", "[touchpad]") {
+    GamepadInputProcessor p;
+    bool called = false;
+    GamepadInputProcessor::TouchpadSample observed{};
+    p.setTouchpadSender(
+        [&](const std::string& id, const GamepadInputProcessor::TouchpadSample& s) {
+            called = true;
+            observed = s;
+            REQUIRE(id == "pad-1");
+        });
+
+    GamepadInputProcessor::TouchpadSample s{};
+    s.finger0Active = true;
+    s.finger0Id = 7;
+    s.finger0X = 1234;
+    s.finger0Y = -5678;
+    s.finger1Active = true;
+    s.finger1Id = 9;
+    s.finger1X = -4321;
+    s.finger1Y = 8765;
+    s.buttonPressed = true;
+    p.publishTouchpad("pad-1", s);
+
+    REQUIRE(called);
+    REQUIRE(observed.finger0Active);
+    REQUIRE(observed.finger0Id == 7);
+    REQUIRE(observed.finger0X == 1234);
+    REQUIRE(observed.finger0Y == -5678);
+    REQUIRE(observed.finger1Active);
+    REQUIRE(observed.finger1Id == 9);
+    REQUIRE(observed.finger1X == -4321);
+    REQUIRE(observed.finger1Y == 8765);
+    REQUIRE(observed.buttonPressed);
+}
+
+TEST_CASE("publishTouchpad forwards every sample, including unchanged ones", "[touchpad]") {
+    // Touchpad input is event-driven and not coalesced — every assembled
+    // state change reaches the wire, even a repeat of the same coordinates.
+    GamepadInputProcessor p;
+    int calls = 0;
+    p.setTouchpadSender(
+        [&](const std::string&, const GamepadInputProcessor::TouchpadSample&) { ++calls; });
+
+    GamepadInputProcessor::TouchpadSample s{};
+    s.finger0Active = true;
+    p.publishTouchpad("pad", s);
+    p.publishTouchpad("pad", s);
+    p.publishTouchpad("pad", s);
+    REQUIRE(calls == 3);
+}
+
+TEST_CASE("publishTouchpad is a no-op when no sender is installed", "[touchpad]") {
+    // No TouchpadSender set — publishTouchpad must not crash, just drop.
+    GamepadInputProcessor p;
+    GamepadInputProcessor::TouchpadSample s{};
+    s.finger0Active = true;
+    p.publishTouchpad("pad", s); // must not throw / crash
+    SUCCEED("publishTouchpad tolerated a missing sender");
+}
+
+TEST_CASE("publishTouchpad forwards each device's samples", "[touchpad]") {
+    GamepadInputProcessor p;
+    int calls = 0;
+    p.setTouchpadSender(
+        [&](const std::string&, const GamepadInputProcessor::TouchpadSample&) { ++calls; });
+
+    GamepadInputProcessor::TouchpadSample s{};
+    p.publishTouchpad("a", s);
+    p.publishTouchpad("b", s);
+    p.publishTouchpad("a", s);
+    REQUIRE(calls == 3);
+}
+
+TEST_CASE("publishTouchpad carries a monotonic per-finger tracking id through", "[touchpad]") {
+    // The SDL bridge bumps the tracking id on each fresh contact; the
+    // processor must hand whatever it is given straight to the sender so the
+    // receiver can tell a new touch from a continuation.
+    GamepadInputProcessor p;
+    std::uint8_t lastF0Id = 0;
+    p.setTouchpadSender(
+        [&](const std::string&, const GamepadInputProcessor::TouchpadSample& s) {
+            lastF0Id = s.finger0Id;
+        });
+
+    GamepadInputProcessor::TouchpadSample s{};
+    s.finger0Active = true;
+    s.finger0Id = 1;
+    p.publishTouchpad("pad", s);
+    REQUIRE(lastF0Id == 1);
+    s.finger0Id = 2; // fresh contact — bumped id
+    p.publishTouchpad("pad", s);
+    REQUIRE(lastF0Id == 2);
+}

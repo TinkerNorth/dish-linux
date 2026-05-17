@@ -119,10 +119,11 @@ std::array<std::uint8_t, 17> SatelliteClient::encodeMotionPayload(
     std::uint8_t controllerIndex, std::int16_t gyroX, std::int16_t gyroY, std::int16_t gyroZ,
     std::int16_t accelX, std::int16_t accelY, std::int16_t accelZ, std::uint32_t timestampDeltaUs) {
     // ctrlIdx(1) + 6×int16 LE + uint32 LE = 1 + 12 + 4 = 17 bytes.
-    // Matches MotionReport's host-native struct layout: the receiver does
-    // memcpy(&report, payload + 1, sizeof(MotionReport)). Every supported
-    // sender / receiver platform is little-endian; senders therefore write
-    // LE explicitly so byte order is independent of compiler layout.
+    // Matches MotionReport's little-endian wire layout. The receiver does NOT
+    // memcpy onto the struct — it decodes via explicit byte-shifts
+    // (decodeMotionReport in satellite/src/core/types.h), so the contract is
+    // byte-order- and struct-layout-independent. Senders therefore write LE
+    // explicitly here; see satellite/docs/protocol.md §0x000A.
     std::array<std::uint8_t, 17> out{};
     out[0] = controllerIndex;
     auto storeLe16 = [&out](int off, std::int16_t v) {

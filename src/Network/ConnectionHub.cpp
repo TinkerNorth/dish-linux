@@ -135,12 +135,15 @@ void ConnectionHub::bind(const QString& slotId, const QString& connectionId) {
     current.insert(slotId, connectionId);
     bindings_ = current;
     rebuild();
-    // Resolve whether the slot's pad has an LED so the controller-add can
-    // advertise CAP_LIGHTBAR. The predicate is absent in tests / before the
-    // bridge is wired — treat that as "no lightbar".
+    // Resolve the slot's pad capabilities so the controller-add can advertise
+    // CAP_LIGHTBAR / CAP_MOTION and MSG_CONTROLLER_TYPE can declare the real
+    // Xbox-vs-PlayStation kind. The resolvers are absent in tests / before
+    // the bridge is wired — treat that as "no lightbar / no motion / Xbox".
     const bool hasLightbar = lightbarCapabilityFn_ && lightbarCapabilityFn_(slotId);
+    const bool hasMotion = motionCapabilityFn_ && motionCapabilityFn_(slotId);
+    const int controllerType = controllerTypeFn_ ? controllerTypeFn_(slotId) : 0;
     if (auto* c = wifi_->get(connectionId)) {
-        c->attachSlot(slotId, /*controllerType=*/0, hasLightbar);
+        c->attachSlot(slotId, controllerType, hasLightbar, hasMotion);
     }
 }
 

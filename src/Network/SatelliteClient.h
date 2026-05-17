@@ -106,10 +106,26 @@ class SatelliteClient {
         return static_cast<std::uint16_t>(base | (hasLightbar ? kCapLightbar : 0));
     }
 
+    // Pure helper: fold the per-controller CAP_MOTION (0x0004) bit into a
+    // base capability word. Returns `base` unchanged when the bound pad has
+    // no gyro / accelerometer, and `base | kCapMotion` when it does. The
+    // motion analogue of withLightbarCapability — kept public + static for
+    // the same unit-test reasons.
+    static std::uint16_t withMotionCapability(std::uint16_t base, bool hasMotion) {
+        return static_cast<std::uint16_t>(base | (hasMotion ? kCapMotion : 0));
+    }
+
     // Forward a single IMU sample. Axes follow the satellite's
     // Cemuhook-compatible convention (right-handed, +X right, +Y up,
-    // +Z toward player). Caller is responsible for applying any
-    // manufacturer rotation matrix (DualSense, Joy-Con) before encoding.
+    // +Z toward player).
+    //
+    // Load-bearing assumption: no caller applies a manufacturer rotation
+    // matrix, and none needs to. SDL2 already normalises HIDAPI controllers
+    // (DualSense / DS4 / Switch Pro) into exactly this right-handed frame
+    // internally, so the int16 triples handed in here are already in wire
+    // orientation. The protocol's "senders apply the rotation matrix" rule
+    // (protocol.md §0x000A) is satisfied by SDL on our behalf — do NOT add a
+    // rotation step here or it would double-apply.
     //
     // Scale: gyro int16 LSB = 2000/32767 deg/s; accel int16 LSB = 4/32767 g.
     // See satellite/docs/protocol.md §0x000A for the canonical reference.

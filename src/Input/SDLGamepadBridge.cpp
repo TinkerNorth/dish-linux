@@ -69,6 +69,28 @@ BatteryReading powerLevelToWire(SDL_JoystickPowerLevel pl) {
 
 constexpr std::chrono::seconds kBatteryPollInterval{30};
 
+// Satellite MSG_CONTROLLER_TYPE (0x0008) wire values, mirroring
+// satellite/src/core/types.h CONTROLLER_TYPE_*. Cosmetic kind only — the
+// receiver uses it to pick a virtual DualShock 4 / DualSense profile.
+constexpr std::uint8_t kControllerTypeXbox = 0;
+constexpr std::uint8_t kControllerTypePlayStation = 1;
+
+// Map SDL2's negotiated SDL_GameControllerType to the satellite's two-value
+// cosmetic type. SDL distinguishes PS3 / PS4 / PS5 pads; all three are
+// "PlayStation" on the wire. Everything else — Xbox 360 / Xbox One / Switch
+// Pro / generic — falls back to Xbox, matching the protocol's instruction to
+// treat anything outside the documented set as Xbox.
+std::uint8_t sdlTypeToControllerType(SDL_GameControllerType type) {
+    switch (type) {
+    case SDL_CONTROLLER_TYPE_PS3:
+    case SDL_CONTROLLER_TYPE_PS4:
+    case SDL_CONTROLLER_TYPE_PS5:
+        return kControllerTypePlayStation;
+    default:
+        return kControllerTypeXbox;
+    }
+}
+
 // SDL_GameController axes are int16 [-32768, 32767]; pass through directly.
 std::int16_t axisValue(SDL_GameController* gc, SDL_GameControllerAxis axis) {
     return SDL_GameControllerGetAxis(gc, axis);
@@ -112,10 +134,14 @@ QList<SDLGamepadBridge::Device> SDLGamepadBridge::devices() const {
                    motionCapable_.count(iid) != 0,
                    lightbarCapable_.count(iid) != 0,
                    0xFF,
-                   0};
+                   0,
+                   kControllerTypeXbox};
         if (auto it = lastBattery_.find(iid); it != lastBattery_.end()) {
             dev.batteryLevel = it->second.level;
             dev.batteryStatus = it->second.status;
+        }
+        if (auto it = controllerType_.find(iid); it != controllerType_.end()) {
+            dev.controllerType = it->second;
         }
         out.append(dev);
     }
@@ -165,6 +191,13 @@ void SDLGamepadBridge::runLoop() {
             // third-party pads); SDL_FALSE for Xbox / Switch Pro / generic
             // pads. Drives the per-controller CAP_LIGHTBAR advertisement.
             const bool hasLed = SDL_GameControllerHasLED(gc) == SDL_TRUE;
+            // Cosmetic controller kind. SDL reports the type it negotiated
+            // (Xbox 360 / DualSense / generic); a PS3/PS4/PS5 pad maps to the
+            // satellite's CONTROLLER_TYPE_PLAYSTATION, everything else to Xbox.
+            // Threaded through MSG_CONTROLLER_TYPE so the satellite plugs in a
+            // virtual DualShock 4 for a real DualSense.
+            const auto type = SDL_GameControllerGetType(gc);
+            const std::uint8_t ctrlType = sdlTypeToControllerType(type);
             {
                 std::lock_guard<std::mutex> lock(mtx_);
                 openControllers_[iid] = gc;
@@ -172,6 +205,7 @@ void SDLGamepadBridge::runLoop() {
                 deviceNames_[iid] = deviceName;
                 if (hasGyro || hasAccel) { motionCapable_.insert(iid); }
                 if (hasLed) { lightbarCapable_.insert(iid); }
+                controllerType_[iid] = ctrlType;
                 lastBatteryPoll_[iid] = std::chrono::steady_clock::time_point{};
             }
             // One-shot device-capability dump — mirrors the SatelliteJNI
@@ -180,7 +214,6 @@ void SDLGamepadBridge::runLoop() {
             // / product id, and the GUID; together that pins what mapping was
             // applied so users reporting "my pad doesn't work" get a usable
             // diagnostic without a debugger.
-            const auto type = SDL_GameControllerGetType(gc);
             const auto vid = SDL_GameControllerGetVendor(gc);
             const auto pid = SDL_GameControllerGetProduct(gc);
             char guidBuf[64] = {0};
@@ -216,6 +249,7 @@ void SDLGamepadBridge::runLoop() {
                 deviceNames_.erase(iid);
                 motionCapable_.erase(iid);
                 lightbarCapable_.erase(iid);
+                controllerType_.erase(iid);
                 lastBatteryPoll_.erase(iid);
                 lastBattery_.erase(iid);
                 touchState_.erase(iid);
@@ -269,6 +303,15 @@ void SDLGamepadBridge::applyRumble(const QString& deviceId, std::uint16_t strong
 }
 
 void SDLGamepadBridge::handleSensorEvent(const SDL_ControllerSensorEvent& ev) {
+    // Axis-orientation assumption (load-bearing): SDL2 delivers gyro/accel
+    // for HIDAPI controllers (DualSense / DS4 / Switch Pro) already rotated
+    // into a right-handed +X-right / +Y-up / +Z-toward-player frame — the
+    // exact convention the satellite wire format wants (protocol.md §0x000A).
+    // We therefore feed ev.data straight through the scale-only converters
+    // below; we deliberately do NOT apply a manufacturer rotation matrix,
+    // because SDL has already done it and a second rotation would corrupt
+    // the frame. See SatelliteClient::sendMotion for the matching note.
+    //
     // SDL maps the joystick instance id into `which`. Resolve to deviceId
     // under the same mutex that protects deviceIds_ — handleSensorEvent
     // is called only from the input thread but `devices()` / `applyRumble`
@@ -343,6 +386,15 @@ void SDLGamepadBridge::handleTouchpadEvent(const SDL_ControllerTouchpadEvent& ev
             if (ev.type == SDL_CONTROLLERTOUCHPADUP) {
                 f.active = false;
             } else {
+                // A TOUCHPADDOWN that finds the slot inactive is a fresh
+                // contact (false→true edge): bump the monotonic tracking id
+                // so the receiver sees a new touch rather than a continuation
+                // of the previous one. It wraps freely as a uint8_t. A
+                // TOUCHPADMOTION (or a redundant DOWN on an already-active
+                // slot) keeps the id, marking the same continuing contact.
+                if (ev.type == SDL_CONTROLLERTOUCHPADDOWN && !f.active) {
+                    ++f.id;
+                }
                 f.active = true;
                 f.x = touchpadCoordToInt16(ev.x);
                 f.y = touchpadCoordToInt16(ev.y);
@@ -360,11 +412,11 @@ void SDLGamepadBridge::handleTouchpadEvent(const SDL_ControllerTouchpadEvent& ev
 
     GamepadInputProcessor::TouchpadSample sample{};
     sample.finger0Active = state.fingers[0].active;
-    sample.finger0Id = 0;
+    sample.finger0Id = state.fingers[0].id;
     sample.finger0X = state.fingers[0].x;
     sample.finger0Y = state.fingers[0].y;
     sample.finger1Active = state.fingers[1].active;
-    sample.finger1Id = 1;
+    sample.finger1Id = state.fingers[1].id;
     sample.finger1X = state.fingers[1].x;
     sample.finger1Y = state.fingers[1].y;
     sample.buttonPressed = button;
