@@ -20,12 +20,33 @@ inline constexpr int kDefaultUdpPort = 9876;
 inline constexpr int kDefaultHttpPort = 9877;
 inline constexpr int kDefaultPairPort = 9878;
 
+// Which discovery path surfaced a satellite. mDNS / Bonjour is the modern
+// path; Broadcast is the legacy UDP beacon; Both means it answered on each.
+// Not a wire field — assigned client-side by the discovery merge.
+enum class DiscoverySource { Broadcast, Mdns, Both };
+
+// Short human label for the connections list.
+inline QString discoverySourceLabel(DiscoverySource source) {
+    switch (source) {
+    case DiscoverySource::Broadcast:
+        return QStringLiteral("UDP broadcast");
+    case DiscoverySource::Mdns:
+        return QStringLiteral("mDNS");
+    case DiscoverySource::Both:
+        return QStringLiteral("mDNS + broadcast");
+    }
+    return {};
+}
+
 struct DiscoveredServer {
     QString name;
     QString ip;
     int udpPort = kDefaultUdpPort;
     int pairPort = kDefaultPairPort;
     int httpPort = kDefaultHttpPort;
+    // Discovery path this server was heard on. Not serialised — `toJson` /
+    // `fromJson` omit it, so a decoded beacon keeps the Broadcast default.
+    DiscoverySource source = DiscoverySource::Broadcast;
 
     QString id() const { return QStringLiteral("wifi:%1:%2").arg(ip).arg(udpPort); }
     bool isValid() const { return !ip.isEmpty(); }

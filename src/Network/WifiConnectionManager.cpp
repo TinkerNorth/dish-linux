@@ -11,6 +11,7 @@
 #include <QHostInfo>
 #include <QSet>
 #include <QtConcurrent/QtConcurrent>
+#include <QtGlobal>
 
 #include <type_traits>
 #include <variant>
@@ -63,18 +64,12 @@ void WifiConnectionManager::startDiscovery() {
         auto mdnsFuture = QtConcurrent::run([] { return MdnsDiscovery::discover(); });
         const QList<models::DiscoveredServer> beacon = LANDiscovery::discover();
         const QList<models::DiscoveredServer> mdns = mdnsFuture.result();
-
-        QList<models::DiscoveredServer> merged;
-        QSet<QString> seen;
-        for (const auto* list : {&beacon, &mdns}) {
-            for (const auto& server : *list) {
-                const QString key =
-                    server.ip + QStringLiteral(":") + QString::number(server.udpPort);
-                if (seen.contains(key)) { continue; }
-                seen.insert(key);
-                merged.append(server);
-            }
-        }
+        const QList<models::DiscoveredServer> merged = mergeDiscovered(beacon, mdns);
+        // Per-path discovery logging so the broadcast vs mDNS hit-rate can be
+        // compared in the field (Task 1.6).
+        qInfo("discovery scan: broadcast=%lld mdns=%lld merged=%lld",
+              static_cast<long long>(beacon.size()), static_cast<long long>(mdns.size()),
+              static_cast<long long>(merged.size()));
         return merged;
     }));
 }

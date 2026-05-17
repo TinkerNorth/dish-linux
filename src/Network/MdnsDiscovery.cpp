@@ -9,8 +9,10 @@
 #include <sys/time.h>
 #include <unistd.h>
 
+#include <QHash>
 #include <QSet>
 
+#include <algorithm>
 #include <chrono>
 #include <cstdint>
 #include <cstdlib>
@@ -38,6 +40,11 @@ constexpr std::uint16_t kTypeSrv = 33;
 // a one-shot client doesn't need to join the multicast group to receive.
 constexpr std::uint16_t kClassInQu = 0x8001;
 
+// Once at least one satellite has answered, keep listening only this long for
+// stragglers before returning — the responder replies in well under a
+// millisecond, so there is no reason to burn the full discovery window.
+constexpr int kGraceMs = 600;
+
 std::uint16_t read16(const std::uint8_t* p) {
     return static_cast<std::uint16_t>((p[0] << 8) | p[1]);
 }
@@ -61,13 +68,17 @@ std::vector<std::uint8_t> buildQuery() {
     return q;
 }
 
+} // namespace
+
+namespace detail {
+
 // Read a DNS name at `off`, following 0xC0 compression pointers. Returns the
 // bytes consumed *at the original offset* (a pointer counts as 2), or 0 on a
 // malformed packet.
-size_t skipName(const std::uint8_t* p, size_t len, size_t off) {
-    size_t consumed = 0;
+std::size_t skipName(const std::uint8_t* p, std::size_t len, std::size_t off) {
+    std::size_t consumed = 0;
     bool jumped = false;
-    size_t guard = 0;
+    std::size_t guard = 0;
     while (off < len) {
         if (++guard > len) { return 0; } // malformed: loop guard
         const std::uint8_t b = p[off];
@@ -78,13 +89,13 @@ size_t skipName(const std::uint8_t* p, size_t len, size_t off) {
         if ((b & 0xC0) == 0xC0) { // compression pointer
             if (off + 1 >= len) { return 0; }
             if (!jumped) { consumed += 2; }
-            const size_t target = (static_cast<size_t>(b & 0x3F) << 8) | p[off + 1];
+            const std::size_t target = (static_cast<std::size_t>(b & 0x3F) << 8) | p[off + 1];
             if (target >= off) { return 0; } // only backward jumps
             off = target;
             jumped = true;
             continue;
         }
-        const size_t label = b + 1;
+        const std::size_t label = b + 1;
         if (off + label > len) { return 0; }
         if (!jumped) { consumed += label; }
         off += label;
@@ -94,16 +105,16 @@ size_t skipName(const std::uint8_t* p, size_t len, size_t off) {
 
 // Read a DNS name into `out` (dot-separated, no trailing dot). Returns false
 // on malformed input.
-bool readName(const std::uint8_t* p, size_t len, size_t off, std::string& out) {
+bool readName(const std::uint8_t* p, std::size_t len, std::size_t off, std::string& out) {
     out.clear();
-    size_t guard = 0;
+    std::size_t guard = 0;
     while (off < len) {
         if (++guard > len) { return false; }
         const std::uint8_t b = p[off];
         if (b == 0) { return true; }
         if ((b & 0xC0) == 0xC0) {
             if (off + 1 >= len) { return false; }
-            const size_t target = (static_cast<size_t>(b & 0x3F) << 8) | p[off + 1];
+            const std::size_t target = (static_cast<std::size_t>(b & 0x3F) << 8) | p[off + 1];
             if (target >= off) { return false; }
             off = target;
             continue;
@@ -119,15 +130,15 @@ bool readName(const std::uint8_t* p, size_t len, size_t off, std::string& out) {
 // Parse one mDNS response packet into a DiscoveredServer, if it carries the
 // SRV + A + TXT records of a satellite. The responder packs all of those into
 // a single packet, so a per-packet parse is sufficient.
-std::optional<models::DiscoveredServer> parseResponse(const std::uint8_t* p, size_t len) {
+std::optional<models::DiscoveredServer> parseResponse(const std::uint8_t* p, std::size_t len) {
     if (len < 12) { return std::nullopt; }
     const std::uint16_t qd = read16(p + 4);
     const std::uint16_t an = read16(p + 6);
-    size_t pos = 12;
+    std::size_t pos = 12;
 
     // Skip the question section.
     for (std::uint16_t i = 0; i < qd; ++i) {
-        const size_t consumed = skipName(p, len, pos);
+        const std::size_t consumed = skipName(p, len, pos);
         if (consumed == 0) { return std::nullopt; }
         pos += consumed + 4; // + type + class
         if (pos > len) { return std::nullopt; }
@@ -142,13 +153,13 @@ std::optional<models::DiscoveredServer> parseResponse(const std::uint8_t* p, siz
     bool haveTxt = false;
 
     for (std::uint16_t i = 0; i < an; ++i) {
-        const size_t nameLen = skipName(p, len, pos);
+        const std::size_t nameLen = skipName(p, len, pos);
         if (nameLen == 0) { return std::nullopt; }
         pos += nameLen;
         if (pos + 10 > len) { return std::nullopt; }
         const std::uint16_t type = read16(p + pos);
         const std::uint16_t rdlen = read16(p + pos + 8);
-        const size_t rdata = pos + 10;
+        const std::size_t rdata = pos + 10;
         if (rdata + rdlen > len) { return std::nullopt; }
 
         if (type == kTypeA && rdlen == 4) {
@@ -160,8 +171,8 @@ std::optional<models::DiscoveredServer> parseResponse(const std::uint8_t* p, siz
             udpPort = read16(p + rdata + 4); // priority(2) weight(2) port(2)
             haveSrv = true;
         } else if (type == kTypeTxt) {
-            size_t t = rdata;
-            const size_t end = rdata + rdlen;
+            std::size_t t = rdata;
+            const std::size_t end = rdata + rdlen;
             while (t < end) {
                 const std::uint8_t slen = p[t];
                 if (t + 1 + slen > end) { break; }
@@ -194,10 +205,45 @@ std::optional<models::DiscoveredServer> parseResponse(const std::uint8_t* p, siz
     s.udpPort = udpPort;
     s.pairPort = pairPort;
     s.httpPort = httpPort;
+    s.source = models::DiscoverySource::Mdns;
     return s;
 }
 
-} // namespace
+} // namespace detail
+
+QList<models::DiscoveredServer> mergeDiscovered(const QList<models::DiscoveredServer>& broadcast,
+                                                const QList<models::DiscoveredServer>& mdns) {
+    const auto keyOf = [](const models::DiscoveredServer& s) {
+        return s.ip + QStringLiteral(":") + QString::number(s.udpPort);
+    };
+    QList<models::DiscoveredServer> merged;
+    QHash<QString, int> indexByKey; // discovery key → index into `merged`
+
+    for (auto server : broadcast) {
+        server.source = models::DiscoverySource::Broadcast;
+        const QString key = keyOf(server);
+        if (indexByKey.contains(key)) { continue; }
+        indexByKey.insert(key, static_cast<int>(merged.size()));
+        merged.append(server);
+    }
+    for (auto server : mdns) {
+        const QString key = keyOf(server);
+        const auto it = indexByKey.constFind(key);
+        if (it != indexByKey.constEnd()) {
+            // Heard on both paths.
+            merged[it.value()].source = models::DiscoverySource::Both;
+            continue;
+        }
+        server.source = models::DiscoverySource::Mdns;
+        indexByKey.insert(key, static_cast<int>(merged.size()));
+        merged.append(server);
+    }
+    std::sort(merged.begin(), merged.end(),
+              [](const models::DiscoveredServer& a, const models::DiscoveredServer& b) {
+                  return a.name < b.name;
+              });
+    return merged;
+}
 
 QList<models::DiscoveredServer> MdnsDiscovery::discover(int timeoutMs) {
     using namespace std::chrono;
@@ -232,18 +278,22 @@ QList<models::DiscoveredServer> MdnsDiscovery::discover(int timeoutMs) {
 
     QList<models::DiscoveredServer> result;
     QSet<QString> seen;
-    const auto deadline = steady_clock::now() + milliseconds(timeoutMs);
+    const auto hardDeadline = steady_clock::now() + milliseconds(timeoutMs);
+    auto deadline = hardDeadline;
     std::uint8_t buf[2048];
 
     while (steady_clock::now() < deadline) {
         const ssize_t n = ::recvfrom(sock, buf, sizeof(buf), 0, nullptr, nullptr);
         if (n <= 0) { continue; } // timeout / transient
-        const auto server = parseResponse(buf, static_cast<size_t>(n));
+        const auto server = detail::parseResponse(buf, static_cast<std::size_t>(n));
         if (!server) { continue; }
         const QString key = server->ip + QStringLiteral(":") + QString::number(server->udpPort);
         if (seen.contains(key)) { continue; }
         seen.insert(key);
         result.append(*server);
+        // Got an answer — cap the remaining wait at a short grace window so a
+        // launch-time scan returns promptly instead of idling for `timeoutMs`.
+        deadline = std::min(hardDeadline, steady_clock::now() + milliseconds(kGraceMs));
     }
 
     ::close(sock);

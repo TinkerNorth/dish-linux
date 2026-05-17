@@ -103,7 +103,9 @@ void ConnectionsPage::rebuildLists() {
     discoveredList_->clear();
     for (const auto& s : model_->wifi()->discoveredServers()) {
         auto* item = new QListWidgetItem(
-            QStringLiteral("%1 • %2").arg(s.name.isEmpty() ? s.ip : s.name, s.ip));
+            QStringLiteral("%1 • %2 • %3")
+                .arg(s.name.isEmpty() ? s.ip : s.name, s.ip,
+                     models::discoverySourceLabel(s.source)));
         item->setData(Qt::UserRole, QVariant::fromValue(s.id()));
         discoveredList_->addItem(item);
     }
