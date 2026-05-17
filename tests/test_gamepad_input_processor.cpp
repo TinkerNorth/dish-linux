@@ -413,12 +413,11 @@ TEST_CASE("publishTouchpad forwards the sample verbatim to the sender", "[touchp
     GamepadInputProcessor p;
     bool called = false;
     GamepadInputProcessor::TouchpadSample observed{};
-    p.setTouchpadSender(
-        [&](const std::string& id, const GamepadInputProcessor::TouchpadSample& s) {
-            called = true;
-            observed = s;
-            REQUIRE(id == "pad-1");
-        });
+    p.setTouchpadSender([&](const std::string& id, const GamepadInputProcessor::TouchpadSample& s) {
+        called = true;
+        observed = s;
+        REQUIRE(id == "pad-1");
+    });
 
     GamepadInputProcessor::TouchpadSample s{};
     s.finger0Active = true;
@@ -488,10 +487,9 @@ TEST_CASE("publishTouchpad carries a monotonic per-finger tracking id through", 
     // receiver can tell a new touch from a continuation.
     GamepadInputProcessor p;
     std::uint8_t lastF0Id = 0;
-    p.setTouchpadSender(
-        [&](const std::string&, const GamepadInputProcessor::TouchpadSample& s) {
-            lastF0Id = s.finger0Id;
-        });
+    p.setTouchpadSender([&](const std::string&, const GamepadInputProcessor::TouchpadSample& s) {
+        lastF0Id = s.finger0Id;
+    });
 
     GamepadInputProcessor::TouchpadSample s{};
     s.finger0Active = true;

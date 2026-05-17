@@ -392,9 +392,7 @@ void SDLGamepadBridge::handleTouchpadEvent(const SDL_ControllerTouchpadEvent& ev
                 // of the previous one. It wraps freely as a uint8_t. A
                 // TOUCHPADMOTION (or a redundant DOWN on an already-active
                 // slot) keeps the id, marking the same continuing contact.
-                if (ev.type == SDL_CONTROLLERTOUCHPADDOWN && !f.active) {
-                    ++f.id;
-                }
+                if (ev.type == SDL_CONTROLLERTOUCHPADDOWN && !f.active) { ++f.id; }
                 f.active = true;
                 f.x = touchpadCoordToInt16(ev.x);
                 f.y = touchpadCoordToInt16(ev.y);
