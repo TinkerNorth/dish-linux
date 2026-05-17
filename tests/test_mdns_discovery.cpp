@@ -120,8 +120,8 @@ TEST_CASE("readName decodes a plain length-prefixed name", "[mdns]") {
 
 TEST_CASE("readName follows a backward compression pointer", "[mdns]") {
     // 0: "foo.bar." (9 bytes); 9: "baz" label + pointer to offset 4 ("bar").
-    std::vector<std::uint8_t> v = {3, 'f', 'o', 'o', 3, 'b', 'a', 'r', 0,
-                                   3, 'b', 'a', 'z', 0xC0, 0x04};
+    std::vector<std::uint8_t> v = {3, 'f', 'o', 'o', 3,   'b',  'a', 'r',
+                                   0, 3,   'b', 'a', 'z', 0xC0, 0x04};
     std::string out;
     REQUIRE(detail::readName(v.data(), v.size(), 9, out));
     CHECK(out == "baz.bar");
@@ -146,8 +146,8 @@ TEST_CASE("skipName reports the bytes consumed at the offset", "[mdns]") {
 }
 
 TEST_CASE("skipName counts a compression pointer as two bytes", "[mdns]") {
-    std::vector<std::uint8_t> v = {3, 'f', 'o', 'o', 3, 'b', 'a', 'r', 0,
-                                   3, 'b', 'a', 'z', 0xC0, 0x04};
+    std::vector<std::uint8_t> v = {3, 'f', 'o', 'o', 3,   'b',  'a', 'r',
+                                   0, 3,   'b', 'a', 'z', 0xC0, 0x04};
     // Name at offset 9: "baz" label (4 bytes) + pointer (2 bytes) = 6 consumed.
     CHECK(detail::skipName(v.data(), v.size(), 9) == 6);
 }
@@ -247,8 +247,9 @@ TEST_CASE("mergeDiscovered tags a server heard on both paths as Both", "[mdns]")
 }
 
 TEST_CASE("mergeDiscovered keeps distinct servers and sorts by name", "[mdns]") {
-    const auto m = mergeDiscovered({makeServer("Zulu", "10.0.0.3"), makeServer("Alpha", "10.0.0.1")},
-                                   {makeServer("Mike", "10.0.0.2")});
+    const auto m =
+        mergeDiscovered({makeServer("Zulu", "10.0.0.3"), makeServer("Alpha", "10.0.0.1")},
+                        {makeServer("Mike", "10.0.0.2")});
     REQUIRE(m.size() == 3);
     CHECK(m[0].name == QStringLiteral("Alpha"));
     CHECK(m[1].name == QStringLiteral("Mike"));

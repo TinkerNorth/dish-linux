@@ -42,28 +42,28 @@ TEST_CASE("encodeTouchpadPayload places ctrlIdx at byte 0", "[touchpad]") {
 TEST_CASE("encodeTouchpadPayload flags byte encodes finger0 / finger1 / button bits",
           "[touchpad]") {
     SECTION("all clear") {
-        const auto out = SatelliteClient::encodeTouchpadPayload(0, false, 0, 0, 0, false, 0, 0, 0,
-                                                                false);
+        const auto out =
+            SatelliteClient::encodeTouchpadPayload(0, false, 0, 0, 0, false, 0, 0, 0, false);
         REQUIRE(out[1] == 0x00U);
     }
     SECTION("finger0 only -> bit 0") {
-        const auto out = SatelliteClient::encodeTouchpadPayload(0, true, 0, 0, 0, false, 0, 0, 0,
-                                                                false);
+        const auto out =
+            SatelliteClient::encodeTouchpadPayload(0, true, 0, 0, 0, false, 0, 0, 0, false);
         REQUIRE(out[1] == 0x01U);
     }
     SECTION("finger1 only -> bit 1") {
-        const auto out = SatelliteClient::encodeTouchpadPayload(0, false, 0, 0, 0, true, 0, 0, 0,
-                                                                false);
+        const auto out =
+            SatelliteClient::encodeTouchpadPayload(0, false, 0, 0, 0, true, 0, 0, 0, false);
         REQUIRE(out[1] == 0x02U);
     }
     SECTION("button only -> bit 2") {
-        const auto out = SatelliteClient::encodeTouchpadPayload(0, false, 0, 0, 0, false, 0, 0, 0,
-                                                                true);
+        const auto out =
+            SatelliteClient::encodeTouchpadPayload(0, false, 0, 0, 0, false, 0, 0, 0, true);
         REQUIRE(out[1] == 0x04U);
     }
     SECTION("all set -> 0x07") {
-        const auto out = SatelliteClient::encodeTouchpadPayload(0, true, 0, 0, 0, true, 0, 0, 0,
-                                                                true);
+        const auto out =
+            SatelliteClient::encodeTouchpadPayload(0, true, 0, 0, 0, true, 0, 0, 0, true);
         REQUIRE(out[1] == 0x07U);
     }
 }
@@ -116,8 +116,7 @@ TEST_CASE("encodeTouchpadPayload handles full int16 coordinate range without ove
     REQUIRE(readLe16(&out[10]) == -32768);
 }
 
-TEST_CASE("encodeTouchpadPayload still encodes coordinates for an inactive finger",
-          "[touchpad]") {
+TEST_CASE("encodeTouchpadPayload still encodes coordinates for an inactive finger", "[touchpad]") {
     // The encoder writes the id + coordinate bytes unconditionally; only the
     // flags byte records activity. The receiver gates on flags, so stale
     // coordinates behind a cleared bit are harmless — pin that the bytes are

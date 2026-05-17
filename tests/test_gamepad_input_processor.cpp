@@ -237,9 +237,9 @@ TEST_CASE("publishMotionAt drops the second sample even when the clock starts at
                           std::int16_t, std::int16_t, std::int16_t, std::uint32_t) { ++calls; });
 
     GamepadInputProcessor::MotionSample s{};
-    REQUIRE(p.publishMotionAt("pad-1", s, 0));               // first sample at t=0
-    REQUIRE_FALSE(p.publishMotionAt("pad-1", s, 1));          // 1 µs later — inside gate, drop
-    REQUIRE_FALSE(p.publishMotionAt("pad-1", s, 3'999));      // still inside the 4 ms gate, drop
+    REQUIRE(p.publishMotionAt("pad-1", s, 0));           // first sample at t=0
+    REQUIRE_FALSE(p.publishMotionAt("pad-1", s, 1));     // 1 µs later — inside gate, drop
+    REQUIRE_FALSE(p.publishMotionAt("pad-1", s, 3'999)); // still inside the 4 ms gate, drop
     REQUIRE(calls == 1);
 }
 

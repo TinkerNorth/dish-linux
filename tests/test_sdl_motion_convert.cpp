@@ -71,8 +71,7 @@ TEST_CASE("accelMps2ToInt16 clamps beyond +/-4 g", "[motionconvert]") {
 
 // ── Touchpad: SDL 0..1 → wire int16 ─────────────────────────────────────────
 
-TEST_CASE("touchpadCoordToInt16 maps the 0..1 SDL range across the int16 span",
-          "[motionconvert]") {
+TEST_CASE("touchpadCoordToInt16 maps the 0..1 SDL range across the int16 span", "[motionconvert]") {
     REQUIRE(touchpadCoordToInt16(0.0f) == -32768);
     REQUIRE(touchpadCoordToInt16(1.0f) == 32767);
     // Midpoint: 0.5 * 65535 - 32768 = -0.5, and std::lround rounds half away
