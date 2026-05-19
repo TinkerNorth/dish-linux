@@ -3,24 +3,22 @@
 
 #include "PairingClient.h"
 
+#include <QEventLoop>
 #include <QJsonDocument>
 #include <QJsonObject>
-
-#include <arpa/inet.h>
-#include <fcntl.h>
-#include <netinet/in.h>
-#include <netinet/tcp.h>
-#include <sys/select.h>
-#include <sys/socket.h>
-#include <sys/time.h>
-#include <unistd.h>
-
-#include <cerrno>
-#include <cstring>
+#include <QNetworkAccessManager>
+#include <QNetworkReply>
+#include <QNetworkRequest>
+#include <QSslConfiguration>
+#include <QSslSocket>
+#include <QTimer>
+#include <QUrl>
 
 namespace dish::net {
 
 namespace {
+
+constexpr int kTimeoutMs = 5000;
 
 models::PairResponse makeError(const char* msg) {
     models::PairResponse r;
@@ -45,64 +43,54 @@ PairingClient::Outcome PairingClient::classify(const models::PairResponse& respo
 
 models::PairResponse PairingClient::pair(const QString& ip, int port, const QString& deviceId,
                                          const QString& deviceName, const QString& pin) {
-    const int sock = ::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-    if (sock < 0) { return makeError("socket failed"); }
+    // pair() is a blocking call invoked from a worker thread. We drive the
+    // async QNetworkAccessManager request with a local QEventLoop so the
+    // function keeps its blocking contract. The manager and event loop are
+    // both local to this thread/stack, which is the supported way to use
+    // QNetworkAccessManager off the main thread.
+    QNetworkAccessManager nam;
+    nam.setTransferTimeout(kTimeoutMs);
 
-    const int flags = ::fcntl(sock, F_GETFL, 0);
-    ::fcntl(sock, F_SETFL, flags | O_NONBLOCK);
+    const QString url = QStringLiteral("https://%1:%2/api/pair").arg(ip).arg(port);
+    QNetworkRequest req((QUrl(url)));
+    req.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
 
-    sockaddr_in addr{};
-    addr.sin_family = AF_INET;
-    addr.sin_port = htons(static_cast<std::uint16_t>(port));
-    if (::inet_pton(AF_INET, ip.toUtf8().constData(), &addr.sin_addr) != 1) {
-        ::close(sock);
-        return makeError("bad ip");
-    }
-
-    const int connectRet = ::connect(sock, reinterpret_cast<sockaddr*>(&addr), sizeof(addr));
-    if (connectRet != 0 && errno != EINPROGRESS) {
-        ::close(sock);
-        return makeError("connect failed");
-    }
-    if (connectRet != 0) {
-        timeval tv{};
-        tv.tv_sec = 4;
-        fd_set wset;
-        FD_ZERO(&wset);
-        FD_SET(sock, &wset);
-        const int sel = ::select(sock + 1, nullptr, &wset, nullptr, &tv);
-        if (sel <= 0) {
-            ::close(sock);
-            return makeError("connect timeout");
-        }
-        int sockerr = 0;
-        socklen_t sl = sizeof(sockerr);
-        ::getsockopt(sock, SOL_SOCKET, SO_ERROR, &sockerr, &sl);
-        if (sockerr != 0) {
-            ::close(sock);
-            return makeError("connect refused");
-        }
-    }
-    ::fcntl(sock, F_SETFL, flags & ~O_NONBLOCK);
+    // The satellite serves /api/pair over TLS with a self-signed certificate.
+    // Disable peer + hostname verification entirely (the approved equivalent
+    // of `curl --insecure`); no pinning is performed.
+    QSslConfiguration tls = QSslConfiguration::defaultConfiguration();
+    tls.setPeerVerifyMode(QSslSocket::VerifyNone);
+    req.setSslConfiguration(tls);
 
     const QJsonObject reqObj{{"deviceId", deviceId}, {"deviceName", deviceName}, {"pin", pin}};
     const auto body = QJsonDocument(reqObj).toJson(QJsonDocument::Compact);
-    if (::send(sock, body.constData(), static_cast<std::size_t>(body.size()), MSG_NOSIGNAL) < 0) {
-        ::close(sock);
-        return makeError("send failed");
+
+    QNetworkReply* reply = nam.post(req, body);
+
+    // Belt-and-braces: even with VerifyNone, swallow any SSL errors the stack
+    // still surfaces so a self-signed cert never aborts the request.
+    QObject::connect(reply, &QNetworkReply::sslErrors, reply,
+                     [reply](const QList<QSslError>&) { reply->ignoreSslErrors(); });
+
+    QEventLoop loop;
+    QObject::connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
+    // Hard ceiling in case the transfer timeout does not fire (e.g. stalled
+    // mid-stream); abort() emits finished() and unblocks the loop.
+    QTimer::singleShot(kTimeoutMs + 2000, reply, [reply] {
+        if (reply->isRunning()) { reply->abort(); }
+    });
+    loop.exec();
+
+    reply->deleteLater();
+
+    if (reply->error() != QNetworkReply::NoError) {
+        // Transport failure — never reached a JSON body, so leave reachable
+        // false so the Outcome classifier reports Unreachable.
+        return makeError("no response");
     }
 
-    timeval rtv{};
-    rtv.tv_sec = 5;
-    ::setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &rtv, sizeof(rtv));
-
-    char buf[512];
-    const ssize_t n = ::recv(sock, buf, sizeof(buf), 0);
-    ::close(sock);
-    if (n <= 0) { return makeError("no response"); }
-
     QJsonParseError err{};
-    const auto doc = QJsonDocument::fromJson(QByteArray(buf, static_cast<int>(n)), &err);
+    const auto doc = QJsonDocument::fromJson(reply->readAll(), &err);
     if (err.error != QJsonParseError::NoError || !doc.isObject()) {
         return makeError("malformed response");
     }

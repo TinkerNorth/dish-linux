@@ -17,8 +17,12 @@
 namespace dish::models {
 
 inline constexpr int kDefaultUdpPort = 9876;
-inline constexpr int kDefaultHttpPort = 9877;
-inline constexpr int kDefaultPairPort = 9878;
+// The satellite's client-facing API moved to HTTPS on a single port (9443).
+// Both the connection API and pairing now ride that one HTTPS server, so the
+// HTTP and pair ports collapse to the same value. Kept as two named constants
+// so existing call sites (httpPort / pairPort) stay readable.
+inline constexpr int kDefaultHttpPort = 9443;
+inline constexpr int kDefaultPairPort = 9443;
 
 // Which discovery path surfaced a satellite. mDNS / Bonjour is the modern
 // path; Broadcast is the legacy UDP beacon; Both means it answered on each.

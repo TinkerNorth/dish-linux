@@ -11,8 +11,10 @@
 
 namespace dish::net {
 
-// Blocking TCP pair handshake on :9878. Mirrors dish-mac/Network/PairingClient.swift
-// and satellite_jni.cpp::pair. Single JSON request line, single JSON response.
+// Blocking pair handshake. The satellite now exposes pairing as POST /api/pair
+// on its HTTPS client server (:9443) — formerly a raw-TCP JSON line protocol on
+// :9878. Mirrors dish-mac/Network/PairingClient.swift and satellite_jni.cpp::pair.
+// Single JSON request, single JSON response; the JSON shapes are unchanged.
 class PairingClient {
   public:
     // Classification of a PairResponse — mirrors PairingClient.Outcome on

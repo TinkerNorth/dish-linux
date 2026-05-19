@@ -193,8 +193,8 @@ TEST_CASE("parseResponse takes the UDP port from SRV when TXT is absent", "[mdns
     const auto out = detail::parseResponse(pkt.data(), pkt.size());
     REQUIRE(out.has_value());
     CHECK(out->udpPort == 50505);
-    CHECK(out->pairPort == 9878); // protocol default
-    CHECK(out->httpPort == 9877); // protocol default
+    CHECK(out->pairPort == 9443); // client API default (HTTPS)
+    CHECK(out->httpPort == 9443); // client API default (HTTPS)
 }
 
 TEST_CASE("parseResponse rejects a packet with no A record", "[mdns]") {
