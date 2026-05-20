@@ -36,6 +36,12 @@ class SlotCard : public QFrame {
 
     QLabel* nameLabel_;
     QLabel* boundLabel_;
+    // v6 brand satellite glyph painted from the QRC `:/brand/...svg`
+    // family — each slot binds to a satellite server, so the silhouette
+    // mirrors the ConnectionsPage row this slot is routing to. State
+    // tracks the bound connection's LinkState via setBrandIcon() so the
+    // silhouette and the coloured dot reinforce the same signal.
+    QLabel* glyph_;
     QLabel* dot_;
     QPushButton* bindButton_;
     // Capability-chip row, kept under the name/binding text.

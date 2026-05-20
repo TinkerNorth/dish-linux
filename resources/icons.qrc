@@ -1,5 +1,42 @@
+<!--
+  Qt resource bundle for dish-linux. The existing `icons` prefix holds the
+  app launcher icon; the new `brand` prefix carries the v6 TinkerNorth
+  iconography (dish, satellite, bluetooth + state variants) shared with
+  dish-windows, dish-android (as VectorDrawables), dish-mac (as native
+  SwiftUI paths), and the satellite/dish web dashboards.
+
+  Resources are addressed as e.g. `:/brand/dish-connected.svg`. Qt 6's
+  built-in SVG support handles SMIL animation in the *-animated.svg files;
+  for static contexts (status row glyphs) the non-animated variants are
+  preferred so the UI doesn't get visually noisy.
+-->
 <RCC>
   <qresource prefix="/icons">
     <file alias="dish.svg">../packaging/dish.svg</file>
+  </qresource>
+  <qresource prefix="/brand">
+    <file alias="bluetooth.svg">brand/bluetooth.svg</file>
+    <file alias="bluetooth-connected.svg">brand/bluetooth-connected.svg</file>
+    <file alias="bluetooth-disabled.svg">brand/bluetooth-disabled.svg</file>
+    <file alias="bluetooth-off.svg">brand/bluetooth-off.svg</file>
+    <file alias="bluetooth-pairing-animated.svg">brand/bluetooth-pairing-animated.svg</file>
+    <file alias="bluetooth-searching.svg">brand/bluetooth-searching.svg</file>
+    <file alias="bluetooth-searching-animated.svg">brand/bluetooth-searching-animated.svg</file>
+    <file alias="dish.svg">brand/dish.svg</file>
+    <file alias="dish-connected.svg">brand/dish-connected.svg</file>
+    <file alias="dish-disabled.svg">brand/dish-disabled.svg</file>
+    <file alias="dish-master.svg">brand/dish-master.svg</file>
+    <file alias="dish-off.svg">brand/dish-off.svg</file>
+    <file alias="dish-receiving.svg">brand/dish-receiving.svg</file>
+    <file alias="dish-receiving-animated.svg">brand/dish-receiving-animated.svg</file>
+    <file alias="dish-scanning-animated.svg">brand/dish-scanning-animated.svg</file>
+    <file alias="satellite.svg">brand/satellite.svg</file>
+    <file alias="satellite-broadcasting.svg">brand/satellite-broadcasting.svg</file>
+    <file alias="satellite-broadcasting-animated.svg">brand/satellite-broadcasting-animated.svg</file>
+    <file alias="satellite-connected.svg">brand/satellite-connected.svg</file>
+    <file alias="satellite-disabled.svg">brand/satellite-disabled.svg</file>
+    <file alias="satellite-master.svg">brand/satellite-master.svg</file>
+    <file alias="satellite-off.svg">brand/satellite-off.svg</file>
+    <file alias="satellite-orbiting-animated.svg">brand/satellite-orbiting-animated.svg</file>
   </qresource>
 </RCC>

@@ -63,7 +63,7 @@ endif()
 # Dependencies
 # --------------------------------------------------------------------------
 find_package(Threads REQUIRED)
-find_package(Qt6 6.2 REQUIRED COMPONENTS Core Gui Widgets Network DBus)
+find_package(Qt6 6.2 REQUIRED COMPONENTS Core Gui Widgets Network DBus Svg)
 
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(SODIUM REQUIRED IMPORTED_TARGET libsodium)
@@ -138,6 +138,8 @@ set(DISH_UI_SOURCES
     src/UI/DishLoaders.cpp
     src/UI/SlotCard.h
     src/UI/SlotCard.cpp
+    src/UI/BrandIcon.h
+    src/UI/BrandIcon.cpp
     src/UI/PairingPage.h
     src/UI/PairingPage.cpp
     src/UI/ConnectionsPage.h
@@ -153,7 +155,7 @@ set(DISH_UI_SOURCES
 
 add_executable(Dish ${DISH_UI_SOURCES})
 set_target_properties(Dish PROPERTIES OUTPUT_NAME dish)
-target_link_libraries(Dish PRIVATE dish_core Qt6::Widgets Qt6::Gui dish_warnings dish_strict)
+target_link_libraries(Dish PRIVATE dish_core Qt6::Widgets Qt6::Gui Qt6::Svg dish_warnings dish_strict)
 
 install(TARGETS Dish RUNTIME DESTINATION bin)
 

@@ -4,6 +4,7 @@
 #include "ConnectionsPage.h"
 
 #include "AppModel.h"
+#include "BrandIcon.h"
 #include "DishLoaders.h"
 #include "Theme.h"
 
@@ -30,9 +31,18 @@ ConnectionsPage::ConnectionsPage(AppModel* model, QWidget* parent)
     topBar->addWidget(title, 1, Qt::AlignVCenter);
     layout->addLayout(topBar);
 
-    auto* discoveredHeader = new QLabel(QStringLiteral("FOUND"), this);
-    discoveredHeader->setStyleSheet(sectionHeaderQss());
-    layout->addWidget(discoveredHeader);
+    // Section header: brand satellite glyph + "FOUND" label.
+    {
+        auto* row = new QHBoxLayout;
+        row->setSpacing(6);
+        auto* glyph = new QLabel(this);
+        setBrandIcon(glyph, BrandIconKind::Satellite, models::LinkState::Saved, 18);
+        auto* discoveredHeader = new QLabel(QStringLiteral("FOUND"), this);
+        discoveredHeader->setStyleSheet(sectionHeaderQss());
+        row->addWidget(glyph, 0, Qt::AlignVCenter);
+        row->addWidget(discoveredHeader, 1, Qt::AlignVCenter);
+        layout->addLayout(row);
+    }
 
     discoveredList_ = new QListWidget(this);
     layout->addWidget(discoveredList_, 1);
@@ -54,9 +64,19 @@ ConnectionsPage::ConnectionsPage(AppModel* model, QWidget* parent)
     row->addWidget(connectButton_);
     layout->addLayout(row);
 
-    auto* rememberedHeader = new QLabel(QStringLiteral("REMEMBERED"), this);
-    rememberedHeader->setStyleSheet(sectionHeaderQss());
-    layout->addWidget(rememberedHeader);
+    {
+        auto* row = new QHBoxLayout;
+        row->setSpacing(6);
+        auto* glyph = new QLabel(this);
+        // REMEMBERED is a list of satellite servers — same brand family as
+        // FOUND just above so the two halves of the page read consistently.
+        setBrandIcon(glyph, BrandIconKind::Satellite, models::LinkState::Saved, 18);
+        auto* rememberedHeader = new QLabel(QStringLiteral("REMEMBERED"), this);
+        rememberedHeader->setStyleSheet(sectionHeaderQss());
+        row->addWidget(glyph, 0, Qt::AlignVCenter);
+        row->addWidget(rememberedHeader, 1, Qt::AlignVCenter);
+        layout->addLayout(row);
+    }
 
     rememberedList_ = new QListWidget(this);
     layout->addWidget(rememberedList_, 1);
