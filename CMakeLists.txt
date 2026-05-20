@@ -134,6 +134,8 @@ target_link_libraries(dish_core
 set(DISH_UI_SOURCES
     src/UI/Theme.h
     src/UI/Theme.cpp
+    src/UI/DishLoaders.h
+    src/UI/DishLoaders.cpp
     src/UI/SlotCard.h
     src/UI/SlotCard.cpp
     src/UI/PairingPage.h

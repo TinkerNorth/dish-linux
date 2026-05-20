@@ -84,7 +84,7 @@ void SlotCard::setSlot(const models::ControllerSlot& slot,
     nameLabel_->setText(slot.name);
     if (slot.boundStatus.has_value()) {
         boundLabel_->setText(QStringLiteral("Bound to %1").arg(slot.boundStatus->label));
-        const auto color = slot.boundStatus->live == models::ConnectionLive::Connected
+        const auto color = slot.boundStatus->live == models::LinkState::Connected
                                ? Theme::success
                                : Theme::warning;
         dot_->setStyleSheet(dotQss(color));

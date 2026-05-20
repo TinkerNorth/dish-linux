@@ -39,17 +39,17 @@ void WifiConnection::updateServer(const models::DiscoveredServer& s) {
 }
 
 void WifiConnection::markConnecting() {
-    if (state_ == WifiState::Connected) { return; }
-    state_ = WifiState::Connecting;
+    if (state_ == SessionState::Live) { return; }
+    state_ = SessionState::Linking;
     emit changed();
 }
 
 void WifiConnection::markConnected(std::shared_ptr<SatelliteClient> client,
                                    const QString& connectionId, std::function<void()> onDead) {
-    if (state_ != WifiState::Connecting) { return; }
+    if (state_ != SessionState::Linking) { return; }
     clientRef_.set(client);
     connectionId_ = connectionId;
-    state_ = WifiState::Connected;
+    state_ = SessionState::Live;
     onDead_ = std::move(onDead);
 
     client->resetControllerAck();
@@ -81,7 +81,13 @@ void WifiConnection::markConnected(std::shared_ptr<SatelliteClient> client,
 
 void WifiConnection::markDisconnected() {
     auto existing = clientRef_.get();
-    if (state_ == WifiState::Idle && !existing) { return; }
+    // TODO(SessionState::Faltering / LinkState::Unstable): when the native
+    // alive-poll exposes the consecutive-missed-heartbeat count, this is the
+    // transition point that should flip Live → Faltering on a non-zero miss
+    // count (and only collapse to Idle when misses hit the death threshold).
+    // Today the alive-poll's onDead_() callback runs disconnect() directly,
+    // so Faltering / Unstable are defined but never entered.
+    if (state_ == SessionState::Idle && !existing) { return; }
     if (aliveTimer_ != nullptr) {
         aliveTimer_->stop();
         aliveTimer_->deleteLater();
@@ -97,7 +103,7 @@ void WifiConnection::markDisconnected() {
     clientRef_.set(nullptr);
     connectionId_.reset();
     controllerAdded_ = false;
-    state_ = WifiState::Idle;
+    state_ = SessionState::Idle;
     emit changed();
 }
 
@@ -107,7 +113,7 @@ void WifiConnection::attachSlot(const QString& slotId, int controllerType, bool 
     pendingControllerType_ = controllerType;
     lightbarCapable_ = hasLightbar;
     motionCapable_ = hasMotion;
-    if (state_ == WifiState::Connected && !controllerAdded_) { registerController(controllerType); }
+    if (state_ == SessionState::Live && !controllerAdded_) { registerController(controllerType); }
     emit changed();
 }
 

@@ -127,6 +127,9 @@ void MainWindow::buildDashboardPage() {
     slotsLayout_ = new QVBoxLayout(slotsContainer);
     slotsLayout_->setContentsMargins(0, 0, 0, 0);
     slotsLayout_->setSpacing(8);
+    // "connected" here refers to physical pads attached to the Linux host
+    // (USB/Bluetooth) — different sense from network link "online". Matches
+    // the dish-windows wording in src/UI/MainWindow.cpp:91.
     slotsEmpty_ = new QLabel(QStringLiteral("No controllers connected"), slotsContainer);
     slotsEmpty_->setStyleSheet(
         QStringLiteral("color: %1; font-size: 12px;").arg(hex(Theme::muted)));
@@ -145,7 +148,7 @@ void MainWindow::onStateChanged() {
     dashboardSpinner_->setVisible(model_->state().busy);
     if (awaitingPair_) {
         for (const auto& c : model_->state().connections) {
-            if (c.id == awaitingPairConnectionId_ && c.live == models::ConnectionLive::Connected) {
+            if (c.id == awaitingPairConnectionId_ && c.live == models::LinkState::Connected) {
                 awaitingPair_ = false;
                 awaitingPairConnectionId_.clear();
                 pairingPage_->setPending(false);
@@ -162,7 +165,7 @@ void MainWindow::rebuildHeader() {
     int live = 0;
     QString firstLabel;
     for (const auto& c : conns) {
-        if (c.live == models::ConnectionLive::Connected) {
+        if (c.live == models::LinkState::Connected) {
             ++live;
             if (firstLabel.isEmpty()) { firstLabel = c.label; }
         }
@@ -189,7 +192,7 @@ void MainWindow::rebuildHeader() {
     } else if (live == 0) {
         summary = QStringLiteral("%1 remembered").arg(total);
     } else {
-        summary = QStringLiteral("%1 of %2 connected").arg(live).arg(total);
+        summary = QStringLiteral("%1 of %2 online").arg(live).arg(total);
     }
     summaryText_->setText(summary);
 }

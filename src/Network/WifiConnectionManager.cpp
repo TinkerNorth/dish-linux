@@ -90,7 +90,7 @@ WifiConnection* WifiConnectionManager::ensureConnection(const models::Discovered
 
 void WifiConnectionManager::connectTo(const models::DiscoveredServer& server) {
     auto* conn = ensureConnection(server);
-    if (conn->state() == WifiState::Connected || conn->state() == WifiState::Connecting) {
+    if (conn->state() == SessionState::Live || conn->state() == SessionState::Linking) {
         conn->updateServer(server);
         return;
     }
@@ -232,7 +232,7 @@ void WifiConnectionManager::forget(const QString& id) {
 void WifiConnectionManager::autoReconnectAll() {
     for (const auto& r : store_->remembered()) {
         auto* existing = connections_.value(r.id, nullptr);
-        if (existing == nullptr || existing->state() != WifiState::Connected) {
+        if (existing == nullptr || existing->state() != SessionState::Live) {
             connectTo(r.toDiscovered());
         }
     }

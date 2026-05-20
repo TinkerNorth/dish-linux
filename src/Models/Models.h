@@ -85,13 +85,40 @@ struct ConnectResponse {
     static ConnectResponse fromJson(const QJsonObject& obj);
 };
 
-enum class ConnectionLive { Idle, Connecting, Connected };
+// UI-facing link state for one connection. This is the chip a row renders;
+// combines the persistent "Pairing" axis (have we paired?) and the live
+// "Presence" axis (do we see it / is the session up?).
+//
+// Internally a Satellite session also has [net::SessionState] (the wire-level
+// presence axis only); [LinkState] is derived from that plus discovery /
+// remembered presence in [ConnectionHub::rebuild].
+//
+// | LinkState  | Pairing axis    | Presence axis    | User-facing chip |
+// |------------|-----------------|------------------|------------------|
+// | Found      | unpaired        | seen             | "Found"          |
+// | Stale      | broken (lost)   | any              | "Needs pairing"  |
+// | Saved      | paired          | absent           | "Offline"        |
+// | Ready      | paired          | seen, no session | "Ready"          |
+// | Connecting | paired          | linking          | "Connecting…"    |
+// | Connected  | paired          | live             | "Online"         |
+// | Unstable   | paired          | faltering        | "Unsteady"       |
+//
+// **Stale** is NOT YET ENTERED: it requires the satellite to return a
+// `PAIRING_UNKNOWN` error so the client can distinguish "peer forgot us"
+// from a generic connect failure. Until that protocol change lands, a
+// server-side forget surfaces as a generic disconnect.
+//
+// **Unstable** is NOT YET ENTERED: it requires the native layer to expose
+// the consecutive-missed-heartbeat count separately from the binary alive
+// poll. Today the connection flips Connected → (Saved | Ready) directly
+// when misses hit the death threshold.
+enum class LinkState { Found, Stale, Saved, Ready, Connecting, Connected, Unstable };
 
 struct ConnectionSummary {
     QString id;
     QString label;
     QString detail;
-    ConnectionLive live = ConnectionLive::Idle;
+    LinkState live = LinkState::Saved;
     std::optional<QString> boundSlotId;
 };
 

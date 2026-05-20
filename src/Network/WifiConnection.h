@@ -17,7 +17,24 @@
 
 namespace dish::net {
 
-enum class WifiState { Idle, Connecting, Connected };
+// Internal wire-level session state for one Satellite connection. This is the
+// "Presence" axis (per the shared nomenclature): how far the live network link
+// has progressed for *this* connection.
+//
+// Distinct from the UI-facing [models::LinkState] (in Models.h), which folds
+// pairing/discovery in on top of this.
+//
+// - Idle       — no live session (paired or not).
+// - Linking    — pair+auth handshake / markConnecting is in flight; native
+//                socket not yet open. UI chip: "Connecting…".
+// - Live       — native socket open, heartbeat ACKs flowing. UI chip: "Online".
+// - Faltering  — Live, but the heartbeat-miss counter is non-zero and below
+//                the death threshold. UI chip: "Unsteady". **Not yet entered**
+//                — reaching it requires the native side to expose the
+//                consecutive-missed count separately from the binary
+//                isAlive() boolean. Today the alive-poll flips Live → Idle
+//                directly when misses hit the threshold.
+enum class SessionState { Idle, Linking, Live, Faltering };
 
 // Thread-safe holder for the live SatelliteClient pointer. Writes from the Qt
 // main thread (markConnected/markDisconnected); reads from the SDL gamepad
@@ -50,7 +67,7 @@ class WifiConnection : public QObject {
 
     QString id() const { return id_; }
     const models::DiscoveredServer& server() const { return server_; }
-    WifiState state() const { return state_; }
+    SessionState state() const { return state_; }
     std::optional<QString> connectionId() const { return connectionId_; }
     std::optional<QString> boundSlotId() const { return boundSlotId_; }
     std::shared_ptr<SatelliteClient> client() const { return clientRef_.get(); }
@@ -130,7 +147,7 @@ class WifiConnection : public QObject {
 
     QString id_;
     models::DiscoveredServer server_;
-    WifiState state_ = WifiState::Idle;
+    SessionState state_ = SessionState::Idle;
     std::optional<QString> connectionId_;
     std::optional<QString> boundSlotId_;
 

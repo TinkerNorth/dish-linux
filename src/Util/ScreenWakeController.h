@@ -27,11 +27,11 @@ class ScreenWakeController {
 
     int streamingSlotCount() const { return streamingSlotCount_; }
 
-    // Pure helper that derives the count of bound + connected slots from the
-    // current binding table and the per-connection live state. Extracted so
+    // Pure helper that derives the count of bound + online slots from the
+    // current binding table and the per-connection link state. Extracted so
     // unit tests can pin the arithmetic without instantiating a controller.
     static int streamingCount(const QHash<QString, QString>& bindings,
-                              const QHash<QString, models::ConnectionLive>& connectionStates);
+                              const QHash<QString, models::LinkState>& connectionStates);
 
     // Feed the controller a fresh streaming count. Acquires the inhibitor on
     // the 0 → positive transition; releases on positive → 0. Same value twice

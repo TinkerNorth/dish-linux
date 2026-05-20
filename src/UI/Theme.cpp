@@ -35,6 +35,15 @@ void applyDishTheme(QApplication& app) {
     p.setColor(QPalette::Disabled, QPalette::ButtonText, QColor(Theme::muted));
     app.setPalette(p);
 
+    // Disabled-state alpha — design spec (ds-components.jsx → Button) calls
+    // for `opacity: 0.4` on disabled buttons. Qt stylesheets can't apply a
+    // CSS-style `opacity` to a widget, but rgba() colors at 40 % alpha on the
+    // primary tint reproduce the same visual on this dark background. Press
+    // feedback (hover/pressed selectors) is intentionally omitted from the
+    // `:disabled` cascade so a stray click on a not-tappable button doesn't
+    // flash the primary tint. Hex strings:
+    //   * `rgba(79,227,255,0.4)`  — primary @ 40 % (outlined disabled fg + border)
+    //   * `rgba(6,8,24,0.4)`      — onPrimary @ 40 % (filled #primary disabled fg)
     const QString qss =
         QStringLiteral(
             "QMainWindow, QDialog { background-color: %1; }"
@@ -46,10 +55,13 @@ void applyDishTheme(QApplication& app) {
             "             border-radius: 6px; padding: 6px 12px; font-weight: 500; }"
             "QPushButton:hover { background-color: rgba(79,227,255,0.12); }"
             "QPushButton:pressed { background-color: rgba(79,227,255,0.18); }"
-            "QPushButton:disabled { color: %6; border-color: %6; }"
+            "QPushButton:disabled { color: rgba(79,227,255,0.4); "
+            "                      border-color: rgba(79,227,255,0.4); "
+            "                      background: transparent; }"
             "QPushButton#primary { background-color: %5; color: %7; border: none; }"
             "QPushButton#primary:hover { background-color: %8; }"
-            "QPushButton#primary:disabled { background-color: %9; color: %6; border: none; }"
+            "QPushButton#primary:disabled { background-color: rgba(79,227,255,0.4); "
+            "                              color: rgba(6,8,24,0.4); border: none; }"
             "QListWidget, QTreeWidget { background-color: %3; border: 1px solid %4; "
             "                          border-radius: 8px; padding: 4px; }"
             "QStatusBar { background-color: %3; color: %6; }"
