@@ -88,8 +88,7 @@ void ConnectionHub::rebuild() {
                 break;
             }
         } else {
-            live = discoveredIds.contains(id) ? models::LinkState::Ready
-                                              : models::LinkState::Saved;
+            live = discoveredIds.contains(id) ? models::LinkState::Ready : models::LinkState::Saved;
         }
         std::optional<QString> bound;
         for (auto it = bindings_.begin(); it != bindings_.end(); ++it) {

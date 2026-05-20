@@ -119,7 +119,7 @@ class DishInFlightButton : public QPushButton {
     Q_OBJECT
   public:
     explicit DishInFlightButton(const QString& initialLabel, QWidget* parent = nullptr,
-                                 int spinnerSize = 12);
+                                int spinnerSize = 12);
 
     // Toggle the in-flight visual: shows the spinner and swaps the label
     // text. The button itself is left enabled/disabled by the caller.

@@ -16,27 +16,39 @@ QString brandIconResource(BrandIconKind kind, models::LinkState state) {
     switch (kind) {
     case BrandIconKind::Dish:
         switch (state) {
-        case S::Connected: return QStringLiteral(":/brand/dish-connected.svg");
-        case S::Connecting: return QStringLiteral(":/brand/dish-scanning-animated.svg");
+        case S::Connected:
+            return QStringLiteral(":/brand/dish-connected.svg");
+        case S::Connecting:
+            return QStringLiteral(":/brand/dish-scanning-animated.svg");
         case S::Saved:
-        case S::Stale: return QStringLiteral(":/brand/dish-off.svg");
-        default: return QStringLiteral(":/brand/dish.svg");
+        case S::Stale:
+            return QStringLiteral(":/brand/dish-off.svg");
+        default:
+            return QStringLiteral(":/brand/dish.svg");
         }
     case BrandIconKind::Satellite:
         switch (state) {
-        case S::Connected: return QStringLiteral(":/brand/satellite-connected.svg");
-        case S::Connecting: return QStringLiteral(":/brand/satellite-broadcasting-animated.svg");
+        case S::Connected:
+            return QStringLiteral(":/brand/satellite-connected.svg");
+        case S::Connecting:
+            return QStringLiteral(":/brand/satellite-broadcasting-animated.svg");
         case S::Saved:
-        case S::Stale: return QStringLiteral(":/brand/satellite-off.svg");
-        default: return QStringLiteral(":/brand/satellite.svg");
+        case S::Stale:
+            return QStringLiteral(":/brand/satellite-off.svg");
+        default:
+            return QStringLiteral(":/brand/satellite.svg");
         }
     case BrandIconKind::Bluetooth:
         switch (state) {
-        case S::Connected: return QStringLiteral(":/brand/bluetooth-connected.svg");
-        case S::Connecting: return QStringLiteral(":/brand/bluetooth-searching.svg");
+        case S::Connected:
+            return QStringLiteral(":/brand/bluetooth-connected.svg");
+        case S::Connecting:
+            return QStringLiteral(":/brand/bluetooth-searching.svg");
         case S::Saved:
-        case S::Stale: return QStringLiteral(":/brand/bluetooth-off.svg");
-        default: return QStringLiteral(":/brand/bluetooth.svg");
+        case S::Stale:
+            return QStringLiteral(":/brand/bluetooth-off.svg");
+        default:
+            return QStringLiteral(":/brand/bluetooth.svg");
         }
     }
     return QStringLiteral(":/brand/dish.svg");
@@ -63,8 +75,7 @@ void setBrandIcon(QLabel* label, BrandIconKind kind, models::LinkState state, in
     label->setFixedSize(px, px);
 }
 
-QIcon brandIcon(BrandIconKind kind, models::LinkState state, int px,
-                const QWidget* target) {
+QIcon brandIcon(BrandIconKind kind, models::LinkState state, int px, const QWidget* target) {
     return QIcon(brandPixmap(brandIconResource(kind, state), px, target));
 }
 

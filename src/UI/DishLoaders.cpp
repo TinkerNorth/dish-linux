@@ -55,8 +55,7 @@ DishSpinnerWidget::DishSpinnerWidget(int diameter, QWidget* parent)
     setFixedSize(diameter_, diameter_);
     setAccessibleName(tr("Loading"));
     timer_->setInterval(kFrameIntervalMs);
-    QObject::connect(timer_, &QTimer::timeout, this,
-                     QOverload<>::of(&DishSpinnerWidget::update));
+    QObject::connect(timer_, &QTimer::timeout, this, QOverload<>::of(&DishSpinnerWidget::update));
 }
 
 void DishSpinnerWidget::showEvent(QShowEvent* event) {
@@ -142,8 +141,8 @@ void DishDotsWidget::paintEvent(QPaintEvent* /*event*/) {
 
     for (int i = 0; i < 3; ++i) {
         // Triangle wave: 0 → 1 → 0 over the cycle, with a per-dot stagger.
-        const double t = std::fmod(elapsedSec + static_cast<double>(i) * kDotStaggerSec, cycleSec)
-                         / cycleSec;
+        const double t =
+            std::fmod(elapsedSec + static_cast<double>(i) * kDotStaggerSec, cycleSec) / cycleSec;
         const double tri = 1.0 - std::fabs(t - 0.5) * 2.0;
         const double opacity = 0.25 + 0.75 * tri;
         const double r = scale * (4.0 + 2.0 * tri); // design 4 → 6
@@ -160,12 +159,11 @@ void DishDotsWidget::paintEvent(QPaintEvent* /*event*/) {
 // ─── Bar ─────────────────────────────────────────────────────────────────
 
 DishBarWidget::DishBarWidget(int width, QWidget* parent)
-    : QWidget(parent),
-      width_(width),
+    : QWidget(parent), width_(width),
       // The spec viewbox is 240x16; preserve that aspect ratio.
-      height_(std::max(1, static_cast<int>(std::lround(static_cast<double>(width)
-                                                       * (static_cast<double>(kBarDesignHeight)
-                                                          / kBarDesignWidth))))),
+      height_(std::max(1, static_cast<int>(std::lround(
+                              static_cast<double>(width) *
+                              (static_cast<double>(kBarDesignHeight) / kBarDesignWidth))))),
       timer_(new QTimer(this)) {
     setAttribute(Qt::WA_TranslucentBackground);
     setFixedSize(width_, height_);
@@ -247,7 +245,7 @@ DishInFlightButton::DishInFlightButton(const QString& initialLabel, QWidget* par
 }
 
 void DishInFlightButton::setInFlight(bool inFlight, const QString& busyLabel,
-                                      const QString& restingLabel) {
+                                     const QString& restingLabel) {
     spinner_->setVisible(inFlight);
     label_->setText(inFlight ? busyLabel : restingLabel);
 }

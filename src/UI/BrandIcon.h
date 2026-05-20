@@ -46,7 +46,6 @@ void setBrandIcon(QLabel* label, BrandIconKind kind, models::LinkState state, in
 // (e.g. SlotCard::onBindClicked's bind picker) where we want the same v6
 // brand iconography as the rest of the UI rather than a system-default
 // QStyle::StandardPixmap.
-QIcon brandIcon(BrandIconKind kind, models::LinkState state, int px,
-                const QWidget* target);
+QIcon brandIcon(BrandIconKind kind, models::LinkState state, int px, const QWidget* target);
 
 } // namespace dish::ui

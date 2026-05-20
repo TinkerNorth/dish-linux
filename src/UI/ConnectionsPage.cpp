@@ -109,8 +109,7 @@ ConnectionsPage::ConnectionsPage(AppModel* model, QWidget* parent)
     // the lower-latency hook into mid-handshake LinkState moves.
     QObject::connect(model_->hub(), &net::ConnectionHub::changed, this,
                      &ConnectionsPage::rebuildLists);
-    QObject::connect(model_, &AppModel::stateChanged, this,
-                     &ConnectionsPage::refreshButtonStates);
+    QObject::connect(model_, &AppModel::stateChanged, this, &ConnectionsPage::refreshButtonStates);
 
     rebuildLists();
     refreshButtonStates();
@@ -169,7 +168,7 @@ void ConnectionsPage::refreshButtonStates() {
     const bool connecting = connectingForSelection();
     connectButton_->setEnabled(hasSelection && !connecting);
     connectButton_->setInFlight(connecting, QStringLiteral("Connecting…"),
-                                 QStringLiteral("Connect"));
+                                QStringLiteral("Connect"));
 }
 
 void ConnectionsPage::onScanClicked() { model_->wifi()->startDiscovery(); }

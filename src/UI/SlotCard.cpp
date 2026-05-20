@@ -95,9 +95,8 @@ void SlotCard::setSlot(const models::ControllerSlot& slot,
     nameLabel_->setText(slot.name);
     if (slot.boundStatus.has_value()) {
         boundLabel_->setText(QStringLiteral("Bound to %1").arg(slot.boundStatus->label));
-        const auto color = slot.boundStatus->live == models::LinkState::Connected
-                               ? Theme::success
-                               : Theme::warning;
+        const auto color = slot.boundStatus->live == models::LinkState::Connected ? Theme::success
+                                                                                  : Theme::warning;
         dot_->setStyleSheet(dotQss(color));
         setBrandIcon(glyph_, BrandIconKind::Satellite, slot.boundStatus->live, 28);
         bindButton_->setText(QStringLiteral("Unbind"));
@@ -201,8 +200,7 @@ void SlotCard::onBindClicked() {
     // dish-mac SlotCard expanded picker and the dish-android
     // ControllerAdapter.buildConnectionHeader() bind list.
     for (const auto& c : available_) {
-        auto* act = menu.addAction(brandIcon(BrandIconKind::Satellite, c.live, 16, this),
-                                   c.label);
+        auto* act = menu.addAction(brandIcon(BrandIconKind::Satellite, c.live, 16, this), c.label);
         const QString cid = c.id;
         QObject::connect(act, &QAction::triggered, this,
                          [this, cid] { emit bindRequested(slot_.id, cid); });
