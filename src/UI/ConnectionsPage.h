@@ -7,7 +7,6 @@
 
 class QLabel;
 class QListWidget;
-class QProgressBar;
 class QPushButton;
 
 namespace dish {
@@ -15,6 +14,8 @@ class AppModel;
 }
 
 namespace dish::ui {
+
+class DishInFlightButton;
 
 // Connections page — discovery, connect, forget. Lives inside the
 // MainWindow QStackedWidget. Replaces the prior modal ConnectionsDialog.
@@ -28,17 +29,27 @@ class ConnectionsPage : public QWidget {
 
   private:
     void rebuildLists();
+    // Push the latest in-flight state into the Scan + Connect buttons —
+    // toggles spinner visibility, label text and enabled-ness from the
+    // current AppModel/WifiConnectionManager observation.
+    void refreshButtonStates();
     void onScanClicked();
     void onConnectClicked();
     void onForgetClicked();
 
+    // True if the currently-selected discovered server matches a known
+    // connection in LinkState::Connecting. Drives the in-Connect-button
+    // spinner.
+    bool connectingForSelection() const;
+
     AppModel* model_;
     QListWidget* discoveredList_;
     QListWidget* rememberedList_;
-    QPushButton* scanButton_;
-    QPushButton* connectButton_;
+    // Scan + Connect use DishInFlightButton so the spinner lives *inside*
+    // the button per the design spec; forget stays a vanilla QPushButton.
+    DishInFlightButton* scanButton_;
+    DishInFlightButton* connectButton_;
     QPushButton* forgetButton_;
-    QProgressBar* scanSpinner_;
     QLabel* statusLabel_;
 };
 

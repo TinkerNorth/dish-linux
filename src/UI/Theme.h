@@ -42,4 +42,15 @@ QString sectionHeaderQss();
 QString outlinedButtonQss();
 QString dotQss(QRgb color);
 
+// Pill for one detected controller capability in the SlotCard. `on == true`
+// renders a filled, primary-tinted chip ("hardware present, feature active");
+// `on == false` renders a dimmed, muted-outline chip ("hardware absent").
+// Mirrors the dish-mac CapabilityChip.
+QString capabilityChipQss(bool on);
+
+// Battery-chip pill used in SlotCard, sat next to the motion chip. Shares the
+// capability-chip pill geometry. `lowBattery` swaps the cyan/primary tint for
+// the amber `warning` token so a near-flat pad reads at a glance.
+QString batteryChipQss(bool lowBattery);
+
 } // namespace dish::ui

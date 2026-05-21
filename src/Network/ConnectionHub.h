@@ -13,6 +13,7 @@
 #include <QString>
 
 #include <functional>
+#include <utility>
 
 namespace dish::net {
 
@@ -26,6 +27,17 @@ class ConnectionHub : public QObject {
     using ReportSender = std::function<void(std::uint16_t, std::uint8_t, std::uint8_t, std::int16_t,
                                             std::int16_t, std::int16_t, std::int16_t)>;
 
+    // IMU sender: gyroX/Y/Z, accelX/Y/Z, timestampDeltaUs. All host-LE.
+    using MotionSender = std::function<void(std::int16_t, std::int16_t, std::int16_t, std::int16_t,
+                                            std::int16_t, std::int16_t, std::uint32_t)>;
+
+    // Battery sender: level (0..100 or 0xFF), status (BATTERY_STATUS_*).
+    using BatterySender = std::function<void(std::uint8_t, std::uint8_t)>;
+
+    // Touchpad sender: finger0(active,id,x,y), finger1(active,id,x,y), button.
+    using TouchpadSender = std::function<void(bool, std::uint8_t, std::int16_t, std::int16_t, bool,
+                                              std::uint8_t, std::int16_t, std::int16_t, bool)>;
+
     ConnectionHub(WifiConnectionManager* wifi, ConnectionStore* store, QObject* parent = nullptr);
 
     QList<models::ConnectionSummary> connections() const { return summaries_; }
@@ -36,6 +48,38 @@ class ConnectionHub : public QObject {
     // mutex-guarded shared_ptr load on the hot path; safe to call from the SDL
     // gamepad thread.
     ReportSender reportSenderForSlot(const QString& slotId) const;
+
+    // Parallel motion/battery routes — same shape as reportSenderForSlot,
+    // returned as a closure capturing the connection pointer.
+    MotionSender motionSenderForSlot(const QString& slotId) const;
+    BatterySender batterySenderForSlot(const QString& slotId) const;
+    TouchpadSender touchpadSenderForSlot(const QString& slotId) const;
+
+    // Predicate answering "does the physical pad behind this slot have an
+    // addressable RGB LED?". Installed by AppModel (which owns the SDL bridge
+    // that detects the LED). bind() consults it so the resulting
+    // MSG_CONTROLLER_ADD advertises CAP_LIGHTBAR for an LED-bearing pad. When
+    // unset, slots are treated as having no lightbar.
+    using LightbarCapabilityFn = std::function<bool(const QString& slotId)>;
+    void setLightbarCapabilityFn(LightbarCapabilityFn fn) { lightbarCapabilityFn_ = std::move(fn); }
+
+    // Predicate answering "does the physical pad behind this slot have a
+    // motion sensor (gyro / accelerometer)?". Same source as the lightbar
+    // predicate — the SDL bridge's per-device IMU probe. bind() consults it
+    // so MSG_CONTROLLER_ADD advertises CAP_MOTION only for a pad that
+    // actually streams IMU samples. When unset, slots are treated as having
+    // no motion.
+    using MotionCapabilityFn = std::function<bool(const QString& slotId)>;
+    void setMotionCapabilityFn(MotionCapabilityFn fn) { motionCapabilityFn_ = std::move(fn); }
+
+    // Resolver answering "what cosmetic controller type (Xbox / PlayStation)
+    // is the physical pad behind this slot?". Same source as the capability
+    // predicates — SDL's SDL_GameControllerGetType(). bind() consults it so
+    // the MSG_CONTROLLER_TYPE (0x0008) declares the real type. Returns a
+    // CONTROLLER_TYPE_* wire value (0 = Xbox, 1 = PlayStation); when unset,
+    // slots default to Xbox.
+    using ControllerTypeFn = std::function<int(const QString& slotId)>;
+    void setControllerTypeFn(ControllerTypeFn fn) { controllerTypeFn_ = std::move(fn); }
 
     void bind(const QString& slotId, const QString& connectionId);
     void unbind(const QString& slotId);
@@ -52,6 +96,9 @@ class ConnectionHub : public QObject {
     ConnectionStore* store_;
     QList<models::ConnectionSummary> summaries_;
     QHash<QString, QString> bindings_; // slotId -> connectionId
+    LightbarCapabilityFn lightbarCapabilityFn_;
+    MotionCapabilityFn motionCapabilityFn_;
+    ControllerTypeFn controllerTypeFn_;
 };
 
 } // namespace dish::net

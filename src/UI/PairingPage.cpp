@@ -3,12 +3,12 @@
 
 #include "PairingPage.h"
 
+#include "DishLoaders.h"
 #include "Theme.h"
 
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
-#include <QProgressBar>
 #include <QPushButton>
 #include <QVBoxLayout>
 
@@ -20,25 +20,15 @@ PairingPage::PairingPage(QWidget* parent) : QWidget(parent) {
     layout->setSpacing(12);
 
     auto* topBar = new QHBoxLayout;
-    auto* backBtn = new QPushButton(QStringLiteral("← Back"), this);
+    auto* backBtn = new QPushButton(tr("← Back"), this);
     backBtn->setFlat(true);
-    title_ = new QLabel(QStringLiteral("Pair"), this);
+    title_ = new QLabel(tr("Pair"), this);
     title_->setStyleSheet(QStringLiteral("font-size: 17px; font-weight: 600;"));
     topBar->addWidget(backBtn, 0, Qt::AlignVCenter);
     topBar->addWidget(title_, 1, Qt::AlignVCenter);
     layout->addLayout(topBar);
 
-    spinner_ = new QProgressBar(this);
-    spinner_->setRange(0, 0); // indeterminate
-    spinner_->setTextVisible(false);
-    spinner_->setFixedHeight(4);
-    auto spinnerSp = spinner_->sizePolicy();
-    spinnerSp.setRetainSizeWhenHidden(true);
-    spinner_->setSizePolicy(spinnerSp);
-    spinner_->setVisible(false);
-    layout->addWidget(spinner_);
-
-    auto* header = new QLabel(QStringLiteral("PAIRING"), this);
+    auto* header = new QLabel(tr("PAIRING"), this);
     header->setStyleSheet(sectionHeaderQss());
     layout->addWidget(header);
 
@@ -55,18 +45,22 @@ PairingPage::PairingPage(QWidget* parent) : QWidget(parent) {
     layout->addStretch(1);
 
     auto* buttons = new QHBoxLayout;
-    auto* cancelBtn = new QPushButton(QStringLiteral("Cancel"), this);
-    pairBtn_ = new QPushButton(QStringLiteral("Pair"), this);
+    cancelBtn_ = new QPushButton(tr("Cancel"), this);
+    // Pair button carries its loader *inside* itself — DishSpinner + label —
+    // so the in-flight UI sits in the exact location the user just clicked,
+    // matching dish-mac PairingSheet.
+    pairBtn_ = new DishInFlightButton(tr("Pair"), this);
     pairBtn_->setObjectName(QStringLiteral("primary"));
     pairBtn_->setDefault(true);
     pairBtn_->setEnabled(false);
+
     buttons->addStretch(1);
-    buttons->addWidget(cancelBtn);
+    buttons->addWidget(cancelBtn_);
     buttons->addWidget(pairBtn_);
     layout->addLayout(buttons);
 
     QObject::connect(backBtn, &QPushButton::clicked, this, &PairingPage::cancelRequested);
-    QObject::connect(cancelBtn, &QPushButton::clicked, this, &PairingPage::cancelRequested);
+    QObject::connect(cancelBtn_, &QPushButton::clicked, this, &PairingPage::cancelRequested);
     QObject::connect(pairBtn_, &QPushButton::clicked, this, &PairingPage::submit);
     QObject::connect(pinEdit_, &QLineEdit::returnPressed, this, &PairingPage::submit);
     QObject::connect(pinEdit_, &QLineEdit::textChanged, this,
@@ -79,15 +73,21 @@ void PairingPage::updatePairEnabled() {
 
 void PairingPage::setPending(bool pending) {
     pending_ = pending;
-    spinner_->setVisible(pending);
+    // In-button spinner mirrors dish-mac's `if isPairing` branch: swap the
+    // label to "Pairing…" and show the DishSpinner next to it. The button is
+    // disabled regardless (Pair-enabled is gated on `!pending_`) so the user
+    // can't double-submit; the disabled-alpha rule in Theme.cpp carries the
+    // not-tappable signal.
+    pairBtn_->setInFlight(pending, tr("Pairing…"), tr("Pair"));
     pinEdit_->setEnabled(!pending);
+    cancelBtn_->setEnabled(!pending);
     updatePairEnabled();
 }
 
 void PairingPage::setServer(const models::DiscoveredServer& server) {
     server_ = server;
-    title_->setText(QStringLiteral("Pair with %1").arg(server.name));
-    message_->setText(QStringLiteral("Enter the PIN shown on %1").arg(server.name));
+    title_->setText(tr("Pair with %1").arg(server.name));
+    message_->setText(tr("Enter the PIN shown on %1").arg(server.name));
     pinEdit_->clear();
     setPending(false);
     pinEdit_->setFocus();

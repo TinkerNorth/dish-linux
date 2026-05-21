@@ -63,7 +63,13 @@ endif()
 # Dependencies
 # --------------------------------------------------------------------------
 find_package(Threads REQUIRED)
-find_package(Qt6 6.2 REQUIRED COMPONENTS Core Gui Widgets Network DBus)
+find_package(Qt6 6.2 REQUIRED COMPONENTS Core Gui Widgets Network DBus Svg)
+# LinguistTools is OPTIONAL — the Qt Linguist .ts → .qm pipeline is only
+# active when qttools is installed (Homebrew: `brew install qttools`). When
+# it's not present we still build a working app: every `tr("...")` falls back
+# to the English source string. The translation catalogues under
+# `translations/` are checked in and don't need to be rebuilt every time.
+find_package(Qt6 6.2 QUIET OPTIONAL_COMPONENTS LinguistTools)
 
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(SODIUM REQUIRED IMPORTED_TARGET libsodium)
@@ -77,16 +83,23 @@ set(DISH_CORE_SOURCES
     src/Util/Hex.h
     src/Util/Hex.cpp
     src/Util/Endian.h
+    src/Util/HostBattery.h
+    src/Util/HostBattery.cpp
     src/Util/DisplaySleepInhibitor.h
     src/Util/DisplaySleepInhibitor.cpp
     src/Util/ScreenWakeController.h
     src/Util/ScreenWakeController.cpp
     src/Models/Models.h
     src/Models/Models.cpp
+    src/Models/DishNotification.h
+    src/UI/NotificationQueue.h
+    src/UI/NotificationQueue.cpp
     src/Network/SatelliteClient.h
     src/Network/SatelliteClient.cpp
     src/Network/LANDiscovery.h
     src/Network/LANDiscovery.cpp
+    src/Network/MdnsDiscovery.h
+    src/Network/MdnsDiscovery.cpp
     src/Network/PairingClient.h
     src/Network/PairingClient.cpp
     src/Network/HTTPClient.h
@@ -101,8 +114,14 @@ set(DISH_CORE_SOURCES
     src/Network/ConnectionStore.cpp
     src/Input/GamepadInputProcessor.h
     src/Input/GamepadInputProcessor.cpp
+    src/Input/SdlMotionConvert.h
+    src/Input/SdlMotionConvert.cpp
+    src/Input/OutputCommandQueue.h
     src/Input/SDLGamepadBridge.h
     src/Input/SDLGamepadBridge.cpp
+    src/FeatureSettings.h
+    src/FeatureSettings.cpp
+    src/LightbarRouting.h
     src/AppModel.h
     src/AppModel.cpp)
 
@@ -124,14 +143,22 @@ target_link_libraries(dish_core
 set(DISH_UI_SOURCES
     src/UI/Theme.h
     src/UI/Theme.cpp
+    src/UI/DishLoaders.h
+    src/UI/DishLoaders.cpp
     src/UI/SlotCard.h
     src/UI/SlotCard.cpp
+    src/UI/BrandIcon.h
+    src/UI/BrandIcon.cpp
     src/UI/PairingPage.h
     src/UI/PairingPage.cpp
     src/UI/ConnectionsPage.h
     src/UI/ConnectionsPage.cpp
     src/UI/ErrorBanner.h
     src/UI/ErrorBanner.cpp
+    src/UI/NotificationToastStack.h
+    src/UI/NotificationToastStack.cpp
+    src/UI/SettingsView.h
+    src/UI/SettingsView.cpp
     src/UI/MainWindow.h
     src/UI/MainWindow.cpp
     resources/icons.qrc
@@ -139,7 +166,35 @@ set(DISH_UI_SOURCES
 
 add_executable(Dish ${DISH_UI_SOURCES})
 set_target_properties(Dish PROPERTIES OUTPUT_NAME dish)
-target_link_libraries(Dish PRIVATE dish_core Qt6::Widgets Qt6::Gui dish_warnings dish_strict)
+target_link_libraries(Dish PRIVATE dish_core Qt6::Widgets Qt6::Gui Qt6::Svg dish_warnings dish_strict)
+
+# --------------------------------------------------------------------------
+# Translations (Qt Linguist)
+#
+# qt_add_translations compiles each .ts → .qm and bakes the result into the
+# Dish executable as a Qt resource under :/i18n/. main.cpp loads the right
+# .qm at startup based on QLocale::system().name(). Translation sources for
+# the five non-English locales (bs / de / es / fr / pt_BR) live under
+# translations/; the catalogue is hand-maintained against the authoritative
+# dish-android values-XX/strings.xml. English is the source language and
+# needs no .ts — Qt falls through to the tr() literal when no .qm matches.
+#
+# Gated on Qt6LinguistTools_FOUND so a stripped-down Qt install (no qttools)
+# still builds — the app runs in English. Linux distribution packages and
+# Homebrew users with `qttools` installed get the full localised binary.
+# --------------------------------------------------------------------------
+if(Qt6LinguistTools_FOUND)
+    qt_add_translations(Dish
+        TS_FILES
+            translations/dish_bs.ts
+            translations/dish_de.ts
+            translations/dish_es.ts
+            translations/dish_fr.ts
+            translations/dish_pt_BR.ts
+        QM_FILES_OUTPUT_VARIABLE DISH_QM_FILES)
+else()
+    message(STATUS "Qt6LinguistTools not found — building without translation catalogues.")
+endif()
 
 install(TARGETS Dish RUNTIME DESTINATION bin)
 

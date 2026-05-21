@@ -43,6 +43,31 @@ class SatelliteClient {
     static constexpr std::uint16_t kMsgServerStatus = 0x0007;
     static constexpr std::uint16_t kMsgControllerType = 0x0008;
     static constexpr std::uint16_t kMsgRumble = 0x0009;
+    static constexpr std::uint16_t kMsgMotion = 0x000A;
+    static constexpr std::uint16_t kMsgBattery = 0x000B;
+    static constexpr std::uint16_t kMsgTouchpad = 0x000C;
+    static constexpr std::uint16_t kMsgLightbar = 0x000D;
+
+    // Controller-add capability bits. Bits 0x01 / 0x02 are documented in
+    // satellite/docs/protocol.md (analog triggers, rumble). Bit 0x04 is the
+    // motion (gyro + accel) cap — the satellite uses it to advertise motion
+    // on the virtual device where the backend supports a motion surface.
+    static constexpr std::uint16_t kCapAnalogTriggers = 0x0001;
+    static constexpr std::uint16_t kCapRumble = 0x0002;
+    static constexpr std::uint16_t kCapMotion = 0x0004;
+    // CAP_LIGHTBAR (Task 1.4). Advertised per-controller in MSG_CONTROLLER_ADD
+    // only when the bound physical pad has an addressable RGB LED (DualSense /
+    // DualShock 4). A satellite that sees this bit sends lightbar colour via
+    // the dedicated MSG_LIGHTBAR (0x000D) stream.
+    static constexpr std::uint16_t kCapLightbar = 0x0008;
+
+    // Battery wire constants (satellite/src/core/types.h mirrors).
+    static constexpr std::uint8_t kBatteryLevelUnknown = 0xFF;
+    static constexpr std::uint8_t kBatteryStatusUnknown = 0;
+    static constexpr std::uint8_t kBatteryStatusDischarging = 1;
+    static constexpr std::uint8_t kBatteryStatusCharging = 2;
+    static constexpr std::uint8_t kBatteryStatusFull = 3;
+    static constexpr std::uint8_t kBatteryStatusWired = 4;
 
     static constexpr std::uint32_t kHeartbeatIntervalMs = 2000;
     static constexpr int kHeartbeatMissMax = 5;
@@ -72,17 +97,98 @@ class SatelliteClient {
     void sendControllerType(int index, int type);
     void resetControllerAck() { lastControllerAck_.store(-1, std::memory_order_relaxed); }
 
-    // Decoded rumble message from the satellite. `lightbar*` are valid only
-    // when `hasLightbar` is true (the wire format's optional trailing 3 bytes).
+    // Pure helper: fold the per-controller CAP_LIGHTBAR (0x0008) bit into a
+    // base capability word. Returns `base` unchanged when the bound pad has
+    // no addressable RGB LED, and `base | kCapLightbar` when it does. Kept
+    // public + static so the cap-advertisement rule is unit-testable without
+    // a live socket — see WifiConnection::registerController for the caller.
+    static std::uint16_t withLightbarCapability(std::uint16_t base, bool hasLightbar) {
+        return static_cast<std::uint16_t>(base | (hasLightbar ? kCapLightbar : 0));
+    }
+
+    // Pure helper: fold the per-controller CAP_MOTION (0x0004) bit into a
+    // base capability word. Returns `base` unchanged when the bound pad has
+    // no gyro / accelerometer, and `base | kCapMotion` when it does. The
+    // motion analogue of withLightbarCapability — kept public + static for
+    // the same unit-test reasons.
+    static std::uint16_t withMotionCapability(std::uint16_t base, bool hasMotion) {
+        return static_cast<std::uint16_t>(base | (hasMotion ? kCapMotion : 0));
+    }
+
+    // Forward a single IMU sample. Axes follow the satellite's
+    // Cemuhook-compatible convention (right-handed, +X right, +Y up,
+    // +Z toward player).
+    //
+    // Load-bearing assumption: no caller applies a manufacturer rotation
+    // matrix, and none needs to. SDL2 already normalises HIDAPI controllers
+    // (DualSense / DS4 / Switch Pro) into exactly this right-handed frame
+    // internally, so the int16 triples handed in here are already in wire
+    // orientation. The protocol's "senders apply the rotation matrix" rule
+    // (protocol.md §0x000A) is satisfied by SDL on our behalf — do NOT add a
+    // rotation step here or it would double-apply.
+    //
+    // Scale: gyro int16 LSB = 2000/32767 deg/s; accel int16 LSB = 4/32767 g.
+    // See satellite/docs/protocol.md §0x000A for the canonical reference.
+    //
+    // `timestampDeltaUs` is microseconds since the previous motion packet
+    // for the same controller on this connection. 0 on the very first packet.
+    //
+    // Hot path: called from the SDL sensor-update thread.
+    void sendMotion(int controllerIndex, std::int16_t gyroX, std::int16_t gyroY, std::int16_t gyroZ,
+                    std::int16_t accelX, std::int16_t accelY, std::int16_t accelZ,
+                    std::uint32_t timestampDeltaUs);
+
+    // Forward a single battery sample. `level` is 0..100 inclusive, or
+    // `kBatteryLevelUnknown` (0xFF). `status` is one of the kBatteryStatus*
+    // constants. Senders that have no battery information at all MUST NOT
+    // call this; partial readers (status-only) should send level=0xFF.
+    void sendBattery(int controllerIndex, std::uint8_t level, std::uint8_t status);
+
+    // Forward a touchpad sample (MSG_TOUCHPAD, 0x000C — DualSense / DS4).
+    // Up to two fingers; `fingerNActive` gates whether that finger's id +
+    // coordinates are meaningful. Coordinates are normalised int16
+    // (-32768..32767) on both axes so the wire is resolution-independent.
+    // `buttonPressed` is the clickable-pad switch.
+    //
+    // Hot path: called from the SDL touchpad-event thread.
+    void sendTouchpad(int controllerIndex, bool finger0Active, std::uint8_t finger0Id,
+                      std::int16_t finger0X, std::int16_t finger0Y, bool finger1Active,
+                      std::uint8_t finger1Id, std::int16_t finger1X, std::int16_t finger1Y,
+                      bool buttonPressed);
+
+    // Pure encoder for the MSG_MOTION inner payload (after the 4-byte
+    // type+length header). The wire layout is host-LE for the int16 / uint32
+    // fields, matching satellite/src/core/types.h::MotionReport. Exposed
+    // statically so unit tests can pin the byte format without bringing
+    // up a live socket — the same pattern that parseRumbleMessage uses
+    // for the return path.
+    static std::array<std::uint8_t, 17>
+    encodeMotionPayload(std::uint8_t controllerIndex, std::int16_t gyroX, std::int16_t gyroY,
+                        std::int16_t gyroZ, std::int16_t accelX, std::int16_t accelY,
+                        std::int16_t accelZ, std::uint32_t timestampDeltaUs);
+
+    // Pure encoder for the MSG_BATTERY inner payload. Three bytes total:
+    // ctrlIdx + level + status.
+    static std::array<std::uint8_t, 3>
+    encodeBatteryPayload(std::uint8_t controllerIndex, std::uint8_t level, std::uint8_t status);
+
+    // Pure encoder for the MSG_TOUCHPAD inner payload. 12 bytes:
+    // ctrlIdx(1) + flags(1) + finger0(id1 + x2 + y2) + finger1(id1 + x2 + y2).
+    // `flags` bit 0 = finger0 active, bit 1 = finger1 active, bit 2 = button.
+    // Coordinates are host-LE int16. Exposed statically so unit tests can pin
+    // the byte layout without a live socket.
+    static std::array<std::uint8_t, 12>
+    encodeTouchpadPayload(std::uint8_t controllerIndex, bool finger0Active, std::uint8_t finger0Id,
+                          std::int16_t finger0X, std::int16_t finger0Y, bool finger1Active,
+                          std::uint8_t finger1Id, std::int16_t finger1X, std::int16_t finger1Y,
+                          bool buttonPressed);
+
+    // Decoded rumble message from the satellite — motors + duration only.
     struct RumbleMessage {
         int controllerIndex = 0;
         std::uint16_t strongMagnitude = 0;
         std::uint16_t weakMagnitude = 0;
         std::uint16_t durationMs = 0;
-        bool hasLightbar = false;
-        std::uint8_t lightbarR = 0;
-        std::uint8_t lightbarG = 0;
-        std::uint8_t lightbarB = 0;
     };
 
     // Install (or replace) the rumble callback. Invoked from the receive
@@ -93,18 +199,38 @@ class SatelliteClient {
     using RumbleHandler = std::function<void(const RumbleMessage&)>;
     void setRumbleHandler(RumbleHandler handler);
 
+    // Length of the MSG_RUMBLE inner payload (after the 4-byte type+length
+    // header), in bytes: ctrlIdx(1) + strong(2) + weak(2) + durMs(2).
+    static constexpr std::size_t kRumblePayloadLen = 7;
+
     // Pure decoder for the MSG_RUMBLE inner payload (the 4-byte header
     // {type, length} has already been stripped). Returns std::nullopt on
     // truncation; see ClientAdapter::sendRumble for the producer side. Kept
     // public + static so it can be exercised by unit tests without a live
     // socket.
     //
-    // Wire layout:
-    //   ctrlIdx(1) strong(2 BE) weak(2 BE) durMs(2 BE) flags(1) [R(1) G(1) B(1)]
-    //
-    // `flags` bit 0 set ⇒ trailing R/G/B bytes are present (DS4 lightbar).
+    // Wire layout (fixed 7 bytes):
+    //   ctrlIdx(1) strong(2 BE) weak(2 BE) durMs(2 BE)
     static std::optional<RumbleMessage> parseRumbleMessage(const std::uint8_t* payload,
                                                            std::size_t len);
+
+    // Decoded lightbar message from the satellite (Task 1.4 dedicated stream).
+    // Independent from MSG_RUMBLE so games that only change colour drive
+    // the LED on the dish.
+    struct LightbarMessage {
+        int controllerIndex = 0;
+        std::uint8_t r = 0;
+        std::uint8_t g = 0;
+        std::uint8_t b = 0;
+    };
+
+    using LightbarHandler = std::function<void(const LightbarMessage&)>;
+    void setLightbarHandler(LightbarHandler handler);
+
+    // Pure decoder for the MSG_LIGHTBAR inner payload. Wire layout:
+    // ctrlIdx + r + g + b = 4 bytes exactly.
+    static std::optional<LightbarMessage> parseLightbarMessage(const std::uint8_t* payload,
+                                                               std::size_t len);
 
     void startHeartbeat();
     void stopHeartbeat();
@@ -155,6 +281,10 @@ class SatelliteClient {
     // section (handler copy under lock) keeps the hot-path call unlocked.
     std::mutex rumbleHandlerMtx_;
     RumbleHandler rumbleHandler_;
+
+    // Same shape but for MSG_LIGHTBAR (Task 1.4 dedicated stream).
+    std::mutex lightbarHandlerMtx_;
+    LightbarHandler lightbarHandler_;
 };
 
 } // namespace dish::net

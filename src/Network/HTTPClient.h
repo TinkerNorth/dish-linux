@@ -15,8 +15,10 @@ class QNetworkAccessManager;
 namespace dish::net {
 
 // Thin async wrapper around QNetworkAccessManager for the Satellite connection
-// API. Mirrors dish-mac/Network/HTTPClient.swift. The server speaks plain
-// HTTP/1.1 on :9877. Callbacks fire on the network manager's home thread.
+// API. Mirrors dish-mac/Network/HTTPClient.swift. The server speaks HTTPS on
+// :9443 with a self-signed certificate; TLS peer/hostname verification is
+// disabled per project decision. Callbacks fire on the network manager's
+// home thread.
 class HTTPClient : public QObject {
     Q_OBJECT
   public:

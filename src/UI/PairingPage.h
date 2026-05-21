@@ -9,10 +9,11 @@
 
 class QLabel;
 class QLineEdit;
-class QProgressBar;
 class QPushButton;
 
 namespace dish::ui {
+
+class DishInFlightButton;
 
 // Pairing page — collects the 6-digit PIN. Lives inside the MainWindow
 // QStackedWidget. Replaces the prior modal PairingDialog.
@@ -22,7 +23,9 @@ class PairingPage : public QWidget {
     explicit PairingPage(QWidget* parent = nullptr);
     void setServer(const models::DiscoveredServer& server);
     // Drive the pending state from the controller: spinner on, PIN entry and
-    // Pair locked. Cancel stays active so the user can always back out.
+    // Pair locked. Cancel stays disabled while pairing is in flight — matches
+    // the design spec (`PairingSheet.swift`): cancel is gated during submit
+    // so the user can't tear the request out mid-handshake.
     void setPending(bool pending);
 
   signals:
@@ -36,8 +39,10 @@ class PairingPage : public QWidget {
     QLabel* title_;
     QLabel* message_;
     QLineEdit* pinEdit_;
-    QPushButton* pairBtn_;
-    QProgressBar* spinner_;
+    QPushButton* cancelBtn_;
+    // DishInFlightButton renders DishSpinner + "Pairing…" while the
+    // server registration is in flight; it's a plain "Pair" otherwise.
+    DishInFlightButton* pairBtn_;
     models::DiscoveredServer server_;
     bool pending_ = false;
 };

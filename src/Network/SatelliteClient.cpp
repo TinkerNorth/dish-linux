@@ -115,6 +115,95 @@ void SatelliteClient::sendControllerType(int index, int type) {
     sendEncrypted(kMsgControllerType, payload, sizeof(payload));
 }
 
+std::array<std::uint8_t, 17> SatelliteClient::encodeMotionPayload(
+    std::uint8_t controllerIndex, std::int16_t gyroX, std::int16_t gyroY, std::int16_t gyroZ,
+    std::int16_t accelX, std::int16_t accelY, std::int16_t accelZ, std::uint32_t timestampDeltaUs) {
+    // ctrlIdx(1) + 6×int16 LE + uint32 LE = 1 + 12 + 4 = 17 bytes.
+    // Matches MotionReport's little-endian wire layout. The receiver does NOT
+    // memcpy onto the struct — it decodes via explicit byte-shifts
+    // (decodeMotionReport in satellite/src/core/types.h), so the contract is
+    // byte-order- and struct-layout-independent. Senders therefore write LE
+    // explicitly here; see satellite/docs/protocol.md §0x000A.
+    std::array<std::uint8_t, 17> out{};
+    out[0] = controllerIndex;
+    auto storeLe16 = [&out](int off, std::int16_t v) {
+        const auto u = static_cast<std::uint16_t>(v);
+        out[off] = static_cast<std::uint8_t>(u & 0xFFU);
+        out[off + 1] = static_cast<std::uint8_t>((u >> 8) & 0xFFU);
+    };
+    auto storeLe32 = [&out](int off, std::uint32_t v) {
+        out[off] = static_cast<std::uint8_t>(v & 0xFFU);
+        out[off + 1] = static_cast<std::uint8_t>((v >> 8) & 0xFFU);
+        out[off + 2] = static_cast<std::uint8_t>((v >> 16) & 0xFFU);
+        out[off + 3] = static_cast<std::uint8_t>((v >> 24) & 0xFFU);
+    };
+    storeLe16(1, gyroX);
+    storeLe16(3, gyroY);
+    storeLe16(5, gyroZ);
+    storeLe16(7, accelX);
+    storeLe16(9, accelY);
+    storeLe16(11, accelZ);
+    storeLe32(13, timestampDeltaUs);
+    return out;
+}
+
+void SatelliteClient::sendMotion(int controllerIndex, std::int16_t gyroX, std::int16_t gyroY,
+                                 std::int16_t gyroZ, std::int16_t accelX, std::int16_t accelY,
+                                 std::int16_t accelZ, std::uint32_t timestampDeltaUs) {
+    const auto payload =
+        encodeMotionPayload(static_cast<std::uint8_t>(controllerIndex), gyroX, gyroY, gyroZ, accelX,
+                            accelY, accelZ, timestampDeltaUs);
+    sendEncrypted(kMsgMotion, payload.data(), payload.size());
+}
+
+std::array<std::uint8_t, 3> SatelliteClient::encodeBatteryPayload(std::uint8_t controllerIndex,
+                                                                  std::uint8_t level,
+                                                                  std::uint8_t status) {
+    return {controllerIndex, level, status};
+}
+
+void SatelliteClient::sendBattery(int controllerIndex, std::uint8_t level, std::uint8_t status) {
+    const auto payload =
+        encodeBatteryPayload(static_cast<std::uint8_t>(controllerIndex), level, status);
+    sendEncrypted(kMsgBattery, payload.data(), payload.size());
+}
+
+std::array<std::uint8_t, 12> SatelliteClient::encodeTouchpadPayload(
+    std::uint8_t controllerIndex, bool finger0Active, std::uint8_t finger0Id, std::int16_t finger0X,
+    std::int16_t finger0Y, bool finger1Active, std::uint8_t finger1Id, std::int16_t finger1X,
+    std::int16_t finger1Y, bool buttonPressed) {
+    // ctrlIdx(1) + flags(1) + f0(id1 + x2 + y2) + f1(id1 + x2 + y2) = 12 bytes.
+    std::array<std::uint8_t, 12> out{};
+    out[0] = controllerIndex;
+    std::uint8_t flags = 0;
+    if (finger0Active) { flags |= 0x01U; }
+    if (finger1Active) { flags |= 0x02U; }
+    if (buttonPressed) { flags |= 0x04U; }
+    out[1] = flags;
+    auto storeLe16 = [&out](int off, std::int16_t v) {
+        const auto u = static_cast<std::uint16_t>(v);
+        out[off] = static_cast<std::uint8_t>(u & 0xFFU);
+        out[off + 1] = static_cast<std::uint8_t>((u >> 8) & 0xFFU);
+    };
+    out[2] = finger0Id;
+    storeLe16(3, finger0X);
+    storeLe16(5, finger0Y);
+    out[7] = finger1Id;
+    storeLe16(8, finger1X);
+    storeLe16(10, finger1Y);
+    return out;
+}
+
+void SatelliteClient::sendTouchpad(int controllerIndex, bool finger0Active, std::uint8_t finger0Id,
+                                   std::int16_t finger0X, std::int16_t finger0Y, bool finger1Active,
+                                   std::uint8_t finger1Id, std::int16_t finger1X,
+                                   std::int16_t finger1Y, bool buttonPressed) {
+    const auto payload = encodeTouchpadPayload(
+        static_cast<std::uint8_t>(controllerIndex), finger0Active, finger0Id, finger0X, finger0Y,
+        finger1Active, finger1Id, finger1X, finger1Y, buttonPressed);
+    sendEncrypted(kMsgTouchpad, payload.data(), payload.size());
+}
+
 void SatelliteClient::sendEncrypted(std::uint16_t msgType, const std::uint8_t* payload,
                                     std::size_t len) {
     if (sock_ < 0) { return; }
@@ -249,6 +338,17 @@ void SatelliteClient::processIncoming(const std::uint8_t* buf, std::size_t n) {
             handler = rumbleHandler_;
         }
         if (handler) { handler(*rm); }
+    } else if (msgType == kMsgLightbar) {
+        if (plainLen < 4) { return; }
+        const auto lm =
+            parseLightbarMessage(plain.data() + 4, static_cast<std::size_t>(plainLen) - 4);
+        if (!lm) { return; }
+        LightbarHandler handler;
+        {
+            std::lock_guard<std::mutex> lock(lightbarHandlerMtx_);
+            handler = lightbarHandler_;
+        }
+        if (handler) { handler(*lm); }
     }
 }
 
@@ -257,23 +357,32 @@ void SatelliteClient::setRumbleHandler(RumbleHandler handler) {
     rumbleHandler_ = std::move(handler);
 }
 
+void SatelliteClient::setLightbarHandler(LightbarHandler handler) {
+    std::lock_guard<std::mutex> lock(lightbarHandlerMtx_);
+    lightbarHandler_ = std::move(handler);
+}
+
+std::optional<SatelliteClient::LightbarMessage>
+SatelliteClient::parseLightbarMessage(const std::uint8_t* payload, std::size_t len) {
+    // ctrlIdx + r + g + b = 4 bytes exactly.
+    if (payload == nullptr || len < 4) { return std::nullopt; }
+    LightbarMessage lm;
+    lm.controllerIndex = payload[0];
+    lm.r = payload[1];
+    lm.g = payload[2];
+    lm.b = payload[3];
+    return lm;
+}
+
 std::optional<SatelliteClient::RumbleMessage>
 SatelliteClient::parseRumbleMessage(const std::uint8_t* payload, std::size_t len) {
-    // Mandatory fields: ctrlIdx + strong + weak + dur + flags = 8 bytes.
-    if (payload == nullptr || len < 8) { return std::nullopt; }
+    // Fixed 7-byte payload: ctrlIdx + strong + weak + dur.
+    if (payload == nullptr || len < kRumblePayloadLen) { return std::nullopt; }
     RumbleMessage rm;
     rm.controllerIndex = payload[0];
     rm.strongMagnitude = util::readU16Be(payload + 1);
     rm.weakMagnitude = util::readU16Be(payload + 3);
     rm.durationMs = util::readU16Be(payload + 5);
-    const std::uint8_t flags = payload[7];
-    rm.hasLightbar = (flags & 0x01) != 0;
-    if (rm.hasLightbar) {
-        if (len < 11) { return std::nullopt; } // declared lightbar but truncated
-        rm.lightbarR = payload[8];
-        rm.lightbarG = payload[9];
-        rm.lightbarB = payload[10];
-    }
     return rm;
 }
 

@@ -20,17 +20,31 @@ set(DISH_TEST_SOURCES
     test_endian.cpp
     test_models.cpp
     test_beacon_parser.cpp
+    test_mdns_discovery.cpp
     test_gamepad_input_processor.cpp
     test_pairing_client_classify.cpp
     test_screen_wake_controller.cpp
     test_freedesktop_screensaver_inhibitor.cpp
-    test_satellite_client_rumble.cpp)
+    test_satellite_client_rumble.cpp
+    test_satellite_client_motion.cpp
+    test_satellite_client_touchpad.cpp
+    test_satellite_client_lightbar.cpp
+    test_output_command_queue.cpp
+    test_lightbar_routing.cpp
+    test_feature_settings.cpp
+    test_sdl_motion_convert.cpp
+    test_host_battery.cpp
+    test_notification_queue.cpp)
+
+# Qt6::Test gives QSignalSpy + QTest helpers used by test_notification_queue.
+find_package(Qt6 6.2 REQUIRED COMPONENTS Test)
 
 add_executable(DishTests ${DISH_TEST_SOURCES})
 target_link_libraries(DishTests
     PRIVATE
         dish_core
         Catch2::Catch2WithMain
+        Qt6::Test
         dish_warnings)
 
 # Tests don't need -Werror on the third-party header path; keep our own at -Werror.
