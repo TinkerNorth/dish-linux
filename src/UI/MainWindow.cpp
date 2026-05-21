@@ -84,8 +84,8 @@ void MainWindow::buildDashboardPage() {
     statusDot_->setStyleSheet(dotQss(Theme::muted));
     statusText_ = new QLabel(dashboardPage_);
     statusText_->setStyleSheet(QStringLiteral("font-size: 17px; font-weight: 600;"));
-    settingsButton_ = new QPushButton(QStringLiteral("Settings"), dashboardPage_);
-    manageButton_ = new QPushButton(QStringLiteral("Manage"), dashboardPage_);
+    settingsButton_ = new QPushButton(tr("Settings"), dashboardPage_);
+    manageButton_ = new QPushButton(tr("Manage"), dashboardPage_);
     headerRow->addWidget(statusDot_, 0, Qt::AlignVCenter);
     headerRow->addWidget(statusText_, 1, Qt::AlignVCenter);
     headerRow->addWidget(settingsButton_, 0, Qt::AlignVCenter);
@@ -116,7 +116,7 @@ void MainWindow::buildDashboardPage() {
     divider->setStyleSheet(QStringLiteral("color: %1;").arg(hex(Theme::outline)));
     root->addWidget(divider);
 
-    auto* slotsHeader = new QLabel(QStringLiteral("CONTROLLERS"), dashboardPage_);
+    auto* slotsHeader = new QLabel(tr("CONTROLLERS"), dashboardPage_);
     slotsHeader->setStyleSheet(sectionHeaderQss());
     root->addWidget(slotsHeader);
 
@@ -130,7 +130,7 @@ void MainWindow::buildDashboardPage() {
     // "connected" here refers to physical pads attached to the Linux host
     // (USB/Bluetooth) — different sense from network link "online". Matches
     // the dish-windows wording in src/UI/MainWindow.cpp:91.
-    slotsEmpty_ = new QLabel(QStringLiteral("No controllers connected"), slotsContainer);
+    slotsEmpty_ = new QLabel(tr("No controllers connected"), slotsContainer);
     slotsEmpty_->setStyleSheet(
         QStringLiteral("color: %1; font-size: 12px;").arg(hex(Theme::muted)));
     slotsLayout_->addWidget(slotsEmpty_);
@@ -173,13 +173,13 @@ void MainWindow::rebuildHeader() {
     const int total = static_cast<int>(conns.size());
     QString status;
     if (live == 0 && total == 0) {
-        status = QStringLiteral("No connections yet");
+        status = tr("No connections yet");
     } else if (live == 0) {
-        status = QStringLiteral("%1 remembered").arg(total);
+        status = tr("%1 remembered").arg(total);
     } else if (live == 1) {
         status = firstLabel;
     } else {
-        status = QStringLiteral("%1 active connections").arg(live);
+        status = tr("%1 active connections").arg(live);
     }
     statusText_->setText(status);
     statusDot_->setStyleSheet(dotQss(live > 0 ? Theme::success : Theme::muted));
@@ -188,11 +188,11 @@ void MainWindow::rebuildHeader() {
 
     QString summary;
     if (live == 0 && total == 0) {
-        summary = QStringLiteral("Tap Manage to add one");
+        summary = tr("Tap Manage to add one");
     } else if (live == 0) {
-        summary = QStringLiteral("%1 remembered").arg(total);
+        summary = tr("%1 remembered").arg(total);
     } else {
-        summary = QStringLiteral("%1 of %2 online").arg(live).arg(total);
+        summary = tr("%1 of %2 online").arg(live).arg(total);
     }
     summaryText_->setText(summary);
 }

@@ -24,16 +24,16 @@ SettingsView::SettingsView(FeatureSettings* settings, QWidget* parent)
 
     // Header: title + Done.
     auto* headerRow = new QHBoxLayout;
-    auto* title = new QLabel(QStringLiteral("Settings"), this);
+    auto* title = new QLabel(tr("Settings"), this);
     title->setStyleSheet(
         QStringLiteral("font-size: 17px; font-weight: 600; color: %1;").arg(hex(Theme::onSurface)));
-    auto* doneButton = new QPushButton(QStringLiteral("Done"), this);
+    auto* doneButton = new QPushButton(tr("Done"), this);
     QObject::connect(doneButton, &QPushButton::clicked, this, &SettingsView::closeRequested);
     headerRow->addWidget(title, 1, Qt::AlignVCenter);
     headerRow->addWidget(doneButton, 0, Qt::AlignVCenter);
     layout->addLayout(headerRow);
 
-    auto* sectionHeader = new QLabel(QStringLiteral("FORWARDED FEATURES"), this);
+    auto* sectionHeader = new QLabel(tr("FORWARDED FEATURES"), this);
     sectionHeader->setStyleSheet(sectionHeaderQss());
     layout->addWidget(sectionHeader);
 
@@ -47,13 +47,12 @@ SettingsView::SettingsView(FeatureSettings* settings, QWidget* parent)
 
     auto* textColumn = new QVBoxLayout;
     textColumn->setSpacing(2);
-    auto* rowTitle = new QLabel(QStringLiteral("Light bar"), card);
+    auto* rowTitle = new QLabel(tr("Light bar"), card);
     rowTitle->setStyleSheet(
         QStringLiteral("font-weight: 600; color: %1;").arg(hex(Theme::onSurface)));
-    auto* rowDetail =
-        new QLabel(QStringLiteral("Follow game: the controller LED matches the host game. "
-                                  "Off: leave the LED untouched."),
-                   card);
+    auto* rowDetail = new QLabel(tr("Follow game: the controller LED matches the host game. "
+                                    "Off: leave the LED untouched."),
+                                 card);
     rowDetail->setWordWrap(true);
     rowDetail->setStyleSheet(QStringLiteral("color: %1; font-size: 11px;").arg(hex(Theme::muted)));
     textColumn->addWidget(rowTitle);
@@ -75,10 +74,9 @@ SettingsView::SettingsView(FeatureSettings* settings, QWidget* parent)
     cardLayout->addWidget(lightbarCombo_, 0, Qt::AlignVCenter);
     layout->addWidget(card);
 
-    auto* footnote =
-        new QLabel(QStringLiteral("Features only apply when your controller's hardware "
-                                  "supports them — the controller list shows what was detected."),
-                   this);
+    auto* footnote = new QLabel(tr("Features only apply when your controller's hardware "
+                                   "supports them — the controller list shows what was detected."),
+                                this);
     footnote->setWordWrap(true);
     footnote->setStyleSheet(QStringLiteral("color: %1; font-size: 11px;").arg(hex(Theme::muted)));
     layout->addWidget(footnote);

@@ -64,6 +64,12 @@ endif()
 # --------------------------------------------------------------------------
 find_package(Threads REQUIRED)
 find_package(Qt6 6.2 REQUIRED COMPONENTS Core Gui Widgets Network DBus Svg)
+# LinguistTools is OPTIONAL — the Qt Linguist .ts → .qm pipeline is only
+# active when qttools is installed (Homebrew: `brew install qttools`). When
+# it's not present we still build a working app: every `tr("...")` falls back
+# to the English source string. The translation catalogues under
+# `translations/` are checked in and don't need to be rebuilt every time.
+find_package(Qt6 6.2 QUIET OPTIONAL_COMPONENTS LinguistTools)
 
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(SODIUM REQUIRED IMPORTED_TARGET libsodium)
@@ -156,6 +162,34 @@ set(DISH_UI_SOURCES
 add_executable(Dish ${DISH_UI_SOURCES})
 set_target_properties(Dish PROPERTIES OUTPUT_NAME dish)
 target_link_libraries(Dish PRIVATE dish_core Qt6::Widgets Qt6::Gui Qt6::Svg dish_warnings dish_strict)
+
+# --------------------------------------------------------------------------
+# Translations (Qt Linguist)
+#
+# qt_add_translations compiles each .ts → .qm and bakes the result into the
+# Dish executable as a Qt resource under :/i18n/. main.cpp loads the right
+# .qm at startup based on QLocale::system().name(). Translation sources for
+# the five non-English locales (bs / de / es / fr / pt_BR) live under
+# translations/; the catalogue is hand-maintained against the authoritative
+# dish-android values-XX/strings.xml. English is the source language and
+# needs no .ts — Qt falls through to the tr() literal when no .qm matches.
+#
+# Gated on Qt6LinguistTools_FOUND so a stripped-down Qt install (no qttools)
+# still builds — the app runs in English. Linux distribution packages and
+# Homebrew users with `qttools` installed get the full localised binary.
+# --------------------------------------------------------------------------
+if(Qt6LinguistTools_FOUND)
+    qt_add_translations(Dish
+        TS_FILES
+            translations/dish_bs.ts
+            translations/dish_de.ts
+            translations/dish_es.ts
+            translations/dish_fr.ts
+            translations/dish_pt_BR.ts
+        QM_FILES_OUTPUT_VARIABLE DISH_QM_FILES)
+else()
+    message(STATUS "Qt6LinguistTools not found — building without translation catalogues.")
+endif()
 
 install(TARGETS Dish RUNTIME DESTINATION bin)
 

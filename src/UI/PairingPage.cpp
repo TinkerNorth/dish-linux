@@ -20,15 +20,15 @@ PairingPage::PairingPage(QWidget* parent) : QWidget(parent) {
     layout->setSpacing(12);
 
     auto* topBar = new QHBoxLayout;
-    auto* backBtn = new QPushButton(QStringLiteral("← Back"), this);
+    auto* backBtn = new QPushButton(tr("← Back"), this);
     backBtn->setFlat(true);
-    title_ = new QLabel(QStringLiteral("Pair"), this);
+    title_ = new QLabel(tr("Pair"), this);
     title_->setStyleSheet(QStringLiteral("font-size: 17px; font-weight: 600;"));
     topBar->addWidget(backBtn, 0, Qt::AlignVCenter);
     topBar->addWidget(title_, 1, Qt::AlignVCenter);
     layout->addLayout(topBar);
 
-    auto* header = new QLabel(QStringLiteral("PAIRING"), this);
+    auto* header = new QLabel(tr("PAIRING"), this);
     header->setStyleSheet(sectionHeaderQss());
     layout->addWidget(header);
 
@@ -45,11 +45,11 @@ PairingPage::PairingPage(QWidget* parent) : QWidget(parent) {
     layout->addStretch(1);
 
     auto* buttons = new QHBoxLayout;
-    cancelBtn_ = new QPushButton(QStringLiteral("Cancel"), this);
+    cancelBtn_ = new QPushButton(tr("Cancel"), this);
     // Pair button carries its loader *inside* itself — DishSpinner + label —
     // so the in-flight UI sits in the exact location the user just clicked,
     // matching dish-mac PairingSheet.
-    pairBtn_ = new DishInFlightButton(QStringLiteral("Pair"), this);
+    pairBtn_ = new DishInFlightButton(tr("Pair"), this);
     pairBtn_->setObjectName(QStringLiteral("primary"));
     pairBtn_->setDefault(true);
     pairBtn_->setEnabled(false);
@@ -78,7 +78,7 @@ void PairingPage::setPending(bool pending) {
     // disabled regardless (Pair-enabled is gated on `!pending_`) so the user
     // can't double-submit; the disabled-alpha rule in Theme.cpp carries the
     // not-tappable signal.
-    pairBtn_->setInFlight(pending, QStringLiteral("Pairing…"), QStringLiteral("Pair"));
+    pairBtn_->setInFlight(pending, tr("Pairing…"), tr("Pair"));
     pinEdit_->setEnabled(!pending);
     cancelBtn_->setEnabled(!pending);
     updatePairEnabled();
@@ -86,8 +86,8 @@ void PairingPage::setPending(bool pending) {
 
 void PairingPage::setServer(const models::DiscoveredServer& server) {
     server_ = server;
-    title_->setText(QStringLiteral("Pair with %1").arg(server.name));
-    message_->setText(QStringLiteral("Enter the PIN shown on %1").arg(server.name));
+    title_->setText(tr("Pair with %1").arg(server.name));
+    message_->setText(tr("Enter the PIN shown on %1").arg(server.name));
     pinEdit_->clear();
     setPending(false);
     pinEdit_->setFocus();

@@ -23,9 +23,9 @@ ConnectionsPage::ConnectionsPage(AppModel* model, QWidget* parent)
     layout->setSpacing(14);
 
     auto* topBar = new QHBoxLayout;
-    auto* backBtn = new QPushButton(QStringLiteral("← Back"), this);
+    auto* backBtn = new QPushButton(tr("← Back"), this);
     backBtn->setFlat(true);
-    auto* title = new QLabel(QStringLiteral("Connections"), this);
+    auto* title = new QLabel(tr("Connections"), this);
     title->setStyleSheet(QStringLiteral("font-size: 17px; font-weight: 600;"));
     topBar->addWidget(backBtn, 0, Qt::AlignVCenter);
     topBar->addWidget(title, 1, Qt::AlignVCenter);
@@ -37,7 +37,7 @@ ConnectionsPage::ConnectionsPage(AppModel* model, QWidget* parent)
         row->setSpacing(6);
         auto* glyph = new QLabel(this);
         setBrandIcon(glyph, BrandIconKind::Satellite, models::LinkState::Saved, 18);
-        auto* discoveredHeader = new QLabel(QStringLiteral("FOUND"), this);
+        auto* discoveredHeader = new QLabel(tr("FOUND"), this);
         discoveredHeader->setStyleSheet(sectionHeaderQss());
         row->addWidget(glyph, 0, Qt::AlignVCenter);
         row->addWidget(discoveredHeader, 1, Qt::AlignVCenter);
@@ -53,10 +53,10 @@ ConnectionsPage::ConnectionsPage(AppModel* model, QWidget* parent)
     // discovery is in flight, and the Connect button shows DishSpinner +
     // "Connecting…" while the chosen server is in LinkState::Connecting.
     // DishInFlightButton handles the spinner/label layout + size hint.
-    scanButton_ = new DishInFlightButton(QStringLiteral("Scan"), this);
+    scanButton_ = new DishInFlightButton(tr("Scan"), this);
     statusLabel_ = new QLabel(this);
     statusLabel_->setStyleSheet(QStringLiteral("color: %1;").arg(hex(Theme::muted)));
-    connectButton_ = new DishInFlightButton(QStringLiteral("Connect"), this);
+    connectButton_ = new DishInFlightButton(tr("Connect"), this);
     connectButton_->setObjectName(QStringLiteral("primary"));
     connectButton_->setEnabled(false);
     row->addWidget(scanButton_);
@@ -71,7 +71,7 @@ ConnectionsPage::ConnectionsPage(AppModel* model, QWidget* parent)
         // REMEMBERED is a list of satellite servers — same brand family as
         // FOUND just above so the two halves of the page read consistently.
         setBrandIcon(glyph, BrandIconKind::Satellite, models::LinkState::Saved, 18);
-        auto* rememberedHeader = new QLabel(QStringLiteral("REMEMBERED"), this);
+        auto* rememberedHeader = new QLabel(tr("REMEMBERED"), this);
         rememberedHeader->setStyleSheet(sectionHeaderQss());
         row->addWidget(glyph, 0, Qt::AlignVCenter);
         row->addWidget(rememberedHeader, 1, Qt::AlignVCenter);
@@ -81,7 +81,7 @@ ConnectionsPage::ConnectionsPage(AppModel* model, QWidget* parent)
     rememberedList_ = new QListWidget(this);
     layout->addWidget(rememberedList_, 1);
 
-    forgetButton_ = new QPushButton(QStringLiteral("Forget"), this);
+    forgetButton_ = new QPushButton(tr("Forget"), this);
     forgetButton_->setEnabled(false);
     auto* row2 = new QHBoxLayout;
     row2->addStretch(1);
@@ -128,7 +128,7 @@ void ConnectionsPage::rebuildLists() {
     for (const auto& r : model_->wifi()->remembered()) {
         auto* conn = model_->wifi()->get(r.id);
         const QString liveTag = (conn != nullptr && conn->state() == net::SessionState::Live)
-                                    ? QStringLiteral(" • online")
+                                    ? tr(" • online")
                                     : QString();
         auto* item = new QListWidgetItem(
             QStringLiteral("%1 • %2%3").arg(r.name.isEmpty() ? r.ip : r.name, r.ip, liveTag));
@@ -158,8 +158,8 @@ void ConnectionsPage::refreshButtonStates() {
     // The disabled-state 40 % opacity in Theme.cpp carries the "not tappable"
     // signal so the button doesn't also need a separate text/colour swap.
     scanButton_->setEnabled(!scanning);
-    scanButton_->setInFlight(scanning, QStringLiteral("Scanning…"), QStringLiteral("Scan"));
-    statusLabel_->setText(scanning ? QStringLiteral("Scanning…") : QString());
+    scanButton_->setInFlight(scanning, tr("Scanning…"), tr("Scan"));
+    statusLabel_->setText(scanning ? tr("Scanning…") : QString());
 
     // Connect button: same pattern. We surface `Connecting…` while the
     // selected discovered row resolves to a known connection still in the
@@ -167,8 +167,7 @@ void ConnectionsPage::refreshButtonStates() {
     const bool hasSelection = discoveredList_->currentItem() != nullptr;
     const bool connecting = connectingForSelection();
     connectButton_->setEnabled(hasSelection && !connecting);
-    connectButton_->setInFlight(connecting, QStringLiteral("Connecting…"),
-                                QStringLiteral("Connect"));
+    connectButton_->setInFlight(connecting, tr("Connecting…"), tr("Connect"));
 }
 
 void ConnectionsPage::onScanClicked() { model_->wifi()->startDiscovery(); }

@@ -94,17 +94,17 @@ void SlotCard::setSlot(const models::ControllerSlot& slot,
     available_ = available;
     nameLabel_->setText(slot.name);
     if (slot.boundStatus.has_value()) {
-        boundLabel_->setText(QStringLiteral("Bound to %1").arg(slot.boundStatus->label));
+        boundLabel_->setText(tr("Bound to %1").arg(slot.boundStatus->label));
         const auto color = slot.boundStatus->live == models::LinkState::Connected ? Theme::success
                                                                                   : Theme::warning;
         dot_->setStyleSheet(dotQss(color));
         setBrandIcon(glyph_, BrandIconKind::Satellite, slot.boundStatus->live, 28);
-        bindButton_->setText(QStringLiteral("Unbind"));
+        bindButton_->setText(tr("Unbind"));
     } else {
-        boundLabel_->setText(QStringLiteral("Unbound"));
+        boundLabel_->setText(tr("Unbound"));
         dot_->setStyleSheet(dotQss(Theme::muted));
         setBrandIcon(glyph_, BrandIconKind::Satellite, models::LinkState::Saved, 28);
-        bindButton_->setText(QStringLiteral("Bind\u2026"));
+        bindButton_->setText(tr("Bind\u2026"));
     }
     bindButton_->setEnabled(slot.boundConnectionId.has_value() || !available.isEmpty());
     updateCapabilities();
@@ -116,14 +116,13 @@ void SlotCard::updateCapabilities() {
     // no "available but off" state to render here; the chip is "Gyro" (on)
     // when the hardware is present and "No gyro" (dimmed) when it is not.
     const bool hasMotion = slot_.capabilities.hasMotion;
-    motionChip_->setText(hasMotion ? QStringLiteral("Gyro") : QStringLiteral("No gyro"));
+    motionChip_->setText(hasMotion ? tr("Gyro") : tr("No gyro"));
     motionChip_->setStyleSheet(capabilityChipQss(hasMotion));
-    motionChip_->setToolTip(
-        hasMotion ? QStringLiteral("Gyro and accelerometer detected — motion is forwarded "
-                                   "to the satellite for gyro aim.")
-                  : QStringLiteral("This controller has no motion sensor — gyro aim is "
-                                   "unavailable. Xbox pads have no gyro; DualSense, "
-                                   "DualShock 4 and Switch Pro pads do."));
+    motionChip_->setToolTip(hasMotion ? tr("Gyro and accelerometer detected — motion is forwarded "
+                                           "to the satellite for gyro aim.")
+                                      : tr("This controller has no motion sensor — gyro aim is "
+                                           "unavailable. Xbox pads have no gyro; DualSense, "
+                                           "DualShock 4 and Switch Pro pads do."));
 
     // Lightbar-capability chip. Unlike the motion chip, this is shown ONLY
     // when the pad actually has an addressable RGB LED (DualSense / DS4) —
@@ -134,12 +133,11 @@ void SlotCard::updateCapabilities() {
     const bool hasLightbar = slot_.capabilities.hasLightbar;
     lightbarChip_->setVisible(hasLightbar);
     if (hasLightbar) {
-        lightbarChip_->setText(QStringLiteral("Lightbar"));
+        lightbarChip_->setText(tr("Lightbar"));
         lightbarChip_->setStyleSheet(capabilityChipQss(true));
-        lightbarChip_->setToolTip(
-            QStringLiteral("Lightbar available — this controller has an RGB LED. "
-                           "It follows the host game's colour unless the Light bar "
-                           "setting is Off."));
+        lightbarChip_->setToolTip(tr("Lightbar available — this controller has an RGB LED. "
+                                     "It follows the host game's colour unless the Light bar "
+                                     "setting is Off."));
     }
 
     // Battery chip. The (level, status) pair comes off the same MSG_BATTERY
@@ -159,28 +157,28 @@ void SlotCard::updateCapabilities() {
         // A wired/full pad at 100 % is never "low"; only an actually-draining
         // pack trips the warning style.
         const bool lowBattery = batteryLevel < kLowBatteryThreshold && !charging && !wired;
-        QString label = QStringLiteral("Battery %1%").arg(batteryLevel);
+        QString label = tr("Battery %1%").arg(batteryLevel);
         if (charging) {
-            label = QStringLiteral("Battery %1% ↑").arg(batteryLevel); // up arrow
+            label = tr("Battery %1% ↑").arg(batteryLevel); // up arrow
         } else if (wired) {
-            label = QStringLiteral("Battery wired");
+            label = tr("Battery wired");
         } else if (full) {
-            label = QStringLiteral("Battery full");
+            label = tr("Battery full");
         }
         batteryChip_->setText(label);
         batteryChip_->setStyleSheet(batteryChipQss(lowBattery));
         QString tip;
         if (wired) {
-            tip = QStringLiteral("This host has no internal battery (a desktop) — "
-                                 "reported as wired / full charge.");
+            tip = tr("This host has no internal battery (a desktop) — "
+                     "reported as wired / full charge.");
         } else if (charging) {
-            tip = QStringLiteral("Battery at %1% and charging.").arg(batteryLevel);
+            tip = tr("Battery at %1% and charging.").arg(batteryLevel);
         } else if (full) {
-            tip = QStringLiteral("Battery full (%1%).").arg(batteryLevel);
+            tip = tr("Battery full (%1%).").arg(batteryLevel);
         } else if (lowBattery) {
-            tip = QStringLiteral("Battery low — %1% remaining.").arg(batteryLevel);
+            tip = tr("Battery low — %1% remaining.").arg(batteryLevel);
         } else {
-            tip = QStringLiteral("Battery at %1%.").arg(batteryLevel);
+            tip = tr("Battery at %1%.").arg(batteryLevel);
         }
         batteryChip_->setToolTip(tip);
     }
