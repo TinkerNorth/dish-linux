@@ -23,6 +23,8 @@ namespace dish::ui {
 
 class ConnectionsPage;
 class ErrorBanner;
+class NotificationQueue;
+class NotificationToastStack;
 class PairingPage;
 class SettingsView;
 
@@ -56,7 +58,16 @@ class MainWindow : public QMainWindow {
     ConnectionsPage* connectionsPage_;
     PairingPage* pairingPage_;
     SettingsView* settingsPage_;
+    // Inline error strip — kept around for one-off in-page surfaces that
+    // shouldn't share screen real estate with the bottom-anchored toast
+    // stack. Today it is no longer driven by AppModel::errorMessage (that
+    // routes through `notificationQueue_` instead); a future page-local
+    // error surface can still construct one.
     ErrorBanner* errorBanner_;
+    // The new feedback channel: every `AppModel::errorMessage` lands here,
+    // which the toast stack renders as a brand-styled stacked banner.
+    NotificationQueue* notificationQueue_;
+    NotificationToastStack* toastStack_;
     QProgressBar* dashboardSpinner_;
     QWidget* pairingReturnPage_ = nullptr;
     bool awaitingPair_ = false;

@@ -9,6 +9,8 @@
 #include "Network/ConnectionHub.h"
 #include "Network/WifiConnection.h"
 #include "Network/WifiConnectionManager.h"
+#include "NotificationQueue.h"
+#include "NotificationToastStack.h"
 #include "PairingPage.h"
 #include "SettingsView.h"
 #include "SlotCard.h"
@@ -38,11 +40,18 @@ MainWindow::MainWindow(AppModel* model, QWidget* parent) : QMainWindow(parent), 
     stack_ = new QStackedWidget(central);
     centralLayout->addWidget(stack_, 1);
 
+    // Notification surface: the queue is the bus (`NotificationQueue` —
+    // process-scoped, owns ids and same-key replacement), and the toast
+    // stack is the renderer (`NotificationToastStack` — bottom-center,
+    // up to three visible at a time, fade in/out). AppModel::errorMessage
+    // is now wired into the queue rather than directly into the old single
+    // banner; the ErrorBanner type stays available as an inline strip for
+    // page-local surfaces but is no longer the global error channel.
+    notificationQueue_ = new NotificationQueue(this);
+    toastStack_ = new NotificationToastStack(central);
+    toastStack_->bindTo(notificationQueue_);
     errorBanner_ = new ErrorBanner(central);
-    auto* bannerWrap = new QHBoxLayout;
-    bannerWrap->setContentsMargins(20, 0, 20, 16);
-    bannerWrap->addWidget(errorBanner_);
-    centralLayout->addLayout(bannerWrap);
+    errorBanner_->setVisible(false);
 
     dashboardPage_ = new QWidget(stack_);
     buildDashboardPage();
@@ -246,7 +255,12 @@ void MainWindow::onError(const QString& msg) {
         awaitingPairConnectionId_.clear();
         pairingPage_->setPending(false);
     }
-    errorBanner_->showError(msg);
+    // Route through the queue: a single source of truth that fans out to
+    // the toast stack today and to future surfaces (a system-tray notifier,
+    // a log inspector page) tomorrow. Using NotificationKind::Generic
+    // because AppModel::errorMessage doesn't carry a kind axis yet — when
+    // the network/SDL layers grow per-source classification we can split.
+    notificationQueue_->error(msg);
 }
 
 void MainWindow::onManageClicked() { stack_->setCurrentWidget(connectionsPage_); }

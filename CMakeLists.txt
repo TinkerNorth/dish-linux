@@ -91,6 +91,9 @@ set(DISH_CORE_SOURCES
     src/Util/ScreenWakeController.cpp
     src/Models/Models.h
     src/Models/Models.cpp
+    src/Models/DishNotification.h
+    src/UI/NotificationQueue.h
+    src/UI/NotificationQueue.cpp
     src/Network/SatelliteClient.h
     src/Network/SatelliteClient.cpp
     src/Network/LANDiscovery.h
@@ -152,6 +155,8 @@ set(DISH_UI_SOURCES
     src/UI/ConnectionsPage.cpp
     src/UI/ErrorBanner.h
     src/UI/ErrorBanner.cpp
+    src/UI/NotificationToastStack.h
+    src/UI/NotificationToastStack.cpp
     src/UI/SettingsView.h
     src/UI/SettingsView.cpp
     src/UI/MainWindow.h

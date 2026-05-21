@@ -33,13 +33,18 @@ set(DISH_TEST_SOURCES
     test_lightbar_routing.cpp
     test_feature_settings.cpp
     test_sdl_motion_convert.cpp
-    test_host_battery.cpp)
+    test_host_battery.cpp
+    test_notification_queue.cpp)
+
+# Qt6::Test gives QSignalSpy + QTest helpers used by test_notification_queue.
+find_package(Qt6 6.2 REQUIRED COMPONENTS Test)
 
 add_executable(DishTests ${DISH_TEST_SOURCES})
 target_link_libraries(DishTests
     PRIVATE
         dish_core
         Catch2::Catch2WithMain
+        Qt6::Test
         dish_warnings)
 
 # Tests don't need -Werror on the third-party header path; keep our own at -Werror.
