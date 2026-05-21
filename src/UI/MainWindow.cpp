@@ -9,7 +9,10 @@
 #include "Network/ConnectionHub.h"
 #include "Network/WifiConnection.h"
 #include "Network/WifiConnectionManager.h"
+#include "NotificationQueue.h"
+#include "NotificationToastStack.h"
 #include "PairingPage.h"
+#include "SettingsView.h"
 #include "SlotCard.h"
 #include "Theme.h"
 
@@ -37,11 +40,18 @@ MainWindow::MainWindow(AppModel* model, QWidget* parent) : QMainWindow(parent), 
     stack_ = new QStackedWidget(central);
     centralLayout->addWidget(stack_, 1);
 
+    // Notification surface: the queue is the bus (`NotificationQueue` —
+    // process-scoped, owns ids and same-key replacement), and the toast
+    // stack is the renderer (`NotificationToastStack` — bottom-center,
+    // up to three visible at a time, fade in/out). AppModel::errorMessage
+    // is now wired into the queue rather than directly into the old single
+    // banner; the ErrorBanner type stays available as an inline strip for
+    // page-local surfaces but is no longer the global error channel.
+    notificationQueue_ = new NotificationQueue(this);
+    toastStack_ = new NotificationToastStack(central);
+    toastStack_->bindTo(notificationQueue_);
     errorBanner_ = new ErrorBanner(central);
-    auto* bannerWrap = new QHBoxLayout;
-    bannerWrap->setContentsMargins(20, 0, 20, 16);
-    bannerWrap->addWidget(errorBanner_);
-    centralLayout->addLayout(bannerWrap);
+    errorBanner_->setVisible(false);
 
     dashboardPage_ = new QWidget(stack_);
     buildDashboardPage();
@@ -53,11 +63,17 @@ MainWindow::MainWindow(AppModel* model, QWidget* parent) : QMainWindow(parent), 
     pairingPage_ = new PairingPage(stack_);
     stack_->addWidget(pairingPage_);
 
+    settingsPage_ = new SettingsView(model_->featureSettings(), stack_);
+    stack_->addWidget(settingsPage_);
+
     QObject::connect(connectionsPage_, &ConnectionsPage::backRequested, this,
                      &MainWindow::showDashboard);
     QObject::connect(pairingPage_, &PairingPage::cancelRequested, this,
                      &MainWindow::returnFromPairing);
     QObject::connect(pairingPage_, &PairingPage::pairRequested, this, &MainWindow::onPairSubmit);
+    // The settings page's Done button returns to the dashboard.
+    QObject::connect(settingsPage_, &SettingsView::closeRequested, this,
+                     &MainWindow::showDashboard);
 
     QObject::connect(model_, &AppModel::stateChanged, this, &MainWindow::onStateChanged);
     QObject::connect(model_, &AppModel::errorMessage, this, &MainWindow::onError);
@@ -77,9 +93,11 @@ void MainWindow::buildDashboardPage() {
     statusDot_->setStyleSheet(dotQss(Theme::muted));
     statusText_ = new QLabel(dashboardPage_);
     statusText_->setStyleSheet(QStringLiteral("font-size: 17px; font-weight: 600;"));
-    manageButton_ = new QPushButton(QStringLiteral("Manage"), dashboardPage_);
+    settingsButton_ = new QPushButton(tr("Settings"), dashboardPage_);
+    manageButton_ = new QPushButton(tr("Manage"), dashboardPage_);
     headerRow->addWidget(statusDot_, 0, Qt::AlignVCenter);
     headerRow->addWidget(statusText_, 1, Qt::AlignVCenter);
+    headerRow->addWidget(settingsButton_, 0, Qt::AlignVCenter);
     headerRow->addWidget(manageButton_, 0, Qt::AlignVCenter);
 
     summaryText_ = new QLabel(dashboardPage_);
@@ -107,7 +125,7 @@ void MainWindow::buildDashboardPage() {
     divider->setStyleSheet(QStringLiteral("color: %1;").arg(hex(Theme::outline)));
     root->addWidget(divider);
 
-    auto* slotsHeader = new QLabel(QStringLiteral("CONTROLLERS"), dashboardPage_);
+    auto* slotsHeader = new QLabel(tr("CONTROLLERS"), dashboardPage_);
     slotsHeader->setStyleSheet(sectionHeaderQss());
     root->addWidget(slotsHeader);
 
@@ -118,7 +136,10 @@ void MainWindow::buildDashboardPage() {
     slotsLayout_ = new QVBoxLayout(slotsContainer);
     slotsLayout_->setContentsMargins(0, 0, 0, 0);
     slotsLayout_->setSpacing(8);
-    slotsEmpty_ = new QLabel(QStringLiteral("No controllers connected"), slotsContainer);
+    // "connected" here refers to physical pads attached to the Linux host
+    // (USB/Bluetooth) — different sense from network link "online". Matches
+    // the dish-windows wording in src/UI/MainWindow.cpp:91.
+    slotsEmpty_ = new QLabel(tr("No controllers connected"), slotsContainer);
     slotsEmpty_->setStyleSheet(
         QStringLiteral("color: %1; font-size: 12px;").arg(hex(Theme::muted)));
     slotsLayout_->addWidget(slotsEmpty_);
@@ -127,6 +148,7 @@ void MainWindow::buildDashboardPage() {
     root->addWidget(scroll, 1);
 
     QObject::connect(manageButton_, &QPushButton::clicked, this, &MainWindow::onManageClicked);
+    QObject::connect(settingsButton_, &QPushButton::clicked, this, &MainWindow::onSettingsClicked);
 }
 
 void MainWindow::onStateChanged() {
@@ -135,7 +157,7 @@ void MainWindow::onStateChanged() {
     dashboardSpinner_->setVisible(model_->state().busy);
     if (awaitingPair_) {
         for (const auto& c : model_->state().connections) {
-            if (c.id == awaitingPairConnectionId_ && c.live == models::ConnectionLive::Connected) {
+            if (c.id == awaitingPairConnectionId_ && c.live == models::LinkState::Connected) {
                 awaitingPair_ = false;
                 awaitingPairConnectionId_.clear();
                 pairingPage_->setPending(false);
@@ -152,7 +174,7 @@ void MainWindow::rebuildHeader() {
     int live = 0;
     QString firstLabel;
     for (const auto& c : conns) {
-        if (c.live == models::ConnectionLive::Connected) {
+        if (c.live == models::LinkState::Connected) {
             ++live;
             if (firstLabel.isEmpty()) { firstLabel = c.label; }
         }
@@ -160,13 +182,13 @@ void MainWindow::rebuildHeader() {
     const int total = static_cast<int>(conns.size());
     QString status;
     if (live == 0 && total == 0) {
-        status = QStringLiteral("No connections yet");
+        status = tr("No connections yet");
     } else if (live == 0) {
-        status = QStringLiteral("%1 remembered").arg(total);
+        status = tr("%1 remembered").arg(total);
     } else if (live == 1) {
         status = firstLabel;
     } else {
-        status = QStringLiteral("%1 active connections").arg(live);
+        status = tr("%1 active connections").arg(live);
     }
     statusText_->setText(status);
     statusDot_->setStyleSheet(dotQss(live > 0 ? Theme::success : Theme::muted));
@@ -175,11 +197,11 @@ void MainWindow::rebuildHeader() {
 
     QString summary;
     if (live == 0 && total == 0) {
-        summary = QStringLiteral("Tap Manage to add one");
+        summary = tr("Tap Manage to add one");
     } else if (live == 0) {
-        summary = QStringLiteral("%1 remembered").arg(total);
+        summary = tr("%1 remembered").arg(total);
     } else {
-        summary = QStringLiteral("%1 of %2 connected").arg(live).arg(total);
+        summary = tr("%1 of %2 online").arg(live).arg(total);
     }
     summaryText_->setText(summary);
 }
@@ -233,10 +255,17 @@ void MainWindow::onError(const QString& msg) {
         awaitingPairConnectionId_.clear();
         pairingPage_->setPending(false);
     }
-    errorBanner_->showError(msg);
+    // Route through the queue: a single source of truth that fans out to
+    // the toast stack today and to future surfaces (a system-tray notifier,
+    // a log inspector page) tomorrow. Using NotificationKind::Generic
+    // because AppModel::errorMessage doesn't carry a kind axis yet — when
+    // the network/SDL layers grow per-source classification we can split.
+    notificationQueue_->error(msg);
 }
 
 void MainWindow::onManageClicked() { stack_->setCurrentWidget(connectionsPage_); }
+
+void MainWindow::onSettingsClicked() { stack_->setCurrentWidget(settingsPage_); }
 
 void MainWindow::onBindRequested(const QString& slotId, const QString& connectionId) {
     model_->hub()->bind(slotId, connectionId);

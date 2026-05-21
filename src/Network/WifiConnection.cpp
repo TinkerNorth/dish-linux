@@ -39,21 +39,22 @@ void WifiConnection::updateServer(const models::DiscoveredServer& s) {
 }
 
 void WifiConnection::markConnecting() {
-    if (state_ == WifiState::Connected) { return; }
-    state_ = WifiState::Connecting;
+    if (state_ == SessionState::Live) { return; }
+    state_ = SessionState::Linking;
     emit changed();
 }
 
 void WifiConnection::markConnected(std::shared_ptr<SatelliteClient> client,
                                    const QString& connectionId, std::function<void()> onDead) {
-    if (state_ != WifiState::Connecting) { return; }
+    if (state_ != SessionState::Linking) { return; }
     clientRef_.set(client);
     connectionId_ = connectionId;
-    state_ = WifiState::Connected;
+    state_ = SessionState::Live;
     onDead_ = std::move(onDead);
 
     client->resetControllerAck();
     if (rumbleHandler_) { client->setRumbleHandler(rumbleHandler_); }
+    if (lightbarHandler_) { client->setLightbarHandler(lightbarHandler_); }
     client->startReceiveLoop();
     client->startHeartbeat();
 
@@ -80,7 +81,13 @@ void WifiConnection::markConnected(std::shared_ptr<SatelliteClient> client,
 
 void WifiConnection::markDisconnected() {
     auto existing = clientRef_.get();
-    if (state_ == WifiState::Idle && !existing) { return; }
+    // TODO(SessionState::Faltering / LinkState::Unstable): when the native
+    // alive-poll exposes the consecutive-missed-heartbeat count, this is the
+    // transition point that should flip Live → Faltering on a non-zero miss
+    // count (and only collapse to Idle when misses hit the death threshold).
+    // Today the alive-poll's onDead_() callback runs disconnect() directly,
+    // so Faltering / Unstable are defined but never entered.
+    if (state_ == SessionState::Idle && !existing) { return; }
     if (aliveTimer_ != nullptr) {
         aliveTimer_->stop();
         aliveTimer_->deleteLater();
@@ -96,14 +103,17 @@ void WifiConnection::markDisconnected() {
     clientRef_.set(nullptr);
     connectionId_.reset();
     controllerAdded_ = false;
-    state_ = WifiState::Idle;
+    state_ = SessionState::Idle;
     emit changed();
 }
 
-void WifiConnection::attachSlot(const QString& slotId, int controllerType) {
+void WifiConnection::attachSlot(const QString& slotId, int controllerType, bool hasLightbar,
+                                bool hasMotion) {
     boundSlotId_ = slotId;
     pendingControllerType_ = controllerType;
-    if (state_ == WifiState::Connected && !controllerAdded_) { registerController(controllerType); }
+    lightbarCapable_ = hasLightbar;
+    motionCapable_ = hasMotion;
+    if (state_ == SessionState::Live && !controllerAdded_) { registerController(controllerType); }
     emit changed();
 }
 
@@ -122,7 +132,13 @@ void WifiConnection::registerController(int type) {
     if (!c) { return; }
     pendingControllerType_ = type;
     c->resetControllerAck();
-    c->controllerAdd(kDefaultCtrlIndex, kDefaultCaps);
+    // Per-controller capability word: the static base (analog triggers,
+    // rumble) plus CAP_MOTION only when the bound pad has a gyro / accel and
+    // CAP_LIGHTBAR only when it has an addressable RGB LED. Mirrors the spec's
+    //   caps = base | (hasMotion ? 0x0004 : 0) | (hasLed ? 0x0008 : 0)
+    const std::uint16_t caps = SatelliteClient::withLightbarCapability(
+        SatelliteClient::withMotionCapability(kDefaultCaps, motionCapable_), lightbarCapable_);
+    c->controllerAdd(kDefaultCtrlIndex, caps);
     ackPollCount_ = 0;
     controllerRegistering_ = true;
     if (ackPollTimer_ == nullptr) {
@@ -181,11 +197,39 @@ void WifiConnection::sendReport(std::uint16_t buttons, std::uint8_t lt, std::uin
     }
 }
 
+void WifiConnection::sendMotion(std::int16_t gyroX, std::int16_t gyroY, std::int16_t gyroZ,
+                                std::int16_t accelX, std::int16_t accelY, std::int16_t accelZ,
+                                std::uint32_t timestampDeltaUs) {
+    if (auto c = clientRef_.get()) {
+        c->sendMotion(kDefaultCtrlIndex, gyroX, gyroY, gyroZ, accelX, accelY, accelZ,
+                      timestampDeltaUs);
+    }
+}
+
+void WifiConnection::sendBattery(std::uint8_t level, std::uint8_t status) {
+    if (auto c = clientRef_.get()) { c->sendBattery(kDefaultCtrlIndex, level, status); }
+}
+
+void WifiConnection::sendTouchpad(bool finger0Active, std::uint8_t finger0Id, std::int16_t finger0X,
+                                  std::int16_t finger0Y, bool finger1Active, std::uint8_t finger1Id,
+                                  std::int16_t finger1X, std::int16_t finger1Y,
+                                  bool buttonPressed) {
+    if (auto c = clientRef_.get()) {
+        c->sendTouchpad(kDefaultCtrlIndex, finger0Active, finger0Id, finger0X, finger0Y,
+                        finger1Active, finger1Id, finger1X, finger1Y, buttonPressed);
+    }
+}
+
 void WifiConnection::setRumbleHandler(RumbleHandler handler) {
     rumbleHandler_ = std::move(handler);
     // Apply immediately if a session is already live; otherwise markConnected
     // will pick up the new handler the next time it runs.
     if (auto c = clientRef_.get()) { c->setRumbleHandler(rumbleHandler_); }
+}
+
+void WifiConnection::setLightbarHandler(LightbarHandler handler) {
+    lightbarHandler_ = std::move(handler);
+    if (auto c = clientRef_.get()) { c->setLightbarHandler(lightbarHandler_); }
 }
 
 } // namespace dish::net

@@ -4,11 +4,14 @@
 #include "WifiConnectionManager.h"
 
 #include "LANDiscovery.h"
+#include "MdnsDiscovery.h"
 #include "PairingClient.h"
 #include "Util/Hex.h"
 
 #include <QHostInfo>
+#include <QSet>
 #include <QtConcurrent/QtConcurrent>
+#include <QtGlobal>
 
 #include <type_traits>
 #include <variant>
@@ -52,7 +55,23 @@ void WifiConnectionManager::startDiscovery() {
         }
         watcher->deleteLater();
     });
-    watcher->setFuture(QtConcurrent::run([] { return LANDiscovery::discover(); }));
+    // Two discovery paths in parallel, merged by ip:udpPort: the legacy UDP
+    // broadcast beacon and mDNS / Bonjour. mDNS reaches subnets that drop
+    // broadcast; the beacon stays as the fallback for pre-responder
+    // satellites. The mDNS scan runs on a second pool thread so the combined
+    // wall time is one timeout, not two.
+    watcher->setFuture(QtConcurrent::run([] {
+        auto mdnsFuture = QtConcurrent::run([] { return MdnsDiscovery::discover(); });
+        const QList<models::DiscoveredServer> beacon = LANDiscovery::discover();
+        const QList<models::DiscoveredServer> mdns = mdnsFuture.result();
+        const QList<models::DiscoveredServer> merged = mergeDiscovered(beacon, mdns);
+        // Per-path discovery logging so the broadcast vs mDNS hit-rate can be
+        // compared in the field (Task 1.6).
+        qInfo("discovery scan: broadcast=%lld mdns=%lld merged=%lld",
+              static_cast<long long>(beacon.size()), static_cast<long long>(mdns.size()),
+              static_cast<long long>(merged.size()));
+        return merged;
+    }));
 }
 
 WifiConnection* WifiConnectionManager::ensureConnection(const models::DiscoveredServer& server) {
@@ -71,7 +90,7 @@ WifiConnection* WifiConnectionManager::ensureConnection(const models::Discovered
 
 void WifiConnectionManager::connectTo(const models::DiscoveredServer& server) {
     auto* conn = ensureConnection(server);
-    if (conn->state() == WifiState::Connected || conn->state() == WifiState::Connecting) {
+    if (conn->state() == SessionState::Live || conn->state() == SessionState::Linking) {
         conn->updateServer(server);
         return;
     }
@@ -213,7 +232,7 @@ void WifiConnectionManager::forget(const QString& id) {
 void WifiConnectionManager::autoReconnectAll() {
     for (const auto& r : store_->remembered()) {
         auto* existing = connections_.value(r.id, nullptr);
-        if (existing == nullptr || existing->state() != WifiState::Connected) {
+        if (existing == nullptr || existing->state() != SessionState::Live) {
             connectTo(r.toDiscovered());
         }
     }

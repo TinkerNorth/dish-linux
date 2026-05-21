@@ -11,13 +11,36 @@
 #include <QJsonObject>
 #include <QString>
 
+#include <cstdint>
 #include <optional>
 
 namespace dish::models {
 
 inline constexpr int kDefaultUdpPort = 9876;
-inline constexpr int kDefaultHttpPort = 9877;
-inline constexpr int kDefaultPairPort = 9878;
+// The satellite's client-facing API moved to HTTPS on a single port (9443).
+// Both the connection API and pairing now ride that one HTTPS server, so the
+// HTTP and pair ports collapse to the same value. Kept as two named constants
+// so existing call sites (httpPort / pairPort) stay readable.
+inline constexpr int kDefaultHttpPort = 9443;
+inline constexpr int kDefaultPairPort = 9443;
+
+// Which discovery path surfaced a satellite. mDNS / Bonjour is the modern
+// path; Broadcast is the legacy UDP beacon; Both means it answered on each.
+// Not a wire field — assigned client-side by the discovery merge.
+enum class DiscoverySource { Broadcast, Mdns, Both };
+
+// Short human label for the connections list.
+inline QString discoverySourceLabel(DiscoverySource source) {
+    switch (source) {
+    case DiscoverySource::Broadcast:
+        return QStringLiteral("UDP broadcast");
+    case DiscoverySource::Mdns:
+        return QStringLiteral("mDNS");
+    case DiscoverySource::Both:
+        return QStringLiteral("mDNS + broadcast");
+    }
+    return {};
+}
 
 struct DiscoveredServer {
     QString name;
@@ -25,6 +48,9 @@ struct DiscoveredServer {
     int udpPort = kDefaultUdpPort;
     int pairPort = kDefaultPairPort;
     int httpPort = kDefaultHttpPort;
+    // Discovery path this server was heard on. Not serialised — `toJson` /
+    // `fromJson` omit it, so a decoded beacon keeps the Broadcast default.
+    DiscoverySource source = DiscoverySource::Broadcast;
 
     QString id() const { return QStringLiteral("wifi:%1:%2").arg(ip).arg(udpPort); }
     bool isValid() const { return !ip.isEmpty(); }
@@ -59,14 +85,66 @@ struct ConnectResponse {
     static ConnectResponse fromJson(const QJsonObject& obj);
 };
 
-enum class ConnectionLive { Idle, Connecting, Connected };
+// UI-facing link state for one connection. This is the chip a row renders;
+// combines the persistent "Pairing" axis (have we paired?) and the live
+// "Presence" axis (do we see it / is the session up?).
+//
+// Internally a Satellite session also has [net::SessionState] (the wire-level
+// presence axis only); [LinkState] is derived from that plus discovery /
+// remembered presence in [ConnectionHub::rebuild].
+//
+// | LinkState  | Pairing axis    | Presence axis    | User-facing chip |
+// |------------|-----------------|------------------|------------------|
+// | Found      | unpaired        | seen             | "Found"          |
+// | Stale      | broken (lost)   | any              | "Needs pairing"  |
+// | Saved      | paired          | absent           | "Offline"        |
+// | Ready      | paired          | seen, no session | "Ready"          |
+// | Connecting | paired          | linking          | "Connecting…"    |
+// | Connected  | paired          | live             | "Online"         |
+// | Unstable   | paired          | faltering        | "Unsteady"       |
+//
+// **Stale** is NOT YET ENTERED: it requires the satellite to return a
+// `PAIRING_UNKNOWN` error so the client can distinguish "peer forgot us"
+// from a generic connect failure. Until that protocol change lands, a
+// server-side forget surfaces as a generic disconnect.
+//
+// **Unstable** is NOT YET ENTERED: it requires the native layer to expose
+// the consecutive-missed-heartbeat count separately from the binary alive
+// poll. Today the connection flips Connected → (Saved | Ready) directly
+// when misses hit the death threshold.
+enum class LinkState { Found, Stale, Saved, Ready, Connecting, Connected, Unstable };
 
 struct ConnectionSummary {
     QString id;
     QString label;
     QString detail;
-    ConnectionLive live = ConnectionLive::Idle;
+    LinkState live = LinkState::Saved;
     std::optional<QString> boundSlotId;
+};
+
+// What a physical controller's hardware exposes, detected once at attach.
+// Mirrors dish-mac's ControllerCapabilities. Distinct from any user setting
+// for whether a feature is forwarded — a chip being present means "this
+// controller has the hardware". dish-linux currently forwards every detected
+// capability unconditionally (no per-feature on/off setting), so `hasMotion`
+// alone is enough for the UI to tell "no gyro" apart from "gyro present".
+struct ControllerCapabilities {
+    bool hasMotion = false;
+
+    // True iff SDL reported an addressable RGB LED for the device
+    // (SDL_GameControllerHasLED) — DualSense / DualShock 4. Drives the slot
+    // card's lightbar chip and the CAP_LIGHTBAR advertisement.
+    bool hasLightbar = false;
+
+    // Most recent battery sample for the pad — the same (level, status) pair
+    // forwarded on MSG_BATTERY. For a wireless pad this is the controller's
+    // own charge; for a wired/unknown pad it is the host machine's battery
+    // (the laptop's percentage, or 100 % / WIRED on a desktop). The slot card
+    // renders it as a battery chip. `batteryLevel` is 0..100 percent or 0xFF
+    // (unknown); `batteryStatus` is a SatelliteClient::kBatteryStatus*
+    // constant. 0xFF / 0 until the first 30 s poll completes.
+    std::uint8_t batteryLevel = 0xFF;
+    std::uint8_t batteryStatus = 0;
 };
 
 struct ControllerSlot {
@@ -75,6 +153,8 @@ struct ControllerSlot {
     QString physicalDeviceId;
     std::optional<QString> boundConnectionId;
     std::optional<ConnectionSummary> boundStatus;
+    // Hardware capabilities detected at attach (see SDLGamepadBridge).
+    ControllerCapabilities capabilities;
 };
 
 struct RememberedWifi {

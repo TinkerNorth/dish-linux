@@ -9,7 +9,7 @@
 #include <QHash>
 #include <QString>
 
-using dish::models::ConnectionLive;
+using dish::models::LinkState;
 using dish::util::DisplaySleepInhibitor;
 using dish::util::ScreenWakeController;
 
@@ -54,35 +54,35 @@ class FakeInhibitor : public DisplaySleepInhibitor {
 
 TEST_CASE("streamingCount: zero when nothing is bound", "[wake]") {
     QHash<QString, QString> bindings;
-    QHash<QString, ConnectionLive> states;
-    states.insert("c1", ConnectionLive::Connected);
+    QHash<QString, LinkState> states;
+    states.insert("c1", LinkState::Connected);
     REQUIRE(ScreenWakeController::streamingCount(bindings, states) == 0);
 }
 
-TEST_CASE("streamingCount: ignores bindings to idle / connecting", "[wake]") {
+TEST_CASE("streamingCount: ignores bindings to non-online states", "[wake]") {
     QHash<QString, QString> bindings{
         {"slot-a", "conn-1"}, {"slot-b", "conn-2"}, {"slot-c", "conn-3"}};
-    QHash<QString, ConnectionLive> states{
-        {"conn-1", ConnectionLive::Idle},
-        {"conn-2", ConnectionLive::Connecting},
-        {"conn-3", ConnectionLive::Connected},
+    QHash<QString, LinkState> states{
+        {"conn-1", LinkState::Saved},
+        {"conn-2", LinkState::Connecting},
+        {"conn-3", LinkState::Connected},
     };
     REQUIRE(ScreenWakeController::streamingCount(bindings, states) == 1);
 }
 
-TEST_CASE("streamingCount: counts multiple connected slots", "[wake]") {
+TEST_CASE("streamingCount: counts multiple online slots", "[wake]") {
     QHash<QString, QString> bindings{{"a", "c1"}, {"b", "c2"}, {"c", "c3"}};
-    QHash<QString, ConnectionLive> states{
-        {"c1", ConnectionLive::Connected},
-        {"c2", ConnectionLive::Connected},
-        {"c3", ConnectionLive::Idle},
+    QHash<QString, LinkState> states{
+        {"c1", LinkState::Connected},
+        {"c2", LinkState::Connected},
+        {"c3", LinkState::Saved},
     };
     REQUIRE(ScreenWakeController::streamingCount(bindings, states) == 2);
 }
 
-TEST_CASE("streamingCount: unknown connection counts as idle", "[wake]") {
+TEST_CASE("streamingCount: unknown connection counts as offline", "[wake]") {
     QHash<QString, QString> bindings{{"a", "missing"}};
-    QHash<QString, ConnectionLive> states;
+    QHash<QString, LinkState> states;
     REQUIRE(ScreenWakeController::streamingCount(bindings, states) == 0);
 }
 

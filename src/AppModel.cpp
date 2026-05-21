@@ -3,6 +3,8 @@
 
 #include "AppModel.h"
 
+#include "LightbarRouting.h"
+
 namespace dish {
 
 AppModel::AppModel(QObject* parent)
@@ -13,8 +15,8 @@ AppModel::AppModel(std::unique_ptr<util::DisplaySleepInhibitor> inhibitor, QObje
       wifi_(new net::WifiConnectionManager(store_.get(), this)),
       hub_(new net::ConnectionHub(wifi_, store_.get(), this)),
       bridge_(new input::SDLGamepadBridge(&processor_, this)),
-      autoReconnectTimer_(new QTimer(this)), inhibitor_(std::move(inhibitor)),
-      wake_(inhibitor_.get()) {
+      featureSettings_(new FeatureSettings(this)), autoReconnectTimer_(new QTimer(this)),
+      inhibitor_(std::move(inhibitor)), wake_(inhibitor_.get()) {
     QObject::connect(hub_, &net::ConnectionHub::changed, this, &AppModel::onHubChanged);
     QObject::connect(bridge_, &input::SDLGamepadBridge::devicesChanged, this,
                      &AppModel::onBridgeDevicesChanged);
@@ -43,6 +45,71 @@ AppModel::AppModel(std::unique_ptr<util::DisplaySleepInhibitor> inhibitor, QObje
         if (sender) { sender(buttons, lt, rt, lx, ly, rx, ry); }
     });
 
+    processor_.setMotionSender([this](const std::string& did, std::int16_t gx, std::int16_t gy,
+                                      std::int16_t gz, std::int16_t ax, std::int16_t ay,
+                                      std::int16_t az, std::uint32_t dtUs) {
+        net::ConnectionHub::MotionSender sender;
+        {
+            std::lock_guard<std::mutex> lock(routingMtx_);
+            sender = motionRouting_.value(QString::fromStdString(did));
+        }
+        if (sender) { sender(gx, gy, gz, ax, ay, az, dtUs); }
+    });
+
+    processor_.setBatterySender(
+        [this](const std::string& did, std::uint8_t level, std::uint8_t status) {
+            net::ConnectionHub::BatterySender sender;
+            {
+                std::lock_guard<std::mutex> lock(routingMtx_);
+                sender = batteryRouting_.value(QString::fromStdString(did));
+            }
+            if (sender) { sender(level, status); }
+        });
+
+    processor_.setTouchpadSender(
+        [this](const std::string& did, const input::GamepadInputProcessor::TouchpadSample& s) {
+            net::ConnectionHub::TouchpadSender sender;
+            {
+                std::lock_guard<std::mutex> lock(routingMtx_);
+                sender = touchpadRouting_.value(QString::fromStdString(did));
+            }
+            if (sender) {
+                sender(s.finger0Active, s.finger0Id, s.finger0X, s.finger0Y, s.finger1Active,
+                       s.finger1Id, s.finger1X, s.finger1Y, s.buttonPressed);
+            }
+        });
+
+    // Teach the hub how to look up a slot's lightbar capability so a bind()
+    // can advertise CAP_LIGHTBAR. The slot id is the SDL bridge device id, so
+    // the lookup is a scan of bridge devices for the matching LED flag.
+    hub_->setLightbarCapabilityFn([this](const QString& slotId) {
+        for (const auto& d : bridge_->devices()) {
+            if (d.id == slotId) { return d.hasLightbar; }
+        }
+        return false;
+    });
+
+    // Likewise for motion: bind() advertises CAP_MOTION only when the bound
+    // pad has a gyro / accelerometer. Same device-id scan as the lightbar
+    // resolver, reading the bridge's per-device IMU probe.
+    hub_->setMotionCapabilityFn([this](const QString& slotId) {
+        for (const auto& d : bridge_->devices()) {
+            if (d.id == slotId) { return d.motionCapable; }
+        }
+        return false;
+    });
+
+    // And the cosmetic controller type: bind() declares the real Xbox-vs-
+    // PlayStation kind in MSG_CONTROLLER_TYPE. Same device-id scan, reading
+    // the type SDL negotiated for the pad. Defaults to Xbox (0) for a slot
+    // with no matching bridge device.
+    hub_->setControllerTypeFn([this](const QString& slotId) {
+        for (const auto& d : bridge_->devices()) {
+            if (d.id == slotId) { return static_cast<int>(d.controllerType); }
+        }
+        return 0;
+    });
+
     rebuild();
 }
 
@@ -69,9 +136,28 @@ void AppModel::installRumbleHandlers() {
             if (deviceId.isEmpty()) { return; }
             // For dish-linux, slot.id == physical device.id (set in rebuild()),
             // so the slot id IS the bridge's device id. Hand it straight to
-            // the SDL bridge.
-            bridge_->applyRumble(deviceId, rm.strongMagnitude, rm.weakMagnitude, rm.durationMs,
-                                 rm.hasLightbar, rm.lightbarR, rm.lightbarG, rm.lightbarB);
+            // the SDL bridge. Rumble = vibration only; the light bar has its
+            // own return path via MSG_LIGHTBAR.
+            bridge_->applyRumble(deviceId, rm.strongMagnitude, rm.weakMagnitude, rm.durationMs);
+        });
+        // Parallel handler for the dedicated MSG_LIGHTBAR stream (Task 1.4).
+        // Resolves the same slot/connection mapping and forwards to the
+        // bridge's standalone applyLightbar — independent of rumble. Gated by
+        // the light-bar setting: "Off" suppresses the colour entirely.
+        conn->setLightbarHandler([this, id](const net::SatelliteClient::LightbarMessage& lm) {
+            const auto color =
+                lightbarColorFromLightbarMessage(lm, featureSettings_->lightbarFollowGame());
+            if (!color) { return; }
+            QString deviceId;
+            const auto bindings = hub_->bindings();
+            for (auto it = bindings.cbegin(); it != bindings.cend(); ++it) {
+                if (it.value() == id) {
+                    deviceId = it.key();
+                    break;
+                }
+            }
+            if (deviceId.isEmpty()) { return; }
+            bridge_->applyLightbar(deviceId, color->r, color->g, color->b);
         });
     }
 }
@@ -118,6 +204,15 @@ void AppModel::rebuild() {
         s.id = d.id;
         s.name = d.name;
         s.physicalDeviceId = d.id;
+        s.capabilities.hasMotion = d.motionCapable;
+        // Likewise the addressable-LED capability — drives the lightbar chip
+        // and tells the hub when to advertise CAP_LIGHTBAR on bind.
+        s.capabilities.hasLightbar = d.hasLightbar;
+        // Carry the latest battery sample through so the slot card's battery
+        // chip can show charge — controller's own for a wireless pad, the
+        // host machine's for a wired/unknown one.
+        s.capabilities.batteryLevel = d.batteryLevel;
+        s.capabilities.batteryStatus = d.batteryStatus;
         next.append(s);
     }
 
@@ -141,22 +236,38 @@ void AppModel::rebuild() {
     }
     state_.busy = busy;
 
-    // Update the routing table to mirror the new slot/binding shape.
+    // Update the routing tables to mirror the new slot/binding shape.
     QHash<QString, net::ConnectionHub::ReportSender> nextRouting;
+    QHash<QString, net::ConnectionHub::MotionSender> nextMotion;
+    QHash<QString, net::ConnectionHub::BatterySender> nextBattery;
+    QHash<QString, net::ConnectionHub::TouchpadSender> nextTouchpad;
     for (const auto& slot : state_.slotList) {
-        auto sender = hub_->reportSenderForSlot(slot.id);
-        if (sender) { nextRouting.insert(slot.id, std::move(sender)); }
+        if (auto sender = hub_->reportSenderForSlot(slot.id)) {
+            nextRouting.insert(slot.id, std::move(sender));
+        }
+        if (auto sender = hub_->motionSenderForSlot(slot.id)) {
+            nextMotion.insert(slot.id, std::move(sender));
+        }
+        if (auto sender = hub_->batterySenderForSlot(slot.id)) {
+            nextBattery.insert(slot.id, std::move(sender));
+        }
+        if (auto sender = hub_->touchpadSenderForSlot(slot.id)) {
+            nextTouchpad.insert(slot.id, std::move(sender));
+        }
     }
     {
         std::lock_guard<std::mutex> lock(routingMtx_);
         routing_ = std::move(nextRouting);
+        motionRouting_ = std::move(nextMotion);
+        batteryRouting_ = std::move(nextBattery);
+        touchpadRouting_ = std::move(nextTouchpad);
     }
 
     // Drive the display-sleep inhibitor off bindings × hub.connections. The
     // 0↔positive transitions inside ScreenWakeController acquire / release
     // the D-Bus cookie; intermediate same-count emissions are no-ops so a
     // noisy hub feed doesn't thrash the session bus.
-    QHash<QString, models::ConnectionLive> connectionStates;
+    QHash<QString, models::LinkState> connectionStates;
     for (const auto& summary : state_.connections) {
         connectionStates.insert(summary.id, summary.live);
     }
