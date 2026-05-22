@@ -43,6 +43,7 @@ class MainWindow : public QMainWindow {
     void rebuildSlotList();
     void maybeShowPairingPage();
     void onError(const QString& msg);
+    void onNotice(const QString& msg);
     void onManageClicked();
     void onSettingsClicked();
     void onBindRequested(const QString& slotId, const QString& connectionId);

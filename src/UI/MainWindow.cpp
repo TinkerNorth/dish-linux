@@ -77,6 +77,7 @@ MainWindow::MainWindow(AppModel* model, QWidget* parent) : QMainWindow(parent), 
 
     QObject::connect(model_, &AppModel::stateChanged, this, &MainWindow::onStateChanged);
     QObject::connect(model_, &AppModel::errorMessage, this, &MainWindow::onError);
+    QObject::connect(model_, &AppModel::noticeMessage, this, &MainWindow::onNotice);
 
     onStateChanged();
 }
@@ -261,6 +262,14 @@ void MainWindow::onError(const QString& msg) {
     // because AppModel::errorMessage doesn't carry a kind axis yet — when
     // the network/SDL layers grow per-source classification we can split.
     notificationQueue_->error(msg);
+}
+
+void MainWindow::onNotice(const QString& msg) {
+    // Non-error advisories (e.g. "Server can't deliver motion") land on the
+    // WARN rail with NotificationKind::Connection so the icon + a11y label
+    // can render distinctly from a Generic error. Same queue, different
+    // severity — replaces the dropped per-banner emitters.
+    notificationQueue_->warn(msg, models::NotificationKind::Connection);
 }
 
 void MainWindow::onManageClicked() { stack_->setCurrentWidget(connectionsPage_); }

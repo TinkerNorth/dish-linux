@@ -73,6 +73,10 @@ void SatelliteClient::setConnectionParams(const std::array<std::uint8_t, 4>& tok
     missedAcks_.store(0, std::memory_order_relaxed);
     connectionAlive_.store(true, std::memory_order_relaxed);
     lastControllerAck_.store(-1, std::memory_order_relaxed);
+    // Pair the motion-flags sentinel reset with the ACK sentinel reset so a
+    // fresh session starts from "unknown" instead of carrying the previous
+    // session's flags forward.
+    lastControllerAckMotionFlags_.store(-1, std::memory_order_relaxed);
 }
 
 void SatelliteClient::sendReport(int controllerIndex, std::uint16_t buttons, std::uint8_t lt,
@@ -113,6 +117,25 @@ void SatelliteClient::sendControllerType(int index, int type) {
     const std::uint8_t payload[2] = {static_cast<std::uint8_t>(index),
                                      static_cast<std::uint8_t>(type)};
     sendEncrypted(kMsgControllerType, payload, sizeof(payload));
+}
+
+std::array<std::uint8_t, 3> SatelliteClient::encodeCapsUpdatePayload(std::uint8_t controllerIndex,
+                                                                     std::uint16_t capabilities) {
+    // ctrlIdx(1) + caps(2 BE) = 3 bytes. Identical wire shape to the caps
+    // field inside MSG_CONTROLLER_ADD — same producer + same byte order, just
+    // a different msgType so the receiver can route an in-place caps
+    // overwrite (no replug). Matches satellite/src/net/inner_dispatch.cpp's
+    // MSG_CONTROLLER_CAPS_UPDATE decode and dish-android satellite_jni.cpp's
+    // sendControllerCapsUpdate verbatim.
+    std::array<std::uint8_t, 3> out{};
+    out[0] = controllerIndex;
+    putU16Be(out.data() + 1, capabilities);
+    return out;
+}
+
+void SatelliteClient::sendCapsUpdate(int index, std::uint16_t capabilities) {
+    const auto payload = encodeCapsUpdatePayload(static_cast<std::uint8_t>(index), capabilities);
+    sendEncrypted(kMsgControllerCapsUpdate, payload.data(), payload.size());
 }
 
 std::array<std::uint8_t, 17> SatelliteClient::encodeMotionPayload(
@@ -314,13 +337,25 @@ void SatelliteClient::processIncoming(const std::uint8_t* buf, std::size_t n) {
         missedAcks_.store(0, std::memory_order_relaxed);
         connectionAlive_.store(true, std::memory_order_relaxed);
     } else if (msgType == kMsgControllerAck && msgLen >= 4 && plainLen >= 8) {
-        const std::uint16_t reqType = util::readU16Be(plain.data() + 4);
-        const std::uint8_t idx = plain[6];
-        const std::uint8_t result = plain[7];
-        const std::int32_t packed = (static_cast<std::int32_t>(reqType) << 16) |
-                                    (static_cast<std::int32_t>(idx) << 8) |
-                                    static_cast<std::int32_t>(result);
+        // The payload region (after the 4-byte inner header) carries the ACK
+        // fields. A post-extension satellite appends one motion-flags byte;
+        // a pre-extension satellite ships only four bytes and the optional
+        // member stays std::nullopt — i.e. "unknown", not "backend broken".
+        const auto ack =
+            parseControllerAckPayload(plain.data() + 4, static_cast<std::size_t>(plainLen) - 4);
+        if (!ack) { return; }
+        const std::int32_t packed = (static_cast<std::int32_t>(ack->requestType) << 16) |
+                                    (static_cast<std::int32_t>(ack->controllerIndex) << 8) |
+                                    static_cast<std::int32_t>(ack->result);
         lastControllerAck_.store(packed, std::memory_order_relaxed);
+        // Store the motion-flags byte only when the satellite actually sent
+        // it — a pre-extension satellite leaves us at the -1 sentinel we set
+        // in setConnectionParams / resetControllerAck. Matches dish-android's
+        // satellite_jni.cpp ACK handler.
+        if (ack->motionFlags) {
+            lastControllerAckMotionFlags_.store(static_cast<std::int32_t>(*ack->motionFlags),
+                                                std::memory_order_relaxed);
+        }
     } else if (msgType == kMsgServerStatus && msgLen >= 2 && plainLen >= 6) {
         vigemAvailable_.store(plain[4] == 0 ? 0 : 1, std::memory_order_relaxed);
         activeControllerCount_.store(static_cast<std::int8_t>(plain[5]), std::memory_order_relaxed);
@@ -372,6 +407,28 @@ SatelliteClient::parseLightbarMessage(const std::uint8_t* payload, std::size_t l
     lm.g = payload[2];
     lm.b = payload[3];
     return lm;
+}
+
+std::optional<SatelliteClient::ControllerAckMessage>
+SatelliteClient::parseControllerAckPayload(const std::uint8_t* payload, std::size_t len) {
+    // Legacy minimum: reqType(2 BE) + ctrlIdx(1) + result(1) = 4 bytes. A
+    // post-extension satellite (PR satellite#34) tacks one more byte on:
+    // motion flags. We accept any length >= 4 to stay forward-compatible
+    // with any further extension bytes we don't recognise yet — the same
+    // forward-compat discipline the dish-android JNI handler uses.
+    if (payload == nullptr || len < 4) { return std::nullopt; }
+    ControllerAckMessage ack;
+    ack.requestType = util::readU16Be(payload);
+    ack.controllerIndex = payload[2];
+    ack.result = payload[3];
+    if (len >= 5) {
+        // Extended payload: capture the motion-flags byte verbatim. A
+        // pre-extension satellite ships only four bytes and we leave the
+        // optional empty so the caller can keep its "unknown" sentinel
+        // instead of misreading false bits as a failure.
+        ack.motionFlags = payload[4];
+    }
+    return ack;
 }
 
 std::optional<SatelliteClient::RumbleMessage>

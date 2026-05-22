@@ -194,6 +194,12 @@ void AppModel::onWifiEvent(const net::ConnectionEvent& evt) {
     case net::ConnectionEventKind::Error:
         emit errorMessage(evt.message);
         break;
+    case net::ConnectionEventKind::Notice:
+        // Non-error advisory (e.g. "Server can't deliver motion"). Routed
+        // through a separate signal so MainWindow can render it on the WARN
+        // toast rail instead of the ERROR rail.
+        emit noticeMessage(evt.message);
+        break;
     }
 }
 

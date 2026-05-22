@@ -85,6 +85,12 @@ class AppModel : public QObject {
     // as toasts/dialogs by MainWindow.
     void errorMessage(const QString& msg);
 
+    // Transient one-shot non-error advisory — e.g. the satellite ACKed our
+    // CAP_MOTION advertisement but reported it can't deliver motion. Rendered
+    // as a WARN-severity toast (NotificationSeverity::Warn) so it stays
+    // distinct from real failures on the ERROR rail.
+    void noticeMessage(const QString& msg);
+
   private:
     void rebuild();
     void onHubChanged();

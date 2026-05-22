@@ -3,9 +3,13 @@
 
 #include "WifiConnection.h"
 
+#include <QLoggingCategory>
+
 namespace dish::net {
 
 namespace {
+
+Q_LOGGING_CATEGORY(lcDishConn, "dish.connection")
 
 QString controllerAckErrorMessage(std::uint8_t result) {
     // Matches the satellite/src/core/types.h codes verbatim.
@@ -174,6 +178,44 @@ void WifiConnection::pollControllerAck() {
     if (result == 0x00 /* ACK_OK */) {
         c->sendControllerType(kDefaultCtrlIndex, pendingControllerType_);
         controllerAdded_ = true;
+        // Inspect the optional motion-flags byte the satellite appended to
+        // the MSG_CONTROLLER_ACK (PR satellite#34). A pre-extension satellite
+        // leaves the sentinel at -1 and we stay quiet; a post-extension
+        // satellite always writes the byte. We only nudge the user when we
+        // advertised CAP_MOTION (motionCapable_ is the dish-side honesty bit)
+        // AND the satellite says it can't deliver motion end-to-end. Either
+        // bit being false counts: bit 0 == 0 means the backend has no IMU
+        // surface for this controller type (e.g. a macOS satellite), bit 1
+        // == 0 means the per-serial sink couldn't be created (kernel rejected
+        // the motion node).
+        const auto flags = c->lastControllerAckMotionFlags();
+        if (flags >= 0) {
+            // Even when we didn't advertise CAP_MOTION (motionCapable_ false)
+            // the satellite's flags are useful diagnostic context — log them
+            // unconditionally and only nudge the user when we DID advertise
+            // motion. Mirrors the dish-android JNI log line.
+            qCInfo(lcDishConn) << "Controller ACK motion flags=" << QString::number(flags, 16)
+                               << "advertisedCapMotion=" << motionCapable_;
+        }
+        if (motionCapable_ && flags >= 0) {
+            const auto byte = static_cast<std::uint8_t>(flags);
+            const bool sinkSupported =
+                (byte & SatelliteClient::kAckMotionFlagSinkSupportedForType) != 0;
+            const bool backendOk = (byte & SatelliteClient::kAckMotionFlagBackendOk) != 0;
+            // Two independent failure modes — surface whichever one the
+            // satellite flagged. sinkSupported==false means the backend has
+            // no IMU adapter for the chosen controller type (e.g. a macOS
+            // satellite); backendOk==false means the adapter exists but the
+            // per-serial sink couldn't be created (kernel rejected the node).
+            if (!sinkSupported) {
+                emit motionBackendStatus(
+                    QStringLiteral("Server can't deliver motion (no IMU backend for this "
+                                   "controller type)"));
+            } else if (!backendOk) {
+                emit motionBackendStatus(
+                    QStringLiteral("Server can't deliver motion (backend rejected the IMU sink)"));
+            }
+        }
         finishRegistration();
     } else {
         const auto slotId = boundSlotId_.value_or(QString());
@@ -218,6 +260,15 @@ void WifiConnection::sendTouchpad(bool finger0Active, std::uint8_t finger0Id, st
         c->sendTouchpad(kDefaultCtrlIndex, finger0Active, finger0Id, finger0X, finger0Y,
                         finger1Active, finger1Id, finger1X, finger1Y, buttonPressed);
     }
+}
+
+void WifiConnection::sendCapsUpdate(std::uint16_t capabilities) {
+    // Skip when there's no client at all (Idle / pre-Live) or the controller
+    // hasn't been ACKed yet: an in-flight CAPS_UPDATE for an unregistered
+    // slot would be dropped by the receiver anyway, and re-sending after
+    // registration is the explicit catch-up path on the dish-android side.
+    if (!controllerAdded_) { return; }
+    if (auto c = clientRef_.get()) { c->sendCapsUpdate(kDefaultCtrlIndex, capabilities); }
 }
 
 void WifiConnection::setRumbleHandler(RumbleHandler handler) {

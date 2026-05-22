@@ -29,6 +29,7 @@ set(DISH_TEST_SOURCES
     test_satellite_client_motion.cpp
     test_satellite_client_touchpad.cpp
     test_satellite_client_lightbar.cpp
+    test_satellite_client_caps_and_ack.cpp
     test_output_command_queue.cpp
     test_lightbar_routing.cpp
     test_feature_settings.cpp

@@ -14,12 +14,16 @@
 
 namespace dish::net {
 
-enum class ConnectionEventKind { PairingRequired, Error };
+// Notice is a non-error advisory — e.g. the satellite ACKed a CAP_MOTION add
+// but reported it can't deliver motion end-to-end (PR satellite#34). The UI
+// surfaces these as a WARN-severity toast, distinct from the ERROR rail
+// reserved for connect/pair failures.
+enum class ConnectionEventKind { PairingRequired, Error, Notice };
 
 struct ConnectionEvent {
     ConnectionEventKind kind;
     models::DiscoveredServer server; // only meaningful for PairingRequired
-    QString message;                 // only meaningful for Error
+    QString message;                 // meaningful for Error and Notice
 };
 
 // Owns the pool of live + remembered WiFi sessions. Each session runs its own

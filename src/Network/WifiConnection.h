@@ -90,6 +90,20 @@ class WifiConnection : public QObject {
 
     bool isRegisteringController() const { return controllerRegistering_; }
 
+    // Push a fresh CAP_MOTION / CAP_LIGHTBAR / base capability word for the
+    // already-registered controller without an unplug. Wired but currently
+    // unused at runtime: dish-linux has no per-slot motion toggle UI, so the
+    // capability word is fixed at registerController() time. The helper exists
+    // so a future per-controller `motionEnabled` toggle (CLI flag, settings
+    // file, or tray menu) can land without re-touching the wire layer — the
+    // dish-android pattern. No-op when there is no live client or the
+    // controller is not yet registered.
+    //
+    // TODO(motion-toggle-ui): when dish-linux grows a runtime motion-enabled
+    // toggle, recompute the caps word here (mirroring registerController) and
+    // call this on every transition. A future PR.
+    void sendCapsUpdate(std::uint16_t capabilities);
+
     // Hot path: called directly from the SDL gamepad thread.
     void sendReport(std::uint16_t buttons, std::uint8_t lt, std::uint8_t rt, std::int16_t lx,
                     std::int16_t ly, std::int16_t rx, std::int16_t ry);
@@ -127,6 +141,14 @@ class WifiConnection : public QObject {
     // rejected or timed out. Listened to by ConnectionHub to roll back the
     // local binding so the UI reflects reality.
     void registrationFailed(const QString& slotId);
+    // Emitted once per successful registration when the satellite ACKed our
+    // CAP_MOTION advertisement with a backend status that disagrees. Carries a
+    // short, user-facing reason for the toast / log surface; severity is
+    // informational rather than an error (motion still won't work, but
+    // gameplay does). A pre-extension satellite never triggers this — the
+    // motion-flags optional is std::nullopt in that case and we stay quiet.
+    // Mirrors dish-android's SatelliteMotionBackendStatusStore handling.
+    void motionBackendStatus(const QString& message);
 
   private:
     static constexpr int kDefaultCtrlIndex = 0;

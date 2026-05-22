@@ -22,6 +22,8 @@ namespace {
 
 ConnectionEvent makeError(const QString& msg) { return {ConnectionEventKind::Error, {}, msg}; }
 
+ConnectionEvent makeNotice(const QString& msg) { return {ConnectionEventKind::Notice, {}, msg}; }
+
 ConnectionEvent pairingRequired(const models::DiscoveredServer& s) {
     return {ConnectionEventKind::PairingRequired, s, {}};
 }
@@ -82,6 +84,8 @@ WifiConnection* WifiConnectionManager::ensureConnection(const models::Discovered
     QObject::connect(conn, &WifiConnection::changed, this, &WifiConnectionManager::poolChanged);
     QObject::connect(conn, &WifiConnection::errorOccurred, this,
                      [this](const QString& msg) { emit connectionEvent(makeError(msg)); });
+    QObject::connect(conn, &WifiConnection::motionBackendStatus, this,
+                     [this](const QString& msg) { emit connectionEvent(makeNotice(msg)); });
     QObject::connect(conn, &WifiConnection::registrationFailed, this,
                      &WifiConnectionManager::slotRegistrationFailed);
     emit poolChanged();
