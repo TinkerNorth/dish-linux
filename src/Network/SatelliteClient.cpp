@@ -149,12 +149,15 @@ std::array<std::uint8_t, 17> SatelliteClient::encodeMotionPayload(
     // explicitly here; see satellite/docs/protocol.md §0x000A.
     std::array<std::uint8_t, 17> out{};
     out[0] = controllerIndex;
-    auto storeLe16 = [&out](int off, std::int16_t v) {
+    // Offsets typed as size_t so indexing into std::array doesn't trip
+    // -Wsign-conversion on Apple clang (Ubuntu GCC's default warnings
+    // accepted the int form; the macOS toolchain does not).
+    auto storeLe16 = [&out](std::size_t off, std::int16_t v) {
         const auto u = static_cast<std::uint16_t>(v);
         out[off] = static_cast<std::uint8_t>(u & 0xFFU);
         out[off + 1] = static_cast<std::uint8_t>((u >> 8) & 0xFFU);
     };
-    auto storeLe32 = [&out](int off, std::uint32_t v) {
+    auto storeLe32 = [&out](std::size_t off, std::uint32_t v) {
         out[off] = static_cast<std::uint8_t>(v & 0xFFU);
         out[off + 1] = static_cast<std::uint8_t>((v >> 8) & 0xFFU);
         out[off + 2] = static_cast<std::uint8_t>((v >> 16) & 0xFFU);
@@ -203,7 +206,8 @@ std::array<std::uint8_t, 12> SatelliteClient::encodeTouchpadPayload(
     if (finger1Active) { flags |= 0x02U; }
     if (buttonPressed) { flags |= 0x04U; }
     out[1] = flags;
-    auto storeLe16 = [&out](int off, std::int16_t v) {
+    // size_t for the same reason as the motion-payload lambdas above.
+    auto storeLe16 = [&out](std::size_t off, std::int16_t v) {
         const auto u = static_cast<std::uint16_t>(v);
         out[off] = static_cast<std::uint8_t>(u & 0xFFU);
         out[off + 1] = static_cast<std::uint8_t>((u >> 8) & 0xFFU);
