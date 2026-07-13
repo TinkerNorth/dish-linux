@@ -16,8 +16,8 @@ Qt6 Widgets (MainWindow, ConnectionsDialog, PairingDialog, SlotCard)
         │           └── SatelliteClient  ── encrypted UDP + heartbeat + ACK loop
         ├── MdnsDiscovery      ── mDNS / Bonjour responder on :5353 (Task 1.6)
         ├── LANDiscovery       ── legacy UDP broadcast listener on :9879
-        ├── PairingClient      ── TCP pair handshake on :9878
-        ├── HTTPClient         ── POST/DELETE /api/connections on :9877
+        ├── PairingClient      ── HTTPS pair handshake on :9443 (TOFU-pinned)
+        ├── HTTPClient         ── protocol-1 session REST on :9443
         └── SDLGamepadBridge   ── SDL_GameController event pump (own thread)
               └── GamepadInputProcessor → SatelliteClient
                     • sendReport()   gamepad XUSB report
@@ -336,8 +336,8 @@ identical to it:
 | Field            | Value            |
 | ---------------- | ---------------- |
 | Discovery port   | UDP 9879 (listen)|
-| Pairing port     | TCP 9878         |
-| HTTP API port    | TCP 9877         |
+| Pairing port     | TCP 9443 (HTTPS) |
+| HTTP API port    | TCP 9443 (HTTPS) |
 | Streaming port   | UDP 9876         |
 | AEAD             | ChaCha20-Poly1305 IETF |
 | Nonce            | counter, BE, left-padded to 12 bytes |
