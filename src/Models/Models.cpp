@@ -18,12 +18,24 @@ int intOr(const QJsonObject& obj, const char* key, int fallback) {
     return fallback;
 }
 
+bool boolOr(const QJsonObject& obj, const char* key, bool fallback) {
+    const auto v = obj.value(QLatin1String(key));
+    if (v.isBool()) { return v.toBool(fallback); }
+    return fallback;
+}
+
+// Set the optional only when the key is a non-empty string.
+void setIfNonEmpty(std::optional<QString>& slot, const QJsonObject& obj, const char* key) {
+    if (auto v = optString(obj, key); !v.isEmpty()) { slot = v; }
+}
+
 } // namespace
 
 QJsonObject DiscoveredServer::toJson() const {
     return QJsonObject{
-        {"name", name},         {"ip", ip}, {"udpPort", udpPort}, {"pairPort", pairPort},
-        {"httpPort", httpPort},
+        {"name", name},         {"ip", ip},
+        {"udpPort", udpPort},   {"pairPort", pairPort},
+        {"httpPort", httpPort}, {"machineId", machineId},
     };
 }
 
@@ -34,14 +46,21 @@ DiscoveredServer DiscoveredServer::fromJson(const QJsonObject& obj) {
     s.udpPort = intOr(obj, "udpPort", kDefaultUdpPort);
     s.pairPort = intOr(obj, "pairPort", kDefaultPairPort);
     s.httpPort = intOr(obj, "httpPort", kDefaultHttpPort);
+    // The beacon advertises the stable id as "machineId" (see satellite
+    // net/discovery_beacon.h); mDNS TXT uses "mid". Accept either so both
+    // discovery transports populate the keying identity.
+    s.machineId = optString(obj, "machineId");
+    if (s.machineId.isEmpty()) { s.machineId = optString(obj, "mid"); }
     return s;
 }
 
 PairResponse PairResponse::fromJson(const QJsonObject& obj) {
     PairResponse r;
-    r.ok = obj.value("ok").toBool(false);
-    if (auto e = optString(obj, "error"); !e.isEmpty()) { r.error = e; }
-    if (auto k = optString(obj, "sharedKey"); !k.isEmpty()) { r.sharedKey = k; }
+    r.ok = boolOr(obj, "ok", false);
+    r.pending = boolOr(obj, "pending", false);
+    setIfNonEmpty(r.error, obj, "error");
+    setIfNonEmpty(r.sharedKey, obj, "sharedKey");
+    r.protocolVersion = intOr(obj, "protocolVersion", proto::kProtocolVersion);
     // We got far enough to parse a JSON body, so the server is reachable —
     // even if ok=false. PairingClient sets reachable=false explicitly on
     // every network-level error path.
@@ -49,12 +68,100 @@ PairResponse PairResponse::fromJson(const QJsonObject& obj) {
     return r;
 }
 
-ConnectResponse ConnectResponse::fromJson(const QJsonObject& obj) {
-    ConnectResponse r;
-    if (auto v = optString(obj, "connectionId"); !v.isEmpty()) { r.connectionId = v; }
-    if (auto v = optString(obj, "token"); !v.isEmpty()) { r.token = v; }
-    if (auto v = optString(obj, "error"); !v.isEmpty()) { r.error = v; }
+ControllerApplyDto ControllerApplyDto::fromJson(const QJsonObject& obj) {
+    ControllerApplyDto d;
+    d.ctrlIdx = intOr(obj, "ctrlIdx", 0);
+    d.result = optString(obj, "result");
+    d.resultCode = proto::applyResultFromName(d.result.toStdString());
+    d.appliedType = intOr(obj, "appliedType", proto::kControllerTypeXbox);
+    const auto motion = obj.value(QLatin1String("motion")).toObject();
+    d.motionSinkSupportedForType = boolOr(motion, "sinkSupportedForType", false);
+    d.motionBackendOk = boolOr(motion, "backendOk", false);
+    return d;
+}
+
+HostFeatureGrant HostFeatureGrant::fromJson(const QJsonObject& obj) {
+    HostFeatureGrant g;
+    g.granted = boolOr(obj, "granted", false);
+    if (auto reason = optString(obj, "reason"); !reason.isEmpty()) { g.reason = reason; }
+    return g;
+}
+
+SessionResponse SessionResponse::fromJson(const QJsonObject& obj) {
+    SessionResponse r;
+    setIfNonEmpty(r.connectionId, obj, "connectionId");
+    setIfNonEmpty(r.token, obj, "token");
+    setIfNonEmpty(r.sessionSalt, obj, "sessionSalt");
+    r.epoch = intOr(obj, "epoch", 0);
+    r.maxControllers = intOr(obj, "maxControllers", 16);
+    r.protocolVersion = intOr(obj, "protocolVersion", proto::kProtocolVersion);
+    for (const auto& v : obj.value(QLatin1String("controllers")).toArray()) {
+        if (v.isObject()) { r.controllers.append(ControllerApplyDto::fromJson(v.toObject())); }
+    }
+    const auto hf = obj.value(QLatin1String("hostFeatures")).toObject();
+    r.mouseControl = HostFeatureGrant::fromJson(hf.value(QLatin1String("mouseControl")).toObject());
+    setIfNonEmpty(r.error, obj, "error");
+    setIfNonEmpty(r.code, obj, "code");
+    r.reachable = true;
     return r;
+}
+
+ControllerPutResponse ControllerPutResponse::fromJson(const QJsonObject& obj) {
+    ControllerPutResponse r;
+    r.epoch = intOr(obj, "epoch", 0);
+    const auto ctrl = obj.value(QLatin1String("controller"));
+    if (ctrl.isObject()) { r.controller = ControllerApplyDto::fromJson(ctrl.toObject()); }
+    setIfNonEmpty(r.error, obj, "error");
+    setIfNonEmpty(r.code, obj, "code");
+    r.reachable = true;
+    return r;
+}
+
+SessionViewControllerDto SessionViewControllerDto::fromJson(const QJsonObject& obj) {
+    SessionViewControllerDto d;
+    d.ctrlIdx = intOr(obj, "ctrlIdx", 0);
+    d.active = boolOr(obj, "active", false);
+    d.appliedType = intOr(obj, "appliedType", proto::kControllerTypeXbox);
+    d.touchpadMode = optString(obj, "touchpadMode");
+    return d;
+}
+
+SessionViewDto SessionViewDto::fromJson(const QJsonObject& obj) {
+    SessionViewDto r;
+    setIfNonEmpty(r.connectionId, obj, "connectionId");
+    r.epoch = intOr(obj, "epoch", 0);
+    for (const auto& v : obj.value(QLatin1String("controllers")).toArray()) {
+        if (v.isObject()) { r.controllers.append(SessionViewControllerDto::fromJson(v.toObject())); }
+    }
+    const auto hf = obj.value(QLatin1String("hostFeatures")).toObject();
+    r.mouseControl = HostFeatureGrant::fromJson(hf.value(QLatin1String("mouseControl")).toObject());
+    setIfNonEmpty(r.error, obj, "error");
+    setIfNonEmpty(r.code, obj, "code");
+    r.reachable = true;
+    return r;
+}
+
+QJsonObject ControllerDescriptor::toJson() const {
+    return QJsonObject{
+        {"ctrlIdx", ctrlIdx},
+        {"type", static_cast<int>(type)},
+        {"caps",
+         QJsonObject{
+             {"rumble", (caps & proto::kCapRumble) != 0},
+             {"motion", (caps & proto::kCapMotion) != 0},
+             {"analogTriggers", (caps & proto::kCapAnalogTriggers) != 0},
+             {"lightbar", (caps & proto::kCapLightbar) != 0},
+         }},
+        {"touchpadMode",
+         QString::fromUtf8(proto::touchpadModeName(touchpadMode).data(),
+                           static_cast<int>(proto::touchpadModeName(touchpadMode).size()))},
+    };
+}
+
+QJsonArray controllersJson(const QList<ControllerDescriptor>& descriptors) {
+    QJsonArray arr;
+    for (const auto& d : descriptors) { arr.append(d.toJson()); }
+    return arr;
 }
 
 DiscoveredServer RememberedWifi::toDiscovered() const {
@@ -64,13 +171,14 @@ DiscoveredServer RememberedWifi::toDiscovered() const {
     s.udpPort = udpPort;
     s.pairPort = pairPort;
     s.httpPort = httpPort;
+    s.machineId = machineId;
     return s;
 }
 
 QJsonObject RememberedWifi::toJson() const {
     return QJsonObject{
-        {"id", id},           {"name", name},         {"ip", ip},
-        {"udpPort", udpPort}, {"pairPort", pairPort}, {"httpPort", httpPort},
+        {"id", id},           {"name", name},         {"ip", ip},          {"udpPort", udpPort},
+        {"pairPort", pairPort}, {"httpPort", httpPort}, {"machineId", machineId},
     };
 }
 
@@ -82,6 +190,8 @@ RememberedWifi RememberedWifi::fromJson(const QJsonObject& obj) {
     r.udpPort = intOr(obj, "udpPort", kDefaultUdpPort);
     r.pairPort = intOr(obj, "pairPort", kDefaultPairPort);
     r.httpPort = intOr(obj, "httpPort", kDefaultHttpPort);
+    // Absent on rows persisted before protocol-1 — defaults empty, still loads.
+    r.machineId = optString(obj, "machineId");
     return r;
 }
 

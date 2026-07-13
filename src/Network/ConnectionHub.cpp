@@ -156,8 +156,9 @@ ConnectionHub::TouchpadSender ConnectionHub::touchpadSenderForSlot(const QString
     auto* conn = wifi_->get(cid);
     if (conn == nullptr) { return {}; }
     return [conn](bool f0a, std::uint8_t f0id, std::int16_t f0x, std::int16_t f0y, bool f1a,
-                  std::uint8_t f1id, std::int16_t f1x, std::int16_t f1y, bool button) {
-        conn->sendTouchpad(f0a, f0id, f0x, f0y, f1a, f1id, f1x, f1y, button);
+                  std::uint8_t f1id, std::int16_t f1x, std::int16_t f1y, bool button,
+                  std::uint32_t eventTimeMs) {
+        conn->sendTouchpad(f0a, f0id, f0x, f0y, f1a, f1id, f1x, f1y, button, eventTimeMs);
     };
 }
 

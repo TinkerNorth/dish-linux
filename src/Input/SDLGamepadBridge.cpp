@@ -418,6 +418,9 @@ void SDLGamepadBridge::handleTouchpadEvent(const SDL_ControllerTouchpadEvent& ev
     sample.finger1X = state.fingers[1].x;
     sample.finger1Y = state.fingers[1].y;
     sample.buttonPressed = button;
+    // SDL stamps controller events with uptime ms — exactly the u32 the wire
+    // wants; resends of the same state carry the same value.
+    sample.eventTimeMs = ev.timestamp;
     processor_->publishTouchpad(deviceId, sample);
 }
 

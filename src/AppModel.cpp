@@ -75,7 +75,7 @@ AppModel::AppModel(std::unique_ptr<util::DisplaySleepInhibitor> inhibitor, QObje
             }
             if (sender) {
                 sender(s.finger0Active, s.finger0Id, s.finger0X, s.finger0Y, s.finger1Active,
-                       s.finger1Id, s.finger1X, s.finger1Y, s.buttonPressed);
+                       s.finger1Id, s.finger1X, s.finger1Y, s.buttonPressed, s.eventTimeMs);
             }
         });
 
