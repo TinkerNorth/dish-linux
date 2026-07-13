@@ -83,17 +83,27 @@ set(DISH_CORE_SOURCES
     src/Util/Hex.h
     src/Util/Hex.cpp
     src/Util/Endian.h
+    src/Util/LatencyWindow.h
     src/Util/HostBattery.h
     src/Util/HostBattery.cpp
     src/Util/DisplaySleepInhibitor.h
     src/Util/DisplaySleepInhibitor.cpp
     src/Util/ScreenWakeController.h
     src/Util/ScreenWakeController.cpp
+    src/Models/Protocol.h
     src/Models/Models.h
     src/Models/Models.cpp
     src/Models/DishNotification.h
     src/UI/NotificationQueue.h
     src/UI/NotificationQueue.cpp
+    src/Network/SessionCrypto.h
+    src/Network/SessionCrypto.cpp
+    src/Network/Tofu.h
+    src/Network/Tofu.cpp
+    src/Network/Backoff.h
+    src/Network/CloseNotify.h
+    src/Network/Reconcile.h
+    src/Network/RestOutcome.h
     src/Network/SatelliteClient.h
     src/Network/SatelliteClient.cpp
     src/Network/LANDiscovery.h

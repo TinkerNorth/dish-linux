@@ -87,6 +87,10 @@ class GamepadInputProcessor {
         std::int16_t finger1X = 0;
         std::int16_t finger1Y = 0;
         bool buttonPressed = false;
+        // Sender-side sample timestamp (SDL event timestamp, uptime ms).
+        // Protocol-1 requires it on the wire — the receiver's mouse-mode
+        // time-scales by the delta and treats dt == 0 as a duplicate.
+        std::uint32_t eventTimeMs = 0;
     };
     using TouchpadSender = std::function<void(const DeviceId& id, const TouchpadSample& sample)>;
 

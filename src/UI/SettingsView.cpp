@@ -85,8 +85,11 @@ SettingsView::SettingsView(FeatureSettings* settings, QWidget* parent)
 }
 
 void SettingsView::onLightbarModeChanged(int index) {
-    const QVariant data = lightbarCombo_->itemData(index);
-    const auto mode = static_cast<LightbarMode>(data.toInt());
+    // `itemData`, not `data`: QWidget has a protected `data` member and GCC's
+    // -Wshadow (unlike clang's) treats shadowing an inherited member as fatal
+    // under -Werror.
+    const QVariant itemData = lightbarCombo_->itemData(index);
+    const auto mode = static_cast<LightbarMode>(itemData.toInt());
     settings_->setLightbarMode(mode);
 }
 

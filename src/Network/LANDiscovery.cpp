@@ -71,11 +71,16 @@ QList<models::DiscoveredServer> LANDiscovery::discover(int port, int timeoutMs) 
 
 std::optional<models::DiscoveredServer> LANDiscovery::parseBeacon(const QString& json,
                                                                   const QString& observedIp) {
-    if (!json.contains(QStringLiteral("\"service\":\"satellite\""))) { return std::nullopt; }
+    // Structured parse first, then check the decoded `service` field — never a
+    // substring probe of the raw text (JSON-hygiene rule shared org-wide).
     QJsonParseError err{};
     const auto doc = QJsonDocument::fromJson(json.toUtf8(), &err);
     if (err.error != QJsonParseError::NoError || !doc.isObject()) { return std::nullopt; }
-    auto server = models::DiscoveredServer::fromJson(doc.object());
+    const auto obj = doc.object();
+    if (obj.value(QLatin1String("service")).toString() != QLatin1String("satellite")) {
+        return std::nullopt;
+    }
+    auto server = models::DiscoveredServer::fromJson(obj);
     server.ip = observedIp;
     if (server.name.isEmpty()) { return std::nullopt; }
     return server;

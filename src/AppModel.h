@@ -81,6 +81,11 @@ class AppModel : public QObject {
     // slotsChanged / connectionsChanged / pairingTargetChanged trio.
     void stateChanged();
 
+    // 1 Hz latency/telemetry relay from the live connections. Separate from
+    // stateChanged so views patch labels in place instead of rebuilding
+    // (a wholesale rebuild would clobber list selection every second).
+    void telemetryChanged();
+
     // Transient one-shot — errors are events, not state, and are surfaced
     // as toasts/dialogs by MainWindow.
     void errorMessage(const QString& msg);

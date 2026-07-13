@@ -53,18 +53,13 @@ void ConnectionHub::rebuild() {
         //
         // - SessionState::Live      -> LinkState::Connected
         // - SessionState::Linking   -> LinkState::Connecting
-        // - SessionState::Faltering -> LinkState::Unstable (not yet reachable;
-        //   native exposes only binary alive)
+        // - SessionState::Faltering -> LinkState::Unstable ("unsteady": >= 2
+        //   consecutive missed heartbeat acks, below the death threshold)
         // - SessionState::Idle / no conn:
+        //     remembered w/o key    -> LinkState::Stale ("needs pairing": a
+        //       terminal 401 or close-notify(unpaired) dropped the key)
         //     in discoveredIds      -> LinkState::Ready
         //     not in discoveredIds  -> LinkState::Saved
-        //
-        // TODO(LinkState::Stale): a server-side forget should land us in
-        // LinkState::Stale, but detecting that requires the server to return a
-        // `PAIRING_UNKNOWN` error so we can distinguish "peer forgot us" from
-        // a transient unreachability. Until that protocol bit lands, a
-        // forgotten device falls through to Saved/Ready and the user only
-        // sees connect failures.
         models::LinkState live = models::LinkState::Saved;
         if (conn != nullptr) {
             switch (conn->state()) {
@@ -75,11 +70,6 @@ void ConnectionHub::rebuild() {
                 live = models::LinkState::Connecting;
                 break;
             case SessionState::Faltering:
-                // TODO(LinkState::Unstable): native alive-poll currently only
-                // exposes a binary "is alive" and flips Live -> Idle directly
-                // when misses hit the death threshold, so this arm is defined
-                // but never taken. Once the miss count is exposed, the
-                // alive-poll should bump SessionState to Faltering instead.
                 live = models::LinkState::Unstable;
                 break;
             case SessionState::Idle:
@@ -89,6 +79,13 @@ void ConnectionHub::rebuild() {
             }
         } else {
             live = discoveredIds.contains(id) ? models::LinkState::Ready : models::LinkState::Saved;
+        }
+        // A remembered satellite whose pairing key was dropped (terminal 401,
+        // close-notify(unpaired)) parks on "Needs pairing" instead of
+        // masquerading as connectable.
+        if ((live == models::LinkState::Ready || live == models::LinkState::Saved) &&
+            remembered.contains(id) && !store_->sharedKey(id).has_value()) {
+            live = models::LinkState::Stale;
         }
         std::optional<QString> bound;
         for (auto it = bindings_.begin(); it != bindings_.end(); ++it) {
@@ -156,8 +153,9 @@ ConnectionHub::TouchpadSender ConnectionHub::touchpadSenderForSlot(const QString
     auto* conn = wifi_->get(cid);
     if (conn == nullptr) { return {}; }
     return [conn](bool f0a, std::uint8_t f0id, std::int16_t f0x, std::int16_t f0y, bool f1a,
-                  std::uint8_t f1id, std::int16_t f1x, std::int16_t f1y, bool button) {
-        conn->sendTouchpad(f0a, f0id, f0x, f0y, f1a, f1id, f1x, f1y, button);
+                  std::uint8_t f1id, std::int16_t f1x, std::int16_t f1y, bool button,
+                  std::uint32_t eventTimeMs) {
+        conn->sendTouchpad(f0a, f0id, f0x, f0y, f1a, f1id, f1x, f1y, button, eventTimeMs);
     };
 }
 

@@ -146,6 +146,7 @@ std::optional<models::DiscoveredServer> parseResponse(const std::uint8_t* p, std
 
     std::string ip;
     std::string instance;
+    std::string machineId;
     int udpPort = 9876;
     int pairPort = 9443;
     int httpPort = 9443;
@@ -184,6 +185,10 @@ std::optional<models::DiscoveredServer> parseResponse(const std::uint8_t* p, std
                     if (key == "udp" && val > 0) { udpPort = val; }
                     if (key == "pair" && val > 0) { pairPort = val; }
                     if (key == "http" && val > 0) { httpPort = val; }
+                    // Stable per-install satellite identity (protocol-1). The
+                    // responder advertises it as `mid` — see
+                    // satellite/src/net/mdns_responder.cpp.
+                    if (key == "mid") { machineId = entry.substr(eq + 1); }
                 }
                 t += 1 + slen;
                 haveTxt = true;
@@ -205,6 +210,7 @@ std::optional<models::DiscoveredServer> parseResponse(const std::uint8_t* p, std
     s.udpPort = udpPort;
     s.pairPort = pairPort;
     s.httpPort = httpPort;
+    s.machineId = QString::fromStdString(machineId);
     s.source = models::DiscoverySource::Mdns;
     return s;
 }
@@ -213,9 +219,11 @@ std::optional<models::DiscoveredServer> parseResponse(const std::uint8_t* p, std
 
 QList<models::DiscoveredServer> mergeDiscovered(const QList<models::DiscoveredServer>& broadcast,
                                                 const QList<models::DiscoveredServer>& mdns) {
-    const auto keyOf = [](const models::DiscoveredServer& s) {
-        return s.ip + QStringLiteral(":") + QString::number(s.udpPort);
-    };
+    // De-dup on the machineId-preferring stable key (DiscoveredServer::id())
+    // so one physical box heard at two addresses — or on both paths —
+    // collapses to a single row. Falls back to ip:udpPort for satellites that
+    // predate the stable id.
+    const auto keyOf = [](const models::DiscoveredServer& s) { return s.id(); };
     QList<models::DiscoveredServer> merged;
     QHash<QString, int> indexByKey; // discovery key → index into `merged`
 

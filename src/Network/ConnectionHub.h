@@ -35,8 +35,9 @@ class ConnectionHub : public QObject {
     using BatterySender = std::function<void(std::uint8_t, std::uint8_t)>;
 
     // Touchpad sender: finger0(active,id,x,y), finger1(active,id,x,y), button.
-    using TouchpadSender = std::function<void(bool, std::uint8_t, std::int16_t, std::int16_t, bool,
-                                              std::uint8_t, std::int16_t, std::int16_t, bool)>;
+    using TouchpadSender =
+        std::function<void(bool, std::uint8_t, std::int16_t, std::int16_t, bool, std::uint8_t,
+                           std::int16_t, std::int16_t, bool, std::uint32_t)>;
 
     ConnectionHub(WifiConnectionManager* wifi, ConnectionStore* store, QObject* parent = nullptr);
 

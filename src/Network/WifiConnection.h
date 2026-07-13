@@ -10,7 +10,8 @@
 #include <QString>
 #include <QTimer>
 
-#include <atomic>
+#include <cstdint>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -28,12 +29,10 @@ namespace dish::net {
 // - Linking    — pair+auth handshake / markConnecting is in flight; native
 //                socket not yet open. UI chip: "Connecting…".
 // - Live       — native socket open, heartbeat ACKs flowing. UI chip: "Online".
-// - Faltering  — Live, but the heartbeat-miss counter is non-zero and below
-//                the death threshold. UI chip: "Unsteady". **Not yet entered**
-//                — reaching it requires the native side to expose the
-//                consecutive-missed count separately from the binary
-//                isAlive() boolean. Today the alive-poll flips Live → Idle
-//                directly when misses hit the threshold.
+// - Faltering  — Live, but the consecutive missed-ack count has reached the
+//                "not responding" threshold (2) without hitting death (5).
+//                The alive tick flips Live ⇄ Faltering from
+//                SatelliteClient::missedAcks(). UI chip: "Unsteady".
 enum class SessionState { Idle, Linking, Live, Faltering };
 
 // Thread-safe holder for the live SatelliteClient pointer. Writes from the Qt
@@ -55,12 +54,39 @@ class ClientRef {
     std::shared_ptr<SatelliteClient> value_;
 };
 
-// A single live or potential WiFi session to one Satellite server. Mirrors
-// dish-mac/Network/WifiConnection.swift.
+// A single live or potential WiFi session to one Satellite server.
+//
+// Protocol-1: topology is REST-only. This class keeps the binding state
+// (which slot, which type, which capability bits) and drives the
+// per-controller converge through hooks the manager installs at
+// markConnected() — it never talks HTTP itself. The old UDP
+// CONTROLLER_ADD/ACK polling is gone.
 class WifiConnection : public QObject {
     Q_OBJECT
   public:
     static QString idFor(const models::DiscoveredServer& s) { return s.id(); }
+
+    // Control-plane callbacks installed by WifiConnectionManager at
+    // markConnected(). All fire on the Qt main thread.
+    struct SessionHooks {
+        // Heartbeat death (miss threshold hit) — manager schedules the
+        // backoff retry and tears the session down.
+        std::function<void()> onDead;
+        // A SESSION_CLOSE (0x000F) reason latched on the client — manager
+        // maps it through reducer::closeActionForReason.
+        std::function<void(std::uint8_t reason)> onClose;
+        // PUT /api/connections/{id}/controllers/{idx} with the descriptor;
+        // the manager's wrapper centralises the terminal-401 check before
+        // forwarding the response here.
+        std::function<void(const models::ControllerDescriptor&,
+                           std::function<void(const models::ControllerPutResponse&)>)>
+            putSlot;
+        // DELETE /api/connections/{id}/controllers/{idx} (fire-and-forget).
+        std::function<void(int ctrlIdx)> deleteSlot;
+        // Enriched-ack epoch/bitmap drifted from what we applied — manager
+        // runs the GET-then-converge reconcile (single-flight guarded here).
+        std::function<void()> reconcile;
+    };
 
     WifiConnection(QString id, models::DiscoveredServer server, QObject* parent = nullptr);
     ~WifiConnection() override;
@@ -75,20 +101,45 @@ class WifiConnection : public QObject {
     void updateServer(const models::DiscoveredServer& s);
     void markConnecting();
     void markConnected(std::shared_ptr<SatelliteClient> client, const QString& connectionId,
-                       std::function<void()> onDead);
+                       int epoch, SessionHooks hooks);
     void markDisconnected();
 
     // Bind this connection to a controller slot. `controllerType` is the
-    // satellite virtual-device type (CONTROLLER_TYPE_*). `hasLightbar` is true
-    // when the bound physical pad exposes an addressable RGB LED — it gates
-    // the CAP_LIGHTBAR (0x0008) bit in the MSG_CONTROLLER_ADD capability word.
-    // `hasMotion` is true when the pad has a gyro / accelerometer — it gates
-    // the CAP_MOTION (0x0004) bit the same way. Both are stored so a later
-    // registration (on reconnect) advertises the same capabilities.
+    // satellite virtual-device type (proto::kControllerType*). `hasLightbar`
+    // gates CAP_LIGHTBAR (0x0008) and `hasMotion` CAP_MOTION (0x0004) in the
+    // descriptor caps word. Both are stored so a later registration (on
+    // reconnect) advertises the same capabilities.
     void attachSlot(const QString& slotId, int controllerType, bool hasLightbar, bool hasMotion);
     void detachSlot();
 
     bool isRegisteringController() const { return controllerRegistering_; }
+
+    // The declarative descriptor for the bound slot (nullopt when unbound) —
+    // rides the session PUT's controllers[] and the reconcile compare.
+    std::optional<models::ControllerDescriptor> desiredDescriptor() const;
+
+    // The session epoch we last applied (from the PUT / controller-PUT
+    // response). Compared against the enriched ack's epoch by the alive tick.
+    int lastAppliedEpoch() const { return lastAppliedEpoch_; }
+    void setLastAppliedEpoch(int epoch) { lastAppliedEpoch_ = epoch; }
+
+    // Single-flight guard for the manager's reconcile (set true when a GET is
+    // launched, false when it lands). The alive tick skips re-triggering
+    // while a reconcile is already in flight.
+    bool reconcileInFlight() const { return reconcileInFlight_; }
+    void setReconcileInFlight(bool inFlight) { reconcileInFlight_ = inFlight; }
+
+    // Marks the slot converged after a session-level PUT already carried the
+    // descriptor (openSession path) so attachSlot/markConnected don't issue a
+    // duplicate per-slot PUT.
+    void markSlotApplied();
+
+    // One-way latency readout cached from the alive tick (median RTT / 2,
+    // rounded to 0.1 ms). samples == 0 until the first ack lands. Refreshes
+    // fire telemetryChanged(), NOT changed() — a 1 Hz cosmetic tick must not
+    // trigger the wholesale UI rebuild (it would clobber list selection).
+    double latencyOneWayMs() const { return latencyOneWayMs_; }
+    int latencySamples() const { return latencySamples_; }
 
     // Hot path: called directly from the SDL gamepad thread.
     void sendReport(std::uint16_t buttons, std::uint8_t lt, std::uint8_t rt, std::int16_t lx,
@@ -105,9 +156,11 @@ class WifiConnection : public QObject {
 
     // Forward a touchpad sample to the satellite. Called from the SDL
     // touchpad-event path. Up to two fingers + the clickable-pad button.
+    // `eventTimeMs` is the SDL event timestamp (protocol-1 requires it).
     void sendTouchpad(bool finger0Active, std::uint8_t finger0Id, std::int16_t finger0X,
                       std::int16_t finger0Y, bool finger1Active, std::uint8_t finger1Id,
-                      std::int16_t finger1X, std::int16_t finger1Y, bool buttonPressed);
+                      std::int16_t finger1X, std::int16_t finger1Y, bool buttonPressed,
+                      std::uint32_t eventTimeMs);
 
     // Install the per-connection rumble handler. The handler is invoked from
     // the SatelliteClient's receive thread on every MSG_RUMBLE we decode.
@@ -122,28 +175,25 @@ class WifiConnection : public QObject {
 
   signals:
     void changed();
+    // 1 Hz latency/telemetry refresh — deliberately separate from changed()
+    // (see latencyOneWayMs). Rows patch their label in place on this.
+    void telemetryChanged();
     void errorOccurred(const QString& message);
-    // Emitted when the in-flight controller registration for `slotId` was
-    // rejected or timed out. Listened to by ConnectionHub to roll back the
-    // local binding so the UI reflects reality.
+    // Emitted when the slot converge for `slotId` was rejected or the server
+    // never answered. Listened to by ConnectionHub to roll back the local
+    // binding so the UI reflects reality.
     void registrationFailed(const QString& slotId);
 
   private:
     static constexpr int kDefaultCtrlIndex = 0;
-    // Base capability word advertised in MSG_CONTROLLER_ADD: analog triggers
-    // (0x0001) | rumble (0x0002). Neither CAP_MOTION (0x0004) nor CAP_LIGHTBAR
-    // (0x0008) is in here — both are per-controller (CAP_MOTION only for pads
-    // with an IMU, CAP_LIGHTBAR only for pads with an LED) and are OR-ed in by
-    // registerController from motionCapable_ / lightbarCapable_. See
-    // SatelliteClient::kCap* mirrors.
+    // Base capability word in the descriptor: analog triggers (0x0001) |
+    // rumble (0x0002). CAP_MOTION / CAP_LIGHTBAR are per-controller and OR-ed
+    // in from motionCapable_ / lightbarCapable_.
     static constexpr std::uint16_t kDefaultCaps =
         SatelliteClient::kCapAnalogTriggers | SatelliteClient::kCapRumble;
-    static constexpr int kAckWaitAttempts = 20;
-    static constexpr int kAckWaitIntervalMs = 100;
 
     void registerController(int type);
-    void pollControllerAck();
-    void finishRegistration();
+    void onAliveTick();
 
     QString id_;
     models::DiscoveredServer server_;
@@ -153,18 +203,19 @@ class WifiConnection : public QObject {
 
     ClientRef clientRef_;
     QTimer* aliveTimer_ = nullptr;
-    QTimer* ackPollTimer_ = nullptr;
-    int ackPollCount_ = 0;
     bool controllerRegistering_ = false;
-    std::function<void()> onDead_;
+    SessionHooks hooks_;
     bool controllerAdded_ = false;
     int pendingControllerType_ = 0;
-    // Whether the bound slot's physical pad has an addressable RGB LED. Set by
-    // attachSlot; consumed by registerController to advertise CAP_LIGHTBAR.
+    int lastAppliedEpoch_ = -1;
+    bool reconcileInFlight_ = false;
+    // Whether the bound slot's physical pad has an addressable RGB LED /
+    // gyro+accel. Set by attachSlot; consumed by desiredDescriptor().
     bool lightbarCapable_ = false;
-    // Whether the bound slot's physical pad has a gyro / accelerometer. Set by
-    // attachSlot; consumed by registerController to advertise CAP_MOTION.
     bool motionCapable_ = false;
+
+    double latencyOneWayMs_ = 0.0;
+    int latencySamples_ = 0;
 
     // Set once during composition; re-applied to each fresh SatelliteClient
     // in markConnected() so we don't lose rumble across reconnects.

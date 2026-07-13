@@ -42,7 +42,8 @@ PairingClient::Outcome PairingClient::classify(const models::PairResponse& respo
 }
 
 models::PairResponse PairingClient::pair(const QString& ip, int port, const QString& deviceId,
-                                         const QString& deviceName, const QString& pin) {
+                                         const QString& deviceName, const QString& pin,
+                                         const PinVerifier& verifier) {
     // pair() is a blocking call invoked from a worker thread. We drive the
     // async QNetworkAccessManager request with a local QEventLoop so the
     // function keeps its blocking contract. The manager and event loop are
@@ -55,22 +56,33 @@ models::PairResponse PairingClient::pair(const QString& ip, int port, const QStr
     QNetworkRequest req((QUrl(url)));
     req.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
 
-    // The satellite serves /api/pair over TLS with a self-signed certificate.
-    // Disable peer + hostname verification entirely (the approved equivalent
-    // of `curl --insecure`); no pinning is performed.
+    // Self-signed cert: no CA chain to validate, so peer verification is off —
+    // trust is enforced by the TOFU pin verifier on the `encrypted` signal
+    // below. VerifyNone just stops Qt from refusing the self-signed chain
+    // before we get a chance to pin it.
     QSslConfiguration tls = QSslConfiguration::defaultConfiguration();
     tls.setPeerVerifyMode(QSslSocket::VerifyNone);
     req.setSslConfiguration(tls);
 
-    const QJsonObject reqObj{{"deviceId", deviceId}, {"deviceName", deviceName}, {"pin", pin}};
+    const QJsonObject reqObj{{"deviceId", deviceId},
+                             {"deviceName", deviceName},
+                             {"pin", pin},
+                             {"protocolVersion", proto::kProtocolVersion}};
     const auto body = QJsonDocument(reqObj).toJson(QJsonDocument::Compact);
 
     QNetworkReply* reply = nam.post(req, body);
 
-    // Belt-and-braces: even with VerifyNone, swallow any SSL errors the stack
-    // still surfaces so a self-signed cert never aborts the request.
     QObject::connect(reply, &QNetworkReply::sslErrors, reply,
                      [reply](const QList<QSslError>&) { reply->ignoreSslErrors(); });
+    // TOFU pin check: first contact pins + proceeds; a cert whose fingerprint
+    // differs from the stored pin aborts the pair — the classifier then
+    // reports Unreachable, exactly like a dropped connection.
+    if (verifier) {
+        QObject::connect(reply, &QNetworkReply::encrypted, reply, [reply, &verifier, ip] {
+            const QByteArray der = reply->sslConfiguration().peerCertificate().toDer();
+            if (!verifier(ip, der)) { reply->abort(); }
+        });
+    }
 
     QEventLoop loop;
     QObject::connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);

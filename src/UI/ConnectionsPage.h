@@ -3,6 +3,8 @@
 
 #pragma once
 
+#include "Models/Models.h"
+
 #include <QWidget>
 
 class QLabel;
@@ -33,6 +35,10 @@ class ConnectionsPage : public QWidget {
     // toggles spinner visibility, label text and enabled-ness from the
     // current AppModel/WifiConnectionManager observation.
     void refreshButtonStates();
+    // Recompute only the remembered-row texts (latency / state tags) without
+    // clearing the lists, so selection survives the 1 Hz telemetry tick.
+    void refreshTelemetryTags();
+    QString rememberedRowText(const dish::models::RememberedWifi& r) const;
     void onScanClicked();
     void onConnectClicked();
     void onForgetClicked();

@@ -5,16 +5,25 @@
 
 #include "Models/Models.h"
 
+#include <QByteArray>
 #include <QString>
 
+#include <functional>
 #include <variant>
 
 namespace dish::net {
 
-// Blocking pair handshake. The satellite now exposes pairing as POST /api/pair
-// on its HTTPS client server (:9443) — formerly a raw-TCP JSON line protocol on
-// :9878. Mirrors dish-mac/Network/PairingClient.swift and satellite_jni.cpp::pair.
-// Single JSON request, single JSON response; the JSON shapes are unchanged.
+// Blocking pair handshake. The satellite exposes pairing as POST /api/pair on
+// its HTTPS client server (:9443). Mirrors dish-windows/Network/PairingClient
+// and satellite_jni.cpp::pair. Single JSON request, single JSON response; the
+// body carries protocolVersion so a future incompatible server can 409.
+//
+// TLS trust is TOFU cert-pinning, not CA validation: the optional verifier is
+// handed the peer cert's DER bytes once the handshake completes and may abort
+// the exchange by returning false (see HTTPClient::PinVerifier — same seam,
+// same composition against ConnectionStore's pin registry; pair() runs on a
+// QtConcurrent worker, which is why the store's pin accessors are the one
+// mutex-guarded surface it has).
 class PairingClient {
   public:
     // Classification of a PairResponse — mirrors PairingClient.Outcome on
@@ -35,8 +44,11 @@ class PairingClient {
     // trivially unit-testable.
     static Outcome classify(const models::PairResponse& response);
 
+    using PinVerifier = std::function<bool(const QString& host, const QByteArray& certDer)>;
+
     static models::PairResponse pair(const QString& ip, int port, const QString& deviceId,
-                                     const QString& deviceName, const QString& pin);
+                                     const QString& deviceName, const QString& pin,
+                                     const PinVerifier& verifier = {});
 };
 
 } // namespace dish::net

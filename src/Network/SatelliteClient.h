@@ -1,11 +1,20 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 // Copyright (C) 2026 Dish contributors.
 //
-// Encrypted UDP session to a single Satellite server. The Linux analogue of
-// dish-mac/Network/SatelliteClient.swift and dish-android/satellite_jni.cpp.
+// Encrypted UDP data-plane session to a single Satellite server (protocol-1).
+// The Linux analogue of dish-windows/Network/SatelliteClient and dish-android's
+// satellite_jni UDP path. Owns one raw POSIX UDP socket, the per-session
+// ChaCha20-Poly1305 key/token, a monotonic per-direction nonce counter
+// (starting at 1), a heartbeat sender thread and a receive thread.
 //
-// Owns one raw POSIX UDP socket, the ChaCha20-Poly1305 key/token, a monotonic
-// nonce counter, a heartbeat sender thread and an ACK receive thread.
+// Topology is REST-only now: this class carries STREAMS only (input, heartbeat,
+// motion, battery, touchpad up; heartbeat-ack, rumble, lightbar, session-close
+// down). The deleted opcodes 0x0004/5/6/7/8/E and the UDP controller-
+// registration polling are gone.
+//
+// Crypto is delegated to Network/SessionCrypto (frozen, byte-exact vs the
+// satellite): nonce = dir(1)|0x00×7|counter(4 BE), AAD = token(4 BE), key = the
+// HKDF-derived sessionKey (NEVER the raw pairing key). See contract §Crypto.
 //
 // Thread-safety:
 //   * sendReport() is called directly from the SDL gamepad thread for minimum
@@ -16,7 +25,8 @@
 
 #pragma once
 
-#include "Util/AtomicCounter.h"
+#include "Models/Protocol.h"
+#include "Util/LatencyWindow.h"
 
 #include <netinet/in.h>
 
@@ -34,32 +44,27 @@ namespace dish::net {
 
 class SatelliteClient {
   public:
-    static constexpr std::uint16_t kMsgGamepadData = 0x0001;
-    static constexpr std::uint16_t kMsgHeartbeatPing = 0x0002;
-    static constexpr std::uint16_t kMsgHeartbeatAck = 0x0003;
-    static constexpr std::uint16_t kMsgControllerAdd = 0x0004;
-    static constexpr std::uint16_t kMsgControllerRemove = 0x0005;
-    static constexpr std::uint16_t kMsgControllerAck = 0x0006;
-    static constexpr std::uint16_t kMsgServerStatus = 0x0007;
-    static constexpr std::uint16_t kMsgControllerType = 0x0008;
-    static constexpr std::uint16_t kMsgRumble = 0x0009;
-    static constexpr std::uint16_t kMsgMotion = 0x000A;
-    static constexpr std::uint16_t kMsgBattery = 0x000B;
-    static constexpr std::uint16_t kMsgTouchpad = 0x000C;
-    static constexpr std::uint16_t kMsgLightbar = 0x000D;
+    // Opcodes mirror Models/Protocol.h (the single Qt-free source). Kept as
+    // members so existing call sites and tests can reference them by class.
+    // The topology opcodes 0x0004-0x0008 and 0x000E are deleted in protocol-1
+    // and intentionally have no constant here — a stray reference fails to
+    // compile.
+    static constexpr std::uint16_t kMsgGamepadData = proto::kMsgInput;
+    static constexpr std::uint16_t kMsgHeartbeatPing = proto::kMsgHeartbeat;
+    static constexpr std::uint16_t kMsgHeartbeatAck = proto::kMsgHeartbeatAck;
+    static constexpr std::uint16_t kMsgRumble = proto::kMsgRumble;
+    static constexpr std::uint16_t kMsgMotion = proto::kMsgMotion;
+    static constexpr std::uint16_t kMsgBattery = proto::kMsgBattery;
+    static constexpr std::uint16_t kMsgTouchpad = proto::kMsgTouchpad;
+    static constexpr std::uint16_t kMsgLightbar = proto::kMsgLightbar;
+    static constexpr std::uint16_t kMsgSessionClose = proto::kMsgSessionClose;
 
-    // Controller-add capability bits. Bits 0x01 / 0x02 are documented in
-    // satellite/docs/protocol.md (analog triggers, rumble). Bit 0x04 is the
-    // motion (gyro + accel) cap — the satellite uses it to advertise motion
-    // on the virtual device where the backend supports a motion surface.
-    static constexpr std::uint16_t kCapAnalogTriggers = 0x0001;
-    static constexpr std::uint16_t kCapRumble = 0x0002;
-    static constexpr std::uint16_t kCapMotion = 0x0004;
-    // CAP_LIGHTBAR (Task 1.4). Advertised per-controller in MSG_CONTROLLER_ADD
-    // only when the bound physical pad has an addressable RGB LED (DualSense /
-    // DualShock 4). A satellite that sees this bit sends lightbar colour via
-    // the dedicated MSG_LIGHTBAR (0x000D) stream.
-    static constexpr std::uint16_t kCapLightbar = 0x0008;
+    // Controller capability bits (carried in the REST descriptor caps object;
+    // kept here too so SDL-bound capability folding stays unit-testable).
+    static constexpr std::uint16_t kCapAnalogTriggers = proto::kCapAnalogTriggers;
+    static constexpr std::uint16_t kCapRumble = proto::kCapRumble;
+    static constexpr std::uint16_t kCapMotion = proto::kCapMotion;
+    static constexpr std::uint16_t kCapLightbar = proto::kCapLightbar;
 
     // Battery wire constants (satellite/src/core/types.h mirrors).
     static constexpr std::uint8_t kBatteryLevelUnknown = 0xFF;
@@ -69,7 +74,10 @@ class SatelliteClient {
     static constexpr std::uint8_t kBatteryStatusFull = 3;
     static constexpr std::uint8_t kBatteryStatusWired = 4;
 
+    // Heartbeat cadence is 2000 ms; "not responding" at 2 misses, dead at 5
+    // (contract §Liveness).
     static constexpr std::uint32_t kHeartbeatIntervalMs = 2000;
+    static constexpr int kHeartbeatMissNotResponding = 2;
     static constexpr int kHeartbeatMissMax = 5;
 
     SatelliteClient();
@@ -84,33 +92,29 @@ class SatelliteClient {
     bool openSocket(const std::string& ip, int port);
     void closeSocket();
 
-    // Install the post-pair token (4B) + shared key (32B). Resets counter/ACK.
+    // Install the post-PUT token (4B) + the HKDF-derived 32B sessionKey (see
+    // wire::deriveSessionKey — NEVER the raw pairing key). Resets the send
+    // counter to 1, the recv replay guard, the enriched-ack mirrors, the
+    // close-reason latch and the latency window. Call after each session PUT
+    // (token/salt/key rotate; counters restart at 1 with no nonce reuse).
     void setConnectionParams(const std::array<std::uint8_t, 4>& token,
-                             const std::array<std::uint8_t, 32>& key);
+                             const std::array<std::uint8_t, 32>& sessionKey);
 
     // Hot path: called directly from the SDL input thread.
     void sendReport(int controllerIndex, std::uint16_t buttons, std::uint8_t lt, std::uint8_t rt,
                     std::int16_t lx, std::int16_t ly, std::int16_t rx, std::int16_t ry);
 
-    void controllerAdd(int index, std::uint16_t capabilities);
-    void controllerRemove(int index);
-    void sendControllerType(int index, int type);
-    void resetControllerAck() { lastControllerAck_.store(-1, std::memory_order_relaxed); }
-
     // Pure helper: fold the per-controller CAP_LIGHTBAR (0x0008) bit into a
     // base capability word. Returns `base` unchanged when the bound pad has
     // no addressable RGB LED, and `base | kCapLightbar` when it does. Kept
     // public + static so the cap-advertisement rule is unit-testable without
-    // a live socket — see WifiConnection::registerController for the caller.
+    // a live socket — the word now rides the REST descriptor caps object.
     static std::uint16_t withLightbarCapability(std::uint16_t base, bool hasLightbar) {
         return static_cast<std::uint16_t>(base | (hasLightbar ? kCapLightbar : 0));
     }
 
     // Pure helper: fold the per-controller CAP_MOTION (0x0004) bit into a
-    // base capability word. Returns `base` unchanged when the bound pad has
-    // no gyro / accelerometer, and `base | kCapMotion` when it does. The
-    // motion analogue of withLightbarCapability — kept public + static for
-    // the same unit-test reasons.
+    // base capability word — an Xbox pad therefore never advertises CAP_MOTION.
     static std::uint16_t withMotionCapability(std::uint16_t base, bool hasMotion) {
         return static_cast<std::uint16_t>(base | (hasMotion ? kCapMotion : 0));
     }
@@ -123,12 +127,11 @@ class SatelliteClient {
     // matrix, and none needs to. SDL2 already normalises HIDAPI controllers
     // (DualSense / DS4 / Switch Pro) into exactly this right-handed frame
     // internally, so the int16 triples handed in here are already in wire
-    // orientation. The protocol's "senders apply the rotation matrix" rule
-    // (protocol.md §0x000A) is satisfied by SDL on our behalf — do NOT add a
-    // rotation step here or it would double-apply.
+    // orientation. The contract's "senders apply the rotation" rule is
+    // satisfied by SDL on our behalf — do NOT add a rotation step here or it
+    // would double-apply.
     //
     // Scale: gyro int16 LSB = 2000/32767 deg/s; accel int16 LSB = 4/32767 g.
-    // See satellite/docs/protocol.md §0x000A for the canonical reference.
     //
     // `timestampDeltaUs` is microseconds since the previous motion packet
     // for the same controller on this connection. 0 on the very first packet.
@@ -148,13 +151,15 @@ class SatelliteClient {
     // Up to two fingers; `fingerNActive` gates whether that finger's id +
     // coordinates are meaningful. Coordinates are normalised int16
     // (-32768..32767) on both axes so the wire is resolution-independent.
-    // `buttonPressed` is the clickable-pad switch.
+    // `buttonPressed` is the clickable-pad switch. `eventTimeMs` is the
+    // sender-side sample timestamp (uptime ms, u32 — SDL's event timestamp) —
+    // protocol-1 requires it (mouse-mode timing depends on it).
     //
     // Hot path: called from the SDL touchpad-event thread.
     void sendTouchpad(int controllerIndex, bool finger0Active, std::uint8_t finger0Id,
                       std::int16_t finger0X, std::int16_t finger0Y, bool finger1Active,
                       std::uint8_t finger1Id, std::int16_t finger1X, std::int16_t finger1Y,
-                      bool buttonPressed);
+                      bool buttonPressed, std::uint32_t eventTimeMs);
 
     // Pure encoder for the MSG_MOTION inner payload (after the 4-byte
     // type+length header). The wire layout is host-LE for the int16 / uint32
@@ -172,16 +177,17 @@ class SatelliteClient {
     static std::array<std::uint8_t, 3>
     encodeBatteryPayload(std::uint8_t controllerIndex, std::uint8_t level, std::uint8_t status);
 
-    // Pure encoder for the MSG_TOUCHPAD inner payload. 12 bytes:
-    // ctrlIdx(1) + flags(1) + finger0(id1 + x2 + y2) + finger1(id1 + x2 + y2).
-    // `flags` bit 0 = finger0 active, bit 1 = finger1 active, bit 2 = button.
-    // Coordinates are host-LE int16. Exposed statically so unit tests can pin
-    // the byte layout without a live socket.
-    static std::array<std::uint8_t, 12>
+    // Pure encoder for the MSG_TOUCHPAD inner payload. 16 bytes:
+    // ctrlIdx(1) + flags(1) + f0(id1 + x2 + y2) + f1(id1 + x2 + y2) +
+    // eventTimeMs(u32 LE). `flags` bit 0 = finger0 active, bit 1 = finger1
+    // active, bit 2 = button. Coordinates + eventTimeMs are host-LE. The
+    // trailing eventTimeMs is the protocol-1 addition (was 12 bytes total);
+    // the server now requires msgLen >= 16 inner so a 12-byte body is dropped.
+    static std::array<std::uint8_t, 16>
     encodeTouchpadPayload(std::uint8_t controllerIndex, bool finger0Active, std::uint8_t finger0Id,
                           std::int16_t finger0X, std::int16_t finger0Y, bool finger1Active,
                           std::uint8_t finger1Id, std::int16_t finger1X, std::int16_t finger1Y,
-                          bool buttonPressed);
+                          bool buttonPressed, std::uint32_t eventTimeMs);
 
     // Decoded rumble message from the satellite — motors + duration only.
     struct RumbleMessage {
@@ -205,16 +211,15 @@ class SatelliteClient {
 
     // Pure decoder for the MSG_RUMBLE inner payload (the 4-byte header
     // {type, length} has already been stripped). Returns std::nullopt on
-    // truncation; see ClientAdapter::sendRumble for the producer side. Kept
-    // public + static so it can be exercised by unit tests without a live
-    // socket.
+    // truncation. Kept public + static so it can be exercised by unit tests
+    // without a live socket.
     //
     // Wire layout (fixed 7 bytes):
     //   ctrlIdx(1) strong(2 BE) weak(2 BE) durMs(2 BE)
     static std::optional<RumbleMessage> parseRumbleMessage(const std::uint8_t* payload,
                                                            std::size_t len);
 
-    // Decoded lightbar message from the satellite (Task 1.4 dedicated stream).
+    // Decoded lightbar message from the satellite (dedicated colour stream).
     // Independent from MSG_RUMBLE so games that only change colour drive
     // the LED on the dish.
     struct LightbarMessage {
@@ -232,6 +237,23 @@ class SatelliteClient {
     static std::optional<LightbarMessage> parseLightbarMessage(const std::uint8_t* payload,
                                                                std::size_t len);
 
+    // Decoded enriched heartbeat ack (MSG_HEARTBEAT_ACK 0x0003):
+    // backendAvailable(1) + totalActiveControllers(1) + epoch(u16 BE) +
+    // activeBitmap(u16 BE). Drives the reconcile loop.
+    struct HeartbeatAck {
+        bool backendAvailable = false;
+        std::uint8_t totalActiveControllers = 0;
+        std::uint16_t epoch = 0;
+        std::uint16_t activeBitmap = 0;
+    };
+
+    // Pure decoder for the MSG_HEARTBEAT_ACK inner payload (header stripped).
+    // std::nullopt when shorter than kHeartbeatAckPayloadBytes (a bare ack from
+    // a pre-protocol-1 server is then ignored for reconcile, only liveness
+    // counts). Public + static so the parse is unit-testable.
+    static std::optional<HeartbeatAck> parseHeartbeatAck(const std::uint8_t* payload,
+                                                         std::size_t len);
+
     void startHeartbeat();
     void stopHeartbeat();
     void startReceiveLoop();
@@ -240,13 +262,37 @@ class SatelliteClient {
     bool isOpen() const { return sock_ >= 0; }
     bool isAlive() const { return connectionAlive_.load(std::memory_order_relaxed); }
     int missedAcks() const { return missedAcks_.load(std::memory_order_relaxed); }
-    std::int32_t lastControllerAck() const {
-        return lastControllerAck_.load(std::memory_order_relaxed);
+    // Last enriched-ack values, surfaced for the reconcile poll (the session
+    // polls these atomics from its main-thread alive tick). -1 until the first
+    // enriched ack arrives; reset by setConnectionParams.
+    std::int32_t serverEpoch() const { return serverEpoch_.load(std::memory_order_relaxed); }
+    std::int32_t serverBitmap() const { return serverBitmap_.load(std::memory_order_relaxed); }
+    std::int8_t backendAvailable() const {
+        return backendAvailable_.load(std::memory_order_relaxed);
     }
-    std::int8_t vigemAvailable() const { return vigemAvailable_.load(std::memory_order_relaxed); }
     std::int8_t activeControllerCount() const {
         return activeControllerCount_.load(std::memory_order_relaxed);
     }
+    // The reason byte of a received SESSION_CLOSE (0x000F), or -1 if none. The
+    // session's alive-poll treats a non-negative value as terminal-now (no
+    // death wait). Latched until the next setConnectionParams.
+    std::int32_t sessionCloseReason() const {
+        return sessionCloseReason_.load(std::memory_order_relaxed);
+    }
+    // Current send counter (next value to use), for the proactive-re-PUT guard
+    // (reducer::counterNeedsRepush).
+    std::uint32_t sendCounter() const { return sendCounter_.load(std::memory_order_relaxed); }
+
+    // One-way latency estimate off the heartbeat round trip: median of the
+    // sliding RTT window halved + the sample count the UI shows beside the
+    // figure (Util/LatencyWindow). Zeroed by setConnectionParams (the readout
+    // answers THIS session). Poll from the main-thread alive tick; samples
+    // land on the receive thread under the same lock.
+    struct LatencySnapshot {
+        double oneWayMs = 0.0;
+        int samples = 0;
+    };
+    LatencySnapshot latencySnapshot() const;
 
   private:
     // Test-only seam: SatelliteClient with test-injected socket pair. Internal
@@ -261,8 +307,15 @@ class SatelliteClient {
     int sock_ = -1;
     sockaddr_in dest_{};
     std::array<std::uint8_t, 4> token_{};
+    std::uint32_t tokenBe_ = 0; // token as a host u32 (the 4 raw BE bytes), for the AAD
     std::array<std::uint8_t, 32> key_{};
-    util::AtomicCounter counter_;
+    // Per-direction send counter, starting at 1 (contract §Crypto). Plain
+    // atomic increment; the send lock serialises the ::sendto, not this.
+    std::atomic<std::uint32_t> sendCounter_{1};
+    // Receiver replay guard (server→client direction): drop counter <=
+    // lastRecvCounter_ (first packet exempt while it is 0). The receive loop
+    // is a single thread, so the guard needs no lock.
+    std::uint32_t lastRecvCounter_ = 0;
     std::mutex sendLock_;
 
     std::atomic<bool> heartbeatRunning_{false};
@@ -270,11 +323,26 @@ class SatelliteClient {
     std::thread heartbeatThread_;
     std::thread ackThread_;
 
+    // Monotonic stamp (µs) of the heartbeat ping currently in flight; 0 = none.
+    // Armed by the heartbeat thread (per reducer::shouldArmPing — never
+    // overwritten while a ping is outstanding: a late ack paired with a newer
+    // ping's stamp would read artificially low), consumed by the receive
+    // thread's ack handler via exchange(0). Lives on the client (one per
+    // session) so concurrent satellites never cross-pair a ping with another's
+    // ack. dish-android #138 design.
+    std::atomic<std::int64_t> pingSentUs_{0};
+    // The sliding RTT window behind latencySnapshot(). The receive thread
+    // pushes; the main-thread poll reads — both under latencyMtx_.
+    mutable std::mutex latencyMtx_;
+    reducer::LatencyWindow latencyWindow_;
+
     std::atomic<int> missedAcks_{0};
     std::atomic<bool> connectionAlive_{true};
-    std::atomic<std::int32_t> lastControllerAck_{-1};
-    std::atomic<std::int8_t> vigemAvailable_{-1};
+    std::atomic<std::int32_t> serverEpoch_{-1};
+    std::atomic<std::int32_t> serverBitmap_{-1};
+    std::atomic<std::int8_t> backendAvailable_{-1};
     std::atomic<std::int8_t> activeControllerCount_{-1};
+    std::atomic<std::int32_t> sessionCloseReason_{-1};
 
     // Read on every parsed MSG_RUMBLE on the receive thread; written from
     // the owning thread (Qt main) via setRumbleHandler. A short critical
@@ -282,7 +350,7 @@ class SatelliteClient {
     std::mutex rumbleHandlerMtx_;
     RumbleHandler rumbleHandler_;
 
-    // Same shape but for MSG_LIGHTBAR (Task 1.4 dedicated stream).
+    // Same shape but for MSG_LIGHTBAR (dedicated colour stream).
     std::mutex lightbarHandlerMtx_;
     LightbarHandler lightbarHandler_;
 };
