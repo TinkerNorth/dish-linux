@@ -18,6 +18,12 @@ set(DISH_TEST_SOURCES
     test_atomic_counter.cpp
     test_hex.cpp
     test_endian.cpp
+    test_session_crypto.cpp
+    test_tofu.cpp
+    test_backoff.cpp
+    test_close_notify.cpp
+    test_reconcile.cpp
+    test_latency_window.cpp
     test_models.cpp
     test_beacon_parser.cpp
     test_mdns_discovery.cpp

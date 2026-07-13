@@ -7,6 +7,8 @@
 
 #pragma once
 
+#include "Models/Protocol.h"
+
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QString>
@@ -48,11 +50,24 @@ struct DiscoveredServer {
     int udpPort = kDefaultUdpPort;
     int pairPort = kDefaultPairPort;
     int httpPort = kDefaultHttpPort;
+    // Stable per-install satellite identity from the beacon ("machineId") /
+    // mDNS TXT ("mid"). Empty for satellites that predate it. Protocol-1 keys
+    // remembered satellites on this (never ip/port) — see `id()`.
+    QString machineId;
     // Discovery path this server was heard on. Not serialised — `toJson` /
     // `fromJson` omit it, so a decoded beacon keeps the Broadcast default.
     DiscoverySource source = DiscoverySource::Broadcast;
 
-    QString id() const { return QStringLiteral("wifi:%1:%2").arg(ip).arg(udpPort); }
+    // The stable identity a dish keys a satellite on. Prefers `machineId`
+    // (survives DHCP address changes), falls back to ip:udpPort for older
+    // satellites that don't advertise one. Both discovery paths and the
+    // remembered store key on this, so one physical receiver collapses to a
+    // single entry instead of one row per IP. Mirrors dish-windows
+    // DiscoveredServer::id / dish-android stableKey.
+    QString id() const {
+        if (!machineId.isEmpty()) { return QStringLiteral("mid:%1").arg(machineId); }
+        return QStringLiteral("wifi:%1:%2").arg(ip).arg(udpPort);
+    }
     bool isValid() const { return !ip.isEmpty(); }
 
     QJsonObject toJson() const;
@@ -65,8 +80,13 @@ struct DiscoveredServer {
 
 struct PairResponse {
     bool ok = false;
+    bool pending = false; // Path B: awaiting operator approval on the satellite
     std::optional<QString> error;
     std::optional<QString> sharedKey;
+    int protocolVersion = proto::kProtocolVersion;
+    // HTTP status of the exchange (0 = transport never produced a response).
+    // Lets the manager spot a 409 version mismatch without re-reading the body.
+    int httpStatus = 0;
     // True iff we received any JSON body from the server. False for synthesized
     // failure responses (socket / connect / send errors). Not on the wire —
     // the server never sends this field; it's set client-side by
@@ -77,13 +97,128 @@ struct PairResponse {
     static PairResponse fromJson(const QJsonObject& obj);
 };
 
-struct ConnectResponse {
-    std::optional<QString> connectionId;
-    std::optional<QString> token;
-    std::optional<QString> error;
+// ── Protocol-1 REST control-plane DTOs (contract §Session / §Controller) ────
+// Field names mirror dish-windows / dish-android verbatim so the JSON on the
+// wire stays byte-for-byte compatible.
 
-    static ConnectResponse fromJson(const QJsonObject& obj);
+// One controller's apply outcome inside a session/controller PUT response.
+// `result` is the protocol string (never localized); `resultCode` is its
+// proto::kApply* mapping. `motion*` mirror the response's motion sub-object.
+struct ControllerApplyDto {
+    int ctrlIdx = 0;
+    QString result;
+    std::uint8_t resultCode = proto::kApplyUnknown;
+    int appliedType = proto::kControllerTypeXbox;
+    bool motionSinkSupportedForType = false;
+    bool motionBackendOk = false;
+
+    bool ok() const { return resultCode == proto::kApplyOk; }
+    // replugFailed leaves the PREVIOUS pad live (appliedType reports it):
+    // streams keep flowing rather than killing a working pad.
+    bool slotIsLive() const { return proto::applyResultSlotIsLive(resultCode); }
+
+    static ControllerApplyDto fromJson(const QJsonObject& obj);
 };
+
+// Host-feature grant (server policy, returned in the PUT/GET response).
+struct HostFeatureGrant {
+    bool granted = false;
+    std::optional<QString> reason; // notSupported|backendUnavailable|denied, when !granted
+
+    static HostFeatureGrant fromJson(const QJsonObject& obj);
+};
+
+// PUT /api/connections response. Also doubles as the error body (error/code).
+// `sessionSalt` (16-hex → 8 bytes) + `token` feed deriveSessionKey; missing
+// `sessionSalt` means the key can't be derived (a pre-protocol-1 server).
+struct SessionResponse {
+    std::optional<QString> connectionId;
+    std::optional<QString> token;       // 8-hex (4 bytes BE)
+    std::optional<QString> sessionSalt; // 16-hex (8 bytes)
+    int epoch = 0;
+    int maxControllers = 16;
+    int protocolVersion = proto::kProtocolVersion;
+    QList<ControllerApplyDto> controllers;
+    HostFeatureGrant mouseControl;
+    std::optional<QString> error;
+    // Machine-readable 401 cause: NOT_PAIRED | BAD_PROOF. Either is terminal.
+    std::optional<QString> code;
+    int httpStatus = 0;
+    bool reachable = false;
+
+    bool unauthorized() const {
+        return code.has_value() && (*code == QLatin1String(proto::kAuthCodeNotPaired.data()) ||
+                                    *code == QLatin1String(proto::kAuthCodeBadProof.data()));
+    }
+
+    static SessionResponse fromJson(const QJsonObject& obj);
+};
+
+// PUT /api/connections/{id}/controllers/{idx} response: one controller's apply
+// result + the session epoch (no token rotation on the per-controller route).
+struct ControllerPutResponse {
+    int epoch = 0;
+    std::optional<ControllerApplyDto> controller;
+    std::optional<QString> error;
+    std::optional<QString> code;
+    int httpStatus = 0;
+    bool reachable = false;
+
+    bool unauthorized() const {
+        return code.has_value() && (*code == QLatin1String(proto::kAuthCodeNotPaired.data()) ||
+                                    *code == QLatin1String(proto::kAuthCodeBadProof.data()));
+    }
+
+    static ControllerPutResponse fromJson(const QJsonObject& obj);
+};
+
+// One applied controller from GET /api/connections/{id} (the reconcile view).
+struct SessionViewControllerDto {
+    int ctrlIdx = 0;
+    bool active = false;
+    int appliedType = proto::kControllerTypeXbox;
+    QString touchpadMode;
+
+    static SessionViewControllerDto fromJson(const QJsonObject& obj);
+};
+
+// GET /api/connections/{id}: the reconcile endpoint's applied state + epoch.
+struct SessionViewDto {
+    std::optional<QString> connectionId;
+    int epoch = 0;
+    QList<SessionViewControllerDto> controllers;
+    HostFeatureGrant mouseControl;
+    std::optional<QString> error;
+    std::optional<QString> code;
+    int httpStatus = 0;
+    bool reachable = false;
+
+    bool unauthorized() const {
+        return code.has_value() && (*code == QLatin1String(proto::kAuthCodeNotPaired.data()) ||
+                                    *code == QLatin1String(proto::kAuthCodeBadProof.data()));
+    }
+
+    static SessionViewDto fromJson(const QJsonObject& obj);
+};
+
+// Declarative per-controller desired state sent in the session/controller PUT
+// body. Always sent WHOLE (a toggle = re-send with one field changed); the
+// server converges. Owns its own JSON so the request shape is unit-testable
+// without a socket. Mirrors dish-windows models::ControllerDescriptor.
+struct ControllerDescriptor {
+    int ctrlIdx = 0;
+    std::uint8_t type = proto::kControllerTypeXbox;
+    std::uint16_t caps = 0; // proto::kCap* word
+    std::uint8_t touchpadMode = proto::kTouchpadModeOff;
+
+    // The single-descriptor JSON object (one element of the controllers[]
+    // array, and the per-controller PUT body). `ctrlIdx` is included; on the
+    // per-controller route the path's index wins server-side anyway.
+    QJsonObject toJson() const;
+};
+
+// Build the controllers[] array JSON from a desired descriptor list.
+QJsonArray controllersJson(const QList<ControllerDescriptor>& descriptors);
 
 // UI-facing link state for one connection. This is the chip a row renders;
 // combines the persistent "Pairing" axis (have we paired?) and the live
@@ -103,15 +238,13 @@ struct ConnectResponse {
 // | Connected  | paired          | live             | "Online"         |
 // | Unstable   | paired          | faltering        | "Unsteady"       |
 //
-// **Stale** is NOT YET ENTERED: it requires the satellite to return a
-// `PAIRING_UNKNOWN` error so the client can distinguish "peer forgot us"
-// from a generic connect failure. Until that protocol change lands, a
-// server-side forget surfaces as a generic disconnect.
+// **Stale** is now reachable: a terminal 401 (NOT_PAIRED/BAD_PROOF) or a
+// close-notify(unpaired) drops the key and parks the row here so the chip
+// reads "Needs pairing" and auto-retry stops.
 //
-// **Unstable** is NOT YET ENTERED: it requires the native layer to expose
-// the consecutive-missed-heartbeat count separately from the binary alive
-// poll. Today the connection flips Connected → (Saved | Ready) directly
-// when misses hit the death threshold.
+// **Unstable** is now reachable: the alive-poll reads the client's
+// consecutive-missed-ack count and flips Connected → Unstable at 2 misses
+// ("not responding" per contract §Liveness), back on the next ack.
 enum class LinkState { Found, Stale, Saved, Ready, Connecting, Connected, Unstable };
 
 struct ConnectionSummary {
@@ -164,10 +297,20 @@ struct RememberedWifi {
     int udpPort = kDefaultUdpPort;
     int pairPort = kDefaultPairPort;
     int httpPort = kDefaultHttpPort;
+    // Persisted machineId so a remembered satellite that changes IP keeps its
+    // identity (the `id` is already the machineId-preferring stable key).
+    // Empty for rows persisted before protocol-1 — they still load.
+    QString machineId;
 
     DiscoveredServer toDiscovered() const;
     QJsonObject toJson() const;
     static RememberedWifi fromJson(const QJsonObject& obj);
+
+    bool operator==(const RememberedWifi& o) const {
+        return id == o.id && name == o.name && ip == o.ip && udpPort == o.udpPort &&
+               pairPort == o.pairPort && httpPort == o.httpPort && machineId == o.machineId;
+    }
+    bool operator!=(const RememberedWifi& o) const { return !(*this == o); }
 };
 
 QJsonArray rememberedListToJson(const QList<RememberedWifi>& list);

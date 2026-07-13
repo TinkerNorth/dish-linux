@@ -3,26 +3,33 @@
 
 #include "WifiConnection.h"
 
+#include "Reconcile.h"
+
+#include <cmath>
+#include <vector>
+
 namespace dish::net {
 
 namespace {
 
-QString controllerAckErrorMessage(std::uint8_t result) {
-    // Matches the satellite/src/core/types.h codes verbatim.
-    switch (result) {
-    case 0x01:
+// Human message for a failed slot converge. Keyed on the protocol apply-result
+// string's code (proto::applyResultFromName); mirrors the satellite's
+// semantics, not its wording.
+QString applyErrorMessage(std::uint8_t resultCode) {
+    switch (resultCode) {
+    case proto::kApplyNoSlots:
+        return QStringLiteral("Server has no free controller slots");
+    case proto::kApplyPluginFailed:
+        return QStringLiteral("Server failed to plug in the virtual controller");
+    case proto::kApplyBackendUnavailable:
         return QStringLiteral(
             "Server has no virtual gamepad backend — controller cannot be created");
-    case 0x02:
-        return QStringLiteral("Server has no free controller slots");
-    case 0x03:
-        return QStringLiteral("Controller already added on the server");
-    case 0x04:
-        return QStringLiteral("Controller not found on the server");
-    case 0x05:
-        return QStringLiteral("Server failed to plug in the virtual controller");
+    case proto::kApplyInvalidType:
+        return QStringLiteral("Server rejected the controller type");
+    case proto::kApplyInvalidIndex:
+        return QStringLiteral("Server rejected the controller slot index");
     default:
-        return QStringLiteral("Server rejected controller add (code %1)").arg(result);
+        return QStringLiteral("Server rejected the controller");
     }
 }
 
@@ -39,20 +46,23 @@ void WifiConnection::updateServer(const models::DiscoveredServer& s) {
 }
 
 void WifiConnection::markConnecting() {
-    if (state_ == SessionState::Live) { return; }
+    if (state_ == SessionState::Live || state_ == SessionState::Faltering) { return; }
     state_ = SessionState::Linking;
     emit changed();
 }
 
 void WifiConnection::markConnected(std::shared_ptr<SatelliteClient> client,
-                                   const QString& connectionId, std::function<void()> onDead) {
+                                   const QString& connectionId, int epoch, SessionHooks hooks) {
     if (state_ != SessionState::Linking) { return; }
     clientRef_.set(client);
     connectionId_ = connectionId;
     state_ = SessionState::Live;
-    onDead_ = std::move(onDead);
+    hooks_ = std::move(hooks);
+    lastAppliedEpoch_ = epoch;
+    reconcileInFlight_ = false;
+    latencyOneWayMs_ = 0.0;
+    latencySamples_ = 0;
 
-    client->resetControllerAck();
     if (rumbleHandler_) { client->setRumbleHandler(rumbleHandler_); }
     if (lightbarHandler_) { client->setLightbarHandler(lightbarHandler_); }
     client->startReceiveLoop();
@@ -64,36 +74,77 @@ void WifiConnection::markConnected(std::shared_ptr<SatelliteClient> client,
     }
     aliveTimer_ = new QTimer(this);
     aliveTimer_->setInterval(1000);
-    QObject::connect(aliveTimer_, &QTimer::timeout, this, [this] {
-        const auto c = clientRef_.get();
-        if (!c || !c->isAlive()) {
-            const auto cb = onDead_;
-            if (cb) { cb(); }
-        }
-    });
+    QObject::connect(aliveTimer_, &QTimer::timeout, this, &WifiConnection::onAliveTick);
     aliveTimer_->start();
     emit changed();
 
+    // The session PUT that produced this connection already carried the bound
+    // slot's descriptor (the manager marks it applied); this converge only
+    // fires when a slot was attached while the session was still linking.
     if (boundSlotId_.has_value() && !controllerAdded_) {
         registerController(pendingControllerType_);
     }
 }
 
+void WifiConnection::onAliveTick() {
+    const auto c = clientRef_.get();
+    if (!c) {
+        if (hooks_.onDead) { hooks_.onDead(); }
+        return;
+    }
+    // Close-notify first: an authenticated SESSION_CLOSE is terminal-now — no
+    // death wait. The manager maps the reason (unpaired drops the key,
+    // replaced stays down, shutdown/kicked re-enter backoff).
+    const auto closeReason = c->sessionCloseReason();
+    if (closeReason >= 0) {
+        if (hooks_.onClose) { hooks_.onClose(static_cast<std::uint8_t>(closeReason)); }
+        return;
+    }
+    if (!c->isAlive()) {
+        if (hooks_.onDead) { hooks_.onDead(); }
+        return;
+    }
+    // Live ⇄ Faltering off the consecutive-miss count (contract §Liveness:
+    // "not responding" at 2, dead at 5 — death is the branch above).
+    const bool faltering = c->missedAcks() >= SatelliteClient::kHeartbeatMissNotResponding;
+    const SessionState want = faltering ? SessionState::Faltering : SessionState::Live;
+    if (state_ != want) {
+        state_ = want;
+        emit changed();
+    }
+    // Latency readout: cache the snapshot rounded to 0.1 ms so the signal only
+    // fires when the displayed value moves. telemetryChanged, not changed —
+    // a cosmetic 1 Hz tick must not run the wholesale UI rebuild.
+    const auto snap = c->latencySnapshot();
+    const double rounded = std::round(snap.oneWayMs * 10.0) / 10.0;
+    if (rounded != latencyOneWayMs_ || snap.samples != latencySamples_) {
+        latencyOneWayMs_ = rounded;
+        latencySamples_ = snap.samples;
+        emit telemetryChanged();
+    }
+    // Reconcile: the enriched ack's epoch/bitmap vs what we last applied.
+    // Single-flight — the manager clears the guard when its GET lands.
+    if (!reconcileInFlight_ && hooks_.reconcile) {
+        std::vector<reducer::DesiredSlot> desired;
+        if (controllerAdded_) {
+            desired.push_back({static_cast<std::uint8_t>(kDefaultCtrlIndex),
+                               static_cast<std::uint8_t>(pendingControllerType_)});
+        }
+        if (reducer::reconcileNeeded(c->serverEpoch(), c->serverBitmap(), lastAppliedEpoch_,
+                                     reducer::expectedBitmap(desired))) {
+            hooks_.reconcile();
+        }
+    }
+}
+
 void WifiConnection::markDisconnected() {
     auto existing = clientRef_.get();
-    // TODO(SessionState::Faltering / LinkState::Unstable): when the native
-    // alive-poll exposes the consecutive-missed-heartbeat count, this is the
-    // transition point that should flip Live → Faltering on a non-zero miss
-    // count (and only collapse to Idle when misses hit the death threshold).
-    // Today the alive-poll's onDead_() callback runs disconnect() directly,
-    // so Faltering / Unstable are defined but never entered.
     if (state_ == SessionState::Idle && !existing) { return; }
     if (aliveTimer_ != nullptr) {
         aliveTimer_->stop();
         aliveTimer_->deleteLater();
         aliveTimer_ = nullptr;
     }
-    if (ackPollTimer_ != nullptr) { ackPollTimer_->stop(); }
     controllerRegistering_ = false;
     if (existing) {
         existing->stopHeartbeat();
@@ -103,6 +154,11 @@ void WifiConnection::markDisconnected() {
     clientRef_.set(nullptr);
     connectionId_.reset();
     controllerAdded_ = false;
+    lastAppliedEpoch_ = -1;
+    reconcileInFlight_ = false;
+    latencyOneWayMs_ = 0.0;
+    latencySamples_ = 0;
+    hooks_ = {};
     state_ = SessionState::Idle;
     emit changed();
 }
@@ -113,80 +169,74 @@ void WifiConnection::attachSlot(const QString& slotId, int controllerType, bool 
     pendingControllerType_ = controllerType;
     lightbarCapable_ = hasLightbar;
     motionCapable_ = hasMotion;
-    if (state_ == SessionState::Live && !controllerAdded_) { registerController(controllerType); }
+    if ((state_ == SessionState::Live || state_ == SessionState::Faltering) && !controllerAdded_) {
+        registerController(controllerType);
+    }
     emit changed();
 }
 
 void WifiConnection::detachSlot() {
     if (!boundSlotId_.has_value()) { return; }
     boundSlotId_.reset();
-    if (controllerAdded_) {
-        if (auto c = clientRef_.get()) { c->controllerRemove(kDefaultCtrlIndex); }
-    }
+    if (controllerAdded_ && hooks_.deleteSlot) { hooks_.deleteSlot(kDefaultCtrlIndex); }
     controllerAdded_ = false;
     emit changed();
 }
 
-void WifiConnection::registerController(int type) {
-    auto c = clientRef_.get();
-    if (!c) { return; }
-    pendingControllerType_ = type;
-    c->resetControllerAck();
-    // Per-controller capability word: the static base (analog triggers,
-    // rumble) plus CAP_MOTION only when the bound pad has a gyro / accel and
-    // CAP_LIGHTBAR only when it has an addressable RGB LED. Mirrors the spec's
-    //   caps = base | (hasMotion ? 0x0004 : 0) | (hasLed ? 0x0008 : 0)
-    const std::uint16_t caps = SatelliteClient::withLightbarCapability(
+std::optional<models::ControllerDescriptor> WifiConnection::desiredDescriptor() const {
+    if (!boundSlotId_.has_value()) { return std::nullopt; }
+    models::ControllerDescriptor desc;
+    desc.ctrlIdx = kDefaultCtrlIndex;
+    desc.type = static_cast<std::uint8_t>(pendingControllerType_);
+    desc.caps = SatelliteClient::withLightbarCapability(
         SatelliteClient::withMotionCapability(kDefaultCaps, motionCapable_), lightbarCapable_);
-    c->controllerAdd(kDefaultCtrlIndex, caps);
-    ackPollCount_ = 0;
+    // Touch only lands on the DS4 profile — a PlayStation-type descriptor
+    // routes the pad's own trackpad; Xbox has no touch surface. The
+    // touchpad-mouse host feature is deferred (no UI), so `mouse` is never
+    // requested here.
+    desc.touchpadMode = desc.type == proto::kControllerTypePlayStation ? proto::kTouchpadModeDs4
+                                                                       : proto::kTouchpadModeOff;
+    return desc;
+}
+
+void WifiConnection::markSlotApplied() {
+    if (boundSlotId_.has_value()) { controllerAdded_ = true; }
+}
+
+void WifiConnection::registerController(int type) {
+    pendingControllerType_ = type;
+    if (!hooks_.putSlot) { return; }
+    const auto desc = desiredDescriptor();
+    if (!desc.has_value()) { return; }
     controllerRegistering_ = true;
-    if (ackPollTimer_ == nullptr) {
-        ackPollTimer_ = new QTimer(this);
-        ackPollTimer_->setInterval(kAckWaitIntervalMs);
-        QObject::connect(ackPollTimer_, &QTimer::timeout, this, &WifiConnection::pollControllerAck);
-    }
-    ackPollTimer_->start();
     emit changed();
-}
-
-void WifiConnection::pollControllerAck() {
-    auto c = clientRef_.get();
-    if (!c) {
+    hooks_.putSlot(*desc, [this](const models::ControllerPutResponse& resp) {
+        controllerRegistering_ = false;
         const auto slotId = boundSlotId_.value_or(QString());
-        finishRegistration();
-        emit errorOccurred(QStringLiteral("Connection dropped before controller acknowledgement"));
-        if (!slotId.isEmpty()) { emit registrationFailed(slotId); }
-        return;
-    }
-    const auto ack = c->lastControllerAck();
-    if (ack == -1) {
-        if (++ackPollCount_ >= kAckWaitAttempts) {
-            const auto slotId = boundSlotId_.value_or(QString());
-            finishRegistration();
-            emit errorOccurred(
-                QStringLiteral("Server did not acknowledge controller add (timeout)"));
-            if (!slotId.isEmpty()) { emit registrationFailed(slotId); }
+        // Terminal 401s were already consumed by the manager's wrapper (key
+        // dropped, session torn) — nothing to converge here.
+        if (resp.unauthorized()) {
+            emit changed();
+            return;
         }
-        return;
-    }
-    const std::uint8_t result = static_cast<std::uint8_t>(ack & 0xFF);
-    if (result == 0x00 /* ACK_OK */) {
-        c->sendControllerType(kDefaultCtrlIndex, pendingControllerType_);
-        controllerAdded_ = true;
-        finishRegistration();
-    } else {
-        const auto slotId = boundSlotId_.value_or(QString());
-        finishRegistration();
-        emit errorOccurred(controllerAckErrorMessage(result));
+        if (!resp.reachable || !resp.controller.has_value()) {
+            emit changed();
+            emit errorOccurred(QStringLiteral("Server did not acknowledge the controller"));
+            if (!slotId.isEmpty()) { emit registrationFailed(slotId); }
+            return;
+        }
+        // replugFailed still counts as live: the PREVIOUS pad stays plugged
+        // and streams keep flowing (appliedType reports what's in force).
+        if (resp.controller->slotIsLive()) {
+            controllerAdded_ = true;
+            setLastAppliedEpoch(resp.epoch);
+            emit changed();
+            return;
+        }
+        emit changed();
+        emit errorOccurred(applyErrorMessage(resp.controller->resultCode));
         if (!slotId.isEmpty()) { emit registrationFailed(slotId); }
-    }
-}
-
-void WifiConnection::finishRegistration() {
-    if (ackPollTimer_ != nullptr) { ackPollTimer_->stop(); }
-    controllerRegistering_ = false;
-    emit changed();
+    });
 }
 
 void WifiConnection::sendReport(std::uint16_t buttons, std::uint8_t lt, std::uint8_t rt,
@@ -212,11 +262,11 @@ void WifiConnection::sendBattery(std::uint8_t level, std::uint8_t status) {
 
 void WifiConnection::sendTouchpad(bool finger0Active, std::uint8_t finger0Id, std::int16_t finger0X,
                                   std::int16_t finger0Y, bool finger1Active, std::uint8_t finger1Id,
-                                  std::int16_t finger1X, std::int16_t finger1Y,
-                                  bool buttonPressed) {
+                                  std::int16_t finger1X, std::int16_t finger1Y, bool buttonPressed,
+                                  std::uint32_t eventTimeMs) {
     if (auto c = clientRef_.get()) {
         c->sendTouchpad(kDefaultCtrlIndex, finger0Active, finger0Id, finger0X, finger0Y,
-                        finger1Active, finger1Id, finger1X, finger1Y, buttonPressed);
+                        finger1Active, finger1Id, finger1X, finger1Y, buttonPressed, eventTimeMs);
     }
 }
 

@@ -6,6 +6,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <QJsonDocument>
+#include <QJsonArray>
 #include <QJsonObject>
 
 using namespace dish::models;
@@ -56,14 +57,77 @@ TEST_CASE("PairResponse parses ok/error/sharedKey", "[models]") {
     REQUIRE(*bad.error == "bad pin");
 }
 
-TEST_CASE("ConnectResponse parses connectionId + token", "[models]") {
-    const auto r =
-        ConnectResponse::fromJson(QJsonObject{{"connectionId", "abc-123"}, {"token", "tok"}});
+TEST_CASE("SessionResponse parses the protocol-1 PUT response", "[models]") {
+    const auto r = SessionResponse::fromJson(QJsonObject{
+        {"connectionId", "abc-123"},
+        {"token", "0a0b0c0d"},
+        {"sessionSalt", "00112233445566aa"},
+        {"epoch", 7},
+        {"maxControllers", 16},
+        {"protocolVersion", 1},
+        {"controllers",
+         QJsonArray{QJsonObject{
+             {"ctrlIdx", 0},
+             {"result", "ok"},
+             {"appliedType", 1},
+             {"motion", QJsonObject{{"sinkSupportedForType", true}, {"backendOk", true}}}}}},
+        {"hostFeatures",
+         QJsonObject{{"mouseControl", QJsonObject{{"granted", false}, {"reason", "denied"}}}}},
+    });
     REQUIRE(r.connectionId.has_value());
     REQUIRE(*r.connectionId == "abc-123");
     REQUIRE(r.token.has_value());
-    REQUIRE(*r.token == "tok");
+    REQUIRE(*r.token == "0a0b0c0d");
+    REQUIRE(r.sessionSalt.has_value());
+    REQUIRE(*r.sessionSalt == "00112233445566aa");
+    REQUIRE(r.epoch == 7);
+    REQUIRE(r.controllers.size() == 1);
+    REQUIRE(r.controllers.first().ok());
+    REQUIRE(r.controllers.first().slotIsLive());
+    REQUIRE(r.controllers.first().appliedType == 1);
+    REQUIRE_FALSE(r.mouseControl.granted);
+    REQUIRE_FALSE(r.unauthorized());
     REQUIRE_FALSE(r.error.has_value());
+}
+
+TEST_CASE("SessionResponse flags terminal 401 codes", "[models]") {
+    for (const auto* code : {"NOT_PAIRED", "BAD_PROOF"}) {
+        const auto r =
+            SessionResponse::fromJson(QJsonObject{{"error", "unauthorized"}, {"code", code}});
+        REQUIRE(r.unauthorized());
+    }
+    const auto other =
+        SessionResponse::fromJson(QJsonObject{{"error", "unauthorized"}, {"code", "THROTTLED"}});
+    REQUIRE_FALSE(other.unauthorized());
+}
+
+TEST_CASE("ControllerApplyDto maps result strings and liveness", "[models]") {
+    const auto replug = ControllerApplyDto::fromJson(
+        QJsonObject{{"ctrlIdx", 0}, {"result", "replugFailed"}, {"appliedType", 0}});
+    REQUIRE_FALSE(replug.ok());
+    REQUIRE(replug.slotIsLive()); // previous pad stays plugged; streams keep flowing
+    const auto noSlots =
+        ControllerApplyDto::fromJson(QJsonObject{{"ctrlIdx", 1}, {"result", "noSlots"}});
+    REQUIRE_FALSE(noSlots.ok());
+    REQUIRE_FALSE(noSlots.slotIsLive());
+    const auto novel =
+        ControllerApplyDto::fromJson(QJsonObject{{"ctrlIdx", 2}, {"result", "somethingNew"}});
+    REQUIRE(novel.resultCode == dish::proto::kApplyUnknown);
+    REQUIRE_FALSE(novel.slotIsLive());
+}
+
+TEST_CASE("ControllerDescriptor emits the wire JSON", "[models]") {
+    ControllerDescriptor d;
+    d.ctrlIdx = 0;
+    d.type = dish::proto::kControllerTypePlayStation;
+    d.caps = dish::proto::kCapAnalogTriggers | dish::proto::kCapRumble | dish::proto::kCapMotion;
+    d.touchpadMode = dish::proto::kTouchpadModeDs4;
+    const auto obj = d.toJson();
+    REQUIRE(obj.value("ctrlIdx").toInt() == 0);
+    REQUIRE(obj.value("type").toInt() == 1);
+    REQUIRE(obj.value("touchpadMode").toString() == "ds4");
+    const auto arr = controllersJson({d});
+    REQUIRE(arr.size() == 1);
 }
 
 TEST_CASE("RememberedWifi round-trips through JSON list", "[models]") {

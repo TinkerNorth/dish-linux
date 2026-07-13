@@ -6,7 +6,11 @@
 #include "SdlMotionConvert.h"
 #include "Util/HostBattery.h"
 
-#include <SDL2/SDL.h>
+// The canonical SDL2 include form: sdl2.pc puts the SDL2/ dir itself on
+// the (system) include path, so <SDL.h> resolves through the -isystem entry
+// on every platform. <SDL2/SDL.h> would resolve via /usr/local/include on
+// macOS as a USER path and leak -Wold-style-cast into SDL's own headers.
+#include <SDL.h>
 
 #include <QLoggingCategory>
 #include <QMetaObject>
@@ -418,6 +422,9 @@ void SDLGamepadBridge::handleTouchpadEvent(const SDL_ControllerTouchpadEvent& ev
     sample.finger1X = state.fingers[1].x;
     sample.finger1Y = state.fingers[1].y;
     sample.buttonPressed = button;
+    // SDL stamps controller events with uptime ms — exactly the u32 the wire
+    // wants; resends of the same state carry the same value.
+    sample.eventTimeMs = ev.timestamp;
     processor_->publishTouchpad(deviceId, sample);
 }
 
