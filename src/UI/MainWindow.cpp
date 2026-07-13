@@ -76,6 +76,7 @@ MainWindow::MainWindow(AppModel* model, QWidget* parent) : QMainWindow(parent), 
                      &MainWindow::showDashboard);
 
     QObject::connect(model_, &AppModel::stateChanged, this, &MainWindow::onStateChanged);
+    QObject::connect(model_, &AppModel::telemetryChanged, this, &MainWindow::rebuildHeader);
     QObject::connect(model_, &AppModel::errorMessage, this, &MainWindow::onError);
 
     onStateChanged();
@@ -173,10 +174,14 @@ void MainWindow::rebuildHeader() {
     const auto& conns = model_->state().connections;
     int live = 0;
     QString firstLabel;
+    QString firstId;
     for (const auto& c : conns) {
-        if (c.live == models::LinkState::Connected) {
+        if (c.live == models::LinkState::Connected || c.live == models::LinkState::Unstable) {
             ++live;
-            if (firstLabel.isEmpty()) { firstLabel = c.label; }
+            if (firstLabel.isEmpty()) {
+                firstLabel = c.label;
+                firstId = c.id;
+            }
         }
     }
     const int total = static_cast<int>(conns.size());
@@ -187,6 +192,12 @@ void MainWindow::rebuildHeader() {
         status = tr("%1 remembered").arg(total);
     } else if (live == 1) {
         status = firstLabel;
+        // One-way latency readout (heartbeat RTT median / 2) beside the
+        // single live connection's name.
+        if (auto* conn = model_->wifi()->get(firstId);
+            conn != nullptr && conn->latencySamples() > 0) {
+            status += tr(" · ~%1 ms").arg(conn->latencyOneWayMs(), 0, 'f', 1);
+        }
     } else {
         status = tr("%1 active connections").arg(live);
     }

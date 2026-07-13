@@ -65,17 +65,17 @@ ConnectionsPage::ConnectionsPage(AppModel* model, QWidget* parent)
     layout->addLayout(row);
 
     {
-        auto* row = new QHBoxLayout;
-        row->setSpacing(6);
+        auto* rememberedRow = new QHBoxLayout;
+        rememberedRow->setSpacing(6);
         auto* glyph = new QLabel(this);
         // REMEMBERED is a list of satellite servers — same brand family as
         // FOUND just above so the two halves of the page read consistently.
         setBrandIcon(glyph, BrandIconKind::Satellite, models::LinkState::Saved, 18);
         auto* rememberedHeader = new QLabel(tr("REMEMBERED"), this);
         rememberedHeader->setStyleSheet(sectionHeaderQss());
-        row->addWidget(glyph, 0, Qt::AlignVCenter);
-        row->addWidget(rememberedHeader, 1, Qt::AlignVCenter);
-        layout->addLayout(row);
+        rememberedRow->addWidget(glyph, 0, Qt::AlignVCenter);
+        rememberedRow->addWidget(rememberedHeader, 1, Qt::AlignVCenter);
+        layout->addLayout(rememberedRow);
     }
 
     rememberedList_ = new QListWidget(this);
@@ -110,6 +110,8 @@ ConnectionsPage::ConnectionsPage(AppModel* model, QWidget* parent)
     QObject::connect(model_->hub(), &net::ConnectionHub::changed, this,
                      &ConnectionsPage::rebuildLists);
     QObject::connect(model_, &AppModel::stateChanged, this, &ConnectionsPage::refreshButtonStates);
+    QObject::connect(model_, &AppModel::telemetryChanged, this,
+                     &ConnectionsPage::refreshTelemetryTags);
 
     rebuildLists();
     refreshButtonStates();
@@ -126,17 +128,58 @@ void ConnectionsPage::rebuildLists() {
     }
     rememberedList_->clear();
     for (const auto& r : model_->wifi()->remembered()) {
-        auto* conn = model_->wifi()->get(r.id);
-        const QString liveTag = (conn != nullptr && conn->state() == net::SessionState::Live)
-                                    ? tr(" • online")
-                                    : QString();
-        auto* item = new QListWidgetItem(
-            QStringLiteral("%1 • %2%3").arg(r.name.isEmpty() ? r.ip : r.name, r.ip, liveTag));
+        auto* item = new QListWidgetItem(rememberedRowText(r));
         item->setData(Qt::UserRole, r.id);
         rememberedList_->addItem(item);
     }
     forgetButton_->setEnabled(rememberedList_->currentItem() != nullptr);
     refreshButtonStates();
+}
+
+QString ConnectionsPage::rememberedRowText(const models::RememberedWifi& r) const {
+    // The state tag mirrors the LinkState chip table in Models.h; latency is
+    // the heartbeat-RTT median halved (Util/LatencyWindow), shown once a
+    // sample exists.
+    models::LinkState link = models::LinkState::Saved;
+    for (const auto& c : model_->state().connections) {
+        if (c.id == r.id) {
+            link = c.live;
+            break;
+        }
+    }
+    QString tag;
+    switch (link) {
+    case models::LinkState::Connected:
+        tag = tr(" • online");
+        break;
+    case models::LinkState::Unstable:
+        tag = tr(" • unsteady");
+        break;
+    case models::LinkState::Connecting:
+        tag = tr(" • connecting…");
+        break;
+    case models::LinkState::Stale:
+        tag = tr(" • needs pairing");
+        break;
+    default:
+        break;
+    }
+    auto* conn = model_->wifi()->get(r.id);
+    if (conn != nullptr && conn->latencySamples() > 0 &&
+        (link == models::LinkState::Connected || link == models::LinkState::Unstable)) {
+        tag += tr(" · ~%1 ms").arg(conn->latencyOneWayMs(), 0, 'f', 1);
+    }
+    return QStringLiteral("%1 • %2%3").arg(r.name.isEmpty() ? r.ip : r.name, r.ip, tag);
+}
+
+void ConnectionsPage::refreshTelemetryTags() {
+    QHash<QString, models::RememberedWifi> byId;
+    for (const auto& r : model_->wifi()->remembered()) { byId.insert(r.id, r); }
+    for (int i = 0; i < rememberedList_->count(); ++i) {
+        auto* item = rememberedList_->item(i);
+        const auto id = item->data(Qt::UserRole).toString();
+        if (byId.contains(id)) { item->setText(rememberedRowText(byId.value(id))); }
+    }
 }
 
 bool ConnectionsPage::connectingForSelection() const {

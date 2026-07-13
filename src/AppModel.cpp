@@ -20,6 +20,8 @@ AppModel::AppModel(std::unique_ptr<util::DisplaySleepInhibitor> inhibitor, QObje
     QObject::connect(hub_, &net::ConnectionHub::changed, this, &AppModel::onHubChanged);
     QObject::connect(bridge_, &input::SDLGamepadBridge::devicesChanged, this,
                      &AppModel::onBridgeDevicesChanged);
+    QObject::connect(wifi_, &net::WifiConnectionManager::poolTelemetryChanged, this,
+                     &AppModel::telemetryChanged);
     QObject::connect(wifi_, &net::WifiConnectionManager::connectionEvent, this,
                      &AppModel::onWifiEvent);
     // poolChanged fires every time a WifiConnection is created or transitions
