@@ -131,7 +131,9 @@ SessionViewDto SessionViewDto::fromJson(const QJsonObject& obj) {
     setIfNonEmpty(r.connectionId, obj, "connectionId");
     r.epoch = intOr(obj, "epoch", 0);
     for (const auto& v : obj.value(QLatin1String("controllers")).toArray()) {
-        if (v.isObject()) { r.controllers.append(SessionViewControllerDto::fromJson(v.toObject())); }
+        if (v.isObject()) {
+            r.controllers.append(SessionViewControllerDto::fromJson(v.toObject()));
+        }
     }
     const auto hf = obj.value(QLatin1String("hostFeatures")).toObject();
     r.mouseControl = HostFeatureGrant::fromJson(hf.value(QLatin1String("mouseControl")).toObject());
@@ -177,8 +179,13 @@ DiscoveredServer RememberedWifi::toDiscovered() const {
 
 QJsonObject RememberedWifi::toJson() const {
     return QJsonObject{
-        {"id", id},           {"name", name},         {"ip", ip},          {"udpPort", udpPort},
-        {"pairPort", pairPort}, {"httpPort", httpPort}, {"machineId", machineId},
+        {"id", id},
+        {"name", name},
+        {"ip", ip},
+        {"udpPort", udpPort},
+        {"pairPort", pairPort},
+        {"httpPort", httpPort},
+        {"machineId", machineId},
     };
 }
 
