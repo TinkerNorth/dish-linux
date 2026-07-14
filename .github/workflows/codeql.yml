@@ -3,7 +3,7 @@ name: CodeQL
 # Source-level static analysis for dish-linux (C++ / Qt6 / SDL2).
 #
 # Pin map (verify with `gh api repos/<owner>/<repo>/git/ref/tags/<tag>`):
-#   actions/checkout         @ v4.2.2  → 11bd71901bbe5b1630ceea73d27597364c9af683
+#   actions/checkout         @ v6.0.2  → de0fac2e4500dabe0009e67214ff5f5447ce83dd
 #   github/codeql-action/*   @ v4.35.4 → 68bde559dea0fdcac2102bfdf6230c5f70eb485e
 
 on:
