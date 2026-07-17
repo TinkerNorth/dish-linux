@@ -29,7 +29,7 @@ inline constexpr int kDefaultPairPort = 9443;
 // Which discovery path surfaced a satellite. mDNS / Bonjour is the modern
 // path; Broadcast is the legacy UDP beacon; Both means it answered on each.
 // Not a wire field — assigned client-side by the discovery merge.
-enum class DiscoverySource { Broadcast, Mdns, Both };
+enum class DiscoverySource : std::uint8_t { Broadcast, Mdns, Both };
 
 // Short human label for the connections list.
 inline QString discoverySourceLabel(DiscoverySource source) {
@@ -245,7 +245,7 @@ QJsonArray controllersJson(const QList<ControllerDescriptor>& descriptors);
 // **Unstable** is now reachable: the alive-poll reads the client's
 // consecutive-missed-ack count and flips Connected → Unstable at 2 misses
 // ("not responding" per contract §Liveness), back on the next ack.
-enum class LinkState { Found, Stale, Saved, Ready, Connecting, Connected, Unstable };
+enum class LinkState : std::uint8_t { Found, Stale, Saved, Ready, Connecting, Connected, Unstable };
 
 struct ConnectionSummary {
     QString id;

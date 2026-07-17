@@ -33,7 +33,7 @@ namespace dish::net {
 //                "not responding" threshold (2) without hitting death (5).
 //                The alive tick flips Live ⇄ Faltering from
 //                SatelliteClient::missedAcks(). UI chip: "Unsteady".
-enum class SessionState { Idle, Linking, Live, Faltering };
+enum class SessionState : std::uint8_t { Idle, Linking, Live, Faltering };
 
 // Thread-safe holder for the live SatelliteClient pointer. Writes from the Qt
 // main thread (markConnected/markDisconnected); reads from the SDL gamepad
@@ -100,7 +100,7 @@ class WifiConnection : public QObject {
 
     void updateServer(const models::DiscoveredServer& s);
     void markConnecting();
-    void markConnected(std::shared_ptr<SatelliteClient> client, const QString& connectionId,
+    void markConnected(const std::shared_ptr<SatelliteClient>& client, const QString& connectionId,
                        int epoch, SessionHooks hooks);
     void markDisconnected();
 

@@ -30,7 +30,7 @@ ConnectionStore::ConnectionStore(std::unique_ptr<QSettings> settings) {
 }
 
 QString ConnectionStore::getOrCreateDeviceId() {
-    const auto existing = settings_->value(QLatin1String(kDeviceIdKey)).toString();
+    auto existing = settings_->value(QLatin1String(kDeviceIdKey)).toString();
     if (!existing.isEmpty()) { return existing; }
     const auto fresh =
         QUuid::createUuid().toString(QUuid::WithoutBraces).remove(QLatin1Char('-')).toLower();
@@ -183,7 +183,7 @@ void ConnectionStore::persist(const QList<models::RememberedWifi>& list) {
 }
 
 std::optional<QString> ConnectionStore::sharedKey(const QString& id) const {
-    const auto v = settings_->value(QLatin1String(kSharedKeyPrefix) + id).toString();
+    auto v = settings_->value(QLatin1String(kSharedKeyPrefix) + id).toString();
     if (v.isEmpty()) { return std::nullopt; }
     return v;
 }
@@ -198,7 +198,7 @@ void ConnectionStore::forgetKey(const QString& id) {
 
 std::optional<QString> ConnectionStore::certPin(const QString& host) const {
     std::lock_guard<std::mutex> lock(pinMtx_);
-    const auto v = settings_->value(QLatin1String(kCertPinPrefix) + host).toString();
+    auto v = settings_->value(QLatin1String(kCertPinPrefix) + host).toString();
     if (v.isEmpty()) { return std::nullopt; }
     return v;
 }

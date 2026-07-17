@@ -20,7 +20,7 @@
 
 namespace dish::net {
 
-enum class TofuVerdict {
+enum class TofuVerdict : std::uint8_t {
     // No pin stored for this id yet — accept and pin (first contact).
     TrustFirstUse,
     // The presented fingerprint equals the stored one (case-insensitive hex).

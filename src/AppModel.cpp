@@ -245,16 +245,16 @@ void AppModel::rebuild() {
     QHash<QString, net::ConnectionHub::TouchpadSender> nextTouchpad;
     for (const auto& slot : state_.slotList) {
         if (auto sender = hub_->reportSenderForSlot(slot.id)) {
-            nextRouting.insert(slot.id, std::move(sender));
+            nextRouting[slot.id] = std::move(sender);
         }
         if (auto sender = hub_->motionSenderForSlot(slot.id)) {
-            nextMotion.insert(slot.id, std::move(sender));
+            nextMotion[slot.id] = std::move(sender);
         }
         if (auto sender = hub_->batterySenderForSlot(slot.id)) {
-            nextBattery.insert(slot.id, std::move(sender));
+            nextBattery[slot.id] = std::move(sender);
         }
         if (auto sender = hub_->touchpadSenderForSlot(slot.id)) {
-            nextTouchpad.insert(slot.id, std::move(sender));
+            nextTouchpad[slot.id] = std::move(sender);
         }
     }
     {

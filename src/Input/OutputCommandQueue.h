@@ -21,7 +21,7 @@ namespace dish::input {
 // SDL_GameController* and calling the SDL function on the receive thread
 // races that close → use-after-free. So the receive thread enqueues an
 // OutputCommand here and the SDL loop drains it.
-enum class OutputKind { Rumble, Lightbar };
+enum class OutputKind : std::uint8_t { Rumble, Lightbar };
 
 struct OutputCommand {
     OutputKind kind = OutputKind::Rumble;

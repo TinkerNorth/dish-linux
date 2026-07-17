@@ -340,14 +340,14 @@ WifiConnection::SessionHooks WifiConnectionManager::makeHooks(const QString& id)
         auto* conn = connections_.value(id, nullptr);
         if (conn == nullptr || !conn->connectionId().has_value()) { return; }
         const auto server = conn->server();
-        http_->putController(server.ip, server.httpPort, *conn->connectionId(), deviceId_,
-                             proofFor(id), desc,
-                             [this, id, cb](const models::ControllerPutResponse& resp) {
-                                 // Centralised terminal-401 check; the
-                                 // connection's callback then no-ops on it.
-                                 if (resp.unauthorized()) { handleTerminalAuth(id, true); }
-                                 cb(resp);
-                             });
+        http_->putController(
+            server.ip, server.httpPort, *conn->connectionId(), deviceId_, proofFor(id), desc,
+            [this, id, cb = std::move(cb)](const models::ControllerPutResponse& resp) {
+                // Centralised terminal-401 check; the
+                // connection's callback then no-ops on it.
+                if (resp.unauthorized()) { handleTerminalAuth(id, true); }
+                cb(resp);
+            });
     };
     hooks.deleteSlot = [this, id](int ctrlIdx) {
         auto* conn = connections_.value(id, nullptr);
@@ -406,11 +406,13 @@ void WifiConnectionManager::handleClose(const QString& id, std::uint8_t reason) 
 
 void WifiConnectionManager::runReconcile(const QString& id) {
     auto* conn = connections_.value(id, nullptr);
-    if (conn == nullptr || !conn->connectionId().has_value()) { return; }
+    if (conn == nullptr) { return; }
+    const auto connectionId = conn->connectionId();
+    if (!connectionId.has_value()) { return; }
     conn->setReconcileInFlight(true);
     const auto server = conn->server();
     http_->getSession(
-        server.ip, server.httpPort, *conn->connectionId(), deviceId_, proofFor(id),
+        server.ip, server.httpPort, *connectionId, deviceId_, proofFor(id),
         [this, id](const models::SessionViewDto& view) {
             auto* c = connections_.value(id, nullptr);
             if (c == nullptr) { return; }

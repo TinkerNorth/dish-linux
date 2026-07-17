@@ -24,12 +24,12 @@ namespace dish::models {
 // the same as INFO/SUCCESS by default — *persistent* banners are explicit
 // opt-in via [DishNotification::Duration::Persistent] (mirrors the dish-android
 // PR that fixed transient ERRORs sticking around forever).
-enum class NotificationSeverity { Info, Success, Warn, Error };
+enum class NotificationSeverity : std::uint8_t { Info, Success, Warn, Error };
 
 // Source axis: a hint for the renderer (icon family + a11y label) and for
 // future filtering. Today everything is rendered the same way; the field is
 // here so the UI can grow per-kind glyphs without a schema change.
-enum class NotificationKind {
+enum class NotificationKind : std::uint8_t {
     Generic,
     Connection, // satellite session / pairing
     Controller, // SDL pad attach/detach, binding

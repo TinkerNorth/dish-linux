@@ -51,7 +51,7 @@ void WifiConnection::markConnecting() {
     emit changed();
 }
 
-void WifiConnection::markConnected(std::shared_ptr<SatelliteClient> client,
+void WifiConnection::markConnected(const std::shared_ptr<SatelliteClient>& client,
                                    const QString& connectionId, int epoch, SessionHooks hooks) {
     if (state_ != SessionState::Linking) { return; }
     clientRef_.set(client);

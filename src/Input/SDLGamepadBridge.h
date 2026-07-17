@@ -20,7 +20,7 @@
 // Mirror SDL2's own typedef so we can keep <SDL.h> out of this header.
 // The leading underscore is dictated by SDL's struct tag, not our choice.
 extern "C" {
-// NOLINTNEXTLINE(bugprone-reserved-identifier)
+// NOLINTNEXTLINE(bugprone-reserved-identifier,cert-dcl37-c,cert-dcl51-cpp)
 struct _SDL_GameController;
 using SDL_GameController = struct _SDL_GameController;
 struct SDL_ControllerSensorEvent;
