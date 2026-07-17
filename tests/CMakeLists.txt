@@ -10,13 +10,8 @@ if(NOT Catch2_FOUND)
         GIT_TAG        v3.5.4)
     FetchContent_MakeAvailable(Catch2)
     list(APPEND CMAKE_MODULE_PATH ${catch2_SOURCE_DIR}/extras)
-    # Catch2's expression-decomposer templates (ITransientExpression, BinaryExpr)
-    # carry virtual functions with a non-virtual destructor by design, which
-    # trips -Wnon-virtual-dtor from dish_warnings at every TEST_CASE. It is a
-    # vendored dependency we can neither edit nor lint, so mark its headers
-    # SYSTEM — the same treatment satellite gives its vendored libs — rather
-    # than dropping -Wnon-virtual-dtor from our own warning set. (A system
-    # Catch2 from the find_package branch is already imported as SYSTEM.)
+    # Catch2's decomposer templates trip -Wnon-virtual-dtor; it's vendored, so mark
+    # its headers SYSTEM rather than dropping the warning from our own set.
     foreach(_catch2_target Catch2 Catch2WithMain)
         if(TARGET ${_catch2_target})
             get_target_property(_catch2_includes ${_catch2_target}

@@ -181,10 +181,7 @@ std::optional<models::DiscoveredServer> parseResponse(const std::uint8_t* p, std
                 const auto eq = entry.find('=');
                 if (eq != std::string::npos) {
                     const std::string key = entry.substr(0, eq);
-                    // Checked parse (cert-err34-c): std::atoi has no error path.
-                    // On a non-numeric value `val` stays 0, so the `val > 0`
-                    // guards below treat it as absent — matching atoi's old
-                    // return-0-on-failure behaviour without the silent UB risk.
+                    // from_chars, not atoi: defined on non-numeric input (val stays 0).
                     int val = 0;
                     std::from_chars(entry.c_str() + eq + 1, entry.c_str() + entry.size(), val);
                     if (key == "udp" && val > 0) { udpPort = val; }

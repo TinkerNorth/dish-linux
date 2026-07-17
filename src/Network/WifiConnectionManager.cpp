@@ -343,8 +343,6 @@ WifiConnection::SessionHooks WifiConnectionManager::makeHooks(const QString& id)
         http_->putController(
             server.ip, server.httpPort, *conn->connectionId(), deviceId_, proofFor(id), desc,
             [this, id, cb = std::move(cb)](const models::ControllerPutResponse& resp) {
-                // Centralised terminal-401 check; the
-                // connection's callback then no-ops on it.
                 if (resp.unauthorized()) { handleTerminalAuth(id, true); }
                 cb(resp);
             });

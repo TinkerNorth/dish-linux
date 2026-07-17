@@ -17,9 +17,6 @@
 
 int main(int argc, char* argv[]) {
     if (sodium_init() < 0) {
-        // Best-effort diagnostic on the fatal path: we are exiting non-zero
-        // regardless, and a failed write to stderr has nowhere left to be
-        // reported, so the return value is deliberately discarded.
         (void)std::fprintf(stderr, "dish: libsodium initialisation failed\n");
         return 1;
     }

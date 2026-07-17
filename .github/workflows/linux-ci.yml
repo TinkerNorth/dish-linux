@@ -19,9 +19,7 @@ jobs:
   ci:
     name: Build, test, lint, format
     runs-on: ubuntu-24.04
-    # Cap the job so a hung build/test/tidy step is reclaimed instead of
-    # burning the full 6h default on this billed private-repo runner. The job
-    # normally finishes in ~6 min; 30 matches satellite's linux-ci lane.
+    # Cap a hung step instead of burning the 6h default on a billed runner.
     timeout-minutes: 30
 
     steps:
