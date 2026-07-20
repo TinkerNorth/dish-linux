@@ -18,10 +18,12 @@
 //
 // Thread-safety:
 //   * sendReport() is called directly from the SDL gamepad thread for minimum
-//     latency and is lock-free except for the duration of one ::sendto.
+//     latency; it holds materialMtx_ only to draw (key, token, counter)
+//     together and sendLock_ only for the one ::sendto.
 //   * Public lifecycle calls (open/close, setConnectionParams, start/stop) are
 //     expected to be invoked from a single owner thread (typically the Qt main
-//     thread).
+//     thread). setConnectionParams MAY run against a live session (proactive
+//     re-key): materialMtx_ makes the material swap atomic vs both loops.
 
 #pragma once
 
@@ -312,16 +314,23 @@ class SatelliteClient {
 
     int sock_ = -1;
     sockaddr_in dest_{};
+    // Session material + both counters live behind materialMtx_: a proactive
+    // re-key swaps them on a LIVE session, and pairing an old key with a fresh
+    // counter (or a stale replay mark with a fresh session) breaks the nonce
+    // invariant. Senders draw (key, token, counter) in one hold and encrypt on
+    // the copies; the receive loop snapshots the same way.
+    mutable std::mutex materialMtx_;
     std::array<std::uint8_t, 4> token_{};
     std::uint32_t tokenBe_ = 0; // token as a host u32 (the 4 raw BE bytes), for the AAD
     std::array<std::uint8_t, 32> key_{};
     // Per-direction send counter, starting at 1 (contract §Crypto). 64-bit so
     // exhaustion parks the sender silent instead of wrapping the 32-bit wire
-    // field into nonce reuse; the send lock serialises the ::sendto, not this.
+    // field into nonce reuse. Atomic for the lock-free sendCounter() poll;
+    // draws pair with the key under materialMtx_.
     util::AtomicCounter sendCounter_{1};
     // Receiver replay guard (server→client direction): drop counter <=
-    // lastRecvCounter_ (first packet exempt while it is 0). The receive loop
-    // is a single thread, so the guard needs no lock.
+    // lastRecvCounter_ (first packet exempt while it is 0). Advanced only by
+    // the receive thread; reset under materialMtx_ by a re-key.
     std::uint32_t lastRecvCounter_ = 0;
     std::mutex sendLock_;
 
