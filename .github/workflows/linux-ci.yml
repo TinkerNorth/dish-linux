@@ -72,10 +72,12 @@ jobs:
             -DDISH_BUILD_TESTS=OFF
           # Build first so generated mocs exist for clang-tidy.
           cmake --build build-tidy --parallel
+          # --warnings-as-errors keeps the sweep-clean check set gated without
+          # forking the fleet-canonical .clang-tidy (WarningsAsErrors: '').
           find src -type f \( -name '*.cpp' -o -name '*.h' \) \
             ! -path 'src/UI/*' \
             -print0 | xargs -0 -n1 -P"$(nproc)" \
-              clang-tidy -p build-tidy --quiet
+              clang-tidy -p build-tidy --quiet --warnings-as-errors='*'
 
       - name: Configure (Release)
         run: cmake -S . -B build-release -G Ninja -DCMAKE_BUILD_TYPE=Release -DDISH_BUILD_TESTS=OFF
