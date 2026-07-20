@@ -60,6 +60,7 @@ void WifiConnection::markConnected(const std::shared_ptr<SatelliteClient>& clien
     hooks_ = std::move(hooks);
     lastAppliedEpoch_ = epoch;
     reconcileInFlight_ = false;
+    rekeyRequested_ = false;
     latencyOneWayMs_ = 0.0;
     latencySamples_ = 0;
 
@@ -135,6 +136,17 @@ void WifiConnection::onAliveTick() {
             hooks_.reconcile();
         }
     }
+    // Proactive re-key before the send counter can exhaust (contract §Crypto:
+    // re-PUT past 0xF0000000). A session that exhausts anyway goes silent in
+    // SatelliteClient and heals via the death-retry re-PUT.
+    if (reducer::counterNeedsRepush(c->sendCounter())) {
+        if (!rekeyRequested_ && hooks_.rekey) {
+            rekeyRequested_ = true;
+            hooks_.rekey();
+        }
+    } else {
+        rekeyRequested_ = false;
+    }
 }
 
 void WifiConnection::markDisconnected() {
@@ -156,6 +168,7 @@ void WifiConnection::markDisconnected() {
     controllerAdded_ = false;
     lastAppliedEpoch_ = -1;
     reconcileInFlight_ = false;
+    rekeyRequested_ = false;
     latencyOneWayMs_ = 0.0;
     latencySamples_ = 0;
     hooks_ = {};

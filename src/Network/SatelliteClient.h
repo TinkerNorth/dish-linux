@@ -26,10 +26,12 @@
 #pragma once
 
 #include "Models/Protocol.h"
+#include "Util/AtomicCounter.h"
 #include "Util/LatencyWindow.h"
 
 #include <netinet/in.h>
 
+#include <algorithm>
 #include <array>
 #include <atomic>
 #include <cstdint>
@@ -280,8 +282,12 @@ class SatelliteClient {
         return sessionCloseReason_.load(std::memory_order_relaxed);
     }
     // Current send counter (next value to use), for the proactive-re-PUT guard
-    // (reducer::counterNeedsRepush).
-    std::uint32_t sendCounter() const { return sendCounter_.load(std::memory_order_relaxed); }
+    // (reducer::counterNeedsRepush). Clamped, not truncated: past exhaustion
+    // the poll must keep reading re-PUT needed, never wrap under the threshold.
+    std::uint32_t sendCounter() const {
+        return static_cast<std::uint32_t>(
+            std::min<std::uint64_t>(sendCounter_.load(), 0xFFFFFFFFu));
+    }
 
     // One-way latency estimate off the heartbeat round trip: median of the
     // sliding RTT window halved + the sample count the UI shows beside the
@@ -309,9 +315,10 @@ class SatelliteClient {
     std::array<std::uint8_t, 4> token_{};
     std::uint32_t tokenBe_ = 0; // token as a host u32 (the 4 raw BE bytes), for the AAD
     std::array<std::uint8_t, 32> key_{};
-    // Per-direction send counter, starting at 1 (contract §Crypto). Plain
-    // atomic increment; the send lock serialises the ::sendto, not this.
-    std::atomic<std::uint32_t> sendCounter_{1};
+    // Per-direction send counter, starting at 1 (contract §Crypto). 64-bit so
+    // exhaustion parks the sender silent instead of wrapping the 32-bit wire
+    // field into nonce reuse; the send lock serialises the ::sendto, not this.
+    util::AtomicCounter sendCounter_{1};
     // Receiver replay guard (server→client direction): drop counter <=
     // lastRecvCounter_ (first packet exempt while it is 0). The receive loop
     // is a single thread, so the guard needs no lock.

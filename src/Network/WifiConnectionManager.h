@@ -111,6 +111,9 @@ class WifiConnectionManager : public QObject {
     void handleDead(const QString& id);
     void handleClose(const QString& id, std::uint8_t reason);
     void runReconcile(const QString& id);
+    // Proactive re-key (contract §Crypto): re-PUT for fresh token/salt/key on
+    // the SAME socket before the send counter can exhaust — no state blip.
+    void runRekey(const QString& id);
     void scheduleRetry(const QString& id);
     void clearRetry(const QString& id) { retry_.remove(id); }
 

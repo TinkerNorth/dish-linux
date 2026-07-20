@@ -356,6 +356,7 @@ WifiConnection::SessionHooks WifiConnectionManager::makeHooks(const QString& id)
                                 [](const models::ControllerPutResponse&) {});
     };
     hooks.reconcile = [this, id] { runReconcile(id); };
+    hooks.rekey = [this, id] { runRekey(id); };
     return hooks;
 }
 
@@ -441,6 +442,68 @@ void WifiConnectionManager::runReconcile(const QString& id) {
             c->markDisconnected();
             c->markConnecting();
             openSession(c, c->server(), ConnectIntent::RetryAfterDeath);
+        });
+}
+
+void WifiConnectionManager::runRekey(const QString& id) {
+    auto* conn = connections_.value(id, nullptr);
+    if (conn == nullptr) { return; }
+    // Faltering still counts as live: REST can be healthy while UDP acks are
+    // lossy, and bailing after the server rotated the token would orphan the
+    // session.
+    if (conn->state() != SessionState::Live && conn->state() != SessionState::Faltering) { return; }
+    const auto client = conn->client();
+    if (!client) { return; }
+    const auto pairingKey = pairingKeyFor(id);
+    if (!pairingKey.has_value()) { return; }
+    const QString proof =
+        QString::fromStdString(wire::computeHmacProof(pairingKey->data(), deviceId_.toStdString()));
+    QList<models::ControllerDescriptor> descriptors;
+    if (const auto desc = conn->desiredDescriptor(); desc.has_value()) {
+        descriptors.append(*desc);
+    }
+    const auto server = conn->server();
+    // Failures stay silent: heartbeat death / terminal-auth already surface
+    // them, and a session that truly exhausts goes silent and self-heals via
+    // the death-retry re-PUT.
+    http_->putSession(
+        server.ip, server.httpPort, deviceId_, deviceName_, proof, descriptors, false,
+        [this, id, client, pairingKey](const models::SessionResponse& resp) {
+            if (resp.unauthorized()) {
+                handleTerminalAuth(id, false);
+                return;
+            }
+            auto* c = connections_.value(id, nullptr);
+            if (c == nullptr) { return; }
+            // A death+reconnect during the PUT flight replaced the session —
+            // applying the stale material would re-arm the dead client and
+            // stamp a stale epoch onto the new session.
+            if (c->state() != SessionState::Live && c->state() != SessionState::Faltering) {
+                return;
+            }
+            if (c->client() != client) { return; }
+            if (!resp.reachable || !resp.token.has_value() || !resp.sessionSalt.has_value()) {
+                return;
+            }
+            const auto tok = util::fromHex(resp.token->toStdString());
+            const auto salt = util::fromHex(resp.sessionSalt->toStdString());
+            if (!tok || tok->size() != 4 || !salt || salt->size() != wire::kSessionSaltSize) {
+                return;
+            }
+            std::array<std::uint8_t, 4> token{};
+            std::copy_n(tok->begin(), 4, token.begin());
+            std::array<std::uint8_t, wire::kSessionSaltSize> saltArr{};
+            std::copy_n(salt->begin(), wire::kSessionSaltSize, saltArr.begin());
+            std::array<std::uint8_t, 32> sessionKey{};
+            wire::deriveSessionKey(pairingKey->data(), saltArr.data(), tokenToU32(token),
+                                   sessionKey.data());
+            // Same socket, fresh token/key, counters restart at 1 — the hot
+            // path never blips. connectionId is stable across PUTs (contract
+            // §Session), so the id and slot state carry over.
+            client->setConnectionParams(token, sessionKey);
+            // Adopt the re-PUT's epoch so the next enriched ack doesn't read
+            // as drift.
+            c->setLastAppliedEpoch(resp.epoch);
         });
 }
 

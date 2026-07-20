@@ -88,7 +88,7 @@ void SatelliteClient::setConnectionParams(const std::array<std::uint8_t, 4>& tok
     key_ = sessionKey;
     // Counters restart at 1 every PUT (no cross-session nonce reuse); recv
     // guard resets so the first server packet is accepted.
-    sendCounter_.store(1, std::memory_order_relaxed);
+    sendCounter_.reset(1);
     lastRecvCounter_ = 0;
     missedAcks_.store(0, std::memory_order_relaxed);
     connectionAlive_.store(true, std::memory_order_relaxed);
@@ -236,9 +236,12 @@ void SatelliteClient::sendEncrypted(std::uint16_t msgType, const std::uint8_t* p
     putU16Be(inner.data() + 2, static_cast<std::uint16_t>(len));
     if (len > 0) { std::memcpy(inner.data() + 4, payload, len); }
 
-    // Monotonic per-direction counter, starting at 1; never wraps (the session
-    // self-heals via re-PUT before exhaustion — see WifiConnectionManager).
-    const std::uint32_t ctr = sendCounter_.fetch_add(1, std::memory_order_relaxed);
+    // Never wrap (contract §Crypto): a second plaintext under one (key, nonce)
+    // leaks keystream, so past 2^32-1 the session goes silent instead — the
+    // proactive re-key (alive tick → counterNeedsRepush) re-PUTs long before.
+    const std::uint64_t seq = sendCounter_.next();
+    if (seq > 0xFFFFFFFFu) { return; }
+    const auto ctr = static_cast<std::uint32_t>(seq);
 
     // Packet: token(4) | counter(4 BE) | ciphertext+tag. The AEAD nonce
     // (dir|0×7|counter) and AAD (token BE) are built inside wire::encryptPacket.
