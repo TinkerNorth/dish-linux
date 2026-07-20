@@ -181,7 +181,9 @@ std::optional<models::DiscoveredServer> parseResponse(const std::uint8_t* p, std
                 const auto eq = entry.find('=');
                 if (eq != std::string::npos) {
                     const std::string key = entry.substr(0, eq);
-                    // from_chars, not atoi: defined on non-numeric input (val stays 0).
+                    // from_chars, not atoi: defined on non-numeric input (val
+                    // stays 0) and intentionally stricter — no leading
+                    // whitespace/'+' (the responder emits bare digits).
                     int val = 0;
                     std::from_chars(entry.c_str() + eq + 1, entry.c_str() + entry.size(), val);
                     if (key == "udp" && val > 0) { udpPort = val; }
