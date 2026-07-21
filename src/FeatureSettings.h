@@ -8,6 +8,7 @@
 #include <QString>
 
 #include <atomic>
+#include <cstdint>
 #include <memory>
 
 namespace dish {
@@ -18,7 +19,7 @@ namespace dish {
 // "off") and dish-mac's LightbarMode. Dish has no custom-colour picker — a
 // forwarder reflects what the host game sets — so the meaningful axis is just
 // follow-vs-off.
-enum class LightbarMode {
+enum class LightbarMode : std::uint8_t {
     // Apply the colour the host game writes (forwarded via MSG_LIGHTBAR).
     FollowGame,
     // Ignore the host colour; leave the controller's light bar untouched.

@@ -13,9 +13,9 @@
 #include <QSet>
 
 #include <algorithm>
+#include <charconv>
 #include <chrono>
 #include <cstdint>
-#include <cstdlib>
 #include <cstring>
 #include <optional>
 #include <string>
@@ -181,7 +181,11 @@ std::optional<models::DiscoveredServer> parseResponse(const std::uint8_t* p, std
                 const auto eq = entry.find('=');
                 if (eq != std::string::npos) {
                     const std::string key = entry.substr(0, eq);
-                    const int val = std::atoi(entry.c_str() + eq + 1);
+                    // from_chars, not atoi: defined on non-numeric input (val
+                    // stays 0) and intentionally stricter — no leading
+                    // whitespace/'+' (the responder emits bare digits).
+                    int val = 0;
+                    std::from_chars(entry.c_str() + eq + 1, entry.c_str() + entry.size(), val);
                     if (key == "udp" && val > 0) { udpPort = val; }
                     if (key == "pair" && val > 0) { pairPort = val; }
                     if (key == "http" && val > 0) { httpPort = val; }

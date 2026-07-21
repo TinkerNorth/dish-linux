@@ -15,7 +15,7 @@
 namespace dish::reducer {
 
 // What a REST exchange means to the caller, independent of which route it was.
-enum class RestVerdict {
+enum class RestVerdict : std::uint8_t {
     Ok,              // 2xx with the fields we need
     Unauthorized,    // 401 NOT_PAIRED|BAD_PROOF — TERMINAL: drop key, re-pair
     VersionMismatch, // 409 — TERMINAL: client/server protocol skew

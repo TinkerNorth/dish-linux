@@ -15,7 +15,7 @@
 namespace dish::reducer {
 
 // What the session layer does after an authenticated close-notify.
-enum class CloseAction {
+enum class CloseAction : std::uint8_t {
     DropKeyRePair, // unpaired: trust revoked — drop the stored key, surface re-pair, STOP retrying
     StayDown,      // replaced: a newer PUT already owns the session — do nothing further
     RetryBackoff,  // shutdown / kicked: transient — reconnect on the exponential backoff curve
