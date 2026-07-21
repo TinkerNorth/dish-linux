@@ -10,6 +10,18 @@ if(NOT Catch2_FOUND)
         GIT_TAG        v3.5.4)
     FetchContent_MakeAvailable(Catch2)
     list(APPEND CMAKE_MODULE_PATH ${catch2_SOURCE_DIR}/extras)
+    # Catch2's decomposer templates trip -Wnon-virtual-dtor; it's vendored, so mark
+    # its headers SYSTEM rather than dropping the warning from our own set.
+    foreach(_catch2_target Catch2 Catch2WithMain)
+        if(TARGET ${_catch2_target})
+            get_target_property(_catch2_includes ${_catch2_target}
+                INTERFACE_INCLUDE_DIRECTORIES)
+            if(_catch2_includes)
+                set_target_properties(${_catch2_target} PROPERTIES
+                    INTERFACE_SYSTEM_INCLUDE_DIRECTORIES "${_catch2_includes}")
+            endif()
+        endif()
+    endforeach()
 endif()
 
 include(Catch)
@@ -35,6 +47,8 @@ set(DISH_TEST_SOURCES
     test_satellite_client_motion.cpp
     test_satellite_client_touchpad.cpp
     test_satellite_client_lightbar.cpp
+    test_satellite_client_send_counter.cpp
+    test_wifi_connection_rekey.cpp
     test_output_command_queue.cpp
     test_lightbar_routing.cpp
     test_feature_settings.cpp

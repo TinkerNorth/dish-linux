@@ -75,7 +75,7 @@ std::string computeHmacProof(const std::uint8_t pairingKey[kCryptoKeySize],
     char hex[crypto_auth_hmacsha256_BYTES * 2 + 1];
     sodium_bin2hex(hex, sizeof(hex), mac, sizeof(mac));
     sodium_memzero(mac, sizeof(mac));
-    return std::string(hex);
+    return {hex};
 }
 
 bool verifyHmacProof(const std::uint8_t pairingKey[kCryptoKeySize], const std::string& deviceId,

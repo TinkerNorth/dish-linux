@@ -54,7 +54,7 @@ if [ "$TIDY" -eq 1 ]; then
     # tidy gate; Darwin runs it advisory.
     TIDY_RC=0
     find src -type f \( -name '*.cpp' -o -name '*.h' \) ! -path 'src/UI/*' -print0 |
-      xargs -0 -n1 -P"${NPROC}" clang-tidy -p build-tidy --quiet || TIDY_RC=$?
+      xargs -0 -n1 -P"${NPROC}" clang-tidy -p build-tidy --quiet --warnings-as-errors='*' || TIDY_RC=$?
     if [ "$TIDY_RC" -ne 0 ]; then
       if [ "$(uname -s)" = "Darwin" ]; then
         echo "::notice:: clang-tidy reported issues (advisory on macOS — Linux CI gates this)."

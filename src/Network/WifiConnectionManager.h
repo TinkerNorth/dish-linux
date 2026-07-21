@@ -18,7 +18,7 @@
 
 namespace dish::net {
 
-enum class ConnectionEventKind { PairingRequired, Error };
+enum class ConnectionEventKind : std::uint8_t { PairingRequired, Error };
 
 struct ConnectionEvent {
     ConnectionEventKind kind;
@@ -29,7 +29,7 @@ struct ConnectionEvent {
 // Why this connect was initiated. Drives the toast policy (only user-initiated
 // failures are loud) and the backoff bookkeeping (user intent resets it).
 // Mirrors dish-android's ConnectIntent / dish-windows' session coordinator.
-enum class ConnectIntent { UserInitiated, AutoReconnect, RetryAfterDeath };
+enum class ConnectIntent : std::uint8_t { UserInitiated, AutoReconnect, RetryAfterDeath };
 
 // Owns the pool of live + remembered WiFi sessions. Each session runs its own
 // native socket, heartbeat and receive loop so multiple servers can be active
@@ -111,6 +111,9 @@ class WifiConnectionManager : public QObject {
     void handleDead(const QString& id);
     void handleClose(const QString& id, std::uint8_t reason);
     void runReconcile(const QString& id);
+    // Proactive re-key (contract §Crypto): re-PUT for fresh token/salt/key on
+    // the SAME socket before the send counter can exhaust — no state blip.
+    void runRekey(const QString& id);
     void scheduleRetry(const QString& id);
     void clearRetry(const QString& id) { retry_.remove(id); }
 

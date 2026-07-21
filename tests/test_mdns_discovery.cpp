@@ -197,6 +197,27 @@ TEST_CASE("parseResponse takes the UDP port from SRV when TXT is absent", "[mdns
     CHECK(out->httpPort == 9443); // client API default (HTTPS)
 }
 
+TEST_CASE("parseResponse TXT port parse is strict: bare digits only", "[mdns]") {
+    // from_chars is intentionally stricter than the atoi it replaced: leading
+    // whitespace and an explicit '+' are rejected (value falls back to the
+    // default), while a trailing suffix still parses its numeric prefix —
+    // matching atoi there. The live responder emits bare std::to_string
+    // digits (satellite/src/net/mdns_responder.cpp), so nothing real is lost.
+    const auto udpPortFor = [](const std::string& txtEntry) {
+        auto pkt = responseHeader(2);
+        appendRr(pkt, "sat._satellite._udp.local", 16, txtRdata({txtEntry}));
+        appendRr(pkt, "sat.local", 1, {10, 0, 0, 7});
+        const auto out = detail::parseResponse(pkt.data(), pkt.size());
+        REQUIRE(out.has_value());
+        return out->udpPort;
+    };
+    CHECK(udpPortFor("udp=41000") == 41000);  // bare digits parse
+    CHECK(udpPortFor("udp= 41000") == 9876);  // leading whitespace → default
+    CHECK(udpPortFor("udp=+41000") == 9876);  // explicit '+' → default
+    CHECK(udpPortFor("udp=41000x") == 41000); // numeric prefix parses (atoi parity)
+    CHECK(udpPortFor("udp=") == 9876);        // empty value → default
+}
+
 TEST_CASE("parseResponse rejects a packet with no A record", "[mdns]") {
     auto pkt = responseHeader(1);
     appendRr(pkt, "sat._satellite._udp.local", 33, srvRdata(9876, "sat.local"));

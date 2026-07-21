@@ -17,7 +17,7 @@
 
 int main(int argc, char* argv[]) {
     if (sodium_init() < 0) {
-        std::fprintf(stderr, "dish: libsodium initialisation failed\n");
+        (void)std::fprintf(stderr, "dish: libsodium initialisation failed\n");
         return 1;
     }
 

@@ -83,13 +83,16 @@ void SatelliteClient::closeSocket() {
 
 void SatelliteClient::setConnectionParams(const std::array<std::uint8_t, 4>& token,
                                           const std::array<std::uint8_t, 32>& sessionKey) {
-    token_ = token;
-    tokenBe_ = util::readU32Be(token.data()); // the 4 raw token bytes are already big-endian
-    key_ = sessionKey;
-    // Counters restart at 1 every PUT (no cross-session nonce reuse); recv
-    // guard resets so the first server packet is accepted.
-    sendCounter_.store(1, std::memory_order_relaxed);
-    lastRecvCounter_ = 0;
+    {
+        std::lock_guard<std::mutex> lock(materialMtx_);
+        token_ = token;
+        tokenBe_ = util::readU32Be(token.data()); // the 4 raw token bytes are already big-endian
+        key_ = sessionKey;
+        // Counters restart at 1 every PUT (no cross-session nonce reuse); recv
+        // guard resets so the first server packet is accepted.
+        sendCounter_.reset(1);
+        lastRecvCounter_ = 0;
+    }
     missedAcks_.store(0, std::memory_order_relaxed);
     connectionAlive_.store(true, std::memory_order_relaxed);
     serverEpoch_.store(-1, std::memory_order_relaxed);
@@ -236,18 +239,33 @@ void SatelliteClient::sendEncrypted(std::uint16_t msgType, const std::uint8_t* p
     putU16Be(inner.data() + 2, static_cast<std::uint16_t>(len));
     if (len > 0) { std::memcpy(inner.data() + 4, payload, len); }
 
-    // Monotonic per-direction counter, starting at 1; never wraps (the session
-    // self-heals via re-PUT before exhaustion — see WifiConnectionManager).
-    const std::uint32_t ctr = sendCounter_.fetch_add(1, std::memory_order_relaxed);
+    // One hold draws key, token and counter together: a re-key swapping
+    // mid-send can never pair an old key with a fresh counter.
+    std::array<std::uint8_t, 4> token{};
+    std::uint32_t tokenBe = 0;
+    std::array<std::uint8_t, 32> key{};
+    std::uint64_t seq = 0;
+    {
+        std::lock_guard<std::mutex> lock(materialMtx_);
+        token = token_;
+        tokenBe = tokenBe_;
+        key = key_;
+        seq = sendCounter_.next();
+    }
+    // Never wrap (contract §Crypto): a second plaintext under one (key, nonce)
+    // leaks keystream, so past 2^32-1 the session goes silent instead — the
+    // proactive re-key (alive tick → counterNeedsRepush) re-PUTs long before.
+    if (seq > 0xFFFFFFFFu) { return; }
+    const auto ctr = static_cast<std::uint32_t>(seq);
 
     // Packet: token(4) | counter(4 BE) | ciphertext+tag. The AEAD nonce
     // (dir|0×7|counter) and AAD (token BE) are built inside wire::encryptPacket.
     std::vector<std::uint8_t> packet(kHeaderSize + innerLen + kAuthTag);
-    std::memcpy(packet.data(), token_.data(), 4);
+    std::memcpy(packet.data(), token.data(), 4);
     putU32Be(packet.data() + 4, ctr);
 
     unsigned long long cipherLen = 0;
-    if (!wire::encryptPacket(key_.data(), wire::kDirClientToServer, ctr, tokenBe_, inner.data(),
+    if (!wire::encryptPacket(key.data(), wire::kDirClientToServer, ctr, tokenBe, inner.data(),
                              inner.size(), packet.data() + kHeaderSize, &cipherLen)) {
         return;
     }
@@ -327,20 +345,37 @@ void SatelliteClient::receiveLoop() {
 
 void SatelliteClient::processIncoming(const std::uint8_t* buf, std::size_t n) {
     if (n < kHeaderSize + kAuthTag) { return; }
-    if (std::memcmp(buf, token_.data(), 4) != 0) { return; }
+    // Snapshot the material + replay mark in one hold (re-key swaps them).
+    std::array<std::uint8_t, 4> token{};
+    std::uint32_t tokenBe = 0;
+    std::array<std::uint8_t, 32> key{};
+    std::uint32_t lastRecv = 0;
+    {
+        std::lock_guard<std::mutex> lock(materialMtx_);
+        token = token_;
+        tokenBe = tokenBe_;
+        key = key_;
+        lastRecv = lastRecvCounter_;
+    }
+    if (std::memcmp(buf, token.data(), 4) != 0) { return; }
 
     const std::uint32_t counter = util::readU32Be(buf + 4);
     // Per-direction replay guard (server→client): drop counter <= last seen
     // (first packet exempt while lastRecvCounter_ == 0).
-    if (lastRecvCounter_ != 0 && counter <= lastRecvCounter_) { return; }
+    if (lastRecv != 0 && counter <= lastRecv) { return; }
 
     std::vector<std::uint8_t> plain(n - kHeaderSize);
     unsigned long long plainLen = 0;
-    if (!wire::decryptPacket(key_.data(), wire::kDirServerToClient, counter, tokenBe_,
+    if (!wire::decryptPacket(key.data(), wire::kDirServerToClient, counter, tokenBe,
                              buf + kHeaderSize, n - kHeaderSize, plain.data(), &plainLen)) {
         return;
     }
-    lastRecvCounter_ = counter;
+    {
+        // Advance the mark only if no re-key raced the decrypt (only this
+        // thread advances it, so an unchanged value means same session).
+        std::lock_guard<std::mutex> lock(materialMtx_);
+        if (lastRecvCounter_ == lastRecv) { lastRecvCounter_ = counter; }
+    }
     if (plainLen < 4) { return; }
     const std::uint16_t msgType = readU16Be(plain.data());
     // Inner payload starts after the 4-byte type+length header.

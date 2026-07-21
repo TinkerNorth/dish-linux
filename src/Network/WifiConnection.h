@@ -33,7 +33,7 @@ namespace dish::net {
 //                "not responding" threshold (2) without hitting death (5).
 //                The alive tick flips Live ⇄ Faltering from
 //                SatelliteClient::missedAcks(). UI chip: "Unsteady".
-enum class SessionState { Idle, Linking, Live, Faltering };
+enum class SessionState : std::uint8_t { Idle, Linking, Live, Faltering };
 
 // Thread-safe holder for the live SatelliteClient pointer. Writes from the Qt
 // main thread (markConnected/markDisconnected); reads from the SDL gamepad
@@ -86,6 +86,10 @@ class WifiConnection : public QObject {
         // Enriched-ack epoch/bitmap drifted from what we applied — manager
         // runs the GET-then-converge reconcile (single-flight guarded here).
         std::function<void()> reconcile;
+        // Send counter crossed the proactive re-PUT threshold — manager
+        // re-PUTs for fresh token/salt/key before the counter can exhaust
+        // (single-fire per approach, guarded here).
+        std::function<void()> rekey;
     };
 
     WifiConnection(QString id, models::DiscoveredServer server, QObject* parent = nullptr);
@@ -100,7 +104,7 @@ class WifiConnection : public QObject {
 
     void updateServer(const models::DiscoveredServer& s);
     void markConnecting();
-    void markConnected(std::shared_ptr<SatelliteClient> client, const QString& connectionId,
+    void markConnected(const std::shared_ptr<SatelliteClient>& client, const QString& connectionId,
                        int epoch, SessionHooks hooks);
     void markDisconnected();
 
@@ -185,6 +189,10 @@ class WifiConnection : public QObject {
     void registrationFailed(const QString& slotId);
 
   private:
+    // Test-only seam so the rekey wiring is drivable without the 1 Hz timer.
+    // Declared but never defined in production (SatelliteClient pattern).
+    friend class WifiConnectionTestAccess;
+
     static constexpr int kDefaultCtrlIndex = 0;
     // Base capability word in the descriptor: analog triggers (0x0001) |
     // rumble (0x0002). CAP_MOTION / CAP_LIGHTBAR are per-controller and OR-ed
@@ -209,6 +217,10 @@ class WifiConnection : public QObject {
     int pendingControllerType_ = 0;
     int lastAppliedEpoch_ = -1;
     bool reconcileInFlight_ = false;
+    // Single-fire latch for hooks_.rekey: re-armed only once the re-key lands
+    // (the fresh counter drops back under the threshold), so a slow/failed
+    // re-PUT is not re-requested every tick.
+    bool rekeyRequested_ = false;
     // Whether the bound slot's physical pad has an addressable RGB LED /
     // gyro+accel. Set by attachSlot; consumed by desiredDescriptor().
     bool lightbarCapable_ = false;
