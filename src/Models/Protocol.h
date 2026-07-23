@@ -61,6 +61,8 @@ inline constexpr std::uint16_t kCapLightbar = 0x0008;
 // ── Controller types (catalog ids / descriptor `type`) ──────────────────────
 inline constexpr std::uint8_t kControllerTypeXbox = 0;
 inline constexpr std::uint8_t kControllerTypePlayStation = 1;
+inline constexpr std::uint8_t kControllerTypeDualSense = 2;
+inline constexpr std::uint8_t kControllerTypeSwitchPro = 3;
 
 // ── Touchpad routing modes (descriptor `touchpadMode`, wire strings) ─────────
 inline constexpr std::uint8_t kTouchpadModeDs4 = 0;

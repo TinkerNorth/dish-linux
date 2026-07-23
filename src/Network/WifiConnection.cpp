@@ -82,9 +82,7 @@ void WifiConnection::markConnected(const std::shared_ptr<SatelliteClient>& clien
     // The session PUT that produced this connection already carried the bound
     // slot's descriptor (the manager marks it applied); this converge only
     // fires when a slot was attached while the session was still linking.
-    if (boundSlotId_.has_value() && !controllerAdded_) {
-        registerController(pendingControllerType_);
-    }
+    if (boundSlotId_.has_value() && !controllerAdded_) { registerController(); }
 }
 
 void WifiConnection::onAliveTick() {
@@ -128,8 +126,8 @@ void WifiConnection::onAliveTick() {
     if (!reconcileInFlight_ && hooks_.reconcile) {
         std::vector<reducer::DesiredSlot> desired;
         if (controllerAdded_) {
-            desired.push_back({static_cast<std::uint8_t>(kDefaultCtrlIndex),
-                               static_cast<std::uint8_t>(pendingControllerType_)});
+            desired.push_back(
+                {static_cast<std::uint8_t>(kDefaultCtrlIndex), selectedControllerType()});
         }
         if (reducer::reconcileNeeded(c->serverEpoch(), c->serverBitmap(), lastAppliedEpoch_,
                                      reducer::expectedBitmap(desired))) {
@@ -176,16 +174,24 @@ void WifiConnection::markDisconnected() {
     emit changed();
 }
 
-void WifiConnection::attachSlot(const QString& slotId, int controllerType, bool hasLightbar,
-                                bool hasMotion) {
+void WifiConnection::attachSlot(const QString& slotId, bool hasLightbar, bool hasMotion) {
     boundSlotId_ = slotId;
-    pendingControllerType_ = controllerType;
     lightbarCapable_ = hasLightbar;
     motionCapable_ = hasMotion;
     if ((state_ == SessionState::Live || state_ == SessionState::Faltering) && !controllerAdded_) {
-        registerController(controllerType);
+        registerController();
     }
     emit changed();
+}
+
+void WifiConnection::setCatalog(const models::ServerCatalog& catalog) {
+    catalog_ = catalog;
+    catalogFetched_ = true;
+}
+
+std::uint8_t WifiConnection::selectedControllerType() const {
+    if (catalog_.isEmpty()) { return proto::kControllerTypeXbox; }
+    return static_cast<std::uint8_t>(catalog_.controllerTypes.first().id);
 }
 
 void WifiConnection::detachSlot() {
@@ -200,15 +206,13 @@ std::optional<models::ControllerDescriptor> WifiConnection::desiredDescriptor() 
     if (!boundSlotId_.has_value()) { return std::nullopt; }
     models::ControllerDescriptor desc;
     desc.ctrlIdx = kDefaultCtrlIndex;
-    desc.type = static_cast<std::uint8_t>(pendingControllerType_);
+    desc.type = selectedControllerType();
     desc.caps = SatelliteClient::withLightbarCapability(
         SatelliteClient::withMotionCapability(kDefaultCaps, motionCapable_), lightbarCapable_);
-    // Touch only lands on the DS4 profile — a PlayStation-type descriptor
-    // routes the pad's own trackpad; Xbox has no touch surface. The
-    // touchpad-mouse host feature is deferred (no UI), so `mouse` is never
-    // requested here.
-    desc.touchpadMode = desc.type == proto::kControllerTypePlayStation ? proto::kTouchpadModeDs4
-                                                                       : proto::kTouchpadModeOff;
+    // Touch routes as DS4 only when the chosen catalog type advertises that mode.
+    desc.touchpadMode = (!catalog_.isEmpty() && catalog_.controllerTypes.first().touchpadDs4)
+                            ? proto::kTouchpadModeDs4
+                            : proto::kTouchpadModeOff;
     return desc;
 }
 
@@ -216,8 +220,7 @@ void WifiConnection::markSlotApplied() {
     if (boundSlotId_.has_value()) { controllerAdded_ = true; }
 }
 
-void WifiConnection::registerController(int type) {
-    pendingControllerType_ = type;
+void WifiConnection::registerController() {
     if (!hooks_.putSlot) { return; }
     const auto desc = desiredDescriptor();
     if (!desc.has_value()) { return; }

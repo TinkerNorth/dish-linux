@@ -128,6 +128,64 @@ TEST_CASE("ControllerDescriptor emits the wire JSON", "[models]") {
     REQUIRE(obj.value("touchpadMode").toString() == "ds4");
     const auto arr = controllersJson({d});
     REQUIRE(arr.size() == 1);
+
+    ControllerDescriptor ds;
+    ds.type = dish::proto::kControllerTypeDualSense;
+    ds.touchpadMode = dish::proto::kTouchpadModeDs4;
+    const auto dsObj = ds.toJson();
+    REQUIRE(dsObj.value("type").toInt() == 2);
+    REQUIRE(dsObj.value("touchpadMode").toString() == "ds4");
+
+    ControllerDescriptor sp;
+    sp.type = dish::proto::kControllerTypeSwitchPro;
+    sp.touchpadMode = dish::proto::kTouchpadModeOff;
+    const auto spObj = sp.toJson();
+    REQUIRE(spObj.value("type").toInt() == 3);
+    REQUIRE(spObj.value("touchpadMode").toString() == "off");
+}
+
+TEST_CASE("ServerCatalog parses controller types and the ds4 touchpad mode", "[models]") {
+    const auto touchpadDs4 =
+        QJsonObject{{"touchpad", QJsonObject{{"supported", true}, {"modes", QJsonArray{"ds4"}}}}};
+    const auto noTouchpad = QJsonObject{{"touchpad", QJsonObject{{"supported", false}}}};
+    const auto obj = QJsonObject{
+        {"controllerTypes",
+         QJsonArray{
+             QJsonObject{{"id", 0}, {"slug", "xbox360"}, {"features", noTouchpad}},
+             QJsonObject{{"id", 1}, {"slug", "ds4"}, {"features", touchpadDs4}},
+             QJsonObject{{"id", 2}, {"slug", "dualsense"}, {"features", touchpadDs4}},
+             QJsonObject{{"id", 3}, {"slug", "switchpro"}, {"features", noTouchpad}},
+         }},
+    };
+    const auto cat = ServerCatalog::fromJson(obj);
+    REQUIRE(cat.controllerTypes.size() == 4);
+    CHECK(cat.controllerTypes[0].id == 0);
+    CHECK_FALSE(cat.controllerTypes[0].touchpadDs4); // xbox360: no touch surface
+    CHECK(cat.controllerTypes[1].id == 1);
+    CHECK(cat.controllerTypes[1].touchpadDs4);
+    CHECK(cat.controllerTypes[2].touchpadDs4);
+    CHECK_FALSE(cat.controllerTypes[3].touchpadDs4); // switch pro: no touchpad
+}
+
+TEST_CASE("ServerCatalog tolerates an emulates block and empty input", "[models]") {
+    const auto obj = QJsonObject{
+        {"controllerTypes",
+         QJsonArray{QJsonObject{
+             {"id", 1},
+             {"slug", "ds4"},
+             // A future physical-pad matcher will read this; the thin client ignores it.
+             {"emulates",
+              QJsonObject{{"sdlType", "ps4"},
+                          {"usb", QJsonArray{QJsonObject{{"vid", 1356}, {"pid", 1476}}}}}},
+             {"features", QJsonObject{{"touchpad", QJsonObject{{"supported", true},
+                                                               {"modes", QJsonArray{"ds4"}}}}}}}}},
+    };
+    const auto cat = ServerCatalog::fromJson(obj);
+    REQUIRE(cat.controllerTypes.size() == 1);
+    CHECK(cat.controllerTypes.first().id == 1);
+    CHECK(cat.controllerTypes.first().touchpadDs4);
+
+    CHECK(ServerCatalog::fromJson(QJsonObject{}).isEmpty());
 }
 
 TEST_CASE("RememberedWifi round-trips through JSON list", "[models]") {
