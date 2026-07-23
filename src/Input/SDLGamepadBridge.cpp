@@ -78,18 +78,22 @@ constexpr std::chrono::seconds kBatteryPollInterval{30};
 // receiver uses it to pick a virtual DualShock 4 / DualSense profile.
 constexpr std::uint8_t kControllerTypeXbox = 0;
 constexpr std::uint8_t kControllerTypePlayStation = 1;
+constexpr std::uint8_t kControllerTypeDualSense = 2;
+constexpr std::uint8_t kControllerTypeSwitchPro = 3;
 
-// Map SDL2's negotiated SDL_GameControllerType to the satellite's two-value
-// cosmetic type. SDL distinguishes PS3 / PS4 / PS5 pads; all three are
-// "PlayStation" on the wire. Everything else — Xbox 360 / Xbox One / Switch
-// Pro / generic — falls back to Xbox, matching the protocol's instruction to
-// treat anything outside the documented set as Xbox.
+// Map SDL2's negotiated SDL_GameControllerType to the satellite's cosmetic
+// type. PS3 / PS4 are "PlayStation" (DS4); PS5 and Switch Pro each carry their
+// own type so the receiver can pick a matching virtual pad. Everything else —
+// Xbox 360 / Xbox One / generic — falls back to Xbox.
 std::uint8_t sdlTypeToControllerType(SDL_GameControllerType type) {
     switch (type) {
     case SDL_CONTROLLER_TYPE_PS3:
     case SDL_CONTROLLER_TYPE_PS4:
-    case SDL_CONTROLLER_TYPE_PS5:
         return kControllerTypePlayStation;
+    case SDL_CONTROLLER_TYPE_PS5:
+        return kControllerTypeDualSense;
+    case SDL_CONTROLLER_TYPE_NINTENDO_SWITCH_PRO:
+        return kControllerTypeSwitchPro;
     default:
         return kControllerTypeXbox;
     }
@@ -195,11 +199,9 @@ void SDLGamepadBridge::runLoop() {
             // third-party pads); SDL_FALSE for Xbox / Switch Pro / generic
             // pads. Drives the per-controller CAP_LIGHTBAR advertisement.
             const bool hasLed = SDL_GameControllerHasLED(gc) == SDL_TRUE;
-            // Cosmetic controller kind. SDL reports the type it negotiated
-            // (Xbox 360 / DualSense / generic); a PS3/PS4/PS5 pad maps to the
-            // satellite's CONTROLLER_TYPE_PLAYSTATION, everything else to Xbox.
-            // Threaded through MSG_CONTROLLER_TYPE so the satellite plugs in a
-            // virtual DualShock 4 for a real DualSense.
+            // Cosmetic controller kind (see sdlTypeToControllerType), surfaced
+            // via devices() so the receiver can materialize a matching virtual
+            // pad for a real DualSense / Switch Pro rather than a generic Xbox.
             const auto type = SDL_GameControllerGetType(gc);
             const std::uint8_t ctrlType = sdlTypeToControllerType(type);
             {

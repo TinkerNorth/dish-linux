@@ -128,6 +128,20 @@ TEST_CASE("ControllerDescriptor emits the wire JSON", "[models]") {
     REQUIRE(obj.value("touchpadMode").toString() == "ds4");
     const auto arr = controllersJson({d});
     REQUIRE(arr.size() == 1);
+
+    ControllerDescriptor ds;
+    ds.type = dish::proto::kControllerTypeDualSense;
+    ds.touchpadMode = dish::proto::kTouchpadModeDs4;
+    const auto dsObj = ds.toJson();
+    REQUIRE(dsObj.value("type").toInt() == 2);
+    REQUIRE(dsObj.value("touchpadMode").toString() == "ds4");
+
+    ControllerDescriptor sp;
+    sp.type = dish::proto::kControllerTypeSwitchPro;
+    sp.touchpadMode = dish::proto::kTouchpadModeOff;
+    const auto spObj = sp.toJson();
+    REQUIRE(spObj.value("type").toInt() == 3);
+    REQUIRE(spObj.value("touchpadMode").toString() == "off");
 }
 
 TEST_CASE("RememberedWifi round-trips through JSON list", "[models]") {

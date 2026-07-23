@@ -33,6 +33,19 @@ QString applyErrorMessage(std::uint8_t resultCode) {
     }
 }
 
+// Only pads with a physical trackpad route touch as DS4 — the DS4 itself and
+// the DualSense. Switch Pro / Xbox have no touch surface. The touchpad-mouse
+// host feature is deferred (no UI), so `mouse` is never requested.
+std::uint8_t touchpadModeForType(std::uint8_t type) {
+    switch (type) {
+    case proto::kControllerTypePlayStation:
+    case proto::kControllerTypeDualSense:
+        return proto::kTouchpadModeDs4;
+    default:
+        return proto::kTouchpadModeOff;
+    }
+}
+
 } // namespace
 
 WifiConnection::WifiConnection(QString id, models::DiscoveredServer server, QObject* parent)
@@ -203,12 +216,7 @@ std::optional<models::ControllerDescriptor> WifiConnection::desiredDescriptor() 
     desc.type = static_cast<std::uint8_t>(pendingControllerType_);
     desc.caps = SatelliteClient::withLightbarCapability(
         SatelliteClient::withMotionCapability(kDefaultCaps, motionCapable_), lightbarCapable_);
-    // Touch only lands on the DS4 profile — a PlayStation-type descriptor
-    // routes the pad's own trackpad; Xbox has no touch surface. The
-    // touchpad-mouse host feature is deferred (no UI), so `mouse` is never
-    // requested here.
-    desc.touchpadMode = desc.type == proto::kControllerTypePlayStation ? proto::kTouchpadModeDs4
-                                                                       : proto::kTouchpadModeOff;
+    desc.touchpadMode = touchpadModeForType(desc.type);
     return desc;
 }
 
