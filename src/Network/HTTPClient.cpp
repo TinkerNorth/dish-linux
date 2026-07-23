@@ -121,6 +121,17 @@ void HTTPClient::getSession(const QString& ip, int port, const QString& connecti
     });
 }
 
+void HTTPClient::getCatalog(const QString& ip, int port, CatalogCb cb) {
+    const QString url = QStringLiteral("https://%1:%2/api/catalog").arg(ip).arg(port);
+    // Unauthenticated route: empty deviceId/proof → perform attaches no auth
+    // headers. Unreachable/old satellite → empty catalog (caller falls back).
+    perform(url, "GET", {}, {}, {}, [cb = std::move(cb)](const RawReply& r) {
+        models::ServerCatalog catalog;
+        if (r.reachable) { catalog = models::ServerCatalog::fromJson(parseObject(r.body)); }
+        cb(catalog);
+    });
+}
+
 void HTTPClient::deleteSession(const QString& ip, int port, const QString& connectionId,
                                const QString& deviceId, const QString& hmacProof, AckCb cb) {
     const QString url =

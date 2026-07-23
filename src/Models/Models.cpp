@@ -143,6 +143,25 @@ SessionViewDto SessionViewDto::fromJson(const QJsonObject& obj) {
     return r;
 }
 
+CatalogType CatalogType::fromJson(const QJsonObject& obj) {
+    CatalogType t;
+    t.id = intOr(obj, "id", 0);
+    const auto touchpad =
+        obj.value(QLatin1String("features")).toObject().value(QLatin1String("touchpad")).toObject();
+    for (const auto& m : touchpad.value(QLatin1String("modes")).toArray()) {
+        if (m.toString() == QLatin1String("ds4")) { t.touchpadDs4 = true; }
+    }
+    return t;
+}
+
+ServerCatalog ServerCatalog::fromJson(const QJsonObject& obj) {
+    ServerCatalog c;
+    for (const auto& v : obj.value(QLatin1String("controllerTypes")).toArray()) {
+        if (v.isObject()) { c.controllerTypes.append(CatalogType::fromJson(v.toObject())); }
+    }
+    return c;
+}
+
 QJsonObject ControllerDescriptor::toJson() const {
     return QJsonObject{
         {"ctrlIdx", ctrlIdx},

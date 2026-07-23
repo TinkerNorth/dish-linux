@@ -108,13 +108,20 @@ class WifiConnection : public QObject {
                        int epoch, SessionHooks hooks);
     void markDisconnected();
 
-    // Bind this connection to a controller slot. `controllerType` is the
-    // satellite virtual-device type (proto::kControllerType*). `hasLightbar`
-    // gates CAP_LIGHTBAR (0x0008) and `hasMotion` CAP_MOTION (0x0004) in the
-    // descriptor caps word. Both are stored so a later registration (on
-    // reconnect) advertises the same capabilities.
-    void attachSlot(const QString& slotId, int controllerType, bool hasLightbar, bool hasMotion);
+    // Bind this connection to a controller slot. `hasLightbar` gates
+    // CAP_LIGHTBAR (0x0008) and `hasMotion` CAP_MOTION (0x0004) in the
+    // descriptor caps word; both are stored so a later registration (on
+    // reconnect) advertises the same capabilities. The emulated type itself
+    // comes from the satellite catalog (setCatalog), not the physical slot.
+    void attachSlot(const QString& slotId, bool hasLightbar, bool hasMotion);
     void detachSlot();
+
+    // The satellite's controller-type catalog, fetched once by the manager
+    // before the session PUT. desiredDescriptor() defaults the sent type to its
+    // first entry (physical-pad matching deferred) and drives touchpadMode off
+    // it; an empty catalog (unreachable/older satellite) falls back to type 0.
+    void setCatalog(const models::ServerCatalog& catalog);
+    bool catalogFetched() const { return catalogFetched_; }
 
     bool isRegisteringController() const { return controllerRegistering_; }
 
@@ -200,8 +207,11 @@ class WifiConnection : public QObject {
     static constexpr std::uint16_t kDefaultCaps =
         SatelliteClient::kCapAnalogTriggers | SatelliteClient::kCapRumble;
 
-    void registerController(int type);
+    void registerController();
     void onAliveTick();
+    // The emulated controller type the catalog dictates: its first offered type
+    // (interim default-to-first), or Xbox when no catalog has loaded.
+    std::uint8_t selectedControllerType() const;
 
     QString id_;
     models::DiscoveredServer server_;
@@ -214,7 +224,6 @@ class WifiConnection : public QObject {
     bool controllerRegistering_ = false;
     SessionHooks hooks_;
     bool controllerAdded_ = false;
-    int pendingControllerType_ = 0;
     int lastAppliedEpoch_ = -1;
     bool reconcileInFlight_ = false;
     // Single-fire latch for hooks_.rekey: re-armed only once the re-key lands
@@ -225,6 +234,13 @@ class WifiConnection : public QObject {
     // gyro+accel. Set by attachSlot; consumed by desiredDescriptor().
     bool lightbarCapable_ = false;
     bool motionCapable_ = false;
+
+    // The satellite's offered controller-type catalog + whether it has been
+    // fetched (once per connection lifetime — it survives reconnects so retries
+    // against an unreachable satellite don't re-pay the GET). desiredDescriptor
+    // sources the emulated type + touchpad mode from it.
+    models::ServerCatalog catalog_;
+    bool catalogFetched_ = false;
 
     double latencyOneWayMs_ = 0.0;
     int latencySamples_ = 0;

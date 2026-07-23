@@ -201,6 +201,27 @@ struct SessionViewDto {
     static SessionViewDto fromJson(const QJsonObject& obj);
 };
 
+// One controller type from GET /api/catalog. The satellite is the source of
+// truth for the types it offers; the interim client defaults the sent type to
+// the first entry (physical-pad matching is deferred) and reads whether that
+// type advertises the "ds4" touchpad mode. Richer fields (name/image/emulates)
+// are a picker's concern and are deliberately not modelled yet.
+struct CatalogType {
+    int id = 0;
+    bool touchpadDs4 = false;
+
+    static CatalogType fromJson(const QJsonObject& obj);
+};
+
+// GET /api/catalog: the controller types a satellite offers. Parsed leniently —
+// only the fields the (interim) thin client consumes.
+struct ServerCatalog {
+    QList<CatalogType> controllerTypes;
+
+    bool isEmpty() const { return controllerTypes.isEmpty(); }
+    static ServerCatalog fromJson(const QJsonObject& obj);
+};
+
 // Declarative per-controller desired state sent in the session/controller PUT
 // body. Always sent WHOLE (a toggle = re-send with one field changed); the
 // server converges. Owns its own JSON so the request shape is unit-testable

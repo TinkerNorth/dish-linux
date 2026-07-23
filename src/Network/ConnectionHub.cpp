@@ -176,15 +176,13 @@ void ConnectionHub::bind(const QString& slotId, const QString& connectionId) {
     bindings_ = current;
     rebuild();
     // Resolve the slot's pad capabilities so the controller-add can advertise
-    // CAP_LIGHTBAR / CAP_MOTION and MSG_CONTROLLER_TYPE can declare the real
-    // Xbox-vs-PlayStation kind. The resolvers are absent in tests / before
-    // the bridge is wired — treat that as "no lightbar / no motion / Xbox".
+    // CAP_LIGHTBAR / CAP_MOTION. The resolvers are absent in tests / before the
+    // bridge is wired — treat that as "no lightbar / no motion". The emulated
+    // type comes from the satellite catalog (WifiConnection::setCatalog), not
+    // the physical pad.
     const bool hasLightbar = lightbarCapabilityFn_ && lightbarCapabilityFn_(slotId);
     const bool hasMotion = motionCapabilityFn_ && motionCapabilityFn_(slotId);
-    const int controllerType = controllerTypeFn_ ? controllerTypeFn_(slotId) : 0;
-    if (auto* c = wifi_->get(connectionId)) {
-        c->attachSlot(slotId, controllerType, hasLightbar, hasMotion);
-    }
+    if (auto* c = wifi_->get(connectionId)) { c->attachSlot(slotId, hasLightbar, hasMotion); }
 }
 
 void ConnectionHub::unbind(const QString& slotId) {

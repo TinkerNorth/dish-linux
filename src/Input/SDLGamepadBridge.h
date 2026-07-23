@@ -58,13 +58,6 @@ class SDLGamepadBridge : public QObject {
     // machine's for a wired/unknown one). They drive the SlotCard battery
     // chip. `batteryLevel` is 0..100 or 0xFF (unknown); `batteryStatus` is a
     // kBatteryStatus* constant. 0xFF / 0 until the first poll completes.
-    //
-    // `controllerType` is the cosmetic Xbox-vs-PlayStation kind, derived once
-    // at attach from SDL_GameControllerGetType(): a PS3/PS4/PS5 pad maps to
-    // CONTROLLER_TYPE_PLAYSTATION (1), everything else to CONTROLLER_TYPE_XBOX
-    // (0). It threads into MSG_CONTROLLER_TYPE (0x0008) so the satellite picks
-    // a virtual DualShock 4 / DualSense profile for a real DualSense rather
-    // than always plugging in an Xbox 360 pad.
     struct Device {
         QString id;
         QString name;
@@ -72,7 +65,6 @@ class SDLGamepadBridge : public QObject {
         bool hasLightbar = false;
         std::uint8_t batteryLevel = 0xFF;
         std::uint8_t batteryStatus = 0;
-        std::uint8_t controllerType = 0; // CONTROLLER_TYPE_XBOX
     };
     QList<Device> devices() const;
 
@@ -136,14 +128,6 @@ class SDLGamepadBridge : public QObject {
     // hasLightbar so the UI can show a lightbar chip and WifiConnection can
     // advertise CAP_LIGHTBAR. Same lifecycle / locking as motionCapable_.
     std::unordered_set<int> lightbarCapable_;
-
-    // Per-device cosmetic controller type (CONTROLLER_TYPE_XBOX /
-    // CONTROLLER_TYPE_PLAYSTATION), classified once at attach from
-    // SDL_GameControllerGetType(). Surfaced through devices() as
-    // Device::controllerType so WifiConnection can send the real type in
-    // MSG_CONTROLLER_TYPE. Same lifecycle / locking as motionCapable_; a
-    // device absent from the map (never attached) is treated as Xbox.
-    std::unordered_map<int, std::uint8_t> controllerType_;
 
     // Latest accelerometer reading per device (m/s²). Updated when an accel
     // SDL_CONTROLLERSENSORUPDATE arrives; merged with the next gyro update

@@ -46,6 +46,7 @@ class HTTPClient : public QObject {
     using SessionCb = std::function<void(const models::SessionResponse&)>;
     using ControllerCb = std::function<void(const models::ControllerPutResponse&)>;
     using ViewCb = std::function<void(const models::SessionViewDto&)>;
+    using CatalogCb = std::function<void(const models::ServerCatalog&)>;
     // Generic ack for routes the caller doesn't decode (DELETE pair/session):
     // the HTTP status + whether a body parsed (for the terminal-401 check).
     using AckCb = std::function<void(int httpStatus, bool reachable, const QString& code)>;
@@ -63,6 +64,11 @@ class HTTPClient : public QObject {
     // epoch).
     void getSession(const QString& ip, int port, const QString& connectionId,
                     const QString& deviceId, const QString& hmacProof, ViewCb cb);
+
+    // GET /api/catalog — the satellite's offered controller types (thin-catalog
+    // source of truth). UNAUTHENTICATED: the route ignores device auth, so no
+    // deviceId/proof is attached. Empty catalog on an unreachable/older server.
+    void getCatalog(const QString& ip, int port, CatalogCb cb);
 
     // DELETE /api/connections/{id} — graceful close (no notify).
     void deleteSession(const QString& ip, int port, const QString& connectionId,

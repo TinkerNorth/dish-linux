@@ -242,6 +242,21 @@ void WifiConnectionManager::pairAndConnect(WifiConnection* conn,
 void WifiConnectionManager::openSession(WifiConnection* conn,
                                         const models::DiscoveredServer& server,
                                         ConnectIntent intent) {
+    // Thin-catalog: the sent controller type + touchpad mode come from the
+    // satellite's catalog (default to its first offered type). Fetch it once per
+    // connection before the first PUT so the descriptor is catalog-driven, then
+    // re-enter; an unreachable/older satellite yields an empty catalog → type 0.
+    if (!conn->catalogFetched()) {
+        const auto connId = conn->id();
+        http_->getCatalog(server.ip, server.httpPort,
+                          [this, connId, server, intent](const models::ServerCatalog& catalog) {
+                              auto* c = connections_.value(connId, nullptr);
+                              if (c == nullptr) { return; }
+                              c->setCatalog(catalog);
+                              openSession(c, server, intent);
+                          });
+        return;
+    }
     const auto id = WifiConnection::idFor(server);
     const auto pairingKey = pairingKeyFor(id);
     if (!pairingKey.has_value()) {
