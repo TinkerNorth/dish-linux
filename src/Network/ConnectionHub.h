@@ -73,15 +73,6 @@ class ConnectionHub : public QObject {
     using MotionCapabilityFn = std::function<bool(const QString& slotId)>;
     void setMotionCapabilityFn(MotionCapabilityFn fn) { motionCapabilityFn_ = std::move(fn); }
 
-    // Resolver answering "what cosmetic controller type (Xbox / PlayStation)
-    // is the physical pad behind this slot?". Same source as the capability
-    // predicates — SDL's SDL_GameControllerGetType(). bind() consults it so
-    // the MSG_CONTROLLER_TYPE (0x0008) declares the real type. Returns a
-    // CONTROLLER_TYPE_* wire value (0 = Xbox, 1 = PlayStation); when unset,
-    // slots default to Xbox.
-    using ControllerTypeFn = std::function<int(const QString& slotId)>;
-    void setControllerTypeFn(ControllerTypeFn fn) { controllerTypeFn_ = std::move(fn); }
-
     void bind(const QString& slotId, const QString& connectionId);
     void unbind(const QString& slotId);
     std::optional<models::ConnectionSummary> boundConnection(const QString& slotId) const;
@@ -99,7 +90,6 @@ class ConnectionHub : public QObject {
     QHash<QString, QString> bindings_; // slotId -> connectionId
     LightbarCapabilityFn lightbarCapabilityFn_;
     MotionCapabilityFn motionCapabilityFn_;
-    ControllerTypeFn controllerTypeFn_;
 };
 
 } // namespace dish::net

@@ -73,32 +73,6 @@ BatteryReading powerLevelToWire(SDL_JoystickPowerLevel pl) {
 
 constexpr std::chrono::seconds kBatteryPollInterval{30};
 
-// Satellite MSG_CONTROLLER_TYPE (0x0008) wire values, mirroring
-// satellite/src/core/types.h CONTROLLER_TYPE_*. Cosmetic kind only — the
-// receiver uses it to pick a virtual DualShock 4 / DualSense profile.
-constexpr std::uint8_t kControllerTypeXbox = 0;
-constexpr std::uint8_t kControllerTypePlayStation = 1;
-constexpr std::uint8_t kControllerTypeDualSense = 2;
-constexpr std::uint8_t kControllerTypeSwitchPro = 3;
-
-// Map SDL2's negotiated SDL_GameControllerType to the satellite's cosmetic
-// type. PS3 / PS4 are "PlayStation" (DS4); PS5 and Switch Pro each carry their
-// own type so the receiver can pick a matching virtual pad. Everything else —
-// Xbox 360 / Xbox One / generic — falls back to Xbox.
-std::uint8_t sdlTypeToControllerType(SDL_GameControllerType type) {
-    switch (type) {
-    case SDL_CONTROLLER_TYPE_PS3:
-    case SDL_CONTROLLER_TYPE_PS4:
-        return kControllerTypePlayStation;
-    case SDL_CONTROLLER_TYPE_PS5:
-        return kControllerTypeDualSense;
-    case SDL_CONTROLLER_TYPE_NINTENDO_SWITCH_PRO:
-        return kControllerTypeSwitchPro;
-    default:
-        return kControllerTypeXbox;
-    }
-}
-
 // SDL_GameController axes are int16 [-32768, 32767]; pass through directly.
 std::int16_t axisValue(SDL_GameController* gc, SDL_GameControllerAxis axis) {
     return SDL_GameControllerGetAxis(gc, axis);
@@ -142,14 +116,10 @@ QList<SDLGamepadBridge::Device> SDLGamepadBridge::devices() const {
                    motionCapable_.count(iid) != 0,
                    lightbarCapable_.count(iid) != 0,
                    0xFF,
-                   0,
-                   kControllerTypeXbox};
+                   0};
         if (auto it = lastBattery_.find(iid); it != lastBattery_.end()) {
             dev.batteryLevel = it->second.level;
             dev.batteryStatus = it->second.status;
-        }
-        if (auto it = controllerType_.find(iid); it != controllerType_.end()) {
-            dev.controllerType = it->second;
         }
         out.append(dev);
     }
@@ -199,11 +169,9 @@ void SDLGamepadBridge::runLoop() {
             // third-party pads); SDL_FALSE for Xbox / Switch Pro / generic
             // pads. Drives the per-controller CAP_LIGHTBAR advertisement.
             const bool hasLed = SDL_GameControllerHasLED(gc) == SDL_TRUE;
-            // Cosmetic controller kind (see sdlTypeToControllerType), surfaced
-            // via devices() so the receiver can materialize a matching virtual
-            // pad for a real DualSense / Switch Pro rather than a generic Xbox.
+            // SDL's negotiated type — diagnostics only (the emulated type is now
+            // catalog-driven, not derived from the physical pad).
             const auto type = SDL_GameControllerGetType(gc);
-            const std::uint8_t ctrlType = sdlTypeToControllerType(type);
             {
                 std::lock_guard<std::mutex> lock(mtx_);
                 openControllers_[iid] = gc;
@@ -211,7 +179,6 @@ void SDLGamepadBridge::runLoop() {
                 deviceNames_[iid] = deviceName;
                 if (hasGyro || hasAccel) { motionCapable_.insert(iid); }
                 if (hasLed) { lightbarCapable_.insert(iid); }
-                controllerType_[iid] = ctrlType;
                 lastBatteryPoll_[iid] = std::chrono::steady_clock::time_point{};
             }
             // One-shot device-capability dump — mirrors the SatelliteJNI
@@ -255,7 +222,6 @@ void SDLGamepadBridge::runLoop() {
                 deviceNames_.erase(iid);
                 motionCapable_.erase(iid);
                 lightbarCapable_.erase(iid);
-                controllerType_.erase(iid);
                 lastBatteryPoll_.erase(iid);
                 lastBattery_.erase(iid);
                 touchState_.erase(iid);

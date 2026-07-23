@@ -101,17 +101,6 @@ AppModel::AppModel(std::unique_ptr<util::DisplaySleepInhibitor> inhibitor, QObje
         return false;
     });
 
-    // And the cosmetic controller type: bind() declares the real Xbox-vs-
-    // PlayStation kind in MSG_CONTROLLER_TYPE. Same device-id scan, reading
-    // the type SDL negotiated for the pad. Defaults to Xbox (0) for a slot
-    // with no matching bridge device.
-    hub_->setControllerTypeFn([this](const QString& slotId) {
-        for (const auto& d : bridge_->devices()) {
-            if (d.id == slotId) { return static_cast<int>(d.controllerType); }
-        }
-        return 0;
-    });
-
     rebuild();
 }
 
