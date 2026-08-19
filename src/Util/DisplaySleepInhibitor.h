@@ -10,32 +10,23 @@
 
 namespace dish::util {
 
-// Keeps the system display awake while Dish is streaming. The Linux analogue
-// of Android's WakeStateController (PARTIAL_WAKE_LOCK + FLAG_KEEP_SCREEN_ON)
-// and dish-mac's IOPMAssertionCreateWithName. Implemented over D-Bus by
-// calling org.freedesktop.ScreenSaver.Inhibit on the session bus — the
-// portal every modern desktop environment honours (GNOME, KDE, Xfce, Cinnamon,
-// MATE, Sway/swayidle, …).
-//
-// Tests use FakeDisplaySleepInhibitor so we can pin the acquire/release
-// lifecycle without a session-bus dependency in CI.
+// Keeps the display and the system awake while streaming. Abstract so tests
+// can pin the acquire/release lifecycle without a live session bus.
 class DisplaySleepInhibitor : public QObject {
     Q_OBJECT
   public:
     explicit DisplaySleepInhibitor(QObject* parent = nullptr) : QObject(parent) {}
     ~DisplaySleepInhibitor() override = default;
 
-    // Idempotent: a second acquire while already held is a no-op so callers
-    // don't have to track state themselves.
+    // Both idempotent: callers need not track held state themselves.
     virtual void acquire(const QString& reason) = 0;
-    // Idempotent: releasing while not held is a no-op.
     virtual void release() = 0;
-    // True iff an inhibit cookie is currently held.
     virtual bool isHeld() const = 0;
 };
 
-// Production implementation. Held in a dedicated class so the cookie lifetime
-// is tied to the object's lifetime — destructor releases on dealloc.
+// org.freedesktop.ScreenSaver.Inhibit on the session bus, which every modern
+// desktop honours. Releases on destruction so a missed release() can't pin the
+// display awake.
 class FreedesktopScreenSaverInhibitor : public DisplaySleepInhibitor {
     Q_OBJECT
   public:

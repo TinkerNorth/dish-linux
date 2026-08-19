@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Runs every gate Linux CI runs, in the same order, against the local tree.
 # Mirrors .github/workflows/linux-ci.yml so a green run here means a green run
-# there. Works on Linux and macOS (Homebrew Qt6/SDL2/libsodium); clang-tidy is
-# skipped with a notice when not installed since CI provides its own.
+# there. clang-tidy is skipped with a notice when not installed, since CI
+# provides its own.
 #
 #   scripts/ci_local.sh              all gates
 #   scripts/ci_local.sh --no-tidy    skip the clang-tidy pass (fastest loop)
@@ -37,31 +37,43 @@ step "Build"
 cmake --build build --parallel
 
 step "Run tests"
-(cd build && ctest --output-on-failure --parallel)
+# No display in a bare shell either; the QML tests construct QGuiApplication.
+(cd build && QT_QPA_PLATFORM=offscreen ctest --output-on-failure --parallel)
+
+step "qmllint (QML static analysis)"
+QMLLINT="$(command -v qmllint6 || command -v qmllint || true)"
+if [ -n "$QMLLINT" ]; then
+  # git's * crosses directory levels; 'src/qml/**/*.qml' would miss the
+  # top-level Main and AppShell.
+  # shellcheck disable=SC2046
+  "$QMLLINT" -I build --unqualified info $(git ls-files 'src/qml/*.qml')
+else
+  echo "::notice:: qmllint not installed; CI gates this."
+fi
+
+step "QML literal scanner"
+./scripts/qml-lint-literals.sh --mode error
+
+step "Translation catalogues in sync"
+if command -v lupdate6 >/dev/null 2>&1 || command -v lupdate >/dev/null 2>&1; then
+  ./scripts/check-translations.sh
+else
+  echo "::notice:: lupdate not installed; CI gates this."
+fi
 
 if [ "$TIDY" -eq 1 ]; then
   if command -v clang-tidy >/dev/null 2>&1; then
-    step "clang-tidy (src, UI excluded — mirrors CI)"
+    step "clang-tidy (src, UI + qml excluded — mirrors CI)"
     cmake -S . -B build-tidy -G Ninja \
       -DCMAKE_BUILD_TYPE=Debug \
       -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
       -DDISH_BUILD_TESTS=OFF
     cmake --build build-tidy --parallel
-    NPROC=$( (command -v nproc >/dev/null && nproc) || sysctl -n hw.ncpu )
-    # On macOS, Homebrew's /usr/local/include loses its implicit-system
-    # status once another dep adds it with -I, so project warnings leak into
-    # SDL headers and tidy false-positives. Linux CI is the authoritative
-    # tidy gate; Darwin runs it advisory.
+    NPROC="$(nproc)"
     TIDY_RC=0
-    find src -type f \( -name '*.cpp' -o -name '*.h' \) ! -path 'src/UI/*' -print0 |
+    find src -type f \( -name '*.cpp' -o -name '*.h' \) ! -path 'src/UI/*' ! -path 'src/qml/*' -print0 |
       xargs -0 -n1 -P"${NPROC}" clang-tidy -p build-tidy --quiet --warnings-as-errors='*' || TIDY_RC=$?
-    if [ "$TIDY_RC" -ne 0 ]; then
-      if [ "$(uname -s)" = "Darwin" ]; then
-        echo "::notice:: clang-tidy reported issues (advisory on macOS — Linux CI gates this)."
-      else
-        exit "$TIDY_RC"
-      fi
-    fi
+    if [ "$TIDY_RC" -ne 0 ]; then exit "$TIDY_RC"; fi
   else
     echo ""; echo "=== clang-tidy skipped (not installed) ==="
   fi

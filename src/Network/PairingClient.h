@@ -4,6 +4,7 @@
 #pragma once
 
 #include "Models/Models.h"
+#include "core/reducer/RestOutcome.h"
 
 #include <QByteArray>
 #include <QString>
@@ -13,42 +14,55 @@
 
 namespace dish::net {
 
-// Blocking pair handshake. The satellite exposes pairing as POST /api/pair on
-// its HTTPS client server (:9443). Mirrors dish-windows/Network/PairingClient
-// and satellite_jni.cpp::pair. Single JSON request, single JSON response; the
-// body carries protocolVersion so a future incompatible server can 409.
+// Blocking pairing against the satellite's HTTPS server (:9443, self-signed,
+// TOFU-pinned). The exchange carries the sharedKey exactly once, so it gets the
+// same pin gate as the session REST path.
 //
-// TLS trust is TOFU cert-pinning, not CA validation: the optional verifier is
-// handed the peer cert's DER bytes once the handshake completes and may abort
-// the exchange by returning false (see HTTPClient::PinVerifier — same seam,
-// same composition against ConnectionStore's pin registry; pair() runs on a
-// QtConcurrent worker, which is why the store's pin accessors are the one
-// mutex-guarded surface it has).
+// Each call drives a nested QEventLoop around the async QNetworkAccessManager to
+// keep the API synchronous, so it MUST be invoked from a worker thread and never
+// from the UI thread.
 class PairingClient {
   public:
-    // Classification of a PairResponse — mirrors PairingClient.Outcome on
-    // dish-mac and the unreachable-vs-auth split introduced for dish-android
-    // PR #43. The manager fans the variant out to either an error toast, a
-    // PIN dialog, or the openSession path. Tagged union (variant) keeps the
-    // arms exhaustive and the success arm carries the shared key directly.
+    // Arms map 1:1 onto reducer::PairVerdict; the success arm carries the shared
+    // key directly.
     struct Success {
         QString sharedKeyHex;
     };
-    struct AuthRequired {};
+    struct Pending {};         // Path B accepted — poll /api/pair/status
+    struct AuthRequired {};    // reachable, no key — first-time pair, or it forgot us
+    struct VersionMismatch {}; // 409 — protocol skew, terminal
     struct Unreachable {
         QString message;
     };
-    using Outcome = std::variant<Success, AuthRequired, Unreachable>;
+    using Outcome = std::variant<Success, Pending, AuthRequired, VersionMismatch, Unreachable>;
 
-    // Pure classifier — driven only by fields on the response so it's
-    // trivially unit-testable.
     static Outcome classify(const models::PairResponse& response);
 
-    using PinVerifier = std::function<bool(const QString& host, const QByteArray& certDer)>;
-
+    // Path A (operator `pin`) and Path B (client-shown `clientPin`, which answers
+    // Pending and is then polled). Both fields always ride in the body, empty when
+    // unused; the server tries a valid `pin` first.
     static models::PairResponse pair(const QString& ip, int port, const QString& deviceId,
                                      const QString& deviceName, const QString& pin,
-                                     const PinVerifier& verifier = {});
+                                     const QString& clientPin = QString());
+
+    // Proves possession of the CURRENT key to get a fresh one. A failed proof
+    // falls through to the PIN paths server-side, so it degrades to a fresh
+    // attempt rather than an error.
+    static models::PairResponse rotateKey(const QString& ip, int port, const QString& deviceId,
+                                          const QString& deviceName, const QString& hmacProof);
+
+    static models::PairResponse pairStatus(const QString& ip, int port, const QString& deviceId);
+
+    // Called on the TLS `encrypted` edge with the peer cert DER; returning false
+    // aborts before any payload transits. Pairing is the pin-on-first-use moment,
+    // so the first pair pins and every later pair or rotation must match. Keyed by
+    // host, sharing the pin store with HTTPClient. Unset means accept, which only
+    // happens in tests and before a manager wires the store.
+    using PinVerifier = std::function<bool(const QString& host, const QByteArray& certDer)>;
+    static void setPinVerifier(PinVerifier verifier);
+
+  private:
+    static PinVerifier& pinVerifier();
 };
 
 } // namespace dish::net

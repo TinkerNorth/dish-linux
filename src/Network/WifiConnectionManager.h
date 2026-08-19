@@ -10,15 +10,23 @@
 
 #include <QHash>
 #include <QObject>
+#include <QSet>
 #include <QString>
 
 #include <array>
 #include <cstdint>
 #include <optional>
 
+class QTimer;
+
 namespace dish::net {
 
-enum class ConnectionEventKind : std::uint8_t { PairingRequired, Error };
+enum class ConnectionEventKind { PairingRequired, Error };
+
+// Reverse (host-initiated) pairing: the dish shows a clientPin, the operator
+// types it on the satellite, and the poll loop resolves. The terminal arms are
+// sticky until the next request or cancel clears them.
+enum class ReversePairingPhase { Idle, AwaitingApproval, Approved, Declined, TimedOut };
 
 struct ConnectionEvent {
     ConnectionEventKind kind;
@@ -26,22 +34,14 @@ struct ConnectionEvent {
     QString message;                 // only meaningful for Error
 };
 
-// Why this connect was initiated. Drives the toast policy (only user-initiated
-// failures are loud) and the backoff bookkeeping (user intent resets it).
-// Mirrors dish-android's ConnectIntent / dish-windows' session coordinator.
-enum class ConnectIntent : std::uint8_t { UserInitiated, AutoReconnect, RetryAfterDeath };
+// Only UserInitiated may toast on failure. The two background intents must fail
+// silently, with the row chip's Connecting → Saved/Stale flip as the only cue.
+enum class ConnectIntent { UserInitiated, AutoReconnect, RetryAfterDeath };
 
-// Owns the pool of live + remembered WiFi sessions. Each session runs its own
-// native socket, heartbeat and receive loop so multiple servers can be active
-// in parallel.
-//
-// Protocol-1 control plane: sessions open with a declarative
-// PUT /api/connections carrying the full desired controller set + the
-// hmacProof; the session key is HKDF-derived from the pairing key + the
-// response's salt/token (the pairing key never touches UDP). Terminal 401s
-// (NOT_PAIRED / BAD_PROOF) and close-notify(unpaired) drop the stored key and
-// park the row on "needs pairing"; shutdown/kicked/death re-enter the
-// exponential backoff curve consumed by autoReconnectAll().
+// Owns the pool of live and remembered WiFi sessions and drives the REST control
+// plane for each: session PUT on connect, per-controller PUT/DELETE for slot
+// changes, the GET-then-rePUT reconcile, terminal-401 handling, close-notify
+// teardown, and the reconnect backoff. UDP carries streams only.
 class WifiConnectionManager : public QObject {
     Q_OBJECT
   public:
@@ -53,10 +53,26 @@ class WifiConnectionManager : public QObject {
     const QHash<QString, WifiConnection*>& connections() const { return connections_; }
     WifiConnection* get(const QString& id) const { return connections_.value(id, nullptr); }
 
+    // Main thread only.
+    bool isPairingInFlight(const QString& id) const { return pairingInFlight_.contains(id); }
+
     void startDiscovery();
     void connectTo(const models::DiscoveredServer& server,
                    ConnectIntent intent = ConnectIntent::UserInitiated);
     void pairWithPin(const models::DiscoveredServer& server, const QString& pin);
+
+    // Posts a generated clientPin, then polls /api/pair/status until the operator
+    // approves. On approval it adopts the key and opens the session exactly like
+    // a forward pair. A second request while one is live cancels the first.
+    // Untestable in the unit suite since it drives real network; the decision core
+    // it leans on, reducer::nextReversePairingAction, is exhaustively tested.
+    void requestReversePairing(const models::DiscoveredServer& server);
+    void cancelReversePairing();
+
+    ReversePairingPhase reversePairingPhase() const { return reversePhase_; }
+    QString reversePairingPin() const { return reversePin_; }
+    QString reversePairingServerName() const { return reverseServerName_; }
+
     void disconnect(const QString& id);
     void forget(const QString& id);
     void autoReconnectAll();
@@ -65,57 +81,64 @@ class WifiConnectionManager : public QObject {
 
   signals:
     void poolChanged();
-    // 1 Hz latency/telemetry relay from the live connections — separate from
-    // poolChanged so rows can patch labels in place without a full rebuild.
+    // Kept separate from poolChanged so the hub and AppModel rebuild cascade never
+    // runs for a cosmetic 1 Hz figure.
     void poolTelemetryChanged();
     void discoveredChanged();
     void scanningChanged();
-    // Named `connectionEvent` (not `event`) so the signal does not shadow
-    // QObject::event(QEvent*), which clang flags with
-    // -Wclang-diagnostic-overloaded-virtual.
+    void pairingInFlightChanged();
+    void reversePairingChanged();
+    // Not named `event`, which would shadow QObject::event.
     void connectionEvent(const dish::net::ConnectionEvent& evt);
-    // Forwarded from per-connection WifiConnection::registrationFailed so
-    // ConnectionHub can roll back a binding when the server rejects a
-    // controller converge.
+    // Lets the hub roll a binding back when the server rejects a descriptor.
     void slotRegistrationFailed(const QString& slotId);
+    // A rejected FORWARD pair, with `reasonToken` one of "wrongPin" |
+    // "versionMismatch" | "unreachable" | "pending". Separate from the toast so
+    // the pairing sheet can stay open and mark the field inline. Deliberately not
+    // raised from pairAndConnect: a background reconnect must never pop an error
+    // into a sheet the user did not open.
+    void pairingFailed(const QString& connectionId, const QString& reasonToken);
 
   private:
-    // Per-connection reconnect throttle (reducer::backoffDelayMs schedule).
-    // `suppressed` parks a connection out of auto-reconnect entirely
-    // (close-notify(replaced): a newer session owns the satellite — retrying
-    // would kick it). User action clears everything.
-    struct RetryState {
-        int attempt = 0;
-        qint64 nextRetryAtMs = 0;
-        bool suppressed = false;
-    };
-
     WifiConnection* ensureConnection(const models::DiscoveredServer& server);
+    void wireSlotSync(WifiConnection* conn);
     void pairAndConnect(WifiConnection* conn, const models::DiscoveredServer& server,
-                        const QString& pin, ConnectIntent intent);
+                        ConnectIntent intent);
+    // One PUT /api/connections carrying identity, the key proof and the FULL
+    // topology, which is what drives the session live.
     void openSession(WifiConnection* conn, const models::DiscoveredServer& server,
                      ConnectIntent intent);
-    WifiConnection::SessionHooks makeHooks(const QString& id);
-    HTTPClient::PinVerifier makePinVerifier() const;
+    // GET-then-maybe-rePUT, fired when the enriched ack drifts.
+    void reconcile(WifiConnection* conn, const models::DiscoveredServer& server);
+    // Re-PUT for a fresh token/salt/key on the SAME socket, so there is no state
+    // blip visible to the UI.
+    void rekey(WifiConnection* conn, const models::DiscoveredServer& server);
+    void syncSlot(const QString& id, const QString& slotId);
+    void deleteSlot(const QString& id, int ctrlIdx);
+    void handleServerClose(WifiConnection* conn, const models::DiscoveredServer& server,
+                           std::uint8_t reason);
+    // Never runs for UserInitiated; a user tap resets the curve.
+    void scheduleRetry(const models::DiscoveredServer& server, ConnectIntent intent);
 
-    // The stored pairing key as raw bytes, or nullopt when absent/malformed.
-    std::optional<std::array<std::uint8_t, 32>> pairingKeyFor(const QString& id) const;
-    // hex(HMAC-SHA256(pairingKey, "satellite-proof:" + deviceId)) for the
-    // X-Hmac-Proof header; empty when no key is stored.
-    QString proofFor(const QString& id) const;
+    void emitErrorIfUserInitiated(ConnectIntent intent, const QString& message);
+    void markStale(const QString& id);
 
-    // Terminal 401 / close-notify(unpaired): drop ONLY the key (the row
-    // survives → LinkState::Stale, "needs pairing"), stop retrying, tear the
-    // session. Loud only for user intents.
-    void handleTerminalAuth(const QString& id, bool loud);
-    void handleDead(const QString& id);
-    void handleClose(const QString& id, std::uint8_t reason);
-    void runReconcile(const QString& id);
-    // Proactive re-key (contract §Crypto): re-PUT for fresh token/salt/key on
-    // the SAME socket before the send counter can exhaust — no state blip.
-    void runRekey(const QString& id);
-    void scheduleRetry(const QString& id);
-    void clearRetry(const QString& id) { retry_.remove(id); }
+    // One pairStatus round-trip off the thread pool, fed with the elapsed clock
+    // through reducer::nextReversePairingAction to decide re-arm / open / abort.
+    void pollReverseStatus();
+    void setReversePhase(ReversePairingPhase phase);
+    void finishReverse(ReversePairingPhase terminal);
+
+    // nullopt when the stored key is absent or undecodable, both of which mean
+    // re-pair.
+    struct Credentials {
+        std::array<std::uint8_t, 32> pairingKey{};
+        QString proof;
+    };
+    std::optional<Credentials> credentialsFor(const QString& id) const;
+    // Drops the key, parks Stale and stops retrying. Centralised so every REST
+    // path treats a terminal auth failure identically.
+    void onTerminalAuthFailure(WifiConnection* conn, const QString& id, ConnectIntent intent);
 
     ConnectionStore* store_;
     HTTPClient* http_;
@@ -123,9 +146,26 @@ class WifiConnectionManager : public QObject {
     QString deviceName_;
 
     QHash<QString, WifiConnection*> connections_;
-    QHash<QString, RetryState> retry_;
     QList<models::DiscoveredServer> discovered_;
     bool scanning_ = false;
+    QSet<QString> pairingInFlight_;
+    // Drives the backoff. Reset on a successful session or any user action.
+    QHash<QString, int> retryAttempts_;
+    // Single-flight guard: the ack ticks every second but the GET can take longer.
+    QSet<QString> reconcileInFlight_;
+
+    ReversePairingPhase reversePhase_ = ReversePairingPhase::Idle;
+    QString reversePin_;
+    QString reverseServerName_;
+    models::DiscoveredServer reverseServer_;
+    QTimer* reverseTimer_ = nullptr;
+    std::int64_t reverseElapsedMs_ = 0;
+    std::int64_t reverseDeadlineMs_ = 0;
+    // Disambiguates a "none" reply: after a pending, it means the operator's deny
+    // erased the row and is terminal; before one, it is just the POST-to-first-poll
+    // race and is tolerated. Reset per attempt.
+    bool reverseSawPending_ = false;
+    bool reversePollInFlight_ = false;
 };
 
 } // namespace dish::net

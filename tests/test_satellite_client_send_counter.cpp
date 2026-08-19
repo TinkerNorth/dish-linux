@@ -1,27 +1,18 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 // Copyright (C) 2026 Dish contributors.
+//
+// Counters are monotonic per direction and never repeat under one session key:
+// a session that exhausts the 2^32 space goes silent rather than wrap into
+// ChaCha20-Poly1305 nonce reuse. Asserted on the wire bytes over loopback UDP.
 
-// The send-counter never-wrap invariant (contract §Crypto): counters are
-// monotonic per direction, never repeat a value under one session key, and a
-// session that exhausts the 2^32 space goes SILENT instead of wrapping into
-// ChaCha20-Poly1305 nonce reuse. Exercised over a real loopback UDP socket so
-// the assertion is on the wire bytes, not on internal state alone.
-
-#include "Network/Reconcile.h"
 #include "Network/SatelliteClient.h"
-#include "Network/SessionCrypto.h"
+#include "core/reducer/Reconcile.h"
+#include "core/wire/SessionCrypto.h"
 #include "satellite_client_test_access.h"
 
 #include <catch2/catch_test_macros.hpp>
 
-#include <arpa/inet.h>
-#include <netinet/in.h>
-#include <sys/socket.h>
-#include <sys/time.h>
-#include <unistd.h>
-
 #include <array>
-#include <atomic>
 #include <chrono>
 #include <cstdint>
 #include <optional>
@@ -35,35 +26,31 @@ using dish::net::SatelliteClientTestAccess;
 
 namespace {
 
-// Bind an ephemeral loopback UDP socket the client under test sends into.
-// Returns the fd (or -1) and fills `port`.
-int bindLoopback(std::uint16_t& port) {
-    const int fd = ::socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
-    if (fd < 0) { return -1; }
+SOCKET bindLoopback(std::uint16_t& port) {
+    const SOCKET fd = ::socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+    if (fd == INVALID_SOCKET) { return INVALID_SOCKET; }
     sockaddr_in addr{};
     addr.sin_family = AF_INET;
     addr.sin_port = 0;
     ::inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
     if (::bind(fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) != 0) {
-        ::close(fd);
-        return -1;
+        ::closesocket(fd);
+        return INVALID_SOCKET;
     }
-    socklen_t len = sizeof(addr);
+    int len = static_cast<int>(sizeof(addr));
     if (::getsockname(fd, reinterpret_cast<sockaddr*>(&addr), &len) != 0) {
-        ::close(fd);
-        return -1;
+        ::closesocket(fd);
+        return INVALID_SOCKET;
     }
     port = ntohs(addr.sin_port);
-    timeval rtv{};
-    rtv.tv_sec = 0;
-    rtv.tv_usec = 200'000;
-    ::setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &rtv, sizeof(rtv));
+    DWORD rtv = 200;
+    ::setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, reinterpret_cast<const char*>(&rtv), sizeof(rtv));
     return fd;
 }
 
-std::optional<std::vector<std::uint8_t>> recvDatagram(int fd) {
+std::optional<std::vector<std::uint8_t>> recvDatagram(SOCKET fd) {
     std::uint8_t buf[256];
-    const ssize_t n = ::recv(fd, buf, sizeof(buf), 0);
+    const int n = ::recv(fd, reinterpret_cast<char*>(buf), static_cast<int>(sizeof(buf)), 0);
     if (n <= 0) { return std::nullopt; }
     return std::vector<std::uint8_t>(buf, buf + n);
 }
@@ -76,20 +63,25 @@ std::uint32_t counterOf(const std::vector<std::uint8_t>& pkt) {
 }
 
 struct LoopbackClient {
-    int fd = -1;
+    SOCKET fd = INVALID_SOCKET;
     std::uint16_t port = 0;
     SatelliteClient client;
 
     LoopbackClient() {
         fd = bindLoopback(port);
-        REQUIRE(fd >= 0);
+        REQUIRE(fd != INVALID_SOCKET);
         REQUIRE(client.openSocket("127.0.0.1", port));
         client.setConnectionParams({0x11, 0x22, 0x33, 0x44}, key(0xA5));
     }
     ~LoopbackClient() {
         client.closeSocket();
-        if (fd >= 0) { ::close(fd); }
+        if (fd != INVALID_SOCKET) { ::closesocket(fd); }
     }
+    LoopbackClient(const LoopbackClient&) = delete;
+    LoopbackClient& operator=(const LoopbackClient&) = delete;
+    LoopbackClient(LoopbackClient&&) = delete;
+    LoopbackClient& operator=(LoopbackClient&&) = delete;
+
     static std::array<std::uint8_t, 32> key(std::uint8_t fill) {
         std::array<std::uint8_t, 32> k{};
         k.fill(fill);
@@ -128,8 +120,8 @@ TEST_CASE("send path goes silent at counter exhaustion instead of wrapping into 
     lb.sendOne();
     CHECK_FALSE(recvDatagram(lb.fd).has_value()); // silent: no wrapped-counter packets
 
-    // The exhausted counter must keep reading re-PUT needed, never wrap back
-    // under the threshold — the alive tick's guard depends on it.
+    // The alive tick's guard depends on the exhausted counter still reading
+    // re-PUT needed rather than wrapping back under the threshold.
     CHECK(lb.client.sendCounter() == 0xFFFFFFFFu);
     CHECK(dish::reducer::counterNeedsRepush(lb.client.sendCounter()));
 }
@@ -145,14 +137,13 @@ TEST_CASE("a session never repeats a counter value under one key; re-key restart
     std::uint32_t prev = 0;
     while (const auto pkt = recvDatagram(lb.fd)) {
         const std::uint32_t ctr = counterOf(*pkt);
-        CHECK(ctr > prev); // strictly monotonic on the wire
+        CHECK(ctr > prev);
         prev = ctr;
-        CHECK(seen.insert(ctr).second); // no value ever repeats
+        CHECK(seen.insert(ctr).second);
     }
     CHECK(seen.size() == 3);
 
-    // Re-key (fresh token + key, as the proactive re-PUT installs): counters
-    // restart at 1 in a fresh nonce space and traffic flows again.
+    // A re-key installs a fresh nonce space, so counters restart at 1.
     lb.client.setConnectionParams({0x55, 0x66, 0x77, 0x88}, LoopbackClient::key(0x3C));
     CHECK(lb.client.sendCounter() == 1);
     lb.sendOne();
@@ -162,14 +153,13 @@ TEST_CASE("a session never repeats a counter value under one key; re-key restart
 }
 
 TEST_CASE("a live re-key never tears the (key, token, counter) draw", "[send_counter]") {
-    // Hammer the send path from two threads while the owner thread re-keys
-    // through many generations. Every packet on the wire must decrypt under
-    // the key its token selects, and no (token, counter) pair may repeat —
-    // torn material (old key + fresh counter, or half-swapped token/key)
-    // fails one of the two.
+    // Two sender threads against an owner thread re-keying. Torn material (old
+    // key with a fresh counter, or a half-swapped token/key) fails either the
+    // decrypt under the token-selected key or the (token, counter) uniqueness.
     LoopbackClient lb;
-    const int rcvbuf = 1 << 20; // best effort — drops are fine, mixups are not
-    ::setsockopt(lb.fd, SOL_SOCKET, SO_RCVBUF, &rcvbuf, sizeof(rcvbuf));
+    const int rcvbuf = 1 << 20; // best effort: drops are fine, mixups are not
+    ::setsockopt(lb.fd, SOL_SOCKET, SO_RCVBUF, reinterpret_cast<const char*>(&rcvbuf),
+                 sizeof(rcvbuf));
 
     constexpr std::uint8_t kGens = 40;
     const auto tokenFor = [](std::uint8_t gen) {
@@ -180,9 +170,8 @@ TEST_CASE("a live re-key never tears the (key, token, counter) draw", "[send_cou
     };
     lb.client.setConnectionParams(tokenFor(0), keyFor(0));
 
-    std::atomic<bool> stop{false};
-    const auto sender = [&lb, &stop] {
-        for (int i = 0; i < 1500 && !stop.load(std::memory_order_relaxed); ++i) { lb.sendOne(); }
+    const auto sender = [&lb] {
+        for (int i = 0; i < 1500; ++i) { lb.sendOne(); }
     };
     std::thread a(sender);
     std::thread b(sender);
@@ -192,7 +181,6 @@ TEST_CASE("a live re-key never tears the (key, token, counter) draw", "[send_cou
     }
     a.join();
     b.join();
-    stop.store(true, std::memory_order_relaxed);
 
     std::set<std::pair<std::uint8_t, std::uint32_t>> seen;
     int decrypted = 0;

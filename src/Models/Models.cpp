@@ -24,9 +24,27 @@ bool boolOr(const QJsonObject& obj, const char* key, bool fallback) {
     return fallback;
 }
 
-// Set the optional only when the key is a non-empty string.
 void setIfNonEmpty(std::optional<QString>& slot, const QJsonObject& obj, const char* key) {
     if (auto v = optString(obj, key); !v.isEmpty()) { slot = v; }
+}
+
+// Inverse of ControllerDescriptor::toJson's caps fold. Unknown keys are ignored
+// so a newer server can add caps without breaking older clients.
+std::uint16_t capsWordFromJson(const QJsonObject& caps) {
+    std::uint16_t word = 0;
+    if (boolOr(caps, "rumble", false)) { word |= proto::kCapRumble; }
+    if (boolOr(caps, "motion", false)) { word |= proto::kCapMotion; }
+    if (boolOr(caps, "analogTriggers", false)) { word |= proto::kCapAnalogTriggers; }
+    if (boolOr(caps, "lightbar", false)) { word |= proto::kCapLightbar; }
+    return word;
+}
+
+HostCapabilityDto hostCapabilityFromJson(const QJsonObject& obj) {
+    HostCapabilityDto d;
+    d.supported = boolOr(obj, "supported", false);
+    const auto avail = obj.value(QLatin1String("available"));
+    if (avail.isBool()) { d.available = avail.toBool(); }
+    return d;
 }
 
 } // namespace
@@ -46,9 +64,8 @@ DiscoveredServer DiscoveredServer::fromJson(const QJsonObject& obj) {
     s.udpPort = intOr(obj, "udpPort", kDefaultUdpPort);
     s.pairPort = intOr(obj, "pairPort", kDefaultPairPort);
     s.httpPort = intOr(obj, "httpPort", kDefaultHttpPort);
-    // The beacon advertises the stable id as "machineId" (see satellite
-    // net/discovery_beacon.h); mDNS TXT uses "mid". Accept either so both
-    // discovery transports populate the keying identity.
+    // The beacon calls it "machineId", mDNS TXT calls it "mid". Accept either so
+    // both discovery transports populate the keying identity.
     s.machineId = optString(obj, "machineId");
     if (s.machineId.isEmpty()) { s.machineId = optString(obj, "mid"); }
     return s;
@@ -61,9 +78,18 @@ PairResponse PairResponse::fromJson(const QJsonObject& obj) {
     setIfNonEmpty(r.error, obj, "error");
     setIfNonEmpty(r.sharedKey, obj, "sharedKey");
     r.protocolVersion = intOr(obj, "protocolVersion", proto::kProtocolVersion);
-    // We got far enough to parse a JSON body, so the server is reachable —
-    // even if ok=false. PairingClient sets reachable=false explicitly on
-    // every network-level error path.
+    // A JSON body parsed, so the server is reachable even when ok=false.
+    // PairingClient sets reachable=false on every network-error path.
+    r.reachable = true;
+    return r;
+}
+
+PairResponse PairResponse::fromStatusJson(const QJsonObject& obj) {
+    PairResponse r;
+    r.ok = boolOr(obj, "ok", false);
+    if (auto st = optString(obj, "status"); !st.isEmpty()) { r.status = st; }
+    setIfNonEmpty(r.sharedKey, obj, "sharedKey");
+    setIfNonEmpty(r.error, obj, "error");
     r.reachable = true;
     return r;
 }
@@ -123,6 +149,19 @@ SessionViewControllerDto SessionViewControllerDto::fromJson(const QJsonObject& o
     d.active = boolOr(obj, "active", false);
     d.appliedType = intOr(obj, "appliedType", proto::kControllerTypeXbox);
     d.touchpadMode = optString(obj, "touchpadMode");
+    const auto caps = obj.value(QLatin1String("caps"));
+    if (caps.isObject()) {
+        d.caps = capsWordFromJson(caps.toObject());
+        d.capsPresent = true;
+    }
+    const auto motion = obj.value(QLatin1String("motion"));
+    if (motion.isObject()) {
+        const auto mo = motion.toObject();
+        const auto sink = mo.value(QLatin1String("sinkSupportedForType"));
+        if (sink.isBool()) { d.motionSinkSupportedForType = sink.toBool(); }
+        const auto ok = mo.value(QLatin1String("backendOk"));
+        if (ok.isBool()) { d.motionBackendOk = ok.toBool(); }
+    }
     return d;
 }
 
@@ -130,6 +169,8 @@ SessionViewDto SessionViewDto::fromJson(const QJsonObject& obj) {
     SessionViewDto r;
     setIfNonEmpty(r.connectionId, obj, "connectionId");
     r.epoch = intOr(obj, "epoch", 0);
+    r.protocolVersion = intOr(obj, "protocolVersion", proto::kProtocolVersion);
+    r.maxControllers = intOr(obj, "maxControllers", 16);
     for (const auto& v : obj.value(QLatin1String("controllers")).toArray()) {
         if (v.isObject()) {
             r.controllers.append(SessionViewControllerDto::fromJson(v.toObject()));
@@ -143,22 +184,88 @@ SessionViewDto SessionViewDto::fromJson(const QJsonObject& obj) {
     return r;
 }
 
-CatalogType CatalogType::fromJson(const QJsonObject& obj) {
-    CatalogType t;
+CapabilitiesDto CapabilitiesDto::fromJson(const QJsonObject& obj) {
+    CapabilitiesDto c;
+    c.protocolVersion = intOr(obj, "protocolVersion", proto::kProtocolVersion);
+    c.serverVersion = optString(obj, "serverVersion");
+    c.maxControllers = intOr(obj, "maxControllers", 16);
+    const auto backend = obj.value(QLatin1String("backend")).toObject();
+    c.backendId = optString(backend, "id");
+    c.backendSupported = boolOr(backend, "supported", false);
+    c.backendAvailable = boolOr(backend, "available", false);
+    if (auto ec = optString(backend, "errorCode"); !ec.isEmpty()) { c.backendErrorCode = ec; }
+    const auto motion = obj.value(QLatin1String("motion")).toObject();
+    c.motionAvailable = boolOr(motion, "available", false);
+    const auto host = obj.value(QLatin1String("host"));
+    if (host.isObject()) {
+        const auto ho = host.toObject();
+        c.hasHostBlock = true;
+        c.hostCatalog = hostCapabilityFromJson(ho.value(QLatin1String("catalog")).toObject());
+        c.hostMouseControl =
+            hostCapabilityFromJson(ho.value(QLatin1String("mouseControl")).toObject());
+        c.hostKeyboardControl =
+            hostCapabilityFromJson(ho.value(QLatin1String("keyboardControl")).toObject());
+        c.hostRumble = hostCapabilityFromJson(ho.value(QLatin1String("rumble")).toObject());
+    }
+    c.reachable = true;
+    return c;
+}
+
+CatalogTypeDto CatalogTypeDto::fromJson(const QJsonObject& obj) {
+    CatalogTypeDto t;
     t.id = intOr(obj, "id", 0);
-    const auto touchpad =
-        obj.value(QLatin1String("features")).toObject().value(QLatin1String("touchpad")).toObject();
-    for (const auto& m : touchpad.value(QLatin1String("modes")).toArray()) {
-        if (m.toString() == QLatin1String("ds4")) { t.touchpadDs4 = true; }
+    t.slug = optString(obj, "slug");
+    t.name = optString(obj, "name");
+    t.shortName = optString(obj, "shortName");
+    t.description = optString(obj, "description");
+    const auto image = obj.value(QLatin1String("image")).toObject();
+    t.imageHref = optString(image, "href");
+    t.imageEtag = optString(image, "etag");
+    const auto features = obj.value(QLatin1String("features")).toObject();
+    for (auto it = features.begin(); it != features.end(); ++it) {
+        const auto fo = it.value().toObject();
+        CatalogFeatureDto f;
+        f.supported = boolOr(fo, "supported", false);
+        if (auto req = optString(fo, "requires"); !req.isEmpty()) { f.requires_ = req; }
+        for (const auto& m : fo.value(QLatin1String("modes")).toArray()) {
+            if (m.isString()) { f.modes.append(m.toString()); }
+        }
+        t.features.insert(it.key(), f);
+    }
+    const auto emulates = obj.value(QLatin1String("emulates"));
+    if (emulates.isObject()) {
+        const auto eo = emulates.toObject();
+        CatalogEmulatesDto e;
+        e.sdlType = optString(eo, "sdlType");
+        for (const auto& u : eo.value(QLatin1String("usb")).toArray()) {
+            if (u.isString()) { e.usb.append(u.toString().toLower()); }
+        }
+        t.emulates = e;
     }
     return t;
 }
 
-ServerCatalog ServerCatalog::fromJson(const QJsonObject& obj) {
-    ServerCatalog c;
+CatalogDto CatalogDto::fromJson(const QJsonObject& obj) {
+    CatalogDto c;
+    c.locale = optString(obj, "locale");
+    c.protocolVersion = intOr(obj, "protocolVersion", proto::kProtocolVersion);
+    // Absent = the legacy v1 catalog per contract; never default to current.
+    c.catalogVersion = intOr(obj, "catalogVersion", 1);
+    c.serverVersion = optString(obj, "serverVersion");
     for (const auto& v : obj.value(QLatin1String("controllerTypes")).toArray()) {
-        if (v.isObject()) { c.controllerTypes.append(CatalogType::fromJson(v.toObject())); }
+        if (v.isObject()) { c.controllerTypes.append(CatalogTypeDto::fromJson(v.toObject())); }
     }
+    const auto hf = obj.value(QLatin1String("hostFeatures")).toObject();
+    for (auto it = hf.begin(); it != hf.end(); ++it) {
+        const auto fo = it.value().toObject();
+        CatalogHostFeatureDto f;
+        f.supported = boolOr(fo, "supported", false);
+        for (const auto& m : fo.value(QLatin1String("modes")).toArray()) {
+            if (m.isString()) { f.modes.append(m.toString()); }
+        }
+        c.hostFeatures.insert(it.key(), f);
+    }
+    c.reachable = true;
     return c;
 }
 
@@ -216,7 +323,6 @@ RememberedWifi RememberedWifi::fromJson(const QJsonObject& obj) {
     r.udpPort = intOr(obj, "udpPort", kDefaultUdpPort);
     r.pairPort = intOr(obj, "pairPort", kDefaultPairPort);
     r.httpPort = intOr(obj, "httpPort", kDefaultHttpPort);
-    // Absent on rows persisted before protocol-1 — defaults empty, still loads.
     r.machineId = optString(obj, "machineId");
     return r;
 }

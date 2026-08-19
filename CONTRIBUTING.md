@@ -19,6 +19,63 @@ gracefully if the tools aren't installed — CI re-runs `clang-format
 --dry-run --Werror` and `clang-tidy` in strict mode, so anything that
 slips locally fails the PR.
 
+## Where code goes
+
+The app is a unidirectional-dataflow core with a Qt Quick projection on top.
+Before writing a class, pick the primitive that matches what it actually does —
+subclassing the wrong one is the commonest architectural mistake here.
+
+| You have… | Use | Lives in |
+|---|---|---|
+| a `(state, event) -> result` decision with no IO | a free function | `src/core/reducer/` |
+| a domain value reshaped for the UI | a mapper, also a free function | `src/core/` |
+| state owned from a socket, timer, cache or setting | `StateSource<S>` | `src/source/` |
+| one value purely derived from other Observables | `Composer<Out, Ins...>` | `src/composer/` |
+| a side effect driven by a state | `Controller<S>` | `src/composer/` |
+| durable keyed storage | `Repository<K,V>` | `src/repository/` |
+| an IO or native boundary with no domain state | a `*Gateway` | `src/source/` |
+| imperative commands spanning several sources | a `*Coordinator` | `src/composer/` |
+
+The rules, and why each exists, are in
+[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) and
+[`src/architecture/README.md`](src/architecture/README.md). Two that catch people
+out: a composer never performs IO (if it needs a socket you are writing a
+source), and a coordinator never becomes the source of truth for state another
+class already owns (a mirror is a second writer).
+
+`src/core/` and `src/architecture/` are Qt-free where they can be and platform-
+free always. Nothing below `src/qml/` may know the UI exists.
+
+## Touching the UI
+
+Every design value reaches its callsite through a `Theme` or `Tokens` name.
+`src/qml/kit/` is the one layer that turns tokens into pixels; everything else
+composes kit components. The rules are review-blocking and listed in
+[`docs/QML_UI_KIT.md`](docs/QML_UI_KIT.md) — in particular, a page may not
+declare an inline `component`, and every state a component can be in has to
+appear in `KitGallery.qml`.
+
+`scripts/qml-lint-literals.sh` catches a hard-coded `#4FE3FF` or `radius: 8`,
+which still renders and silently stops tracking the palette. It errors for
+`src/qml/wizard/**` and `src/qml/shared/**` and warns elsewhere.
+
+Anything QML reads or calls on `App` is listed in
+[`docs/QML_CONTRACT.md`](docs/QML_CONTRACT.md). That document is a compensating
+control, not documentation: `App` is a runtime context property that `qmllint`
+cannot see, so a reference to it is checked against that table rather than by
+the linter. Add new surface there in the same commit.
+
+## Translations
+
+Six catalogues in `translations/`. A new user-facing string needs a catalogue
+entry in the same commit — `scripts/check-translations.sh` re-runs `lupdate` in
+CI and fails on any diff. Run it locally and commit the result.
+
+Coverage is reported, never enforced: translating a string is a separate act
+from extracting it. English is a real catalogue rather than the untranslated
+fallback, because a `%n` message carries one source string but needs one plural
+form per category and Bosnian has three.
+
 ## License headers
 
 Every source file (`*.h`, `*.hpp`, `*.cpp`) starts with:
@@ -56,8 +113,10 @@ license — the project is LGPL-3.0-or-later end-to-end (`LICENSE`,
 Build + style:
 
 - `linux-ci.yml`: `clang-format --dry-run --Werror`, Debug build + `ctest`
-  (Catch2 suite under `tests/`), `clang-tidy -p build-debug` over `src/`,
-  Release build that uploads `dish` as a CI artifact.
+  (Catch2 suite under `tests/`), `qmllint` over every tracked QML file,
+  `scripts/qml-lint-literals.sh`, `scripts/check-translations.sh`,
+  `clang-tidy -p build-tidy` over `src/` excluding `src/UI/` and `src/qml/`,
+  and a Release build that uploads `dish` as a CI artifact.
 
 Security gates (also blocking):
 
@@ -67,7 +126,9 @@ Security gates (also blocking):
 - `codeql.yml`: CodeQL `cpp` analysis (security-extended +
   security-and-quality query packs).
 
-Reproduce build steps locally with `scripts/build.sh debug test`.
+`scripts/ci_local.sh` runs every gate in the same order against your worktree,
+so a green run there means a green run in CI. `--no-tidy` skips the slowest
+step for a fast loop.
 
 ## Security
 
@@ -150,11 +211,13 @@ server and must produce byte-identical traffic:
 - Packet layout: `token(4) | counter(4) | ciphertext+tag`, with the
   4-byte token as AAD.
 - XUSB report: 12 bytes, little-endian.
-- Ports: discovery UDP 9879, pairing TCP 9878, HTTP TCP 9877,
-  streaming UDP 9876.
+- Ports: discovery UDP 9879, pairing and REST HTTPS 9443, streaming UDP 9876.
 
-Any change here must be coordinated with `dish-android`, `dish-mac`, and
-`satellite` in the same PR / release cycle.
+Any change here must be coordinated with `dish-android`, `dish-mac`,
+`dish-windows` and `satellite` in the same PR / release cycle. The
+authoritative contract is
+[`satellite/docs/contract.md`](https://github.com/TinkerNorth/satellite/blob/main/docs/contract.md);
+the client-side mirror is [`src/core/model/Protocol.h`](src/core/model/Protocol.h).
 
 ## clang-tidy triage
 
@@ -180,9 +243,9 @@ Suppressions intentionally enabled in `.clang-tidy`:
 
 Anything new should land at zero net additional warnings on the
 non-UI scope (`find src -name '*.cpp' ! -path 'src/UI/*' | xargs
-clang-tidy -p build-debug --quiet`). UI files are excluded from CI's
-clang-tidy step because Qt's MOC-generated code triggers a long tail
-of false positives.
+clang-tidy -p build-tidy --quiet`). `src/UI/` and `src/qml/` are excluded from
+CI's clang-tidy step because Qt's MOC- and qmltyperegistrar-generated code
+triggers a long tail of false positives.
 
 ## Reporting bugs
 

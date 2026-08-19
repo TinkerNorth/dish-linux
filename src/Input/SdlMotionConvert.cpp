@@ -10,10 +10,9 @@ namespace dish::input {
 
 namespace {
 
-// Wire scale matching satellite/src/core/types.h.
-//
-//   gyro:  SDL gives rad/s; convert to deg/s, then to int16 LSB = 2000/32767
-//   accel: SDL gives m/s²;  convert to g (÷ 9.80665), then to int16 LSB = 4/32767
+// Wire scale, pinned to satellite/src/core/types.h. SDL reports gyro in rad/s
+// and accel in m/s²; the wire wants int16 with LSB = 2000/32767 deg/s and
+// 4/32767 g respectively.
 constexpr float kRadPerSecToDegPerSec = 57.295779513f; // 180 / π
 constexpr float kGyroInt16PerDegPerSec = 32767.0f / 2000.0f;
 constexpr float kAccelInt16PerG = 32767.0f / 4.0f;

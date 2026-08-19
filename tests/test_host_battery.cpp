@@ -1,12 +1,10 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 // Copyright (C) 2026 Dish contributors.
 
-// Coverage for util::hostBatteryFromSysfs — the pure mapping from parsed
-// /sys/class/power_supply/* battery entries to the MSG_BATTERY (0x000B) wire
-// (level, status) pair. The live readHostBattery() wraps this around a sysfs
-// scan; the mapping is split out so every branch is testable without a real
-// filesystem. Same pattern as test_satellite_client_motion.cpp — the pure
-// function is the seam.
+// util::hostBatteryFromSysfs — the pure mapping from parsed
+// /sys/class/power_supply/* entries to the MSG_BATTERY (level, status) pair.
+// readHostBattery() wraps this around a live scan; the mapping is split out so
+// every branch is testable without a real filesystem.
 
 #include "Util/HostBattery.h"
 

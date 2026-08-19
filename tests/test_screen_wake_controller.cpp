@@ -1,23 +1,31 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 // Copyright (C) 2026 Dish contributors.
+//
+// End-to-end over the wake split: streamingSlotCount -> WakeStateComposer ->
+// WakeStateController -> inhibitor, with a fake inhibitor standing in for the
+// session-bus one.
 
 #include "Util/DisplaySleepInhibitor.h"
-#include "Util/ScreenWakeController.h"
+#include "architecture/Observable.h"
+#include "composer/StreamingSlotCount.h"
+#include "composer/WakeStateComposer.h"
+#include "composer/WakeStateController.h"
 
 #include <catch2/catch_test_macros.hpp>
 
 #include <QHash>
 #include <QString>
 
+using dish::arch::Observable;
+using dish::composer::streamingSlotCount;
+using dish::composer::WakeState;
+using dish::composer::WakeStateComposer;
+using dish::composer::WakeStateController;
 using dish::models::LinkState;
 using dish::util::DisplaySleepInhibitor;
-using dish::util::ScreenWakeController;
 
 namespace {
 
-// A fake inhibitor that records the acquire/release lifecycle. The real
-// FreedesktopScreenSaverInhibitor requires a running session bus, which is
-// usually unavailable in CI containers — a fake keeps the tests self-contained.
 class FakeInhibitor : public DisplaySleepInhibitor {
   public:
     void acquire(const QString& reason) override {
@@ -48,18 +56,16 @@ class FakeInhibitor : public DisplaySleepInhibitor {
 
 } // namespace
 
-// ---------------------------------------------------------------------------
-// streamingCount — pure derivation
-// ---------------------------------------------------------------------------
-
-TEST_CASE("streamingCount: zero when nothing is bound", "[wake]") {
+TEST_CASE("streamingSlotCount: zero when nothing is bound", "[wake]") {
     QHash<QString, QString> bindings;
     QHash<QString, LinkState> states;
     states.insert("c1", LinkState::Connected);
-    REQUIRE(ScreenWakeController::streamingCount(bindings, states) == 0);
+    REQUIRE(streamingSlotCount(bindings, states) == 0);
 }
 
-TEST_CASE("streamingCount: ignores bindings to non-online states", "[wake]") {
+TEST_CASE("streamingSlotCount: ignores bindings to non-live LinkStates", "[wake]") {
+    // Only Connected counts as streaming; every other state is a paired or
+    // pending row whose session is not exchanging packets.
     QHash<QString, QString> bindings{
         {"slot-a", "conn-1"}, {"slot-b", "conn-2"}, {"slot-c", "conn-3"}};
     QHash<QString, LinkState> states{
@@ -67,95 +73,100 @@ TEST_CASE("streamingCount: ignores bindings to non-online states", "[wake]") {
         {"conn-2", LinkState::Connecting},
         {"conn-3", LinkState::Connected},
     };
-    REQUIRE(ScreenWakeController::streamingCount(bindings, states) == 1);
+    REQUIRE(streamingSlotCount(bindings, states) == 1);
 }
 
-TEST_CASE("streamingCount: counts multiple online slots", "[wake]") {
+TEST_CASE("streamingSlotCount: counts multiple connected slots", "[wake]") {
     QHash<QString, QString> bindings{{"a", "c1"}, {"b", "c2"}, {"c", "c3"}};
     QHash<QString, LinkState> states{
         {"c1", LinkState::Connected},
         {"c2", LinkState::Connected},
         {"c3", LinkState::Saved},
     };
-    REQUIRE(ScreenWakeController::streamingCount(bindings, states) == 2);
+    REQUIRE(streamingSlotCount(bindings, states) == 2);
 }
 
-TEST_CASE("streamingCount: unknown connection counts as offline", "[wake]") {
+TEST_CASE("streamingSlotCount: unknown connection counts as not-streaming", "[wake]") {
     QHash<QString, QString> bindings{{"a", "missing"}};
     QHash<QString, LinkState> states;
-    REQUIRE(ScreenWakeController::streamingCount(bindings, states) == 0);
+    REQUIRE(streamingSlotCount(bindings, states) == 0);
 }
 
-// ---------------------------------------------------------------------------
-// update() drives the inhibitor on 0↔positive transitions
-// ---------------------------------------------------------------------------
+namespace {
 
-TEST_CASE("update: first stream acquires inhibitor", "[wake]") {
+// Mirrors how AppModel wires the wake subsystem.
+struct WakeHarness {
+    Observable<int> count{0};
+    Observable<int> keepOn{0};
+    WakeStateComposer composer{count, keepOn};
     FakeInhibitor fake;
-    ScreenWakeController c(&fake, QStringLiteral("test reason"));
-    c.update(1);
-    REQUIRE(fake.acquires() == 1);
-    REQUIRE(fake.releases() == 0);
-    REQUIRE(fake.isHeld());
-    REQUIRE(fake.lastReason() == "test reason");
+    WakeStateController controller{composer.state(), &fake, QStringLiteral("test reason")};
+
+    WakeHarness() { controller.start(); }
+};
+
+} // namespace
+
+TEST_CASE("wake: first stream acquires inhibitor", "[wake]") {
+    WakeHarness h;
+    h.count.set(1);
+    REQUIRE(h.fake.acquires() == 1);
+    REQUIRE(h.fake.releases() == 0);
+    REQUIRE(h.fake.isHeld());
+    REQUIRE(h.fake.lastReason() == "test reason");
 }
 
-TEST_CASE("update: 1 → 2 slots does not re-acquire", "[wake]") {
-    FakeInhibitor fake;
-    ScreenWakeController c(&fake);
-    c.update(1);
-    c.update(2);
-    REQUIRE(fake.acquires() == 1);
+TEST_CASE("wake: 1 -> 2 slots does not re-acquire", "[wake]") {
+    WakeHarness h;
+    h.count.set(1);
+    h.count.set(2);
+    REQUIRE(h.fake.acquires() == 1);
 }
 
-TEST_CASE("update: positive → 0 releases", "[wake]") {
-    FakeInhibitor fake;
-    ScreenWakeController c(&fake);
-    c.update(2);
-    c.update(0);
-    REQUIRE(fake.acquires() == 1);
-    REQUIRE(fake.releases() == 1);
-    REQUIRE_FALSE(fake.isHeld());
+TEST_CASE("wake: positive -> 0 releases", "[wake]") {
+    WakeHarness h;
+    h.count.set(2);
+    h.count.set(0);
+    REQUIRE(h.fake.acquires() == 1);
+    REQUIRE(h.fake.releases() == 1);
+    REQUIRE_FALSE(h.fake.isHeld());
 }
 
-TEST_CASE("update: staying at 0 is idempotent", "[wake]") {
-    FakeInhibitor fake;
-    ScreenWakeController c(&fake);
-    c.update(0);
-    c.update(0);
-    REQUIRE(fake.acquires() == 0);
-    REQUIRE(fake.releases() == 0);
+TEST_CASE("wake: staying at 0 is idempotent", "[wake]") {
+    WakeHarness h;
+    h.count.set(0); // no change from the initial 0
+    REQUIRE(h.fake.acquires() == 0);
+    REQUIRE(h.fake.releases() == 0);
 }
 
-TEST_CASE("update: re-acquires after a drop", "[wake]") {
-    FakeInhibitor fake;
-    ScreenWakeController c(&fake);
-    c.update(1);
-    c.update(0);
-    c.update(1);
-    REQUIRE(fake.acquires() == 2);
-    REQUIRE(fake.releases() == 1);
-    REQUIRE(fake.isHeld());
+TEST_CASE("wake: re-acquires after a drop", "[wake]") {
+    WakeHarness h;
+    h.count.set(1);
+    h.count.set(0);
+    h.count.set(1);
+    REQUIRE(h.fake.acquires() == 2);
+    REQUIRE(h.fake.releases() == 1);
+    REQUIRE(h.fake.isHeld());
 }
 
-TEST_CASE("reset: releases and zeros the count", "[wake]") {
-    FakeInhibitor fake;
-    ScreenWakeController c(&fake);
-    c.update(3);
-    c.reset();
-    REQUIRE(c.streamingSlotCount() == 0);
-    REQUIRE(fake.releases() == 1);
-    REQUIRE_FALSE(fake.isHeld());
+TEST_CASE("wake: stop releases the inhibitor (deliberate teardown)", "[wake]") {
+    WakeHarness h;
+    h.count.set(3);
+    h.controller.stop();
+    REQUIRE(h.fake.releases() == 1);
+    REQUIRE_FALSE(h.fake.isHeld());
 }
 
-TEST_CASE("ScreenWakeController tolerates a null inhibitor", "[wake]") {
-    // Defensive: a future build flag or stripped-down packaging may pass
-    // nullptr (e.g. headless). The controller must still bookkeep its count
-    // without crashing — important because the same instance is then used by
-    // every connect/disconnect transition in the AppModel.
-    ScreenWakeController c(nullptr);
-    c.update(1);
-    c.update(0);
-    c.reset();
-    REQUIRE(c.streamingSlotCount() == 0);
+TEST_CASE("wake: tolerates a null inhibitor", "[wake]") {
+    // A headless or stripped-down build can pass nullptr; the controller must
+    // still bookkeep without crashing.
+    Observable<int> count{0};
+    Observable<int> keepOn{0};
+    WakeStateComposer composer{count, keepOn};
+    WakeStateController controller{composer.state(), nullptr};
+    controller.start();
+    count.set(1);
+    count.set(0);
+    controller.stop();
+    REQUIRE_FALSE(controller.isInhibiting());
 }

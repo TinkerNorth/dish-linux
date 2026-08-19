@@ -31,9 +31,10 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             build-essential cmake ninja-build pkg-config \
-            qt6-base-dev qt6-base-dev-tools qt6-svg-dev \
-            libsodium-dev libsdl2-dev \
-            clang-tidy
+            qt6-base-dev qt6-base-dev-tools qt6-declarative-dev \
+            qt6-svg-dev qt6-tools-dev qt6-l10n-tools \
+            libsodium-dev libsdl2-dev libdbus-1-dev \
+            catch2 clang-tidy
 
       - name: Set up Python
         uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
@@ -62,7 +63,28 @@ jobs:
 
       - name: Run tests
         working-directory: build
+        # No display on the runner; the QML tests construct QGuiApplication.
+        env:
+          QT_QPA_PLATFORM: offscreen
         run: ctest --output-on-failure --parallel
+
+      - name: qmllint (QML static analysis)
+        run: |
+          # git's * crosses directory levels; 'src/qml/**/*.qml' would miss the
+          # top-level Main and AppShell.
+          qmllint6 -I build --unqualified info $(git ls-files 'src/qml/*.qml') \
+            || qmllint -I build --unqualified info $(git ls-files 'src/qml/*.qml')
+
+      # qmllint checks a QML file RESOLVES; this checks it used the design
+      # tokens. A hard-coded `#4FE3FF` or `radius: 8` still renders, it just
+      # stops tracking the palette — no other gate would catch it.
+      - name: QML literal scanner
+        run: ./scripts/qml-lint-literals.sh --mode error
+
+      # A stale .ts is not a compile error, so nothing else catches a string
+      # added without a catalogue entry.
+      - name: Translation catalogues in sync
+        run: ./scripts/check-translations.sh
 
       - name: clang-tidy
         run: |
@@ -76,6 +98,7 @@ jobs:
           # forking the fleet-canonical .clang-tidy (WarningsAsErrors: '').
           find src -type f \( -name '*.cpp' -o -name '*.h' \) \
             ! -path 'src/UI/*' \
+            ! -path 'src/qml/*' \
             -print0 | xargs -0 -n1 -P"$(nproc)" \
               clang-tidy -p build-tidy --quiet --warnings-as-errors='*'
 

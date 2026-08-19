@@ -1,417 +1,229 @@
 # Dish Linux
 
-Native Linux desktop client for the Satellite wireless-gamepad server. Mirrors
-the functionality of the Dish Android and Dish Mac clients: LAN discovery, PIN
-pairing, encrypted UDP input streaming (ChaCha20-Poly1305), heartbeats, and
-multiple parallel server sessions.
+[![Linux CI](https://github.com/TinkerNorth/dish-linux/actions/workflows/linux-ci.yml/badge.svg)](https://github.com/TinkerNorth/dish-linux/actions/workflows/linux-ci.yml)
 
-## Architecture
+Turns the gamepads attached to a Linux machine into wireless controllers for
+another machine on the same network. Dish finds
+[Satellite](https://github.com/TinkerNorth/satellite) servers on the LAN, pairs
+with a PIN over HTTPS, and streams encrypted controller input over UDP; the
+satellite plugs a matching virtual pad into the host, so games there see a real
+controller.
 
-```
-Qt6 Widgets (MainWindow, ConnectionsDialog, PairingDialog, SlotCard)
-  └── AppModel (QObject, UI thread)
-        ├── ConnectionHub      ── aggregates live + remembered sessions
-        ├── WifiConnectionManager
-        │     └── WifiConnection (per-server)
-        │           └── SatelliteClient  ── encrypted UDP + heartbeat + ACK loop
-        ├── MdnsDiscovery      ── mDNS / Bonjour responder on :5353 (Task 1.6)
-        ├── LANDiscovery       ── legacy UDP broadcast listener on :9879
-        ├── PairingClient      ── HTTPS pair handshake on :9443 (TOFU-pinned)
-        ├── HTTPClient         ── protocol-1 session REST on :9443
-        └── SDLGamepadBridge   ── SDL_GameController event pump (own thread)
-              └── GamepadInputProcessor → SatelliteClient
-                    • sendReport()   gamepad XUSB report
-                    • sendMotion()   gyro / accel IMU stream
-                    • sendBattery()  30 s battery heartbeat
-                    • sendTouchpad() DS4 / DualSense two-finger trackpad
-```
+**Dish needs a Satellite server running on your LAN.** It is one half of a pair
+and does nothing on its own. It is the Linux sibling of `dish-android`,
+`dish-mac` and `dish-windows`; all four speak the same protocol to the same
+server and look identical to it.
 
-### Hot path (input → wire)
+Physical controllers only. There is no on-screen touch gamepad; that belongs to
+`dish-android`, where the form factor makes sense.
 
-The hot path is the only thing that runs at gamepad polling rate; every
-other subsystem is bookkeeping and stays off it.
+## What it does
 
-```
-  ┌────────────────┐      ┌───────────────────────┐      ┌──────────────────────┐
-  │ SDL gamepad    │ ───► │ GamepadInputProcessor │ ───► │ SatelliteClient      │
-  │ thread         │      │  • XUSB packing       │      │  • ChaCha20-Poly1305 │
-  │ (own pthread)  │      │  • axis/trigger scale │      │  • IP_TOS = DSCP EF  │
-  └────────────────┘      │  • atomic counter     │      │  • raw sendto()      │
-                          └───────────────────────┘      └──────────┬───────────┘
-                                                                    │
-                                                                    ▼
-                                                              UDP :9876 → server
-```
+- LAN discovery over mDNS (`_satellite._udp.local.`) with a UDP broadcast
+  fallback for older satellites
+- PIN pairing over HTTPS against the satellite's self-signed certificate,
+  pinned trust-on-first-use so a swapped certificate aborts the request
+- ChaCha20-Poly1305 input streaming over UDP, sent straight off the input
+  thread
+- SDL2 for every pad, plus an opt-in USB-direct hidraw path for DualSense,
+  DualShock 4, Switch Pro, 8BitDo and Steam Controller class pads
+- Motion, battery and touchpad forwarded up; rumble and light bar driven back
+  down by the host
+- Several satellites side by side, with per-slot controller binding
+- Per-device deadzones, button remapping, and a guided setup wizard
+- Holds the display awake while a slot is streaming, releases it on the last
+  unbind
+- Light and dark themes that follow the desktop, six UI languages
 
-No queue, no Qt event hop, no cross-thread signal. The UI thread never
-appears on this path; it only updates 1 Hz telemetry from counters the
-SDL thread publishes lock-free.
+## Install and run
 
-## Low-latency strategies (mirrored from Android / Mac)
+You need a 64-bit Linux desktop with Qt 6.7 or newer, a gamepad, and a
+reachable Satellite server. See [`docs/PACKAGING.md`](docs/PACKAGING.md) for the
+per-distro Qt situation — notably, Ubuntu 24.04 LTS ships Qt 6.4 and needs a
+Flatpak build or a backport.
 
-- **Direct `sendto()` from the SDL gamepad thread.** Each `SDL_CONTROLLER*`
-  event fires the native socket send inline — no queue, no Qt event hop, no
-  cross-thread signal. Same pattern as `Kotlin → JNI → sendto` on Android and
-  `GameController valueChangedHandler → sendto` on macOS.
-- **Raw POSIX UDP socket** (not `QUdpSocket`) so we can set `IP_TOS = 0xB8`
-  (DSCP EF class, expedited forwarding) and bypass any framework-level
-  queueing.
-- **libsodium `crypto_aead_chacha20poly1305_ietf`** produces the exact same
-  wire format as the Android JNI / CryptoKit.ChaChaPoly used by the other
-  clients and the Satellite server.
-- **Per-session heartbeat + ACK threads** so the hot input path is never
-  contended by book-keeping traffic.
-- **Lock-free `AtomicCounter` for the nonce** and a single short-held mutex on
-  the routing-table lookup keep the hot path branch-free and allocation-free.
-- **`MSG_NOSIGNAL`** on every send so a server disconnect can't kill the
-  process.
+Settings persist under `~/.config/TinkerNorth/Dish.conf`; a crash writes a
+backtrace to `$XDG_STATE_HOME/dish/crash.log`.
 
-## Cross-platform behaviour parity
+### USB-direct needs a udev rule
 
-The following behaviours mirror dish-android and dish-mac, so user-visible
-behaviour stays predictable across platforms:
+`/dev/hidraw*` is root-only by default, so the opt-in USB-direct path needs one
+rule installed before it can claim a pad:
 
-- **Display-sleep inhibitor while streaming.** A `ScreenWakeController` reads
-  `hub.bindings × hub.connections`, derives a streaming-slot count, and flips
-  the `org.freedesktop.ScreenSaver.Inhibit` D-Bus cookie on every 0↔positive
-  transition. The cookie is released on the last unbind / disconnect, so a
-  forgotten session doesn't pin the display awake forever. Works under every
-  modern desktop environment that implements the freedesktop ScreenSaver
-  portal (GNOME, KDE, Xfce, MATE, Cinnamon, Sway/swayidle, …).
-- **Connection state recovery.** `PairingClient` carries a `reachable` flag
-  on every `PairResponse` (true iff we received a JSON body). `classify(...)`
-  splits the outcome into `Success | AuthRequired | Unreachable`; the manager
-  fans those out to either `openSession`, a PIN dialog, or an error toast.
-  A moved/offline server now surfaces a clear
-  *"Server unreachable — has it moved networks?"* message instead of trapping
-  the user behind an unanswerable PIN prompt. Mirrors dish-android PR #43.
-- **Auto-reconnect fast path.** `WifiConnectionManager::pairAndConnect`
-  skips the TCP pair handshake entirely when an empty PIN comes in and a
-  64-char shared key is already on disk, going straight to `openSession`.
-  A moved server then fails fast in the HTTP layer rather than bouncing
-  through pair → `PairingRequired`.
-- **Per-device deadzones.** `GamepadInputProcessor` carries a per-device
-  `Deadzones { stickFlat, triggerFlat }` table; reports are filtered
-  (`|v| <= flat → 0`) before they leave the processor. The default profile
-  (~10 % stick / ~5 % trigger) is installed by `SDLGamepadBridge` when each
-  controller attaches. SDL2 has no OS-level "flat" query equivalent to
-  Android's `InputDevice.getMotionRange(axis).getFlat()`, so the default
-  is the noise-floor we ship; future builds can read a per-device override
-  from the settings file.
-- **Device-capability log on attach.** Every `SDL_CONTROLLERDEVICEADDED` logs
-  a one-shot `DEVCAPS` line via the `dish.input` Qt logging category,
-  carrying the stable id, controller name + type (SDL's `SDL_GameControllerType`
-  enum), USB VID / PID, and the SDL GUID. Aimed at users reporting *"my pad
-  doesn't work"* — same idea as Android's SatelliteJNI `DEVCAPS` log.
-
-## Server discovery (Task 1.6)
-
-Dish finds Satellite servers on the LAN through **two** parallel paths and
-merges the results so a server heard on either shows up once:
-
-- **`MdnsDiscovery`** — the modern path. Browses for the Satellite mDNS /
-  Bonjour service (`_satellite._udp`) over multicast DNS on `:5353`, the same
-  mechanism `dns-sd` / Avahi use. No broadcast permission prompt, and it
-  crosses the subnet boundaries a UDP broadcast cannot.
-- **`LANDiscovery`** — the legacy UDP broadcast listener on `:9879`, kept as a
-  fallback for servers that predate the mDNS responder.
-
-Each `DiscoveredServer` records which path surfaced it (`DiscoverySource`:
-`Mdns`, `Broadcast`, or `Both`) and the connections list shows a short label
-(*"mDNS"* / *"UDP broadcast"* / *"mDNS + broadcast"*) so it is clear how a
-server was reached. The mDNS decoder is unit-tested in
-`tests/test_mdns_discovery.cpp`.
-
-## Rumble (return path)
-
-Rumble flows the opposite direction to the input hot path: a game on the
-satellite host writes to the virtual controller's vibration channel, the
-satellite forwards a `MSG_RUMBLE = 0x0009` packet back over the encrypted
-UDP socket, and the dish actuates the matching SDL controller.
-
-```
-  ┌──────────────────────┐      ┌──────────────────────┐      ┌──────────────────────┐
-  │ SatelliteClient      │ ───► │ WifiConnection       │ ───► │ SDLGamepadBridge     │
-  │  • receive thread    │      │  • per-conn handler  │      │  • applyRumble(...)  │
-  │  • parseRumbleMsg    │      │    (installed by     │      │  • queue → SDL thread│
-  │  • dispatch to       │      │     AppModel via     │      │    → SDL_Game-       │
-  │    handler           │      │     poolChanged)     │      │      ControllerRumble│
-  └──────────────────────┘      └──────────────────────┘      └──────────┬───────────┘
-                                                                         │
-                                                                         ▼
-                                                                evdev EVIOCSFF
-                                                                (or BT-HID rumble)
+```sh
+sudo install -m 644 packaging/udev/70-dish-hidraw.rules /etc/udev/rules.d/
+sudo udevadm control --reload-rules && sudo udevadm trigger
 ```
 
-The wire format is documented in
-[`satellite/README.md`](https://github.com/TinkerNorth/satellite#rumble-return-path).
-On the dish-linux side:
+`cmake --install` places it for you. Without it every claim fails with a
+permission error and Dish keeps the pad on the SDL path, which still works —
+it is just rate-capped. Dish never asks for root.
 
-* **Parser** — `SatelliteClient::parseRumbleMessage` is a pure static
-  decoder so unit tests can exercise byte layouts without a live socket
-  (see `tests/test_satellite_client_rumble.cpp`).
-* **Routing** — `AppModel::installRumbleHandlers` walks the `WifiConnection`
-  pool on every `poolChanged` and attaches a handler that resolves
-  `connId → slotId → deviceId` via the `ConnectionHub` bindings, then
-  calls `SDLGamepadBridge::applyRumble`.
-* **Actuation** — `SDL_GameControllerRumble(strong, weak, durMs)` for the
-  motors. A no-op on pads without rumble.
+### Updates
 
-The SDL output calls run on the SDL thread, not the receive thread that
-decoded the packet: `applyRumble` pushes an `OutputCommand` onto a
-thread-safe `OutputCommandQueue` and `SDLGamepadBridge::runLoop` drains it,
-resolving the `SDL_GameController*` on the SDL thread. That closes a
-use-after-close race — the SDL thread is also the only thread allowed to
-`SDL_GameControllerClose` a controller on device removal.
+Dish does not update itself. Your package manager owns the binary, so the
+updater checks and stops: about 15 seconds after launch and every four hours
+after that it asks GitHub for `latest.json`, and if there is a newer release it
+shows a pill linking to the release page. Nothing is downloaded and nothing is
+applied. *Check for updates automatically* in Settings stops every
+update-related network request when off. What the check sends is spelled out in
+[`PRIVACY.md`](PRIVACY.md).
 
-## Light bar (return path)
+## Build from source
 
-The DualSense / DualShock 4 light bar has its own return path, **decoupled
-from rumble** (Task 1.4): a game that only changes the LED colour — with no
-vibration — still drives the pad. The satellite emits a dedicated
-`MSG_LIGHTBAR = 0x000D` packet whose inner payload is
-`controller_index(1) + r(1) + g(1) + b(1)`.
+- GCC 12+ or Clang 15+, CMake 3.21+, Ninja
+- Qt 6.7+ (Core, Gui, Network, DBus, Svg, Quick, Qml, QuickControls2; Linguist
+  tools for the translation catalogues)
+- libsodium, SDL2, Catch2 v3
 
-* **Parser** — `SatelliteClient::parseLightbarMessage`, a pure static
-  decoder (see `tests/test_satellite_client_lightbar.cpp`).
-* **Routing** — `AppModel` installs a lightbar handler alongside the rumble
-  handler; it resolves the bound device the same way and calls
-  `SDLGamepadBridge::applyLightbar`, which queues an `OutputCommand` so
-  `SDL_GameControllerSetLED(R, G, B)` runs on the SDL thread. A no-op on
-  pads without an LED.
-* **Capability** — when a bound pad reports `SDL_GameControllerHasLED`, the
-  `MSG_CONTROLLER_ADD` capability word carries `CAP_LIGHTBAR = 0x0008`
-  (`caps = analogTriggers | rumble | motion | CAP_LIGHTBAR`). The satellite
-  sends colour over `MSG_LIGHTBAR` only.
-* **Setting** — a *Light bar* preference (**Settings** button → *Follow
-  game* / *Off*) gates the apply. *Off* suppresses the host colour; it does
-  not affect rumble. The choice is persisted via `FeatureSettings`. The pure
-  routing rule lives in `LightbarRouting.h` and is unit-tested in
-  `tests/test_lightbar_routing.cpp`.
+On Debian and Ubuntu:
 
-The controller list also shows a *"Lightbar"* capability chip for any pad
-with an addressable RGB LED, next to the *"Gyro"* / *"No gyro"* chip.
-
-## Battery reporting (Task 1.2)
-
-Dish streams a periodic battery report so the Satellite web UI can show each
-controller's charge. `SDLGamepadBridge` polls `SDL_JoystickCurrentPowerLevel`
-on a per-device **30 s gate** and forwards a `MSG_BATTERY = 0x000B` packet
-(`controller_index(1) + level(1) + status(1)`) on every tick — a fixed
-heartbeat, so a dropped UDP packet self-heals on the next interval rather than
-being coalesced away.
-
-SDL's power enum is coarse (`EMPTY` / `LOW` / `MEDIUM` / `FULL` / `WIRED` /
-`UNKNOWN`), so the bridge buckets it to a `(level, status)` wire pair:
-
-- A real wireless reading (`EMPTY`…`FULL`) is forwarded as the **controller's
-  own** charge.
-- `WIRED` (a USB pad) and `UNKNOWN` (no usable reading) carry no meaningful
-  controller charge, so Dish substitutes the **host machine's** battery via
-  `util::readHostBattery()` — the laptop's own percentage and charging state,
-  or 100 % / `WIRED` on a battery-less desktop.
-
-The most recent sample also drives a battery chip on each `SlotCard`.
-
-## Touchpad capture (Task 1.3)
-
-For DualSense / DualShock 4 pads, Dish captures the two-finger trackpad and
-the clicky-pad button and forwards them as a `MSG_TOUCHPAD = 0x000C` packet
-(`controller_index(1) + flags(1) + finger0(5B) + finger1(5B)`).
-
-`SDLGamepadBridge` accumulates SDL's per-finger down / move / up events into a
-two-finger snapshot and emits the full frame on every change — touchpad input
-is genuinely event-driven, so unlike motion it is neither rate-limited nor
-coalesced. Finger coordinates are normalised to the resolution-independent
-signed int16 the wire expects (`touchpadCoordToInt16`, SDL's `0.0..1.0`
-top-left-origin float mapped via `v * 65535 - 32768`). Each finger also
-carries a **monotonic tracking id**, bumped on every fresh contact, so the
-receiver can tell a new touch apart from a continuation. The receiver routes
-each device's samples per its persisted touchpad mode (DS4 surface / relative
-mouse / off).
-
-## Requirements
-
-- A reasonably current Linux distro (Ubuntu 22.04+, Fedora 38+, Arch, …)
-- Qt 6.2+
-- libsodium 1.0.18+
-- SDL2 2.0.18+
-- CMake 3.21+, a C++17 compiler (gcc 11+ or clang 14+), pkg-config, Ninja
-- A compatible gamepad (Xbox, PlayStation, 8BitDo, …)
-- A Satellite server reachable on your LAN
-
-### Install build dependencies
-
-**Debian / Ubuntu (22.04+)**
-```bash
-sudo apt install -y \
-    build-essential cmake ninja-build pkg-config \
-    qt6-base-dev qt6-tools-dev libsodium-dev libsdl2-dev \
-    clang-format clang-tidy
+```sh
+sudo apt install build-essential cmake ninja-build pkg-config \
+  qt6-base-dev qt6-base-dev-tools qt6-declarative-dev qt6-svg-dev \
+  qt6-tools-dev qt6-l10n-tools \
+  libsodium-dev libsdl2-dev libdbus-1-dev catch2
 ```
 
-Note: `qt6-base-dev` already pulls in QtDBus on Debian/Ubuntu — required for
-the `org.freedesktop.ScreenSaver.Inhibit` call that keeps the display awake
-while streaming.
+Then:
 
-**Fedora (38+)**
-```bash
-sudo dnf install -y \
-    gcc-c++ cmake ninja-build pkgconf-pkg-config \
-    qt6-qtbase-devel libsodium-devel SDL2-devel \
-    clang-tools-extra
-```
-
-**Arch / Manjaro**
-```bash
-sudo pacman -S --needed \
-    base-devel cmake ninja pkgconf \
-    qt6-base libsodium sdl2 clang
-```
-
-## Build & Run
-
-```bash
-cd dish-linux
+```sh
 scripts/build.sh release
-./build/dish
+./build-release/dish
 ```
 
-For a debug build with tests:
-```bash
-scripts/build.sh debug test
-```
+`scripts/build.sh debug` builds into `build-debug/` instead, and
+`scripts/build.sh test` runs ctest after the build. `CONTRIBUTING.md` has the
+long-form CMake invocation and the hook, format and lint setup.
 
-Or the long form:
-```bash
-cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
-cmake --build build --parallel
-./build/dish
-```
+## How it works
 
-## Install (per-user)
-
-To run Dish from your desktop launcher without packaging it system-wide:
-
-```bash
-# 1) Build the release binary
-scripts/build.sh release
-
-# 2) Drop the binary somewhere on $PATH
-install -Dm755 build/dish ~/.local/bin/dish
-
-# 3) Register the .desktop entry
-install -Dm644 packaging/dish.desktop ~/.local/share/applications/dish.desktop
-update-desktop-database ~/.local/share/applications 2>/dev/null || true
-```
-
-The launcher will pick up `dish` from `~/.local/bin`; make sure that
-directory is on your `PATH` (most distros ship it on `PATH` by default for
-interactive shells via `~/.profile`). For a system-wide install, run
-`sudo cmake --install build` and copy the desktop file to
-`/usr/share/applications/`.
-
-## Project Layout
+The app is a unidirectional-dataflow core with a Qt Quick projection on top.
+Sources of truth own state, pure composers derive from it, QML binds and
+renders, and QML sends commands back. `src/qml/` could be deleted and replaced
+with a different front end without touching anything below it.
 
 ```
-dish-linux/
-├── CMakeLists.txt
-├── scripts/build.sh
-└── src/
-    ├── main.cpp                # QApplication entry + sodium_init
-    ├── AppModel.{h,cpp}        # top-level QObject
-    ├── Models/                 # DiscoveredServer, PairResponse, …
-    ├── Network/                # sockets, crypto, discovery, pairing, HTTP
-    ├── Input/                  # SDL bridge + XUSB mapping
-    ├── Util/                   # AtomicCounter, hex, big-endian helpers
-    └── UI/                     # Qt widgets + theme
+src/qml/          Qt Quick UI: AppViewModel facade, role models, theme bridges
+src/composer/     Composers (pure derive), Controllers (effects), Coordinators
+src/source/       StateSources and IO gateways: discovery, HTTP, USB, stores
+src/repository/   Durable keyed storage over QSettings
+src/core/         Pure, Qt-free: reducers and FSMs, wire crypto, input math
+src/architecture/ The kernel: Observable, StateSource, Composer, Controller, Repository
+src/Input/        SDL bridge, XUSB packing, output command queue
+src/Network/      POSIX UDP session, REST client, pairing, connection pool
+src/UI/           Theme palettes, font probes, crash handler, license manifest
+src/update/       The update check. No download, no staging, no apply.
 ```
 
-## Protocol parity
+The window manager draws the decorations: Dish paints no title bar of its own,
+so the shell's rail and header are the whole chrome.
 
-All message types, byte layouts, port numbers and JSON shapes match the other
-Dish clients verbatim so all three can talk to the same server and appear
-identical to it:
+The input hot path is the deliberate exception and is not routed through the
+kernel. An SDL controller event runs `GamepadInputProcessor` and then
+`SatelliteClient::sendReport` inline on the SDL thread: pack the XUSB report,
+encrypt it, and call `sendto()` on a raw POSIX socket. No queue, no Qt event
+hop, no cross-thread signal. The UI thread never appears on the path; it only
+reads counters the input thread publishes lock-free. The USB-direct read loop
+feeds the same `publish` entry point on its own thread.
 
-| Field            | Value            |
-| ---------------- | ---------------- |
-| Discovery port   | UDP 9879 (listen)|
-| Pairing port     | TCP 9443 (HTTPS) |
-| HTTP API port    | TCP 9443 (HTTPS) |
-| Streaming port   | UDP 9876         |
-| AEAD             | ChaCha20-Poly1305 IETF |
-| Nonce            | counter, BE, left-padded to 12 bytes |
-| Packet layout    | `token(4) \| counter(4) \| ciphertext+tag` |
-| AAD              | token (4 bytes)  |
-| XUSB report      | 12 bytes, little-endian |
-| Heartbeat period | 2 s              |
-| Miss threshold   | 5 consecutive    |
+Layer rules, the state-capture doctrine (`AsyncState<T>` versus a reducer FSM),
+the UI binding contract and the hardening roadmap are in
+[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), the kernel primitives in
+[`src/architecture/README.md`](src/architecture/README.md), the QML surface in
+[`docs/QML_CONTRACT.md`](docs/QML_CONTRACT.md) and
+[`docs/QML_UI_KIT.md`](docs/QML_UI_KIT.md), the design tokens in
+[`DESIGN.md`](DESIGN.md), and how a build becomes an installed Dish in
+[`docs/PACKAGING.md`](docs/PACKAGING.md).
+
+### Desktop integration
+
+Three portal-backed facts, each with a documented fallback so a minimal desktop
+degrades rather than breaks: light/dark from the XDG appearance portal (falling
+back to dark), reduced motion from the XDG settings portal then `kdeglobals`
+(falling back to motion allowed), and keep-awake from
+`org.freedesktop.ScreenSaver.Inhibit` (falling back to a silent no-op).
+Bluetooth presence and power come from sysfs and BlueZ directly, because the
+wizard needs to tell "no adapter" from "adapter off".
+
+## Protocol
+
+Ports, byte layouts and JSON shapes match the other Dish clients so all four
+are interchangeable to a satellite. The authoritative contract lives in
+[`satellite/docs/contract.md`](https://github.com/TinkerNorth/satellite/blob/main/docs/contract.md);
+the client-side mirror is
+[`src/core/model/Protocol.h`](src/core/model/Protocol.h).
+
+| | |
+|---|---|
+| Protocol version | 1 |
+| Discovery | UDP 9879 broadcast beacons, plus mDNS `_satellite._udp.local.` |
+| Pairing and REST API | HTTPS 9443, self-signed certificate, TOFU-pinned |
+| Streaming | UDP 9876 |
+| REST auth | `X-Device-Id` + `X-Hmac-Proof` = hex(HMAC-SHA256(pairingKey, `"satellite-proof:"` + deviceId)) |
+| Topology | REST only: `PUT /api/connections` upserts the whole desired controller set |
+| Session key | HKDF-SHA256(ikm = pairingKey, salt = sessionSalt, info = `"satellite-session-v1"` \|\| token) |
+| AEAD | ChaCha20-Poly1305 IETF |
+| Nonce | direction(1) \| 0x00 x7 \| counter(4 BE) |
+| AAD | token (4 bytes, BE) |
+| Packet | `token(4) \| counter(4 BE) \| ciphertext+tag` |
+| Up | INPUT 0x0001, HEARTBEAT 0x0002, MOTION 0x000A, BATTERY 0x000B, TOUCHPAD 0x000C |
+| Down | HEARTBEAT_ACK 0x0003, RUMBLE 0x0009, LIGHTBAR 0x000D, SESSION_CLOSE 0x000F |
+| Input report | 12 bytes XUSB, little-endian |
+| Heartbeat | every 2 s; not responding at 2 misses, dead at 5 |
+
+## Translations
+
+Six catalogues in `translations/`: English, Bosnian, German, Spanish, French
+and Brazilian Portuguese. They compile to `.qm` files embedded in the binary at
+`:/i18n/`, and the app picks one at startup by walking `QLocale::uiLanguages()`
+so the desktop's preferred UI language wins over the regional format setting.
+
+English is a real catalogue rather than the untranslated fallback: a `%n`
+message carries one source string but needs one form per plural category, and
+Bosnian has three. Vocabulary is sourced from `dish-android`, whose catalogues
+are older and reviewed.
+
+`scripts/check-translations.sh` re-runs `lupdate` in CI and fails on any diff,
+so a new user-facing string cannot land without its catalogue entry. Coverage
+is reported but never enforced; translating a string is a separate act from
+extracting it.
 
 ## Testing
 
-```bash
-scripts/build.sh debug test
-# or
+```sh
+scripts/build.sh test
+# or, against an existing build tree
 ctest --test-dir build-debug --output-on-failure
 ```
 
-Unit tests cover the hex/byte-packing utilities, the big-endian helpers, the
-XUSB input mapping (axis and trigger scaling, button bitfield, per-device
-deadzone application, zero-on-disconnect fan-out), the lock-free atomic
-counter under contention, the lenient beacon JSON decoder, the model codable
-round-trips, the `PairingClient::classify` outcome arms (Success /
-AuthRequired / Unreachable), and the `ScreenWakeController` acquire/release
-lifecycle via a fake `DisplaySleepInhibitor` (so the suite never has to
-talk to a session bus). They run in well under a second and do not open
-sockets.
+One `DishTests` executable links the `dish_core` library. It covers the pure
+core exhaustively, with no mocks and no sockets: the reducer FSMs (USB path
+switching, pairing, session lifecycle, capture mode, apply sequencing, the
+update check), `AsyncState` transitions, the wire encoders and decoders against
+interop vectors shared with the satellite and dish-android, session crypto,
+XUSB mapping and deadzones, HID report parsing and transport classification,
+the beacon and mDNS parsers, TOFU pinning, and every repository against a
+shared contract. The design system is tested too: palette completeness, WCAG
+contrast ratios in both themes, font-family probes, and placeholder integrity
+plus plural-form order across all six translation catalogues.
 
-## Development
-
-Install the build dependencies for your distro (see *Install build
-dependencies* above), then enable the pre-commit hook:
-
-```bash
-scripts/build.sh debug          # generates build-debug/compile_commands.json
-scripts/setup-hooks.sh          # points core.hooksPath at .githooks/
-```
-
-Format / lint manually:
-```bash
-clang-format -i $(git ls-files 'src/*.cpp' 'src/*.h' 'tests/*.cpp')
-clang-tidy -p build-debug $(git ls-files 'src/*.cpp')
-```
-
-See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the full workflow, header
-policy, and review expectations.
-
-## License
-
-Distributed under the terms of the **GNU Lesser General Public License v3.0
-or later**. See [`LICENSE`](LICENSE) (LGPL) and [`COPYING.GPL3`](COPYING.GPL3)
-(the GPL v3 the LGPL incorporates by reference).
+What CI cannot reach — a real window manager, a real pad, a real satellite — is
+covered by [`docs/QML_MANUAL_SMOKE_CHECKLIST.md`](docs/QML_MANUAL_SMOKE_CHECKLIST.md),
+which is run by hand before a release.
 
 ## Contributing
 
-Changes should land on `main` through a pull request. The `Linux CI`
-workflow (`.github/workflows/linux-ci.yml`) runs the `clang-format` check, the
-debug build + ctest, `clang-tidy`, and a release build on every PR and on
-`main` pushes. The `Security` workflow (`.github/workflows/security.yml`)
-and `CodeQL` workflow (`.github/workflows/codeql.yml`) run alongside it
-— action-pin lint, OSV-Scanner, gitleaks, dependency review, allowlist-
-expiry check, and CodeQL `cpp` analysis. See
-[`CONTRIBUTING.md`](CONTRIBUTING.md) for the LGPL header policy,
-branching, hook setup, and the local-equivalent security commands.
-
-> **Note on branch protection.** GitHub's branch-protection and repository-
-> ruleset features are not available for private repositories on the free
-> org plan this repo lives under, so direct pushes to `main` are not
-> blocked at the platform level. Treat the PR-based flow as a convention
-> and rely on the CI workflows as the quality gate.
+See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the workflow, the LGPL header
+policy, hook setup and review expectations. Changes land on `main` through a
+pull request; `Linux CI`, `Security` and `CodeQL` run on every one.
 
 ## Security
 
-Vulnerability disclosure: [`SECURITY.md`](SECURITY.md). Every
-release ships cosign keyless signatures, SHA256SUMS, SBOMs (SPDX +
-CycloneDX), and SLSA L3 provenance — see
-[`CONTRIBUTING.md#security`](CONTRIBUTING.md#security) for the
-verification recipe.
+Vulnerability disclosure: [`SECURITY.md`](SECURITY.md). Dish is LAN-only and
+talks to no TinkerNorth-operated server.
+
+## License
+
+LGPL-3.0-or-later. See [`LICENSE`](LICENSE) for the LGPL and
+[`COPYING.GPL3`](COPYING.GPL3) for the GPL v3 it incorporates by reference.
