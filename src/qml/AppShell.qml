@@ -99,10 +99,9 @@ Item {
                                         && !(_cur && _cur.suppressBack === true)
 
     // The Settings rail item carries a dot while an update waits, so a user who
-    // dismissed the popover can still find their way back to it. Only these two
-    // phases: checking is silent and a failure is not a call to action.
+    // dismissed the popover can still find their way back to it. Only this one
+    // phase: checking is silent and a failure is not a call to action.
     readonly property bool updateBadgeVisible: App.updatePhase === "available"
-                                               || App.updatePhase === "ready"
 
     // Which half of the shell holds the keyboard, for the F6 pane hop.
     readonly property bool railFocused: railToggle.activeFocus || railHome.activeFocus
@@ -608,20 +607,12 @@ Item {
     Connections {
         target: App
         function onUpdateNotice(token, version) {
-            if (token === "ready")
-                toastHost.show(qsTr("Dish %1 is ready · restart when convenient.").arg(version),
-                               "success");
-            else if (token === "available")
-                toastHost.show(qsTr("Update available: Dish %1. See Settings to download.")
+            if (token === "available")
+                toastHost.show(qsTr("Update available: Dish %1. See Settings for the release.")
                                .arg(version), "success");
             else if (token === "unsupported")
                 toastHost.show(qsTr("This version of Dish is no longer supported. Please update."),
                                "warning");
-            // Deliberately does NOT acknowledge: the notice is already
-            // edge-detected once per session in C++, and Settings keeps a
-            // "what's new" row for the rest of the run off the same value.
-            else if (token === "updated")
-                toastHost.show(qsTr("Updated to Dish %1.").arg(version), "success");
         }
     }
 }

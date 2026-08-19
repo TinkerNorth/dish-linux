@@ -70,7 +70,7 @@ QString ConnectionStore::getOrCreateDeviceId() {
 
 QList<models::RememberedWifi> ConnectionStore::remembered() const {
     const auto all = satellites_->all();
-    return QList<models::RememberedWifi>(all.begin(), all.end());
+    return {all.begin(), all.end()};
 }
 
 bool ConnectionStore::refreshKnownBox(const models::DiscoveredServer& server) {

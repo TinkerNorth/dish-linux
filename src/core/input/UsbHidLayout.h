@@ -52,7 +52,7 @@ inline std::int32_t signExtend(std::uint32_t v, std::uint8_t bytes) {
     if (bytes == 0 || bytes >= 4) { return static_cast<std::int32_t>(v); }
     const std::uint32_t bits = bytes * 8u;
     const std::uint32_t signBit = 1u << (bits - 1);
-    if (v & signBit) { return static_cast<std::int32_t>(v | ~((1u << bits) - 1u)); }
+    if ((v & signBit) != 0) { return static_cast<std::int32_t>(v | ~((1u << bits) - 1u)); }
     return static_cast<std::int32_t>(v);
 }
 
@@ -62,7 +62,7 @@ inline std::uint32_t extractBits(const std::uint8_t* d, std::size_t dlen, std::u
     for (std::uint8_t i = 0; i < bits && i < 32; i++) {
         const std::uint32_t bi = bitOff + i;
         if (static_cast<std::size_t>(bi >> 3) >= dlen) { break; }
-        if ((d[bi >> 3] >> (bi & 7u)) & 1u) { v |= (1u << i); }
+        if (((d[bi >> 3] >> (bi & 7u)) & 1u) != 0) { v |= (1u << i); }
     }
     return v;
 }
@@ -70,7 +70,7 @@ inline std::uint32_t extractBits(const std::uint8_t* d, std::size_t dlen, std::u
 inline std::int32_t toSigned(std::uint32_t raw, std::uint8_t bits, std::int32_t logicalMin) {
     if (logicalMin < 0 && bits > 0 && bits < 32) {
         const std::uint32_t signBit = 1u << (bits - 1);
-        if (raw & signBit) { return static_cast<std::int32_t>(raw | ~((1u << bits) - 1u)); }
+        if ((raw & signBit) != 0) { return static_cast<std::int32_t>(raw | ~((1u << bits) - 1u)); }
     }
     return static_cast<std::int32_t>(raw);
 }
@@ -80,8 +80,7 @@ inline std::int16_t scaleAxis16(std::uint32_t raw, const HidAxis& a, bool invert
     const std::int32_t center = (a.logicalMin + a.logicalMax) / 2;
     const std::int32_t half = (a.logicalMax - a.logicalMin) / 2;
     if (half <= 0) { return 0; }
-    std::int32_t scaled =
-        static_cast<std::int32_t>(static_cast<std::int64_t>(v - center) * 32767 / half);
+    auto scaled = static_cast<std::int32_t>(static_cast<std::int64_t>(v - center) * 32767 / half);
     if (invert) { scaled = -scaled; }
     if (scaled > 32767) { scaled = 32767; }
     if (scaled < -32768) { scaled = -32768; }
@@ -92,7 +91,7 @@ inline std::uint8_t scaleTrig8(std::uint32_t raw, const HidAxis& a) {
     const std::int32_t v = toSigned(raw, a.bitSize, a.logicalMin);
     const std::int32_t span = a.logicalMax - a.logicalMin;
     if (span <= 0) { return 0; }
-    std::int32_t scaled =
+    auto scaled =
         static_cast<std::int32_t>(static_cast<std::int64_t>(v - a.logicalMin) * 255 / span);
     if (scaled < 0) { scaled = 0; }
     if (scaled > 255) { scaled = 255; }
@@ -301,7 +300,7 @@ inline bool parseReportDescriptor(const std::uint8_t* desc, std::size_t len, Hid
                             }
                         } else if (usagePage == 0x01 || usagePage == 0x02) {
                             for (std::uint32_t f = 0; f < reportCount; f++) {
-                                std::uint32_t usage;
+                                std::uint32_t usage = 0;
                                 if (haveRange) {
                                     usage = usageMin + f;
                                 } else if (usageCount == 0) {

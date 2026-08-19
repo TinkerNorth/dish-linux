@@ -15,6 +15,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <memory>
+#include <cstddef>
 
 using dish::input::JoystickRemap;
 using dish::input::RemapButton;
@@ -103,7 +104,7 @@ TEST_CASE("a full custom remap survives a reopen field-for-field", "[joyremap]")
     r.invertRightY = false;
     r.leftTrigger = TriggerSource{TriggerSourceKind::Button, 11};
     r.rightTrigger = TriggerSource{TriggerSourceKind::Axis, 9};
-    for (int i = 0; i < dish::input::kRemapButtonCount; ++i) { r.buttons[i] = i + 1; }
+    for (std::size_t i = 0; i < r.buttons.size(); ++i) { r.buttons[i] = static_cast<int>(i) + 1; }
     r.hatIndex = 2;
     r.useAdaptiveRightStick = false;
     r.useAdaptiveTriggers = false;

@@ -36,12 +36,6 @@ Kit.Page {
             return qsTr("Checking for updates…");
         case "available":
             return qsTr("Dish %1 is available.").arg(App.updateVersion);
-        case "downloading":
-            return qsTr("Downloading Dish %1…").arg(App.updateVersion);
-        case "verifying":
-            return qsTr("Verifying download…");
-        case "ready":
-            return qsTr("Dish %1 is ready to install.").arg(App.updateVersion);
         case "failed":
             return settingsPage.updateFailureText;
         case "upToDate":
@@ -51,18 +45,14 @@ Kit.Page {
         }
     }
 
-    // A diagnosis plus what happens next, never a bare error: the retry is
-    // automatic in every case except an apply that gave up.
+    // A diagnosis plus what happens next, never a bare error. Every arm retries
+    // automatically, because a check is the only thing that can fail.
     readonly property string updateFailureText: {
         switch (App.updateErrorToken) {
         case "offline":
             return qsTr("You're offline. Dish will retry automatically.");
-        case "applyFailed":
-            return qsTr("The update could not be applied automatically. Download it from the releases page.");
-        case "corrupt":
-            return qsTr("The download didn't verify. Dish will try again.");
-        case "diskFull":
-            return qsTr("There isn't enough disk space for the update. Dish will try again.");
+        case "manifestInvalid":
+            return qsTr("The release information didn't parse. Dish will retry automatically.");
         default:
             return qsTr("The update check failed. Dish will retry automatically.");
         }
@@ -291,8 +281,7 @@ Kit.Page {
 
                         Label {
                             Layout.fillWidth: true
-                            visible: App.updatePortable
-                            text: qsTr("You're running the portable version. Get the new zip from the releases page.")
+                            text: qsTr("Your package manager installs updates. Dish only tells you one exists.")
                             color: Theme.muted
                             font.pixelSize: Tokens.textMeta
                             wrapMode: Text.WordWrap
@@ -315,24 +304,9 @@ Kit.Page {
                                 running: App.updatePhase === "checking"
                             }
                             Kit.KitButton {
-                                visible: App.updatePhase === "available" && !App.updateAutoDownload
-                                         && !App.updatePortable
+                                visible: App.updatePhase === "available"
                                 size: Kit.DishButton.Small
-                                text: qsTr("Download update")
-                                onClicked: App.downloadUpdateNow()
-                            }
-                            Kit.KitButton {
-                                visible: App.updatePhase === "ready"
-                                size: Kit.DishButton.Small
-                                text: qsTr("Restart to update")
-                                onClicked: App.restartToApplyUpdate()
-                            }
-                            Kit.OutlineButton {
-                                visible: App.updatePhase === "ready"
-                                         || App.updatePhase === "available"
-                                size: Kit.DishButton.Small
-                                text: App.updatePortable ? qsTr("Open download page")
-                                                         : qsTr("Release notes")
+                                text: qsTr("Open release page")
                                 onClicked: App.openReleaseNotes()
                             }
                             Item { Layout.fillWidth: true }
@@ -345,14 +319,6 @@ Kit.Page {
                     contentItem: ColumnLayout {
                         spacing: Tokens.s6
 
-                        Kit.LabeledSwitch {
-                            Layout.fillWidth: true
-                            label: qsTr("Download updates automatically")
-                            description: qsTr("Dish downloads new versions in the background and installs them the next time it starts. Skipped on metered connections.")
-                            enabled: App.updateChecksEnabled
-                            checked: App.updateAutoDownload
-                            onToggled: (checked) => App.setUpdateAutoDownload(checked)
-                        }
                         Kit.LabeledSwitch {
                             Layout.fillWidth: true
                             label: qsTr("Check for updates automatically")
@@ -378,18 +344,6 @@ Kit.Page {
 
                 Kit.SectionHeader { label: qsTr("About") }
 
-                // Only after this run upgraded the app, and only until the user
-                // reads the notes: a permanent "what's new" row would be noise.
-                Kit.RowButton {
-                    Layout.fillWidth: true
-                    visible: App.updatedFromVersion.length > 0
-                    title: qsTr("What's new in Dish %1").arg(App.appVersion)
-                    subtitle: qsTr("Read the release notes for this version.")
-                    onClicked: {
-                        App.openReleaseNotes();
-                        App.acknowledgeUpdated();
-                    }
-                }
                 Kit.RowButton {
                     Layout.fillWidth: true
                     title: qsTr("Open source licenses")

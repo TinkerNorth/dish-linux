@@ -11,6 +11,7 @@
 
 #include <atomic>
 #include <cstdlib>
+#include <initializer_list>
 #include <cstring>
 #include <ctime>
 

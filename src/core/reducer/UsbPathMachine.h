@@ -23,7 +23,7 @@
 
 namespace dish::reducer {
 
-enum class UsbPhase {
+enum class UsbPhase : std::uint8_t {
     Routed,            // Standard: a framework device is present
     Claiming,          // a direct-mode claim is in flight
     Direct,            // claimed and streaming
@@ -119,7 +119,7 @@ using UsbEvent = std::variant<event::FrameworkUp, event::FrameworkDown, event::U
                               event::ClaimSucceeded, event::ClaimFailed, event::Timeout>;
 
 // The coordinator maps these to localized strings.
-enum class UsbNotice {
+enum class UsbNotice : std::uint8_t {
     SwitchToDirectFailed,
     NeedsReplug,
     RolledBackToDirect,

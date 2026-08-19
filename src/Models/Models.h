@@ -20,6 +20,7 @@
 
 #include <cstdint>
 #include <optional>
+#include <string_view>
 
 namespace dish::models {
 
@@ -30,7 +31,7 @@ inline constexpr int kDefaultHttpPort = 9443;
 inline constexpr int kDefaultPairPort = 9443;
 
 // Not a wire field — assigned client-side by the discovery merge.
-enum class DiscoverySource { Broadcast, Mdns, Both };
+enum class DiscoverySource : std::uint8_t { Broadcast, Mdns, Both };
 
 // Routed through translate() even though these are protocol acronyms, so the
 // i18n pipeline stays complete and a translator can override.
@@ -115,6 +116,19 @@ struct ControllerApplyDto {
 };
 
 // Server policy, returned in the PUT/GET response.
+// The one place the auth-failure codes are compared. Three response types carry
+// the same `code` field and asked the same question three times.
+//
+// Sized construction, not `QLatin1String(sv.data())`: a string_view carries no
+// null-termination guarantee, and the single-argument overload would run off
+// the end of a view that is ever built from anything but a literal.
+inline bool isAuthFailureCode(const QString& code) {
+    const auto latin1 = [](std::string_view sv) {
+        return QLatin1String(sv.data(), static_cast<qsizetype>(sv.size()));
+    };
+    return code == latin1(proto::kAuthCodeNotPaired) || code == latin1(proto::kAuthCodeBadProof);
+}
+
 struct HostFeatureGrant {
     bool granted = false;
     std::optional<QString> reason; // notSupported|backendUnavailable|denied, when !granted
@@ -140,10 +154,7 @@ struct SessionResponse {
     int httpStatus = 0;
     bool reachable = false;
 
-    bool unauthorized() const {
-        return code.has_value() && (*code == QLatin1String(proto::kAuthCodeNotPaired.data()) ||
-                                    *code == QLatin1String(proto::kAuthCodeBadProof.data()));
-    }
+    bool unauthorized() const { return code.has_value() && isAuthFailureCode(*code); }
 
     static SessionResponse fromJson(const QJsonObject& obj);
 };
@@ -157,10 +168,7 @@ struct ControllerPutResponse {
     int httpStatus = 0;
     bool reachable = false;
 
-    bool unauthorized() const {
-        return code.has_value() && (*code == QLatin1String(proto::kAuthCodeNotPaired.data()) ||
-                                    *code == QLatin1String(proto::kAuthCodeBadProof.data()));
-    }
+    bool unauthorized() const { return code.has_value() && isAuthFailureCode(*code); }
 
     static ControllerPutResponse fromJson(const QJsonObject& obj);
 };
@@ -195,10 +203,7 @@ struct SessionViewDto {
     int httpStatus = 0;
     bool reachable = false;
 
-    bool unauthorized() const {
-        return code.has_value() && (*code == QLatin1String(proto::kAuthCodeNotPaired.data()) ||
-                                    *code == QLatin1String(proto::kAuthCodeBadProof.data()));
-    }
+    bool unauthorized() const { return code.has_value() && isAuthFailureCode(*code); }
 
     static SessionViewDto fromJson(const QJsonObject& obj);
 };
@@ -325,7 +330,7 @@ QJsonArray controllersJson(const QList<ControllerDescriptor>& descriptors);
 // the key and stops auto-retry. Unstable enters at two consecutive missed
 // heartbeat acks (the contract's "not responding" threshold) and recovers to
 // Connected the moment an ack lands.
-enum class LinkState { Found, Stale, Saved, Ready, Connecting, Connected, Unstable };
+enum class LinkState : std::uint8_t { Found, Stale, Saved, Ready, Connecting, Connected, Unstable };
 
 // What a physical controller's HARDWARE exposes, detected once at attach.
 // Distinct from any user "forward this feature?" preference, so the slot card
@@ -447,7 +452,7 @@ QList<RememberedWifi> rememberedListFromJson(const QJsonArray& arr);
 // want to dedup or categorise; the renderer does not switch on it. A persistent
 // banner the user can't dismiss sets `dismissible` false.
 struct DishNotification {
-    enum class Severity { Info, Success, Warn, Error };
+    enum class Severity : std::uint8_t { Info, Success, Warn, Error };
 
     // kDurationPersistent keeps the toast up until NotificationQueue::dismiss.
     static constexpr int kDurationShortMs = 3'500;

@@ -135,7 +135,7 @@ bool readReportDescriptor(int fd, std::vector<std::uint8_t>& out) {
 // The USB interface directory backing a hidraw node, e.g.
 // /sys/class/hidraw/hidraw3/device/.. — empty when the node is not USB-backed.
 std::string usbInterfaceDir(const std::string& hidrawName) {
-    const std::string base = "/sys/class/hidraw/" + hidrawName + "/device/..";
+    std::string base = "/sys/class/hidraw/" + hidrawName + "/device/..";
     if (readSysfsLine(base + "/bInterfaceNumber").empty()) { return {}; }
     return base;
 }
@@ -153,11 +153,13 @@ void readEndpointInfo(const std::string& ifaceDir, UsbDeviceInfo& info) {
         const auto addr = parseHex(name.substr(3));
         if (!addr) { continue; }
         if ((*addr & 0x80) != 0) {
-            if (const auto mp =
-                    parseHex(readSysfsLine(ifaceDir + "/" + name + "/wMaxPacketSize"))) {
+            std::string endpointDir = ifaceDir;
+            endpointDir += "/";
+            endpointDir += name;
+            if (const auto mp = parseHex(readSysfsLine(endpointDir + "/wMaxPacketSize"))) {
                 info.endpointInMaxPacket = *mp;
             }
-            const std::string interval = readSysfsLine(ifaceDir + "/" + name + "/bInterval");
+            const std::string interval = readSysfsLine(endpointDir + "/bInterval");
             if (const auto iv = parseHex(interval)) { info.endpointInInterval = *iv; }
         } else {
             info.hasOutEndpoint = true;
@@ -251,7 +253,7 @@ std::optional<ProbedNode> probe(const std::string& hidrawName) {
 std::string rawName(int fd) {
     std::array<char, 256> buf{};
     if (::ioctl(fd, HIDIOCGRAWNAME(buf.size()), buf.data()) < 0) { return {}; }
-    return std::string(buf.data());
+    return {buf.data()};
 }
 
 } // namespace

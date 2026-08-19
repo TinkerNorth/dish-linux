@@ -11,10 +11,11 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <cstdint>
 
 namespace dish::reducer {
 
-enum class PathChoice {
+enum class PathChoice : std::uint8_t {
     Direct,
     Standard,
 };

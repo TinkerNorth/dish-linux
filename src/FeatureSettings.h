@@ -9,12 +9,13 @@
 
 #include <atomic>
 #include <memory>
+#include <cstdint>
 
 namespace dish {
 
 // There is no custom-colour picker: a forwarder reflects what the host game sets,
 // so the only meaningful axis is follow versus off.
-enum class LightbarMode {
+enum class LightbarMode : std::uint8_t {
     FollowGame, // apply the colour the host game writes, via MSG_LIGHTBAR
     Off,        // leave the controller's light bar untouched
 };

@@ -13,10 +13,11 @@
 #include <optional>
 #include <string>
 #include <utility>
+#include <cstdint>
 
 namespace dish::core {
 
-enum class AsyncPhase { Idle, Loading, Success, Error };
+enum class AsyncPhase : std::uint8_t { Idle, Loading, Success, Error };
 
 template <class T, class E = std::string> struct AsyncState {
     AsyncPhase phase = AsyncPhase::Idle;
@@ -30,7 +31,10 @@ template <class T, class E = std::string> struct AsyncState {
     bool isError() const { return phase == AsyncPhase::Error; }
     bool hasData() const { return data.has_value(); }
 
-    const T& valueOr(const T& fallback) const { return data ? *data : fallback; }
+    // By value, not by const reference: the natural callsite passes a
+    // temporary fallback, and a reference into one dangles the moment the full
+    // expression ends.
+    T valueOr(const T& fallback) const { return data ? *data : fallback; }
 
     bool operator==(const AsyncState& o) const {
         return phase == o.phase && data == o.data && error == o.error && stale == o.stale;

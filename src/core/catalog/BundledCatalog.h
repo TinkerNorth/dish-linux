@@ -42,7 +42,7 @@ inline QStringList knownFeatureSlugs() {
 // Order is fixed (triggers, rumble, extras) so the list is ==-comparable in tests
 // and downstream snapshots.
 inline std::optional<QStringList> typeFeatureSlugs(const QString& slug) {
-    const QStringList base{kFeatureAnalogTriggers, kFeatureRumble};
+    QStringList base{kFeatureAnalogTriggers, kFeatureRumble};
     if (slug == kSlugXbox360) { return base; }
     if (slug == kSlugDs4 || slug == kSlugDualSense) {
         return base + QStringList{kFeatureMotion, kFeatureTouchpad, kFeatureLightbar};
@@ -52,17 +52,20 @@ inline std::optional<QStringList> typeFeatureSlugs(const QString& slug) {
 }
 
 // An id outside the bundled range degrades to the xbox360 set, the least-capable
-// baseline, rather than claiming features an unknown type may not have.
+// baseline, rather than claiming features an unknown type may not have. The
+// same floor covers a slug that stops resolving: value_or, not a dereference,
+// so a future edit to typeFeatureSlugs degrades instead of being undefined.
 inline QStringList typeFeatureSlugsById(int typeId) {
+    QStringList floor = typeFeatureSlugs(kSlugXbox360).value_or(QStringList{});
     switch (typeId) {
     case proto::kControllerTypePlayStation:
-        return *typeFeatureSlugs(kSlugDs4);
+        return typeFeatureSlugs(kSlugDs4).value_or(floor);
     case proto::kControllerTypeDualSense:
-        return *typeFeatureSlugs(kSlugDualSense);
+        return typeFeatureSlugs(kSlugDualSense).value_or(floor);
     case proto::kControllerTypeSwitchPro:
-        return *typeFeatureSlugs(kSlugSwitchPro);
+        return typeFeatureSlugs(kSlugSwitchPro).value_or(floor);
     default:
-        return *typeFeatureSlugs(kSlugXbox360);
+        return floor;
     }
 }
 

@@ -17,6 +17,7 @@
 #include <optional>
 #include <variant>
 #include <vector>
+#include <cstdint>
 
 namespace dish::reducer {
 
@@ -26,7 +27,7 @@ inline constexpr int kHeartbeatMissNotResponding = 2; // >= this -> Faltering
 inline constexpr int kHeartbeatMissDead = 5;          // >= this -> Reconnecting (dead)
 
 // Collapses onto SatelliteLinkState's SessionPresence via sessionPhaseToPresence.
-enum class SessionPhase {
+enum class SessionPhase : std::uint8_t {
     Discovered,   // known/remembered, no live session
     Pairing,      // POST /api/pair in flight; no usable key yet
     Linking,      // session PUT in flight; key in hand
@@ -38,7 +39,7 @@ enum class SessionPhase {
 };
 
 // Populated iff phase == Failed, or phase == Stale with a recorded cause.
-enum class SessionFailure {
+enum class SessionFailure : std::uint8_t {
     Unreachable,        // transport failure or a malformed reply; retryable
     VersionMismatch,    // 409 protocol skew; terminal
     AuthRejected,       // 401 NOT_PAIRED / BAD_PROOF, or no usable key; terminal
@@ -54,7 +55,7 @@ inline bool sessionFailureTerminal(SessionFailure f) {
 
 // Gates whether a failure toasts. Every non-user origin is silent, so
 // dish::net::ConnectIntent's RetryAfterDeath folds into AutoReconnect here.
-enum class ConnectIntent {
+enum class ConnectIntent : std::uint8_t {
     UserInitiated,
     AutoReconnect,
 };

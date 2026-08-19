@@ -15,7 +15,6 @@
 
 #include <catch2/catch_test_macros.hpp>
 
-#include <QCoreApplication>
 #include <QString>
 
 #include <memory>
@@ -28,17 +27,6 @@ using dish::reducer::UiLinkState;
 using dish::test::makeSharedSettings;
 
 namespace {
-
-// WifiConnectionManager builds an HTTPClient whose app-static factory asserts
-// unless a QCoreApplication exists, and Catch2WithMain creates none. The
-// function-local static with a leaked argv keeps one alive for the process.
-void ensureApp() {
-    if (QCoreApplication::instance() != nullptr) { return; }
-    static int argc = 1;
-    static char arg0[] = "DishTests";
-    static char* argv[] = {arg0, nullptr};
-    static QCoreApplication app(argc, argv);
-}
 
 DiscoveredServer sat(const QString& machineId, const QString& ip, const QString& name = {}) {
     DiscoveredServer s;
@@ -63,7 +51,6 @@ struct Fixture {
     std::unique_ptr<ConnectionCoordinator> coord;
 
     explicit Fixture(const std::vector<DiscoveredServer>& seed = {}) {
-        ensureApp();
         auto shared = makeSharedSettings();
         store = std::make_unique<dish::net::ConnectionStore>(
             std::unique_ptr<QSettings>(new QSettings(shared->fileName(), QSettings::IniFormat)));

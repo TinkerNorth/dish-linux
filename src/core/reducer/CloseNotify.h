@@ -13,7 +13,7 @@
 
 namespace dish::reducer {
 
-enum class CloseAction {
+enum class CloseAction : std::uint8_t {
     DropKeyRePair, // trust revoked: drop the key, surface re-pair, stop retrying
     StayDown,      // a newer PUT already owns the session
     RetryBackoff,  // transient: reconnect on the backoff curve

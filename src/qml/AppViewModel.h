@@ -235,6 +235,14 @@ class AppViewModel : public QObject {
     // reducer::connectionsVisibleInPicker. One-shot, read when the chooser
     // opens, so no NOTIFY.
     Q_INVOKABLE QVariantList availableConnectionsForSlot(const QString& slotId) const;
+    // The pads riding `connectionId`, as {name, emulateName} rows — the manifest
+    // a Forget confirm shows before it drops them. Here rather than joined in
+    // QML off an invisible Repeater, which re-derives domain state in the view
+    // and is unresolvable to qmllint.
+    Q_INVOKABLE QVariantList carriedPads(const QString& connectionId) const;
+    // 1-based position of `slotId` among the pads riding `connectionId`, 0 when
+    // it rides none. Same join as carriedPads, so the two always agree.
+    Q_INVOKABLE int slotOrdinal(const QString& slotId, const QString& connectionId) const;
 
     // emulateTypes rows are {type,slug,name,shortName,description,known};
     // emulateCurrentType is the pre-selected wire id.

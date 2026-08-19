@@ -52,7 +52,7 @@ constexpr std::uint8_t kLeft = 0x08;
 
 // A generic pad exposes a trigger as either an analogue axis or a digital
 // button; tagging which picks triggerFromAxis vs full-scale-on-press.
-enum class TriggerSourceKind { Axis, Button };
+enum class TriggerSourceKind : std::uint8_t { Axis, Button };
 
 struct TriggerSource {
     TriggerSourceKind kind = TriggerSourceKind::Axis;
@@ -62,7 +62,7 @@ struct TriggerSource {
     bool operator!=(const TriggerSource& o) const { return !(*this == o); }
 };
 
-enum class RemapButton : int {
+enum class RemapButton : std::uint8_t {
     DpadUp = 0,
     DpadDown,
     DpadLeft,
@@ -142,11 +142,11 @@ struct JoystickRemap {
 
 // Mirrors the bridge's rawJoystickInput `kind` argument so the UI never
 // hard-codes the integers.
-enum class CaptureKind : int { Axis = 0, Button = 1, Hat = 2 };
+enum class CaptureKind : std::uint8_t { Axis = 0, Button = 1, Hat = 2 };
 
 // The invert toggles are absent by design: they are booleans, not a captured
 // source, so they go through withInvert instead.
-enum class RemapTarget : int {
+enum class RemapTarget : std::uint8_t {
     A = 0,
     B,
     X,
@@ -169,7 +169,7 @@ enum class RemapTarget : int {
     RightTrigger,
 };
 
-enum class InvertTarget : int { LeftY = 0, RightY };
+enum class InvertTarget : std::uint8_t { LeftY = 0, RightY };
 
 // Folds one capture (kind + raw source index) into `base`. Total, and it
 // records the user's choice verbatim: routing a button capture to a stick

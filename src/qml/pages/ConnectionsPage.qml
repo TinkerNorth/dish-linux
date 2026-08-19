@@ -403,24 +403,6 @@ Kit.Page {
                 }
             }
         }
-
-        // ---- Non-visual join ------------------------------------------------
-        // The manifest needs the pads riding each host, which no connection role
-        // carries. This mirrors the slot model the Home page already renders
-        // rather than adding an App member.
-        Item {
-            visible: false
-
-            Repeater {
-                id: slotJoin
-                model: App.slotModel
-                delegate: Item {
-                    required property string name
-                    required property string boundConnectionId
-                    required property string emulateName
-                }
-            }
-        }
     }
 
     // ---- Host overflow menu -------------------------------------------------
@@ -523,34 +505,19 @@ Kit.Page {
 
     // The pads riding `connectionId`, by name — what a Forget will drop.
     function carryingPads(connectionId) {
-        var out = [];
-        if (connectionId.length === 0)
-            return out;
-        for (var i = 0; i < slotJoin.count; ++i) {
-            var entry = slotJoin.itemAt(i);
-            if (entry && entry.boundConnectionId === connectionId)
-                out.push(entry.name);
-        }
-        return out;
+        return App.carriedPads(connectionId).map(function (pad) { return pad.name; });
     }
 
     // The manifest lines: "<pad> — as <type>". The type is a property of the
     // binding, so it prints here and never on the pad. `epoch` is read by the
-    // caller's binding so the join re-runs when the slot list moves (the mirror
-    // carries no NOTIFY of its own).
+    // caller's binding so the lines re-resolve when the slot list moves; the
+    // invokable carries no NOTIFY of its own.
     function carryingLines(connectionId, epoch) {
-        var out = [];
-        if (connectionId.length === 0)
-            return out;
-        for (var i = 0; i < slotJoin.count; ++i) {
-            var entry = slotJoin.itemAt(i);
-            if (!entry || entry.boundConnectionId !== connectionId)
-                continue;
-            out.push(entry.emulateName.length > 0
-                     ? qsTr("%1 — as %2").arg(entry.name).arg(entry.emulateName)
-                     : entry.name);
-        }
-        return out;
+        return App.carriedPads(connectionId).map(function (pad) {
+            return pad.emulateName.length > 0
+                   ? qsTr("%1 — as %2").arg(pad.name).arg(pad.emulateName)
+                   : pad.name;
+        });
     }
 
     // Localized chip text/tone for a link-state token — the same ladders Home

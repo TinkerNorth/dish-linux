@@ -24,6 +24,7 @@
 #include <string>
 #include <utility>
 #include <vector>
+#include <cstdint>
 
 namespace dish::reducer {
 
@@ -42,7 +43,7 @@ struct BoundSlot {
     std::optional<std::pair<int, int>> identity;
 };
 
-enum class BindingPresenceKind { Unbind, Migrate };
+enum class BindingPresenceKind : std::uint8_t { Unbind, Migrate };
 
 // `slotId` is always the binding to drop and `connId` the connection it pointed
 // at: on a Migrate that is what to re-bind `toSlotId` to, on an Unbind it is who
@@ -55,7 +56,7 @@ struct BindingPresenceAction {
 };
 
 inline bool isPadIdentity(const std::optional<std::pair<int, int>>& identity) {
-    return identity.has_value() && !(identity->first == 0 && identity->second == 0);
+    return identity.has_value() && (identity->first != 0 || identity->second != 0);
 }
 
 // Also the seam the emulation-type seed reads: `emulates` hints match against the
@@ -98,12 +99,15 @@ resolveBindingPresence(const std::vector<PresentSlot>& present,
         action.connId = binding->connId;
         action.kind = BindingPresenceKind::Unbind;
 
-        if (isPadIdentity(binding->identity)) {
+        // has_value() tested here rather than only inside isPadIdentity, so the
+        // dereference below is guarded at the point of use.
+        if (binding->identity.has_value() && isPadIdentity(binding->identity)) {
+            const std::pair<int, int> identity = *binding->identity;
             // Same pad, different slot id: the twin transition. First match in
             // the caller's slot order wins.
             for (const auto& candidate : present) {
-                if (candidate.vendorId != binding->identity->first ||
-                    candidate.productId != binding->identity->second) {
+                if (candidate.vendorId != identity.first ||
+                    candidate.productId != identity.second) {
                     continue;
                 }
                 if (boundIds.count(candidate.id) != 0) { continue; }

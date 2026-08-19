@@ -15,17 +15,18 @@
 #include <string>
 #include <utility>
 #include <variant>
+#include <cstdint>
 
 namespace dish::reducer {
 
-enum class PairPhase {
+enum class PairPhase : std::uint8_t {
     Idle,
     Submitting, // a classified Success stays here until SessionConfirmedLive
     Succeeded,
     Failed, // retryable via a fresh Submit
 };
 
-enum class PairFailure {
+enum class PairFailure : std::uint8_t {
     WrongPin,        // reachable and parsed, but no usable key adopted
     VersionMismatch, // 409 protocol skew
     Unreachable,     // transport failure or an empty body
@@ -137,6 +138,11 @@ inline PairingState reducePairing(const PairingState& s, const PairEvent& event)
                     return s; // late/stale reply for a settled attempt — ignore
                 }
                 switch (e.verdict) {
+                // Both stay put, for different reasons: one is waiting for the
+                // session to confirm, the other is a verdict this path does not
+                // expect and must not treat as terminal. Kept as separate arms
+                // so each reason stays attached to its verdict.
+                // NOLINTBEGIN(bugprone-branch-clone)
                 case PairVerdict::Success:
                     // Key adopted, session opening — NOT done yet. Stay put and
                     // wait for SessionConfirmedLive to confirm the live session.
@@ -145,6 +151,7 @@ inline PairingState reducePairing(const PairingState& s, const PairEvent& event)
                     // Forward Path A doesn't expect Pending; it is not a terminal
                     // failure here. Keep Submitting (the manager resolves it).
                     return s;
+                // NOLINTEND(bugprone-branch-clone)
                 case PairVerdict::AuthRequired: {
                     // Reachable but no usable key adopted: the PIN was rejected.
                     PairingState next = s;

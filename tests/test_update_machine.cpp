@@ -17,13 +17,6 @@
 
 #include <vector>
 
-using dish::reducer::backoffDelayMs;
-using dish::reducer::jitteredDelayMs;
-using dish::reducer::kBackoffBaseMs;
-using dish::reducer::kBackoffCapMs;
-using dish::reducer::kPeriodicIntervalMs;
-using dish::reducer::kReconnectCheckDelayMs;
-using dish::reducer::kStartupDelayMs;
 using dish::reducer::reduceUpdate;
 using dish::reducer::UpdateEffect;
 using dish::reducer::UpdateError;
@@ -31,6 +24,13 @@ using dish::reducer::UpdateNotice;
 using dish::reducer::UpdatePhase;
 using dish::reducer::UpdateStatus;
 using dish::reducer::UpdateTrigger;
+using dish::reducer::update_schedule::backoffDelayMs;
+using dish::reducer::update_schedule::jitteredDelayMs;
+using dish::reducer::update_schedule::kBackoffBaseMs;
+using dish::reducer::update_schedule::kBackoffCapMs;
+using dish::reducer::update_schedule::kPeriodicIntervalMs;
+using dish::reducer::update_schedule::kReconnectCheckDelayMs;
+using dish::reducer::update_schedule::kStartupDelayMs;
 using dish::update::UpdateManifest;
 namespace uev = dish::reducer::update_event;
 namespace ufx = dish::reducer::update_effect;

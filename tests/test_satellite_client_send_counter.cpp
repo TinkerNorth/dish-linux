@@ -12,6 +12,12 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
+#include <sys/time.h>
+#include <unistd.h>
+
 #include <array>
 #include <chrono>
 #include <cstdint>
@@ -26,31 +32,33 @@ using dish::net::SatelliteClientTestAccess;
 
 namespace {
 
-SOCKET bindLoopback(std::uint16_t& port) {
-    const SOCKET fd = ::socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
-    if (fd == INVALID_SOCKET) { return INVALID_SOCKET; }
+int bindLoopback(std::uint16_t& port) {
+    const int fd = ::socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+    if (fd < 0) { return -1; }
     sockaddr_in addr{};
     addr.sin_family = AF_INET;
     addr.sin_port = 0;
     ::inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
     if (::bind(fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) != 0) {
-        ::closesocket(fd);
-        return INVALID_SOCKET;
+        ::close(fd);
+        return -1;
     }
-    int len = static_cast<int>(sizeof(addr));
+    socklen_t len = sizeof(addr);
     if (::getsockname(fd, reinterpret_cast<sockaddr*>(&addr), &len) != 0) {
-        ::closesocket(fd);
-        return INVALID_SOCKET;
+        ::close(fd);
+        return -1;
     }
     port = ntohs(addr.sin_port);
-    DWORD rtv = 200;
-    ::setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, reinterpret_cast<const char*>(&rtv), sizeof(rtv));
+    timeval rtv{};
+    rtv.tv_sec = 0;
+    rtv.tv_usec = 200'000;
+    ::setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &rtv, sizeof(rtv));
     return fd;
 }
 
-std::optional<std::vector<std::uint8_t>> recvDatagram(SOCKET fd) {
+std::optional<std::vector<std::uint8_t>> recvDatagram(int fd) {
     std::uint8_t buf[256];
-    const int n = ::recv(fd, reinterpret_cast<char*>(buf), static_cast<int>(sizeof(buf)), 0);
+    const ssize_t n = ::recv(fd, buf, sizeof(buf), 0);
     if (n <= 0) { return std::nullopt; }
     return std::vector<std::uint8_t>(buf, buf + n);
 }
@@ -63,19 +71,19 @@ std::uint32_t counterOf(const std::vector<std::uint8_t>& pkt) {
 }
 
 struct LoopbackClient {
-    SOCKET fd = INVALID_SOCKET;
+    int fd = -1;
     std::uint16_t port = 0;
     SatelliteClient client;
 
     LoopbackClient() {
         fd = bindLoopback(port);
-        REQUIRE(fd != INVALID_SOCKET);
+        REQUIRE(fd >= 0);
         REQUIRE(client.openSocket("127.0.0.1", port));
         client.setConnectionParams({0x11, 0x22, 0x33, 0x44}, key(0xA5));
     }
     ~LoopbackClient() {
         client.closeSocket();
-        if (fd != INVALID_SOCKET) { ::closesocket(fd); }
+        if (fd >= 0) { ::close(fd); }
     }
     LoopbackClient(const LoopbackClient&) = delete;
     LoopbackClient& operator=(const LoopbackClient&) = delete;
@@ -158,8 +166,7 @@ TEST_CASE("a live re-key never tears the (key, token, counter) draw", "[send_cou
     // decrypt under the token-selected key or the (token, counter) uniqueness.
     LoopbackClient lb;
     const int rcvbuf = 1 << 20; // best effort: drops are fine, mixups are not
-    ::setsockopt(lb.fd, SOL_SOCKET, SO_RCVBUF, reinterpret_cast<const char*>(&rcvbuf),
-                 sizeof(rcvbuf));
+    ::setsockopt(lb.fd, SOL_SOCKET, SO_RCVBUF, &rcvbuf, sizeof(rcvbuf));
 
     constexpr std::uint8_t kGens = 40;
     const auto tokenFor = [](std::uint8_t gen) {

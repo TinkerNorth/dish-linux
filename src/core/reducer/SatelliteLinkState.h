@@ -7,6 +7,8 @@
 
 #pragma once
 
+#include <cstdint>
+
 namespace dish::reducer {
 
 // Mirrors dish::net::SessionState one-to-one, restated here so this header needs
@@ -16,10 +18,18 @@ namespace dish::reducer {
 //   Live      UDP socket open, heartbeat acks flowing
 //   Faltering live, missing heartbeats, still below the death threshold
 //   Stale     the session collapsed and the key was dropped
-enum class SessionPresence { Idle, Linking, Live, Faltering, Stale };
+enum class SessionPresence : std::uint8_t { Idle, Linking, Live, Faltering, Stale };
 
 // Mirrors dish::models::LinkState. The UI turns this into a localized chip.
-enum class UiLinkState { Found, Stale, Saved, Ready, Connecting, Connected, Unstable };
+enum class UiLinkState : std::uint8_t {
+    Found,
+    Stale,
+    Saved,
+    Ready,
+    Connecting,
+    Connected,
+    Unstable
+};
 
 // A live or linking session ignores both flags: presence wins. `isStale` is the
 // out-of-band "Needs pairing" marker set on a terminal 401 or unpaired close, and

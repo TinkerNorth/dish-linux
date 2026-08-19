@@ -18,6 +18,8 @@
 
 namespace dish::update {
 
+namespace sched = dish::reducer::update_schedule;
+
 namespace {
 
 qint64 systemClockMs() { return QDateTime::currentMSecsSinceEpoch(); }
@@ -83,18 +85,18 @@ void UpdateChecker::start() {
     const qint64 last =
         settings.value(QLatin1String(source::kKeyUpdatesLastCheckUtcMs), 0).toLongLong();
     const qint64 elapsed = now - last;
-    const bool skewed = elapsed < 0 && -elapsed > reducer::kFutureSkewEscapeMs;
-    const bool withinGap = last > 0 && !skewed && elapsed >= 0 && elapsed < reducer::kMinCheckGapMs;
+    const bool skewed = elapsed < 0 && -elapsed > sched::kFutureSkewEscapeMs;
+    const bool withinGap = last > 0 && !skewed && elapsed >= 0 && elapsed < sched::kMinCheckGapMs;
 
     const int delay =
-        withinGap ? static_cast<int>(reducer::kMinCheckGapMs - elapsed) : reducer::kStartupDelayMs;
+        withinGap ? static_cast<int>(sched::kMinCheckGapMs - elapsed) : sched::kStartupDelayMs;
     pendingCheckDelayMs_ = delay;
     checkTimer_->start(delay);
 }
 
 void UpdateChecker::checkNow() {
     const qint64 now = clock_();
-    if (lastManualCheckMs_ != 0 && now - lastManualCheckMs_ < reducer::kManualMinGapMs) { return; }
+    if (lastManualCheckMs_ != 0 && now - lastManualCheckMs_ < sched::kManualMinGapMs) { return; }
     lastManualCheckMs_ = now;
     dispatch(reducer::update_event::CheckRequested{reducer::UpdateTrigger::Manual});
 }
@@ -155,7 +157,7 @@ void UpdateChecker::execute(const reducer::UpdateEffect& effect) {
         // interval are asserted verbatim, and spreading retries is what the
         // jitter is for.
         if (status_.value().phase == reducer::UpdatePhase::Failed) {
-            delay = reducer::jitteredDelayMs(delay, QRandomGenerator::global()->generateDouble());
+            delay = sched::jitteredDelayMs(delay, QRandomGenerator::global()->generateDouble());
         }
         pendingCheckDelayMs_ = delay;
         checkTimer_->start(delay);

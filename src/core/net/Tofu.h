@@ -15,7 +15,7 @@
 
 namespace dish::net {
 
-enum class TofuVerdict {
+enum class TofuVerdict : std::uint8_t {
     TrustFirstUse, // no pin stored yet: accept and pin
     Match,         // presented equals stored (case-insensitive hex)
     Mismatch,      // a pin exists and differs: reject, keep the pin

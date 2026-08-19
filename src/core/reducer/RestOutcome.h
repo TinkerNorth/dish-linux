@@ -11,7 +11,7 @@
 
 namespace dish::reducer {
 
-enum class RestVerdict {
+enum class RestVerdict : std::uint8_t {
     Ok,              // 2xx with the fields we need
     Unauthorized,    // 401 NOT_PAIRED|BAD_PROOF; terminal, drop key and re-pair
     VersionMismatch, // 409; terminal, client/server protocol skew
@@ -50,7 +50,7 @@ inline RestVerdict classifyRest(const RestReply& r) {
 // POST /api/pair always answers 200 on the PIN paths, so the dish classifies on
 // the body's ok/pending fields rather than the HTTP status.
 
-enum class PairVerdict {
+enum class PairVerdict : std::uint8_t {
     Success,         // ok with a sharedKey: adopt it and open the session
     Pending,         // Path B {ok:false, pending:true}: poll /api/pair/status
     AuthRequired,    // reachable but no key: first-time pair, or it forgot us
@@ -81,7 +81,7 @@ inline PairVerdict classifyPair(const PairReply& r) {
 // so the client polls straight to "none". That is terminal exactly when a
 // "pending" was seen first; before that, "none" tolerates the POST-to-first-poll
 // race. "denied" is still mapped for satellites predating the change.
-enum class ApprovalVerdict { Approved, Pending, Declined, Unreachable };
+enum class ApprovalVerdict : std::uint8_t { Approved, Pending, Declined, Unreachable };
 
 struct ApprovalReply {
     int status = 0;

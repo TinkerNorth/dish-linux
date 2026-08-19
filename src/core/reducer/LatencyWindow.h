@@ -79,7 +79,7 @@ class LatencyWindow {
         std::array<double, kLatencyWindowCapacity> sorted{};
         std::copy(samples_.begin(), samples_.begin() + count_, sorted.begin());
         std::sort(sorted.begin(), sorted.begin() + count_);
-        const auto i = static_cast<std::size_t>(0.50 * (count_ - 1) + 0.5);
+        const auto i = static_cast<std::size_t>(std::lround(0.50 * (count_ - 1)));
         return sorted[i] / 2.0;
     }
 

@@ -491,22 +491,6 @@ Kit.Page {
             }
         }
 
-        // ---- Non-visual joins ------------------------------------------------
-        // A row needs to know its ordinal among the slots riding the same host
-        // ("slot 2 of 4"), which no single role carries. This mirrors the model
-        // the list already renders rather than adding an App member.
-        Item {
-            visible: false
-
-            Repeater {
-                id: slotIndexRepeater
-                model: App.slotModel
-                delegate: Item {
-                    required property string slotId
-                    required property string boundConnectionId
-                }
-            }
-        }
 
         // LiveStat owns the rate formatter (nothing else in the app formats a
         // rate); the wire label is a plain string, so it borrows this instance.
@@ -678,21 +662,10 @@ Kit.Page {
     }
 
     // Position of `slotId` among the slots riding `connectionId`, 1-based.
-    // `epoch` is read by the caller's binding so the join re-runs when the slot
-    // list moves (the index mirror carries no NOTIFY of its own).
+    // `epoch` is read by the caller's binding so the ordinal re-resolves when
+    // the slot list moves; the invokable carries no NOTIFY of its own.
     function slotOrdinal(slotId, connectionId, epoch) {
-        if (connectionId.length === 0)
-            return 0;
-        var ordinal = 0;
-        for (var i = 0; i < slotIndexRepeater.count; ++i) {
-            var entry = slotIndexRepeater.itemAt(i);
-            if (!entry || entry.boundConnectionId !== connectionId)
-                continue;
-            ++ordinal;
-            if (entry.slotId === slotId)
-                return ordinal;
-        }
-        return 0;
+        return App.slotOrdinal(slotId, connectionId);
     }
 
     // Battery wording (2=charging, 3=full, 4=wired; batteryKnown

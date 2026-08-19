@@ -7,6 +7,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <vector>
+#include <optional>
 
 namespace reducer = dish::reducer;
 using reducer::AppliedSlot;
@@ -48,25 +49,25 @@ TEST_CASE("reconcileNeeded: unknown bitmap (<0) skips the bitmap arm", "[reconci
 
 TEST_CASE("appliedMatchesDesired: identical sets match", "[reconcile][converge]") {
     std::vector<DesiredSlot> desired = {{0, 0}, {1, 1}};
-    std::vector<AppliedSlot> applied = {{0, 0, true}, {1, 1, true}};
+    std::vector<AppliedSlot> applied = {{0, 0, true, std::nullopt}, {1, 1, true, std::nullopt}};
     REQUIRE(reducer::appliedMatchesDesired(desired, applied));
 }
 
 TEST_CASE("appliedMatchesDesired: a type mismatch forces re-PUT", "[reconcile][converge]") {
-    std::vector<DesiredSlot> desired = {{0, 1}};       // want DS4
-    std::vector<AppliedSlot> applied = {{0, 0, true}}; // got Xbox
+    std::vector<DesiredSlot> desired = {{0, 1}};                     // want DS4
+    std::vector<AppliedSlot> applied = {{0, 0, true, std::nullopt}}; // got Xbox
     REQUIRE_FALSE(reducer::appliedMatchesDesired(desired, applied));
 }
 
 TEST_CASE("appliedMatchesDesired: an inactive applied slot is unplugged", "[reconcile][converge]") {
     std::vector<DesiredSlot> desired = {{0, 0}};
-    std::vector<AppliedSlot> applied = {{0, 0, false}}; // server says inactive
+    std::vector<AppliedSlot> applied = {{0, 0, false, std::nullopt}}; // server says inactive
     REQUIRE_FALSE(reducer::appliedMatchesDesired(desired, applied));
 }
 
 TEST_CASE("appliedMatchesDesired: a missing desired slot forces re-PUT", "[reconcile][converge]") {
     std::vector<DesiredSlot> desired = {{0, 0}, {1, 0}};
-    std::vector<AppliedSlot> applied = {{0, 0, true}}; // server missing slot 1
+    std::vector<AppliedSlot> applied = {{0, 0, true, std::nullopt}}; // server missing slot 1
     REQUIRE_FALSE(reducer::appliedMatchesDesired(desired, applied));
 }
 
@@ -74,7 +75,7 @@ TEST_CASE("appliedMatchesDesired: a mouse-grant mismatch forces re-PUT", "[recon
     // The grant is only computed at session PUT, so wants != granted forces a
     // converge even when the slots line up.
     std::vector<DesiredSlot> desired = {{0, 0}};
-    std::vector<AppliedSlot> applied = {{0, 0, true}};
+    std::vector<AppliedSlot> applied = {{0, 0, true, std::nullopt}};
     REQUIRE(reducer::appliedMatchesDesired(desired, applied, /*mouseMatch=*/true));
     REQUIRE_FALSE(reducer::appliedMatchesDesired(desired, applied, /*mouseMatch=*/false));
 }

@@ -13,6 +13,7 @@
 #include <set>
 #include <string>
 #include <vector>
+#include <cstdint>
 
 namespace dish::reducer {
 
@@ -21,7 +22,7 @@ inline bool isLiveLink(UiLinkState s) {
     return s == UiLinkState::Connected || s == UiLinkState::Unstable;
 }
 
-enum class ConfigBlockerKind { None, InputLost, HostLost, HostUnsteady };
+enum class ConfigBlockerKind : std::uint8_t { None, InputLost, HostLost, HostUnsteady };
 
 struct ConfigBlocker {
     ConfigBlockerKind kind = ConfigBlockerKind::None;

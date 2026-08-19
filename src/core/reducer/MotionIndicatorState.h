@@ -8,11 +8,13 @@
 
 #pragma once
 
+#include <cstdint>
+
 namespace dish::reducer {
 
 // Declaration order is the precedence order; do not reorder without updating
 // motionIndicatorFor and the test table.
-enum class MotionIndicatorState {
+enum class MotionIndicatorState : std::uint8_t {
     Unavailable,   // no gyro hardware
     UserDisabled,  // user turned motion off
     NotForwarded,  // not on a live link that carries motion

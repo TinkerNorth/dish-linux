@@ -84,6 +84,7 @@ set(DISH_CORE_SOURCES
     src/architecture/StateSource.h
     src/architecture/Controller.h
     src/architecture/Repository.h
+    src/core/AsyncState.h
     src/core/wire/SessionCrypto.h
     src/core/wire/SessionCrypto.cpp
     src/core/model/Protocol.h
@@ -109,6 +110,7 @@ set(DISH_CORE_SOURCES
     src/core/reducer/UsbTwinDedup.h
     src/core/reducer/SatelliteLinkState.h
     src/core/reducer/ConnectionRows.h
+    src/core/reducer/CarriedPads.h
     src/core/reducer/LateSlotConverge.h
     src/core/reducer/ResendPacer.h
     src/core/reducer/BindingPresence.h
@@ -349,6 +351,24 @@ target_sources(Dish PRIVATE
 # so the kit reads as a unit rather than as lines lost in this one.
 include(src/qml/kit/KitFiles.cmake)
 
+# The module's .qml files live in subdirectories (kit/, pages/, wizard/,
+# onboarding/, shared/), and from 6.8 Qt wants a qmldir per extra directory so a
+# relative import resolves from the resource system the same way it does from
+# disk. NEW generates them; the guard keeps the 6.7 floor buildable, where the
+# policy does not exist and the old behaviour is the only behaviour.
+# QT_KNOWN_POLICY_*, not CMake's if(POLICY ...): Qt policies live in their own
+# namespace, and the CMake form is always false for them.
+if(QT_KNOWN_POLICY_QTP0004)
+    qt_policy(SET QTP0004 NEW)
+endif()
+
+# Configuring prints ~13 "qml plugin X is a dependency but the link target does
+# not exist" warnings. They come from qt6_import_qml_plugins, which Qt runs at
+# finalization to STATICALLY link QML plugins; against a shared Qt there is
+# nothing to link and the modules load from the import path at run time. Adding
+# the plugins' packages does not create the targets and neither does remapping
+# the imported config — the warning is Qt's, not this project's, and the app
+# runs clean. Do not chase it; do read any warning that is NOT one of these.
 qt_add_qml_module(Dish
     URI Dish.Chrome
     VERSION 1.0

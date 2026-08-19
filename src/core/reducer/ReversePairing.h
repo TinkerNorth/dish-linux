@@ -14,7 +14,7 @@
 
 namespace dish::reducer {
 
-enum class ReversePairingAction {
+enum class ReversePairingAction : std::uint8_t {
     Approve,     // approved with a usable key: adopt and open the session
     Decline,     // operator denied; terminal
     KeepPolling, // pending or momentarily unreachable, and time remains
@@ -55,7 +55,7 @@ inline constexpr int kReversePinModulus = 10000; // 10^kReversePinDigits
 // Reduced modulo 10000 so any source, such as a 32-bit random draw, lands in
 // range and the output is always exactly 4 digits.
 inline std::string formatReversePin(std::uint32_t raw) {
-    const unsigned value = static_cast<unsigned>(raw % kReversePinModulus);
+    const auto value = static_cast<unsigned>(raw % kReversePinModulus);
     std::string out(kReversePinDigits, '0');
     unsigned v = value;
     for (int i = kReversePinDigits - 1; i >= 0; --i) {

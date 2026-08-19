@@ -12,6 +12,7 @@
 #include "core/reducer/BatteryRouting.h"
 
 #include <optional>
+#include <cstdint>
 
 namespace dish::reducer {
 
@@ -45,7 +46,7 @@ inline std::optional<BatteryUi> batteryUiFromWire(int level, int status) {
 }
 
 // ── Chip projection ──────────────────────────────────────────────────────────
-enum class BatteryChipKind {
+enum class BatteryChipKind : std::uint8_t {
     None,     // level unknown; no chip at all
     Wired,    // level not rendered
     Charging, // rendered with the level

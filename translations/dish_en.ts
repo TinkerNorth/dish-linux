@@ -32,6 +32,18 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Dish</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Expand navigation</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Collapse navigation</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Set up</source>
         <translation type="unfinished"></translation>
     </message>
@@ -44,19 +56,11 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Dish %1 is ready · restart when convenient.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Update available: Dish %1. See Settings to download.</source>
+        <source>Update available: Dish %1. See Settings for the release.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <source>This version of Dish is no longer supported. Please update.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Updated to Dish %1.</source>
         <translation type="unfinished"></translation>
     </message>
 </context>
@@ -580,7 +584,11 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>This PC pairs as a Bluetooth gamepad. Gyro, touchpad and mouse need a Satellite host.</source>
+        <source>This machine pairs as a Bluetooth gamepad. Gyro, touchpad and mouse need a Satellite host.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Handing the device over can take a few seconds.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -689,10 +697,6 @@
     </message>
     <message>
         <source>Keep editing</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Windows can take up to 20 seconds to hand over the device.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -925,7 +929,7 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Plug in an Xbox, PlayStation, or generic pad over USB or Bluetooth — Windows detects it and Dish lists it here automatically.</source>
+        <source>Plug in an Xbox, PlayStation, or generic pad over USB or Bluetooth — the system detects it and Dish lists it here automatically.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -2172,7 +2176,19 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Read through Windows’ gamepad layer. Works with everything.</source>
+        <source>Read through the system gamepad layer. Works with everything.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Bluetooth is off on this machine. Turn it on in your system settings to use a wireless pad, or plug one in over USB.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>A page inset, on the shell’s ground.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Handing the device over can take a few seconds.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -2304,10 +2320,6 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Bluetooth is off on this PC. Turn it on in Windows Settings to use a wireless pad, or plug one in over USB.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
         <source>Open Bluetooth settings ↗</source>
         <translation type="unfinished"></translation>
     </message>
@@ -2408,10 +2420,6 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>A page inset, on the shell’s Mica ground.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
         <source>WireLine</source>
         <translation type="unfinished"></translation>
     </message>
@@ -2477,10 +2485,6 @@
     </message>
     <message>
         <source>Keep setting up</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Windows can take up to 20 seconds to hand over the device.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -2648,6 +2652,10 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>The release information didn&apos;t parse. Dish will retry automatically.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Setup &amp; help</source>
         <translation type="unfinished"></translation>
     </message>
@@ -2673,10 +2681,6 @@
     </message>
     <message>
         <source>Theme</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Choose how Dish looks. System matches your Windows light or dark setting.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -2724,6 +2728,14 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Your package manager installs updates. Dish only tells you one exists.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Open release page</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>About</source>
         <translation type="unfinished"></translation>
     </message>
@@ -2760,18 +2772,6 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Downloading Dish %1…</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Verifying download…</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Dish %1 is ready to install.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
         <source>You&apos;re on the latest version.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -2784,23 +2784,15 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>The update could not be applied automatically. Download it from the releases page.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>The download didn&apos;t verify. Dish will try again.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>There isn&apos;t enough disk space for the update. Dish will try again.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
         <source>The update check failed. Dish will retry automatically.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <source>never</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Choose how Dish looks. System matches your desktop’s light or dark setting.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -2816,35 +2808,7 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>You&apos;re running the portable version. Get the new zip from the releases page.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
         <source>Check for updates</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Download update</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Restart to update</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Open download page</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Release notes</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Download updates automatically</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Dish downloads new versions in the background and installs them the next time it starts. Skipped on metered connections.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -2857,14 +2821,6 @@
     </message>
     <message>
         <source>Checking connects to github.com and sends no account data.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>What&apos;s new in Dish %1</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Read the release notes for this version.</source>
         <translation type="unfinished"></translation>
     </message>
 </context>
@@ -3045,7 +3001,7 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Windows can take up to 20 seconds to hand over the device.</source>
+        <source>Handing the device over can take a few seconds.</source>
         <translation type="unfinished"></translation>
     </message>
 </context>
@@ -3079,14 +3035,6 @@
 <context>
     <name>UpdatePill</name>
     <message>
-        <source>Dish %1 is ready to install.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>%1 of %2</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
         <source>Update available: Dish %1</source>
         <translation type="unfinished"></translation>
     </message>
@@ -3094,59 +3042,23 @@
 <context>
     <name>UpdatePopover</name>
     <message>
-        <source>Restart to update</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Downloading Dish %1</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
         <source>Update available</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Dish %1 · %2</source>
+        <source>Dish %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Dish %1 is ready. Restart now, or it will be installed the next time Dish starts.</source>
+        <source>Dish is installed by your package manager, so it updates itself there. The release page has the packages and the notes.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>You&apos;re running the portable version. Get the new zip from the releases page.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Waiting for an unmetered connection.</source>
+        <source>Open release page</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <source>This version is no longer supported.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>%1 of %2</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Restart now</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Later</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Open download page</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Download</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Release notes</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -3222,21 +3134,6 @@
     </message>
     <message>
         <source>Next</source>
-        <translation type="unfinished"></translation>
-    </message>
-</context>
-<context>
-    <name>WindowTitleBar</name>
-    <message>
-        <source>Expand navigation</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Collapse navigation</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Dish</source>
         <translation type="unfinished"></translation>
     </message>
 </context>
@@ -3498,7 +3395,7 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Into any USB port, or turn on a pad already paired to this PC. Windows sees it, and it appears here — there is no list to add it to.</source>
+        <source>Into any USB port, or turn on a pad already paired to this machine. The system sees it, and it appears here — there is no list to add it to.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -3538,7 +3435,27 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Windows’ gamepad layer. No prompt.</source>
+        <source>The system gamepad layer. No prompt.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Read over Bluetooth — the system gamepad layer.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Read through the system gamepad layer.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>This machine has no Bluetooth adapter — plug a pad in over USB.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Bluetooth is off on this machine. Turn it on in your system settings to use a wireless pad, or plug one in over USB.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Nothing appearing? A pad the system itself doesn’t list won’t reach Dish either — check your desktop’s own device settings first.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -3558,27 +3475,7 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Read over Bluetooth — Windows’ gamepad layer.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Read through Windows’ gamepad layer.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>This PC has no Bluetooth adapter — plug a pad in over USB.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Bluetooth is off on this PC. Turn it on in Windows Settings to use a wireless pad, or plug one in over USB.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
         <source>Open Bluetooth settings ↗</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Nothing appearing? A pad Windows itself doesn’t list won’t reach Dish either — check Windows’ own Devices first.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>

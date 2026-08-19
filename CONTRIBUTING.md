@@ -219,33 +219,41 @@ authoritative contract is
 [`satellite/docs/contract.md`](https://github.com/TinkerNorth/satellite/blob/main/docs/contract.md);
 the client-side mirror is [`src/core/model/Protocol.h`](src/core/model/Protocol.h).
 
-## clang-tidy triage
+## clang-tidy
 
-`.clang-tidy`'s `WarningsAsErrors: ''` is intentional: clang-tidy is run
-in CI as an advisory linter, not a gate. The remaining warnings on the
-non-UI sources are all stylistic and tracked here for future cleanup
-PRs:
+**The non-UI scope is clean, and CI gates it at zero.** `linux-ci.yml` runs
+clang-tidy with `--warnings-as-errors='*'` over every `src/**.cpp` and
+`src/**.h` outside `src/UI/` and `src/qml/`, so a new finding fails the build.
 
-| Check                                       | Notes                                          |
-| ------------------------------------------- | ---------------------------------------------- |
-| `modernize-use-nodiscard`                   | Add `[[nodiscard]]` to value-returning getters |
-| `modernize-use-scoped-lock`                 | `std::lock_guard` → `std::scoped_lock`         |
-| `readability-braces-around-statements`      | Single-statement `if`/`for` bodies             |
-| `readability-identifier-naming`             | `Theme::` constexpr need the `k` prefix        |
-| `cppcoreguidelines-avoid-c-arrays`          | Mostly fixed-size buffers — review case-by-case |
-| `cppcoreguidelines-special-member-functions` | Rule-of-five on classes that own resources    |
-| `performance-enum-size`                     | Underlying type narrower than `int`            |
+`.clang-tidy` itself keeps `WarningsAsErrors: ''` because it is the
+fleet-canonical config shared with `dish-android`, `dish-mac` and
+`dish-windows`, whose scopes are not clean. The gate lives in the workflow, not
+in the config, so this repo can hold a higher bar without forking the file.
+
+`src/UI/` and `src/qml/` are excluded: Qt's MOC- and qmltyperegistrar-generated
+code triggers a long tail of false positives that no source change can fix.
+
+Reproduce locally:
+
+```sh
+cmake -S . -B build-tidy -G Ninja -DCMAKE_BUILD_TYPE=Debug \
+  -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DDISH_BUILD_TESTS=OFF
+cmake --build build-tidy --parallel
+find src -type f \( -name '*.cpp' -o -name '*.h' \) \
+  ! -path 'src/UI/*' ! -path 'src/qml/*' -print0 |
+  xargs -0 -n1 -P"$(nproc)" clang-tidy -p build-tidy --quiet --warnings-as-errors='*'
+```
+
+When a check is a genuine false positive — two switch arms that share an answer
+for different documented reasons, an SDL struct tag whose leading underscore is
+not ours — suppress it with a `NOLINTBEGIN`/`NOLINTEND` pair naming the check
+**and** a comment saying why. A bare `NOLINT` with no reason will be asked about
+in review.
 
 Suppressions intentionally enabled in `.clang-tidy`:
 
-- `-portability-avoid-pragma-once` — the project uses `#pragma once`
-  everywhere by convention.
-
-Anything new should land at zero net additional warnings on the
-non-UI scope (`find src -name '*.cpp' ! -path 'src/UI/*' | xargs
-clang-tidy -p build-tidy --quiet`). `src/UI/` and `src/qml/` are excluded from
-CI's clang-tidy step because Qt's MOC- and qmltyperegistrar-generated code
-triggers a long tail of false positives.
+- `-portability-avoid-pragma-once` — the project uses `#pragma once` everywhere
+  by convention.
 
 ## Reporting bugs
 

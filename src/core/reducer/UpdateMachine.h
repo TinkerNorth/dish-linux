@@ -27,10 +27,11 @@
 
 #include <variant>
 #include <vector>
+#include <cstdint>
 
 namespace dish::reducer {
 
-enum class UpdatePhase {
+enum class UpdatePhase : std::uint8_t {
     Disabled,  // checks turned off: no timers, no QNAM, no network IO at all
     Idle,      // enabled, nothing known yet
     Checking,  // a manifest fetch is in flight
@@ -39,7 +40,7 @@ enum class UpdatePhase {
     Failed,    // the last attempt failed; `error` says how
 };
 
-enum class UpdateError {
+enum class UpdateError : std::uint8_t {
     None,
     Offline,         // reachability gate; no request was made
     Http,            // transport, TLS, status code
@@ -48,9 +49,9 @@ enum class UpdateError {
 
 // The checker turns these into localized toasts; the engine never vends a
 // sentence.
-enum class UpdateNotice { Available, Unsupported };
+enum class UpdateNotice : std::uint8_t { Available, Unsupported };
 
-enum class UpdateTrigger { Startup, Periodic, Manual, Retry };
+enum class UpdateTrigger : std::uint8_t { Startup, Periodic, Manual, Retry };
 
 // ==-comparable so the checker's Observable suppresses no-op re-emits.
 struct UpdateStatus {
@@ -85,11 +86,17 @@ struct UpdateStatus {
     bool operator!=(const UpdateStatus& o) const { return !(*this == o); }
 };
 
-// ── Scheduling constants ────────────────────────────────────────────────────
+// ── Scheduling ──────────────────────────────────────────────────────────────
+// Nested because `backoffDelayMs` and `kBackoffBaseMs` also name the SATELLITE
+// reconnect ladder in core/reducer/Backoff.h, which is the 1s..60s scale. Two
+// ladders, two meanings; a translation unit that needs both must be able to say
+// which. Polling a release host on the reconnect scale would be abuse.
+
+namespace update_schedule {
+
 // Startup is delayed so the check never competes with the first frame; the min
 // gap keeps a relaunch loop from hammering the permalink, and the future-jump
 // escape means a clock that reads 2099 costs one extra check, not silence.
-
 inline constexpr int kStartupDelayMs = 15'000;
 inline constexpr qint64 kMinCheckGapMs = 60LL * 60 * 1000;           // 1 h
 inline constexpr qint64 kFutureSkewEscapeMs = 24LL * 60 * 60 * 1000; // 24 h
@@ -122,6 +129,8 @@ constexpr int jitteredDelayMs(int baseMs, double unit) {
     const double scaled = static_cast<double>(baseMs) * factor;
     return scaled < 0.0 ? 0 : static_cast<int>(scaled);
 }
+
+} // namespace update_schedule
 
 // ── Events ──────────────────────────────────────────────────────────────────
 

@@ -17,13 +17,14 @@
 #include <QTemporaryDir>
 
 #include <memory>
+#include <optional>
 #include <utility>
 
-using dish::reducer::kPeriodicIntervalMs;
-using dish::reducer::kStartupDelayMs;
 using dish::reducer::UpdateError;
 using dish::reducer::UpdateNotice;
 using dish::reducer::UpdatePhase;
+using dish::reducer::update_schedule::kPeriodicIntervalMs;
+using dish::reducer::update_schedule::kStartupDelayMs;
 using dish::source::UpdatePreferenceStore;
 using dish::update::ManifestFetchResult;
 using dish::update::ManifestGateway;
@@ -89,14 +90,27 @@ class ScopedSettingsPath {
     QTemporaryDir dir_;
 };
 
+// Tag for the relaunch case: reuse the settings path already in scope, so the
+// second checker reads the first one's last-check timestamp. A Harness that
+// made its own would be a different machine, not a relaunch.
+struct ShareAmbientSettings {};
+
 struct Harness {
-    ScopedSettingsPath settingsPath;
+    std::optional<ScopedSettingsPath> settingsPath;
     QTemporaryDir prefsDir;
     std::unique_ptr<UpdatePreferenceStore> prefs;
     FakeManifestGateway* gateway = nullptr;
     std::unique_ptr<UpdateChecker> checker;
 
     explicit Harness(qint64 nowMs = 1'000'000'000) {
+        settingsPath.emplace();
+        build(nowMs);
+    }
+
+    Harness(ShareAmbientSettings, qint64 nowMs) { build(nowMs); }
+
+  private:
+    void build(qint64 nowMs) {
         prefs = std::make_unique<UpdatePreferenceStore>(std::make_unique<QSettings>(
             prefsDir.filePath(QStringLiteral("prefs.ini")), QSettings::IniFormat));
         auto fake = std::make_unique<FakeManifestGateway>();
@@ -156,8 +170,9 @@ TEST_CASE("checker: a start inside the minimum gap defers instead of re-checking
     h.checker->firePendingCheck();
     h.gateway->answerWith(manifest(QStringLiteral("0.2.0")));
 
-    // A relaunch five minutes later must not fetch again on the startup delay.
-    Harness relaunch(kNow + 5 * 60 * 1000);
+    // A relaunch five minutes later, against the SAME stored timestamp, must
+    // not fetch again on the startup delay.
+    Harness relaunch{ShareAmbientSettings{}, kNow + 5 * 60 * 1000};
     relaunch.checker->start();
     CHECK(relaunch.gateway->fetches == 0);
     CHECK(relaunch.checker->pendingCheckDelayMs() > kStartupDelayMs);

@@ -20,6 +20,7 @@
 #include <QString>
 
 #include <memory>
+#include <cstdint>
 
 class QSettings;
 
@@ -27,7 +28,7 @@ namespace dish::source {
 
 // The three appearance modes the picker offers. SYSTEM follows the OS; LIGHT /
 // DARK pin it.
-enum class ThemeMode { System, Light, Dark };
+enum class ThemeMode : std::uint8_t { System, Light, Dark };
 
 // Pure mappings between ThemeMode and its persisted storage token / display
 // label. Free functions (no QObject) so tests pin them without a store.

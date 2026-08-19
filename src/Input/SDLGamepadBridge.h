@@ -24,11 +24,13 @@
 // Mirrors SDL2's typedefs so <SDL.h> stays out of this header. The leading
 // underscores are SDL's struct tags, not our choice.
 extern "C" {
-// NOLINTNEXTLINE(bugprone-reserved-identifier)
+// NOLINTNEXTLINE(bugprone-reserved-identifier,cert-dcl37-c,cert-dcl51-cpp)
 struct _SDL_GameController;
+// NOLINTNEXTLINE(bugprone-reserved-identifier,cert-dcl37-c,cert-dcl51-cpp)
 using SDL_GameController = struct _SDL_GameController;
-// NOLINTNEXTLINE(bugprone-reserved-identifier)
+// NOLINTNEXTLINE(bugprone-reserved-identifier,cert-dcl37-c,cert-dcl51-cpp)
 struct _SDL_Joystick;
+// NOLINTNEXTLINE(bugprone-reserved-identifier,cert-dcl37-c,cert-dcl51-cpp)
 using SDL_Joystick = struct _SDL_Joystick;
 struct SDL_ControllerSensorEvent;
 struct SDL_ControllerTouchpadEvent;

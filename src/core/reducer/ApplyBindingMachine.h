@@ -19,13 +19,20 @@
 #include <optional>
 #include <type_traits>
 #include <variant>
+#include <cstdint>
 
 namespace dish::reducer {
 
-enum class ApplyStep { Connection, Destination };
-enum class ApplyStepState { Pending, Active, Done, Failed, Skipped };
-enum class ApplyPhase { Idle, SwitchingPath, Binding, Succeeded, Failed, Cancelled };
-enum class ApplyFailure { SlotGone, PathClaimTimeout, HostUnreachable, BindRejected, Cancelled };
+enum class ApplyStep : std::uint8_t { Connection, Destination };
+enum class ApplyStepState : std::uint8_t { Pending, Active, Done, Failed, Skipped };
+enum class ApplyPhase : std::uint8_t { Idle, SwitchingPath, Binding, Succeeded, Failed, Cancelled };
+enum class ApplyFailure : std::uint8_t {
+    SlotGone,
+    PathClaimTimeout,
+    HostUnreachable,
+    BindRejected,
+    Cancelled
+};
 
 struct ApplyState {
     ApplyPhase phase = ApplyPhase::Idle;

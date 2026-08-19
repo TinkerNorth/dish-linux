@@ -7,9 +7,11 @@
 
 #pragma once
 
+#include <cstdint>
+
 namespace dish::reducer {
 
-enum class DirectClaimFailure {
+enum class DirectClaimFailure : std::uint8_t {
     PermissionDenied, // ERROR_ACCESS_DENIED on CreateFile, or a privileged owner
     Busy,             // ERROR_SHARING_VIOLATION, or WinUSB initialize refused
     InitFailed,       // claimed, but no decodable report ever arrived

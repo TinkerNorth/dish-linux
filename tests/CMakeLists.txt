@@ -15,6 +15,9 @@ endif()
 include(Catch)
 
 set(DISH_TEST_SOURCES
+    # Owns the one QCoreApplication for the session; see the file header for
+    # why a function-local static is not equivalent.
+    main.cpp
     test_kernel.cpp
     test_async_state.cpp
     test_session_crypto.cpp
@@ -63,6 +66,7 @@ set(DISH_TEST_SOURCES
     test_session_reconcile.cpp
     test_satellite_link_state.cpp
     test_connection_rows.cpp
+    test_carried_pads.cpp
     test_resend_pacer.cpp
     test_late_slot_converge.cpp
     test_binding_presence.cpp
@@ -143,7 +147,7 @@ add_executable(DishTests ${DISH_TEST_SOURCES})
 target_link_libraries(DishTests
     PRIVATE
         dish_core
-        Catch2::Catch2WithMain
+        Catch2::Catch2
         dish_warnings)
 
 # The manifest is a resource of the Dish exe, not of dish_core, which is what

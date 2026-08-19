@@ -16,6 +16,7 @@
 #include <mutex>
 #include <optional>
 #include <vector>
+#include <cstdint>
 
 namespace dish::net {
 
@@ -28,7 +29,7 @@ namespace dish::net {
 // - Faltering  — live but past the miss threshold and short of the death one.
 // - Stale      — collapsed with the key dropped by a terminal 401 or a
 //                close-notify(unpaired), or a silent retry is in flight.
-enum class SessionState { Idle, Linking, Live, Faltering, Stale };
+enum class SessionState : std::uint8_t { Idle, Linking, Live, Faltering, Stale };
 
 // Written on the Qt main thread, read on the SDL input thread every report.
 class ClientRef {

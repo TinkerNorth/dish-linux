@@ -21,12 +21,18 @@ class QTimer;
 
 namespace dish::net {
 
-enum class ConnectionEventKind { PairingRequired, Error };
+enum class ConnectionEventKind : std::uint8_t { PairingRequired, Error };
 
 // Reverse (host-initiated) pairing: the dish shows a clientPin, the operator
 // types it on the satellite, and the poll loop resolves. The terminal arms are
 // sticky until the next request or cancel clears them.
-enum class ReversePairingPhase { Idle, AwaitingApproval, Approved, Declined, TimedOut };
+enum class ReversePairingPhase : std::uint8_t {
+    Idle,
+    AwaitingApproval,
+    Approved,
+    Declined,
+    TimedOut
+};
 
 struct ConnectionEvent {
     ConnectionEventKind kind;
@@ -36,7 +42,7 @@ struct ConnectionEvent {
 
 // Only UserInitiated may toast on failure. The two background intents must fail
 // silently, with the row chip's Connecting → Saved/Stale flip as the only cue.
-enum class ConnectIntent { UserInitiated, AutoReconnect, RetryAfterDeath };
+enum class ConnectIntent : std::uint8_t { UserInitiated, AutoReconnect, RetryAfterDeath };
 
 // Owns the pool of live and remembered WiFi sessions and drives the REST control
 // plane for each: session PUT on connect, per-controller PUT/DELETE for slot

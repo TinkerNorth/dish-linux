@@ -26,14 +26,23 @@
 #pragma once
 
 #include <vector>
+#include <cstdint>
 
 namespace dish::reducer {
 
-enum class CapLayer { Input, Link, Type, Host };
-enum class CapVerdict { Available, Unavailable, Pending, Off };
+enum class CapLayer : std::uint8_t { Input, Link, Type, Host };
+enum class CapVerdict : std::uint8_t { Available, Unavailable, Pending, Off };
 
 // Declaration order is the render order both surfaces use.
-enum class CapFeature { Gamepad, Triggers, Motion, Touchpad, Mouse, Rumble, Lightbar };
+enum class CapFeature : std::uint8_t {
+    Gamepad,
+    Triggers,
+    Motion,
+    Touchpad,
+    Mouse,
+    Rumble,
+    Lightbar
+};
 
 struct CapabilityInputs {
     bool padMotion = false;
@@ -80,11 +89,15 @@ inline bool inputCarries(const CapabilityInputs& in, CapFeature f) {
         return true;
     case CapFeature::Motion:
         return in.padMotion;
+    // Touchpad and Mouse deliberately share one answer: Mouse is a routing OF
+    // the touchpad, so the pad needs one to drive it. They stay separate cases
+    // because every other layer treats them as distinct features.
+    // NOLINTBEGIN(bugprone-branch-clone)
     case CapFeature::Touchpad:
         return in.padTouchpad;
-    // Mouse is a routing of the touchpad, so the pad needs one to drive it.
     case CapFeature::Mouse:
         return in.padTouchpad;
+    // NOLINTEND(bugprone-branch-clone)
     case CapFeature::Rumble:
         return in.padRumble;
     case CapFeature::Lightbar:

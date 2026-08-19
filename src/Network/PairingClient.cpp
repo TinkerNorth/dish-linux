@@ -119,7 +119,10 @@ PairingClient::Outcome PairingClient::classify(const models::PairResponse& respo
     r.hasSharedKey = response.sharedKey.has_value() && !response.sharedKey->isEmpty();
     switch (reducer::classifyPair(r)) {
     case reducer::PairVerdict::Success:
-        return Success{*response.sharedKey};
+        // classifyPair only says Success when hasSharedKey, which is exactly
+        // this optional being engaged; value_or keeps that local rather than
+        // asking a reader to carry the invariant across two files.
+        return Success{response.sharedKey.value_or(QString())};
     case reducer::PairVerdict::Pending:
         return Pending{};
     case reducer::PairVerdict::AuthRequired:

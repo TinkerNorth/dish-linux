@@ -18,7 +18,7 @@ namespace dish::input {
 // The SDL thread is the only one allowed to SDL_GameControllerClose, so
 // resolving the SDL_GameController* and calling into SDL from the receive
 // thread would race that close into a use-after-free.
-enum class OutputKind { Rumble, Lightbar };
+enum class OutputKind : std::uint8_t { Rumble, Lightbar };
 
 struct OutputCommand {
     OutputKind kind = OutputKind::Rumble;

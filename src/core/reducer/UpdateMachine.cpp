@@ -23,8 +23,10 @@ UpdateReduction settleFailure(const UpdateStatus& s, UpdateError error) {
     n.consecutiveFailures = s.consecutiveFailures + 1;
     n.phase = UpdatePhase::Failed;
     n.error = error;
-    return UpdateReduction{
-        std::move(n), {update_effect::ScheduleNextCheck{backoffDelayMs(n.consecutiveFailures)}}};
+    // Read the ladder BEFORE the move: `n` is moved-from by the time the second
+    // member of the braced list is evaluated.
+    const int delayMs = update_schedule::backoffDelayMs(n.consecutiveFailures);
+    return UpdateReduction{std::move(n), {update_effect::ScheduleNextCheck{delayMs}}};
 }
 
 } // namespace
@@ -45,8 +47,8 @@ UpdateReduction reduceUpdate(const UpdateStatus& s, const UpdateEvent& event) {
         if (s.phase == UpdatePhase::Disabled) {
             // Re-enabling behaves exactly like a cold start.
             n.phase = UpdatePhase::Idle;
-            return UpdateReduction{std::move(n),
-                                   {update_effect::ScheduleNextCheck{kStartupDelayMs}}};
+            return UpdateReduction{
+                std::move(n), {update_effect::ScheduleNextCheck{update_schedule::kStartupDelayMs}}};
         }
         return stay(std::move(n));
     }
@@ -87,7 +89,7 @@ UpdateReduction reduceUpdate(const UpdateStatus& s, const UpdateEvent& event) {
             n.phase = UpdatePhase::UpToDate;
             n.availableVersion.clear();
             n.notesUrl.clear();
-            fx.push_back(update_effect::ScheduleNextCheck{kPeriodicIntervalMs});
+            fx.push_back(update_effect::ScheduleNextCheck{update_schedule::kPeriodicIntervalMs});
             return UpdateReduction{std::move(n), std::move(fx)};
         }
 
@@ -98,7 +100,7 @@ UpdateReduction reduceUpdate(const UpdateStatus& s, const UpdateEvent& event) {
             fx.push_back(update_effect::Notify{UpdateNotice::Unsupported, m.version});
         }
         fx.push_back(update_effect::Notify{UpdateNotice::Available, m.version});
-        fx.push_back(update_effect::ScheduleNextCheck{kPeriodicIntervalMs});
+        fx.push_back(update_effect::ScheduleNextCheck{update_schedule::kPeriodicIntervalMs});
         return UpdateReduction{std::move(n), std::move(fx)};
     }
 
@@ -126,8 +128,9 @@ UpdateReduction reduceUpdate(const UpdateStatus& s, const UpdateEvent& event) {
         const bool wasOfflineGated =
             s.phase == UpdatePhase::Failed && s.error == UpdateError::Offline && s.checksEnabled;
         if (reach->online && wasOfflineGated) {
-            return UpdateReduction{std::move(n),
-                                   {update_effect::ScheduleNextCheck{kReconnectCheckDelayMs}}};
+            return UpdateReduction{
+                std::move(n),
+                {update_effect::ScheduleNextCheck{update_schedule::kReconnectCheckDelayMs}}};
         }
         return stay(std::move(n));
     }

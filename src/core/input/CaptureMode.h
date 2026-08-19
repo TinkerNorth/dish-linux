@@ -13,10 +13,11 @@
 
 #include <string>
 #include <variant>
+#include <cstdint>
 
 namespace dish::input {
 
-enum class CapturePhase { Idle, Capturing };
+enum class CapturePhase : std::uint8_t { Idle, Capturing };
 
 // For an SDL raw joystick the slot id IS the "sdl:<iid>" device id, which is what
 // makes the deviceId == slotId filter below work. Both fields are empty in Idle.

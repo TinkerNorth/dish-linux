@@ -16,6 +16,7 @@
 #include "core/input/Deadzones.h"
 #include "core/reducer/CapabilitySolver.h"
 #include "core/reducer/CatalogFeatureGate.h"
+#include "core/reducer/CarriedPads.h"
 #include "core/reducer/ConnectionRows.h"
 #include "core/reducer/FoundVisibility.h"
 #include "core/reducer/PathChoice.h"
@@ -565,6 +566,21 @@ void AppViewModel::setSlotPath(const QString& slotId, const QString& choice) {
     }
     // An unrecognised string is ignored. A real pick triggers AppModel's rebuild,
     // which re-emits stateChanged, so the slot roles need no NOTIFY of their own.
+}
+
+QVariantList AppViewModel::carriedPads(const QString& connectionId) const {
+    QVariantList out;
+    for (const auto& pad : reducer::carriedPads(model_->state().slotList, connectionId)) {
+        QVariantMap row;
+        row[QStringLiteral("name")] = pad.name;
+        row[QStringLiteral("emulateName")] = pad.emulateName;
+        out.append(row);
+    }
+    return out;
+}
+
+int AppViewModel::slotOrdinal(const QString& slotId, const QString& connectionId) const {
+    return reducer::slotOrdinalOnConnection(model_->state().slotList, slotId, connectionId);
 }
 
 QVariantList AppViewModel::availableConnectionsForSlot(const QString& slotId) const {

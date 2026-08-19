@@ -11,8 +11,12 @@
 
 #include <catch2/catch_test_macros.hpp>
 
-#include <QCoreApplication>
 #include <QString>
+
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
+#include <unistd.h>
 
 #include <array>
 #include <cstdint>
@@ -35,28 +39,18 @@ using dish::net::WifiConnectionTestAccess;
 
 namespace {
 
-// The QTimer markConnected starts needs an application object, which Catch2's
-// main does not create.
-void ensureApp() {
-    if (QCoreApplication::instance() != nullptr) { return; }
-    static int argc = 1;
-    static char arg0[] = "DishTests";
-    static char* argv[] = {arg0, nullptr};
-    static QCoreApplication app(argc, argv);
-}
-
-SOCKET bindLoopback(std::uint16_t& port) {
-    const SOCKET fd = ::socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
-    if (fd == INVALID_SOCKET) { return INVALID_SOCKET; }
+int bindLoopback(std::uint16_t& port) {
+    const int fd = ::socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+    if (fd < 0) { return -1; }
     sockaddr_in addr{};
     addr.sin_family = AF_INET;
     addr.sin_port = 0;
     ::inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
-    int len = static_cast<int>(sizeof(addr));
+    socklen_t len = sizeof(addr);
     if (::bind(fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) != 0 ||
         ::getsockname(fd, reinterpret_cast<sockaddr*>(&addr), &len) != 0) {
-        ::closesocket(fd);
-        return INVALID_SOCKET;
+        ::close(fd);
+        return -1;
     }
     port = ntohs(addr.sin_port);
     return fd;
@@ -81,10 +75,9 @@ dish::models::DiscoveredServer server() {
 TEST_CASE("alive tick fires the rekey callback once per threshold approach and re-arms after "
           "landing",
           "[rekey]") {
-    ensureApp();
     std::uint16_t port = 0;
-    const SOCKET fd = bindLoopback(port);
-    REQUIRE(fd != INVALID_SOCKET);
+    const int fd = bindLoopback(port);
+    REQUIRE(fd >= 0);
 
     auto client = std::make_shared<SatelliteClient>();
     REQUIRE(client->openSocket("127.0.0.1", port));
@@ -121,14 +114,13 @@ TEST_CASE("alive tick fires the rekey callback once per threshold approach and r
     CHECK(rekeyCalls == 2);
 
     conn.markDisconnected();
-    ::closesocket(fd);
+    ::close(fd);
 }
 
 TEST_CASE("alive tick tolerates an absent rekey callback past the threshold", "[rekey]") {
-    ensureApp();
     std::uint16_t port = 0;
-    const SOCKET fd = bindLoopback(port);
-    REQUIRE(fd != INVALID_SOCKET);
+    const int fd = bindLoopback(port);
+    REQUIRE(fd >= 0);
 
     auto client = std::make_shared<SatelliteClient>();
     REQUIRE(client->openSocket("127.0.0.1", port));
@@ -141,5 +133,5 @@ TEST_CASE("alive tick tolerates an absent rekey callback past the threshold", "[
     SatelliteClientTestAccess::seedSendCounter(*client, dish::reducer::kCounterRepushThreshold);
     WifiConnectionTestAccess::tick(conn); // must not crash
     conn.markDisconnected();
-    ::closesocket(fd);
+    ::close(fd);
 }
