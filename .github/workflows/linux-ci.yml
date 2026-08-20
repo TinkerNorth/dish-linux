@@ -374,10 +374,12 @@ jobs:
             echo "::error::the installed package cannot load its Qt/QML runtime"
             exit 1
           fi
-          # Not fatal yet, but the app renders no iconography at all when this
-          # fires, and a log flood is easy to miss. Surfaced until it is fixed.
+          # Fatal: the app renders no iconography at all when this fires, and
+          # the only symptom is a log flood nobody reads. It stayed a warning
+          # only until the Depends: line was right.
           if grep -q 'Error decoding:' /tmp/launch.log; then
-            echo "::warning::the installed app cannot decode its brand SVGs — the Qt SVG image plugin is missing or unloadable"
+            echo "::error::the installed app cannot decode its brand SVGs — the Qt SVG image plugin is missing or unloadable"
+            exit 1
           fi
           if [ "$started" != 1 ]; then
             echo "::error::dish exited on its own (${rc}) instead of staying up"

@@ -701,16 +701,18 @@ set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)
 # launches, and dies on `module "QtQuick.Effects" is not installed`. Derive the
 # list from `grep -rho '^import [A-Za-z0-9_.]*' src/qml`.
 #
-# libqt6svg6 is here for the same reason and is easy to miss: the target links
-# Qt6::Svg, but nothing references a Qt Svg SYMBOL — every brand glyph is
-# decoded by the imageformats/libqsvg.so plugin at run time — so the linker
-# drops libQt6Svg from DT_NEEDED and shlibdeps never sees it. Without it the
-# installed app renders no glyph at all.
+# The SVG pair is the easiest of these to miss. The target links Qt6::Svg but
+# references no Qt Svg SYMBOL — every brand glyph is decoded by the
+# imageformats/libqsvg.so plugin at run time — so the linker drops libQt6Svg
+# from DT_NEEDED and shlibdeps never sees it. Debian then splits that plugin
+# out of libqt6svg6 into qt6-svg-plugins, so depending on the library alone
+# still leaves every glyph as "Unsupported image format".
 set(DISH_DEB_RUNTIME_DEPENDS
     "qml6-module-qtqml, qml6-module-qtqml-workerscript, qml6-module-qtquick, \
 qml6-module-qtquick-window, qml6-module-qtquick-controls, \
 qml6-module-qtquick-templates, qml6-module-qtquick-layouts, \
-qml6-module-qtquick-effects, libqt6svg6, qt6-qpa-plugins, hicolor-icon-theme"
+qml6-module-qtquick-effects, libqt6svg6, qt6-svg-plugins, qt6-qpa-plugins, \
+hicolor-icon-theme"
     CACHE STRING "Runtime-loaded Qt pieces dpkg-shlibdeps cannot infer")
 set(CPACK_DEBIAN_PACKAGE_DEPENDS "${DISH_DEB_RUNTIME_DEPENDS}")
 set(CPACK_DEBIAN_PACKAGE_RECOMMENDS "udev, qt6-wayland")

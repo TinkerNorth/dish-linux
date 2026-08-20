@@ -109,6 +109,11 @@ the repos share a version number.
 
 ### Fixed
 
+- The installed `.deb` renders its brand glyphs. Every SVG failed to decode
+  because Debian splits `imageformats/libqsvg.so` out of `libqt6svg6` into
+  `qt6-svg-plugins`, which nothing depended on; the plugin is opened by name at
+  run time, so no linkage revealed it. The packaging gates now fail on a decode
+  error rather than warning about one.
 - Logout and shutdown no longer discard the session's settings. SIGTERM's
   default disposition killed the process where it stood, so `~AppModel` never
   ran: the SDL input thread was not stopped and `QSettings` never wrote what
