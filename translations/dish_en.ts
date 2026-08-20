@@ -3767,6 +3767,28 @@
     </message>
 </context>
 <context>
+    <name>dish::source::StatusNotifierTrayIcon</name>
+    <message>
+        <source>Idle</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message numerus="yes">
+        <source>Streaming to %n controller(s)</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>Show Dish</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Quit</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
     <name>dish::source::ThemePreferenceStore</name>
     <message>
         <source>Light</source>
