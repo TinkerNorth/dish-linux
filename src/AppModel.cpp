@@ -56,6 +56,7 @@ AppModel::AppModel(std::unique_ptr<util::DisplaySleepInhibitor> inhibitor, QObje
       inhibitor_(std::move(inhibitor)), wakeComposer_(streamingSlotCount_, shouldKeepScreenOn_),
       wakeController_(wakeComposer_.state(), inhibitor_.get()),
       themeController_(themeStore_.state()), crashController_(crashStore_.state(), &crashBackend_),
+      tray_(source::makeSystemTrayIcon()),
       notifier_(std::make_unique<source::FreedesktopNotifier>()),
       sleepMonitor_(std::make_unique<source::LogindSleepMonitor>()),
       backgroundCoordinator_(new composer::BackgroundCoordinator(&backgroundStore_, tray_.get(),

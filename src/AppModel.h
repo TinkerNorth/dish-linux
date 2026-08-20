@@ -41,6 +41,7 @@
 #include "source/store/UpdatePreferenceStore.h"
 #include "source/store/UsbPathPreferenceStore.h"
 #include "source/system/SleepMonitor.h"
+#include "source/tray/StatusNotifierTrayIcon.h"
 #include "source/tray/TrayIcon.h"
 #include "source/usb/UsbGamepadManager.h"
 #include "source/usb/HidrawGateway.h"

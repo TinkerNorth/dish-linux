@@ -280,6 +280,8 @@ set(DISH_CORE_SOURCES
     src/source/system/SleepMonitor.h
     src/source/system/SleepMonitor.cpp
     src/source/tray/TrayIcon.h
+    src/source/tray/StatusNotifierTrayIcon.h
+    src/source/tray/StatusNotifierTrayIcon.cpp
     # Update checking. In dish_core (not the exe) because the tests link this
     # library, not the exe.
     src/update/UpdatePorts.h

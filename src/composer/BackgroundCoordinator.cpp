@@ -7,8 +7,6 @@
 #include "source/store/BackgroundPreferenceStore.h"
 #include "source/tray/TrayIcon.h"
 
-#include <QCoreApplication>
-
 namespace dish::composer {
 
 BackgroundCoordinator::BackgroundCoordinator(source::BackgroundPreferenceStore* prefs,
@@ -48,15 +46,12 @@ void BackgroundCoordinator::onAvailabilityChanged(bool available) {
     if (!available && !windowVisible_.value()) { emit showWindowRequested(); }
 }
 
-// Composed here rather than in QML because there is no window left to read it
-// in; this is the same sanctioned translate() seam the theme labels use.
+// Composed here rather than in QML because by now there is no window left to
+// read it in.
 void BackgroundCoordinator::announce() {
     if (notifier_ == nullptr) { return; }
-    notifier_->notify(
-        QCoreApplication::translate("dish::composer::BackgroundCoordinator",
-                                    "Dish is still running"),
-        QCoreApplication::translate("dish::composer::BackgroundCoordinator",
-                                    "Controllers keep streaming. Quit from the tray icon."));
+    notifier_->notify(tr("Dish is still running"),
+                      tr("Controllers keep streaming. Quit from the tray icon."));
 }
 
 } // namespace dish::composer
