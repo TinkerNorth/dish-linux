@@ -47,7 +47,18 @@ runs:
 
     # Inputs reach the shell as environment variables, never as ${{ }} spliced
     # into the script — same rule the workflows follow.
+    # The aqt download is ~1.5 GB and several minutes of every job on every
+    # repo that calls this. The key covers both pinned versions, so a bump
+    # misses and refetches.
+    - name: Restore cached Qt ${{ inputs.qt-version }}
+      id: qt-cache
+      uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+      with:
+        path: ${{ runner.temp }}/Qt
+        key: qt-${{ runner.os }}-${{ inputs.qt-version }}-aqt${{ inputs.aqtinstall-version }}
+
     - name: Install aqtinstall (pinned ${{ inputs.aqtinstall-version }})
+      if: steps.qt-cache.outputs.cache-hit != 'true'
       shell: bash
       env:
         AQTINSTALL_VERSION: ${{ inputs.aqtinstall-version }}
@@ -61,6 +72,7 @@ runs:
       shell: bash
       env:
         QT_VERSION: ${{ inputs.qt-version }}
+        CACHE_HIT: ${{ steps.qt-cache.outputs.cache-hit }}
       run: |
         set -euo pipefail
         version="${QT_VERSION}"
@@ -70,7 +82,9 @@ runs:
         # not need a second edit here. No -m either — the desktop package's own
         # archives are qtbase, qtdeclarative, qtsvg, qttools, qttranslations,
         # qtwayland and icu, which covers every module this project links.
-        aqt install-qt linux desktop "${version}" --outputdir "${RUNNER_TEMP}/Qt"
+        if [ "${CACHE_HIT:-}" != "true" ]; then
+          aqt install-qt linux desktop "${version}" --outputdir "${RUNNER_TEMP}/Qt"
+        fi
 
         # aqt lays the install down as <outputdir>/<version>/<arch>. Read the
         # arch directory back instead of hard-coding a name Qt has changed once
@@ -93,7 +107,8 @@ runs:
         libs="$("${qmake}" -query QT_INSTALL_LIBS)"
 
         # A module missing here reads as a confusing find_package or
-        # command-not-found failure three steps later, so name it now.
+        # command-not-found failure three steps later, so name it now. This is
+        # also what catches a truncated cache restore.
         missing=""
         for module in Qt6Core Qt6Gui Qt6Network Qt6DBus Qt6Svg \
                       Qt6Qml Qt6Quick Qt6QuickControls2 Qt6LinguistTools; do

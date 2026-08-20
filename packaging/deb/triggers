@@ -1,0 +1,3 @@
+# hicolor-icon-theme's own trigger rebuilds the cache; calling
+# gtk-update-icon-cache from postinst instead is a lintian tag.
+activate-noawait /usr/share/icons/hicolor

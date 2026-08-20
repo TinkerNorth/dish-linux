@@ -121,6 +121,28 @@ TEST_CASE("pairing + version-mismatch is terminal", "[session-fsm]") {
     CHECK(r.effects == expected);
 }
 
+TEST_CASE("a changed identity is terminal on both classification paths", "[session-fsm]") {
+    // Not retryable and not a key problem: only an explicit Forget clears the
+    // pin, so a retry would hammer a satellite we cannot authenticate.
+    SECTION("from pairing") {
+        const auto r =
+            reduce(model(SessionPhase::Pairing), se::PairClassified{PairVerdict::IdentityChanged});
+        REQUIRE(r.next.has_value());
+        CHECK(r.next->phase == SessionPhase::Failed);
+        REQUIRE(r.next->failure.has_value());
+        CHECK(*r.next->failure == SessionFailure::IdentityChanged);
+    }
+    SECTION("from linking") {
+        const auto r =
+            reduce(model(SessionPhase::Linking), se::RestClassified{RestVerdict::IdentityChanged});
+        REQUIRE(r.next.has_value());
+        CHECK(r.next->phase == SessionPhase::Failed);
+        REQUIRE(r.next->failure.has_value());
+        CHECK(*r.next->failure == SessionFailure::IdentityChanged);
+    }
+    CHECK(sessionFailureTerminal(SessionFailure::IdentityChanged));
+}
+
 TEST_CASE("pairing + unreachable rides the backoff curve", "[session-fsm]") {
     const auto r =
         reduce(model(SessionPhase::Pairing), se::PairClassified{PairVerdict::Unreachable});

@@ -353,10 +353,6 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Direct access denied — another app owns this device.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
         <source>Unplug and replug the controller to finish switching.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -705,6 +701,10 @@
     </message>
     <message>
         <source>No rumble</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Direct access denied — hidraw needs a udev rule. Install packaging/udev/70-dish-hidraw.rules, run udevadm control --reload-rules &amp;&amp; udevadm trigger, then replug the controller.</source>
         <translation type="unfinished"></translation>
     </message>
 </context>
@@ -1065,10 +1065,6 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Direct access denied — another app owns this device.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
         <source>Direct claim is busy — another app or driver holds the device.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -1078,6 +1074,10 @@
     </message>
     <message>
         <source>The device dropped during the claim — a replug is needed.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Direct access denied — hidraw needs a udev rule. Install packaging/udev/70-dish-hidraw.rules, run udevadm control --reload-rules &amp;&amp; udevadm trigger, then replug the controller.</source>
         <translation type="unfinished"></translation>
     </message>
 </context>

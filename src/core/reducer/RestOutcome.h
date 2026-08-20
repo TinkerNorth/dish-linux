@@ -18,10 +18,12 @@ enum class RestVerdict : std::uint8_t {
     ShuttingDown,    // 503
     Unreachable,     // transport failure or empty body
     ServerError,     // any other non-2xx with a body
+    IdentityChanged, // TOFU pin mismatch; terminal, forget and pair again
 };
 
 inline bool restVerdictTerminal(RestVerdict v) {
-    return v == RestVerdict::Unauthorized || v == RestVerdict::VersionMismatch;
+    return v == RestVerdict::Unauthorized || v == RestVerdict::VersionMismatch ||
+           v == RestVerdict::IdentityChanged;
 }
 
 inline bool restVerdictRetryable(RestVerdict v) {
@@ -35,9 +37,13 @@ struct RestReply {
     int status = 0;
     bool bodyParsed = false;
     std::string code; // NOT_PAIRED | BAD_PROOF on a 401, else empty
+    // The TOFU gate aborted the handshake over a CHANGED cert, so the reply also
+    // arrives statusless. Carried separately because retrying cannot fix it.
+    bool pinMismatch = false;
 };
 
 inline RestVerdict classifyRest(const RestReply& r) {
+    if (r.pinMismatch) { return RestVerdict::IdentityChanged; }
     if (r.status == 0 || !r.bodyParsed) { return RestVerdict::Unreachable; }
     if (r.status >= 200 && r.status <= 299) { return RestVerdict::Ok; }
     if (r.status == 401) { return RestVerdict::Unauthorized; }
@@ -56,6 +62,7 @@ enum class PairVerdict : std::uint8_t {
     AuthRequired,    // reachable but no key: first-time pair, or it forgot us
     VersionMismatch, // 409
     Unreachable,     // transport failure or empty body
+    IdentityChanged, // TOFU pin mismatch; terminal, forget and pair again
 };
 
 struct PairReply {
@@ -64,9 +71,13 @@ struct PairReply {
     bool ok = false;
     bool pending = false;
     bool hasSharedKey = false; // sharedKey present AND non-empty
+    bool pinMismatch = false;  // see RestReply::pinMismatch
 };
 
 inline PairVerdict classifyPair(const PairReply& r) {
+    // Ahead of the status ladder: the abort means no PIN or proof ever transited,
+    // so nothing below it can be trusted to describe the peer.
+    if (r.pinMismatch) { return PairVerdict::IdentityChanged; }
     if (r.status == 409) { return PairVerdict::VersionMismatch; }
     if (r.status == 0 || !r.bodyParsed) { return PairVerdict::Unreachable; }
     if (r.ok && r.hasSharedKey) { return PairVerdict::Success; }

@@ -37,10 +37,24 @@ Physical controllers only. There is no on-screen touch gamepad; that belongs to
 
 ## Install and run
 
-You need a 64-bit Linux desktop with Qt 6.7 or newer, a gamepad, and a
-reachable Satellite server. See [`docs/PACKAGING.md`](docs/PACKAGING.md) for the
-per-distro Qt situation — notably, Ubuntu 24.04 LTS ships Qt 6.4 and needs a
-Flatpak build or a backport.
+You need a 64-bit Linux desktop, a gamepad, and a reachable Satellite server.
+Every release publishes four packages; pick the one that matches your distro.
+
+| You run | Take | Then |
+|---|---|---|
+| Debian 13+, or a derivative with Qt 6.7+ | `dish_<version>_amd64.deb` | `sudo apt install ./dish_<version>_amd64.deb` |
+| Fedora, RHEL, openSUSE | `dish-<version>-x86_64.rpm` | `sudo dnf install ./dish-<version>-x86_64.rpm` |
+| Anything else, or an LTS whose Qt is too old | `Dish-<version>-x86_64.AppImage` | `chmod +x` it and run it |
+| You would rather have the sandbox | `Dish-<version>-x86_64.flatpak` | `flatpak install ./Dish-<version>-x86_64.flatpak` |
+
+The `.deb` and `.rpm` install the udev rule below for you and pull in the Qt
+runtime. The AppImage and the Flatpak carry their own Qt but **cannot** install
+the rule — see the next section.
+
+Ubuntu 24.04 LTS ships Qt 6.4, below this project's 6.7 floor, so there is no
+`.deb` for it: use the AppImage or the Flatpak.
+[`docs/PACKAGING.md`](docs/PACKAGING.md) has the full per-distro table and what
+each package lays down.
 
 Settings persist under `~/.config/TinkerNorth/Dish.conf`; a crash writes a
 backtrace to `$XDG_STATE_HOME/dish/crash.log`.
@@ -55,9 +69,12 @@ sudo install -m 644 packaging/udev/70-dish-hidraw.rules /etc/udev/rules.d/
 sudo udevadm control --reload-rules && sudo udevadm trigger
 ```
 
-`cmake --install` places it for you. Without it every claim fails with a
-permission error and Dish keeps the pad on the SDL path, which still works —
-it is just rate-capped. Dish never asks for root.
+The `.deb` and `.rpm` install it and reload udev for you; `cmake --install`
+places it too. An AppImage or a Flatpak cannot — they install nothing outside
+themselves — so both carry the rule inside at `usr/share/dish/` for you to copy
+out. Without the rule every claim fails with a permission error and Dish keeps
+the pad on the SDL path, which still works — it is just rate-capped. Dish never
+asks for root.
 
 ### Updates
 

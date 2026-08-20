@@ -208,3 +208,28 @@ TEST_CASE("a live re-key never tears the (key, token, counter) draw", "[send_cou
     }
     CHECK(decrypted > 0);
 }
+
+TEST_CASE("a datagram lost after the counter was drawn never rewinds or reuses it",
+          "[send_counter]") {
+    // The input-thread send is MSG_DONTWAIT, so a full buffer is a soft drop:
+    // gaps in the delivered counters are normal, and every attempt must still
+    // burn exactly one value — replaying one would repeat a nonce under the key.
+    LoopbackClient lb;
+    const int rcvbuf = 1024; // clamped to the kernel floor; forces receive drops
+    ::setsockopt(lb.fd, SOL_SOCKET, SO_RCVBUF, &rcvbuf, sizeof(rcvbuf));
+
+    constexpr int kSends = 200;
+    for (int i = 0; i < kSends; ++i) { lb.sendOne(); }
+    CHECK(lb.client.sendCounter() == static_cast<std::uint32_t>(kSends) + 1u);
+
+    std::set<std::uint32_t> seen;
+    std::uint32_t prev = 0;
+    while (const auto pkt = recvDatagram(lb.fd)) {
+        const std::uint32_t ctr = counterOf(*pkt);
+        CHECK(ctr > prev); // a gap is fine, going backwards is not
+        CHECK(ctr <= static_cast<std::uint32_t>(kSends));
+        prev = ctr;
+        CHECK(seen.insert(ctr).second);
+    }
+    CHECK_FALSE(seen.empty());
+}

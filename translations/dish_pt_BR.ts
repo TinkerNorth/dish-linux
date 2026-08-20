@@ -353,10 +353,6 @@
         <translation>Direto</translation>
     </message>
     <message>
-        <source>Direct access denied — another app owns this device.</source>
-        <translation>Acesso direto negado — outro app está usando este dispositivo.</translation>
-    </message>
-    <message>
         <source>Unplug and replug the controller to finish switching.</source>
         <translation>Desconecte e reconecte o controle para concluir a mudança.</translation>
     </message>
@@ -707,6 +703,10 @@
         <source>No rumble</source>
         <translation>Sem vibração</translation>
     </message>
+    <message>
+        <source>Direct access denied — hidraw needs a udev rule. Install packaging/udev/70-dish-hidraw.rules, run udevadm control --reload-rules &amp;&amp; udevadm trigger, then replug the controller.</source>
+        <translation type="unfinished"></translation>
+    </message>
 </context>
 <context>
     <name>ConnectionsPage</name>
@@ -991,10 +991,6 @@
         <translation>Desconecte e reconecte o controle para concluir a mudança.</translation>
     </message>
     <message>
-        <source>Direct access denied — another app owns this device.</source>
-        <translation>Acesso direto negado — outro app está usando este dispositivo.</translation>
-    </message>
-    <message>
         <source>Direct claim is busy — another app or driver holds the device.</source>
         <translation>A aquisição direta está ocupada — outro app ou driver está com o dispositivo.</translation>
     </message>
@@ -1079,6 +1075,10 @@
     <message>
         <source>Direct claim couldn’t start the controller’s report stream.</source>
         <translation>A aquisição direta não conseguiu iniciar o fluxo de relatórios do controle.</translation>
+    </message>
+    <message>
+        <source>Direct access denied — hidraw needs a udev rule. Install packaging/udev/70-dish-hidraw.rules, run udevadm control --reload-rules &amp;&amp; udevadm trigger, then replug the controller.</source>
+        <translation type="unfinished"></translation>
     </message>
 </context>
 <context>

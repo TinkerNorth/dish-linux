@@ -353,10 +353,6 @@
         <translation>Directo</translation>
     </message>
     <message>
-        <source>Direct access denied — another app owns this device.</source>
-        <translation>Acceso denegado en modo Directo — otra app controla este dispositivo.</translation>
-    </message>
-    <message>
         <source>Unplug and replug the controller to finish switching.</source>
         <translation>Desconecta y vuelve a conectar el mando para terminar el cambio.</translation>
     </message>
@@ -707,6 +703,10 @@
         <source>No rumble</source>
         <translation>Sin vibración</translation>
     </message>
+    <message>
+        <source>Direct access denied — hidraw needs a udev rule. Install packaging/udev/70-dish-hidraw.rules, run udevadm control --reload-rules &amp;&amp; udevadm trigger, then replug the controller.</source>
+        <translation type="unfinished"></translation>
+    </message>
 </context>
 <context>
     <name>ConnectionsPage</name>
@@ -991,10 +991,6 @@
         <translation>Desconecta y vuelve a conectar el mando para terminar el cambio.</translation>
     </message>
     <message>
-        <source>Direct access denied — another app owns this device.</source>
-        <translation>Acceso denegado en modo Directo — otra app controla este dispositivo.</translation>
-    </message>
-    <message>
         <source>Direct claim is busy — another app or driver holds the device.</source>
         <translation>El control en Directo está ocupado — otra app o controlador retiene el dispositivo.</translation>
     </message>
@@ -1079,6 +1075,10 @@
     <message>
         <source>Direct claim couldn’t start the controller’s report stream.</source>
         <translation>El control en Directo no pudo iniciar el flujo de informes del mando.</translation>
+    </message>
+    <message>
+        <source>Direct access denied — hidraw needs a udev rule. Install packaging/udev/70-dish-hidraw.rules, run udevadm control --reload-rules &amp;&amp; udevadm trigger, then replug the controller.</source>
+        <translation type="unfinished"></translation>
     </message>
 </context>
 <context>

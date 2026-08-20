@@ -65,6 +65,12 @@ QString versionMsg() {
     return QCoreApplication::translate(
         kTrContext, "This app and the satellite speak different protocol versions.");
 }
+QString identityChangedMsg() {
+    return QCoreApplication::translate(
+        kTrContext,
+        "This satellite's security identity changed. If it was reinstalled, forget it here and "
+        "pair again.");
+}
 QString wrongPinMsg() {
     return QCoreApplication::translate(
         kTrContext, "That PIN wasn't accepted. Check the code on the satellite and try again.");
@@ -99,14 +105,16 @@ WifiConnectionManager::WifiConnectionManager(ConnectionStore* store, QObject* pa
     // pin-migration convention. `pins` is captured by reference below, so the
     // store must outlive this manager.
     auto& pins = store_->facade().pins();
-    http_->setPinVerifier([&pins](const QString& host, const QByteArray& certDer) {
-        return http::verifyPeerCertificate(host, pins, certDer);
-    });
+    // Reporting the mismatch per request is the whole point: a changed cert and a
+    // dead link both abort the transfer, and only this flag tells them apart.
+    auto verify = [&pins](const QString& host, const QByteArray& certDer, bool& pinMismatch) {
+        return http::verifyPeerCertificate(host, pins, certDer,
+                                           [&pinMismatch] { pinMismatch = true; });
+    };
+    http_->setPinVerifier(verify);
     // The same gate over the same store, so the first pair pins and every later
     // pairing or rotation must present the pinned cert.
-    PairingClient::setPinVerifier([&pins](const QString& host, const QByteArray& certDer) {
-        return http::verifyPeerCertificate(host, pins, certDer);
-    });
+    PairingClient::setPinVerifier(verify);
 }
 
 WifiConnectionManager::~WifiConnectionManager() {
@@ -256,20 +264,26 @@ void WifiConnectionManager::pairWithPin(const models::DiscoveredServer& server,
     const QString dname = deviceName_;
     pairingInFlight_.insert(conn->id());
     emit pairingInFlightChanged();
-    auto* watcher = new QFutureWatcher<models::PairResponse>(this);
+    auto* watcher = new QFutureWatcher<PairingClient::Reply>(this);
     QObject::connect(
         watcher, &QFutureWatcherBase::finished, this, [this, watcher, conn, server, pin] {
             const auto pair = watcher->result();
             watcher->deleteLater();
             pairingInFlight_.remove(conn->id());
             emit pairingInFlightChanged();
-            const auto outcome = PairingClient::classify(pair);
+            const auto outcome = PairingClient::classify(pair.response, pair.pinMismatch);
             std::visit(
                 [&](auto&& arm) {
                     using T = std::decay_t<decltype(arm)>;
                     if constexpr (std::is_same_v<T, PairingClient::Success>) {
                         store_->setSharedKey(arm.sharedKeyHex, WifiConnection::idFor(server));
                         openSession(conn, server, ConnectIntent::UserInitiated);
+                    } else if constexpr (std::is_same_v<T, PairingClient::IdentityChanged>) {
+                        // No pairingFailed: every reasonToken the sheet knows would
+                        // blame the PIN or the network. The error channel already
+                        // clears its submitting state, and it carries the real cue.
+                        conn->markDisconnected();
+                        emit connectionEvent(makeError(identityChangedMsg()));
                     } else if constexpr (std::is_same_v<T, PairingClient::VersionMismatch>) {
                         conn->markDisconnected();
                         emit connectionEvent(makeError(versionMsg()));
@@ -326,7 +340,7 @@ void WifiConnectionManager::requestReversePairing(const models::DiscoveredServer
     // The happy-path reply is {ok:false, pending:true}, which then gets polled.
     pairingInFlight_.insert(conn->id());
     emit pairingInFlightChanged();
-    auto* watcher = new QFutureWatcher<models::PairResponse>(this);
+    auto* watcher = new QFutureWatcher<PairingClient::Reply>(this);
     QObject::connect(
         watcher, &QFutureWatcherBase::finished, this, [this, watcher, conn, server, pin] {
             const auto pair = watcher->result();
@@ -339,7 +353,7 @@ void WifiConnectionManager::requestReversePairing(const models::DiscoveredServer
                 reverseServer_.id() != server.id() || reversePin_ != pin) {
                 return;
             }
-            const auto outcome = PairingClient::classify(pair);
+            const auto outcome = PairingClient::classify(pair.response, pair.pinMismatch);
             std::visit(
                 [&](auto&& arm) {
                     using T = std::decay_t<decltype(arm)>;
@@ -361,9 +375,13 @@ void WifiConnectionManager::requestReversePairing(const models::DiscoveredServer
                     } else if constexpr (std::is_same_v<T, PairingClient::VersionMismatch>) {
                         emit connectionEvent(makeError(versionMsg()));
                         finishReverse(ReversePairingPhase::Declined);
+                    } else if constexpr (std::is_same_v<T, PairingClient::IdentityChanged>) {
+                        emit connectionEvent(makeError(identityChangedMsg()));
+                        finishReverse(ReversePairingPhase::Declined);
                     } else {
                         // AuthRequired or Unreachable: no pending grant was staged.
-                        emit connectionEvent(makeError(pair.error.value_or(unreachableMsg())));
+                        emit connectionEvent(
+                            makeError(pair.response.error.value_or(unreachableMsg())));
                         finishReverse(ReversePairingPhase::TimedOut);
                     }
                 },
@@ -385,7 +403,7 @@ void WifiConnectionManager::pollReverseStatus() {
 
     const QString did = deviceId_;
     const models::DiscoveredServer server = reverseServer_;
-    auto* watcher = new QFutureWatcher<models::PairResponse>(this);
+    auto* watcher = new QFutureWatcher<PairingClient::Reply>(this);
     QObject::connect(watcher, &QFutureWatcherBase::finished, this, [this, watcher, server] {
         const auto status = watcher->result();
         watcher->deleteLater();
@@ -395,11 +413,19 @@ void WifiConnectionManager::pollReverseStatus() {
             reverseServer_.id() != server.id()) {
             return;
         }
+        // Terminal, and ahead of the approval ladder: polling on would just spend
+        // the operator's whole window against a box we can no longer authenticate.
+        if (status.pinMismatch) {
+            emit connectionEvent(makeError(identityChangedMsg()));
+            finishReverse(ReversePairingPhase::Declined);
+            return;
+        }
         reducer::ApprovalReply ar;
-        ar.status = status.httpStatus;
-        ar.bodyParsed = status.reachable;
-        ar.statusStr = status.status.value_or(QString()).toStdString();
-        ar.hasSharedKey = status.sharedKey.has_value() && !status.sharedKey->isEmpty();
+        ar.status = status.response.httpStatus;
+        ar.bodyParsed = status.response.reachable;
+        ar.statusStr = status.response.status.value_or(QString()).toStdString();
+        ar.hasSharedKey =
+            status.response.sharedKey.has_value() && !status.response.sharedKey->isEmpty();
         const auto approval = reducer::classifyApproval(ar, reverseSawPending_);
         if (ar.statusStr == "pending") { reverseSawPending_ = true; }
         switch (
@@ -407,7 +433,7 @@ void WifiConnectionManager::pollReverseStatus() {
         case reducer::ReversePairingAction::Approve: {
             auto* conn = ensureConnection(server);
             conn->markConnecting();
-            store_->setSharedKey(*status.sharedKey, WifiConnection::idFor(server));
+            store_->setSharedKey(*status.response.sharedKey, WifiConnection::idFor(server));
             if (reverseTimer_ != nullptr) { reverseTimer_->stop(); }
             setReversePhase(ReversePairingPhase::Approved);
             openSession(conn, server, ConnectIntent::UserInitiated);
@@ -461,14 +487,14 @@ void WifiConnectionManager::pairAndConnect(WifiConnection* conn,
     const QString dname = deviceName_;
     pairingInFlight_.insert(conn->id());
     emit pairingInFlightChanged();
-    auto* watcher = new QFutureWatcher<models::PairResponse>(this);
+    auto* watcher = new QFutureWatcher<PairingClient::Reply>(this);
     QObject::connect(
         watcher, &QFutureWatcherBase::finished, this, [this, watcher, conn, server, intent] {
             const auto pair = watcher->result();
             watcher->deleteLater();
             pairingInFlight_.remove(conn->id());
             emit pairingInFlightChanged();
-            const auto outcome = PairingClient::classify(pair);
+            const auto outcome = PairingClient::classify(pair.response, pair.pinMismatch);
             std::visit(
                 [&](auto&& arm) {
                     using T = std::decay_t<decltype(arm)>;
@@ -488,6 +514,9 @@ void WifiConnectionManager::pairAndConnect(WifiConnection* conn,
                     } else if constexpr (std::is_same_v<T, PairingClient::VersionMismatch>) {
                         conn->markDisconnected();
                         emitErrorIfUserInitiated(intent, versionMsg());
+                    } else if constexpr (std::is_same_v<T, PairingClient::IdentityChanged>) {
+                        conn->markDisconnected();
+                        emitErrorIfUserInitiated(intent, identityChangedMsg());
                     } else {
                         if (intent == ConnectIntent::UserInitiated) {
                             conn->markDisconnected();
@@ -525,12 +554,13 @@ void WifiConnectionManager::openSession(WifiConnection* conn,
     http_->putSession(
         server.ip, server.httpPort, deviceId_, deviceName_, proof, descriptors, wantsMouse,
         [this, conn, server, intent, id, pairingKey,
-         sentDescriptors](const models::SessionResponse& resp) {
+         sentDescriptors](const models::SessionResponse& resp, bool pinMismatch) {
             using reducer::RestVerdict;
             reducer::RestReply rr;
             rr.status = resp.httpStatus;
             rr.bodyParsed = resp.reachable;
             rr.code = resp.code.value_or(QString()).toStdString();
+            rr.pinMismatch = pinMismatch;
             const RestVerdict verdict = classifyRest(rr);
             if (verdict == RestVerdict::Unauthorized) {
                 onTerminalAuthFailure(conn, id, intent);
@@ -539,6 +569,15 @@ void WifiConnectionManager::openSession(WifiConnection* conn,
             if (verdict == RestVerdict::VersionMismatch) {
                 conn->markDisconnected();
                 emitErrorIfUserInitiated(intent, versionMsg());
+                return;
+            }
+            if (verdict == RestVerdict::IdentityChanged) {
+                // The pin still guards the OLD cert, so no retry can succeed: it
+                // takes a Forget to drop it. Falling through would park this on the
+                // backoff curve as if the box were merely offline.
+                conn->markDisconnected();
+                retryAttempts_.remove(id);
+                emitErrorIfUserInitiated(intent, identityChangedMsg());
                 return;
             }
             if (verdict != RestVerdict::Ok || !resp.connectionId || !resp.token ||
@@ -672,7 +711,7 @@ void WifiConnectionManager::rekey(WifiConnection* conn, const models::Discovered
     http_->putSession(
         server.ip, server.httpPort, deviceId_, deviceName_, creds->proof,
         conn->desiredDescriptors(), conn->wantsMouseControl(),
-        [this, id, client, pairingKey](const models::SessionResponse& resp) {
+        [this, id, client, pairingKey](const models::SessionResponse& resp, bool pinMismatch) {
             auto* c = connections_.value(id, nullptr);
             if (c == nullptr) { return; }
             using reducer::RestVerdict;
@@ -680,6 +719,7 @@ void WifiConnectionManager::rekey(WifiConnection* conn, const models::Discovered
             rr.status = resp.httpStatus;
             rr.bodyParsed = resp.reachable;
             rr.code = resp.code.value_or(QString()).toStdString();
+            rr.pinMismatch = pinMismatch;
             const RestVerdict verdict = classifyRest(rr);
             if (verdict == RestVerdict::Unauthorized) {
                 onTerminalAuthFailure(c, id, ConnectIntent::RetryAfterDeath);

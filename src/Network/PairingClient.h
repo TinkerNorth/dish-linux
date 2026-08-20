@@ -31,34 +31,45 @@ class PairingClient {
     struct Pending {};         // Path B accepted — poll /api/pair/status
     struct AuthRequired {};    // reachable, no key — first-time pair, or it forgot us
     struct VersionMismatch {}; // 409 — protocol skew, terminal
+    struct IdentityChanged {}; // TOFU pin mismatch — terminal, forget and pair again
     struct Unreachable {
         QString message;
     };
-    using Outcome = std::variant<Success, Pending, AuthRequired, VersionMismatch, Unreachable>;
+    using Outcome =
+        std::variant<Success, Pending, AuthRequired, VersionMismatch, Unreachable, IdentityChanged>;
 
-    static Outcome classify(const models::PairResponse& response);
+    // A round-trip plus the one fact the JSON body cannot carry: the TOFU gate
+    // saw a CHANGED cert and aborted before any PIN or proof transited.
+    struct Reply {
+        models::PairResponse response;
+        bool pinMismatch = false;
+    };
+
+    static Outcome classify(const models::PairResponse& response, bool pinMismatch = false);
 
     // Path A (operator `pin`) and Path B (client-shown `clientPin`, which answers
     // Pending and is then polled). Both fields always ride in the body, empty when
     // unused; the server tries a valid `pin` first.
-    static models::PairResponse pair(const QString& ip, int port, const QString& deviceId,
-                                     const QString& deviceName, const QString& pin,
-                                     const QString& clientPin = QString());
+    static Reply pair(const QString& ip, int port, const QString& deviceId,
+                      const QString& deviceName, const QString& pin,
+                      const QString& clientPin = QString());
 
     // Proves possession of the CURRENT key to get a fresh one. A failed proof
     // falls through to the PIN paths server-side, so it degrades to a fresh
     // attempt rather than an error.
-    static models::PairResponse rotateKey(const QString& ip, int port, const QString& deviceId,
-                                          const QString& deviceName, const QString& hmacProof);
+    static Reply rotateKey(const QString& ip, int port, const QString& deviceId,
+                           const QString& deviceName, const QString& hmacProof);
 
-    static models::PairResponse pairStatus(const QString& ip, int port, const QString& deviceId);
+    static Reply pairStatus(const QString& ip, int port, const QString& deviceId);
 
     // Called on the TLS `encrypted` edge with the peer cert DER; returning false
     // aborts before any payload transits. Pairing is the pin-on-first-use moment,
     // so the first pair pins and every later pair or rotation must match. Keyed by
     // host, sharing the pin store with HTTPClient. Unset means accept, which only
-    // happens in tests and before a manager wires the store.
-    using PinVerifier = std::function<bool(const QString& host, const QByteArray& certDer)>;
+    // happens in tests and before a manager wires the store. `pinMismatch` is set
+    // only for a CHANGED cert, so an identity change is not read as a dead link.
+    using PinVerifier =
+        std::function<bool(const QString& host, const QByteArray& certDer, bool& pinMismatch)>;
     static void setPinVerifier(PinVerifier verifier);
 
   private:

@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include <QDBusUnixFileDescriptor>
 #include <QObject>
 #include <QString>
 
@@ -24,9 +25,11 @@ class DisplaySleepInhibitor : public QObject {
     virtual bool isHeld() const = 0;
 };
 
-// org.freedesktop.ScreenSaver.Inhibit on the session bus, which every modern
-// desktop honours. Releases on destruction so a missed release() can't pin the
-// display awake.
+// Two inhibits, because neither alone is what SetThreadExecutionState gives
+// the other clients: org.freedesktop.ScreenSaver.Inhibit (session bus) stops
+// the screen blanking, and logind's "idle" inhibit stops the idle timer
+// suspending the machine mid-stream. Releases both on destruction so a missed
+// release() can't pin the display awake.
 class FreedesktopScreenSaverInhibitor : public DisplaySleepInhibitor {
     Q_OBJECT
   public:
@@ -35,10 +38,15 @@ class FreedesktopScreenSaverInhibitor : public DisplaySleepInhibitor {
 
     void acquire(const QString& reason) override;
     void release() override;
-    bool isHeld() const override { return cookie_.has_value(); }
+    bool isHeld() const override { return cookie_.has_value() || logindFd_.isValid(); }
 
   private:
+    void acquireLogindIdle(const QString& reason);
+    void releaseLogindIdle();
+
     std::optional<unsigned int> cookie_;
+    // Held open for the inhibit's lifetime: logind releases when it closes.
+    QDBusUnixFileDescriptor logindFd_;
 };
 
 } // namespace dish::util

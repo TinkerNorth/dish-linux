@@ -10,18 +10,65 @@ udev rule**.
 |---|---|---|
 | `${bindir}/dish` | the binary | |
 | `${datadir}/applications/com.tinkernorth.Dish.desktop` | desktop entry | the app menu, and the Wayland window icon |
-| `${datadir}/icons/hicolor/512x512/apps/com.tinkernorth.Dish.png` | raster icon | menus that do not read the scalable dir |
-| `${datadir}/icons/hicolor/scalable/apps/com.tinkernorth.Dish.svg` | scalable icon | |
-| `${sysconfdir}/udev/rules.d/70-dish-hidraw.rules` | hidraw access | without it every USB-direct claim fails `PermissionDenied` |
+| `${datadir}/metainfo/com.tinkernorth.Dish.metainfo.xml` | AppStream metadata | GNOME Software and KDE Discover list nothing without it, and Flathub refuses a submission |
+| `${datadir}/icons/hicolor/scalable/apps/com.tinkernorth.Dish.svg` | scalable icon | what modern desktops actually draw |
+| `${datadir}/icons/hicolor/{16,24,32,48,64,128,256,512}x…/apps/com.tinkernorth.Dish.png` | raster ladder | menus that do not read the scalable dir. Sizes below 512 are rendered from the SVG at build time and need `rsvg-convert`; without it only the scalable and 512 icons install |
+| `${prefix}/lib/udev/rules.d/70-dish-hidraw.rules` | hidraw access | without it every USB-direct claim fails `PermissionDenied` |
+| `${mandir}/man1/dish.1.gz` | man page | |
+| `${datadir}/doc/dish/{LICENSE,COPYING.GPL3,THIRD_PARTY.md,Inter-LICENSE.txt,copyright,changelog.gz}` | licence texts | LGPL-3.0 §4(b) covers Qt, OFL-1.1 §2 covers the four Inter faces compiled in as resources, and Debian Policy 12.5 wants `copyright` under that name. Without these the package is not redistributable |
 
 The reverse-DNS names are load-bearing, not style: Wayland matches a window to
 its launcher by desktop-file id, which `main()` sets with
-`QGuiApplication::setDesktopFileName`, and Flatpak requires the app id for both
-the entry and the icon.
+`QGuiApplication::setDesktopFileName`, and Flatpak requires the app id for the
+entry, the icon and the AppStream file alike.
 
 Everything else — the brand glyphs, Inter, the license manifest, the compiled
 translation catalogues — is inside the binary as Qt resources, so there is no
 runtime data directory to get out of sync with the executable.
+
+`DISH_UDEV_RULES_DIR` moves the rule (default `lib/udev/rules.d`, relative to
+the prefix) and `DISH_INSTALL_UDEV_RULES=OFF` drops it, which is what the
+Flatpak and the AppImage do — neither can own a directory on the host. Configure
+warns when the resolved path is not one udev scans, because the failure is
+otherwise silent.
+
+## Building the packages
+
+Every artifact is generated from those `install()` rules through CPack, so a
+package cannot disagree with `cmake --install` about what ships. That is not
+hypothetical: the hand-rolled `.deb` this replaced copied two files and
+therefore shipped no icon, no udev rule and no licence text.
+
+```sh
+cmake -S . -B build-release -DCMAKE_BUILD_TYPE=Release \
+      -DCMAKE_INSTALL_PREFIX=/usr -DDISH_BUILD_TESTS=OFF
+cmake --build build-release --parallel
+cpack --config build-release/CPackConfig.cmake -G DEB   # or RPM, or TGZ
+```
+
+| Format | Built by | Targets | Notes |
+|---|---|---|---|
+| `.deb` | CPack `DEB`, in a `debian:trixie` container | Debian 13+, derivatives with Qt ≥ 6.7 | `dpkg-shlibdeps` computes the Qt/SDL/sodium versions; the QML modules and the platform plugin are listed by hand in `DISH_DEB_RUNTIME_DEPENDS` because nothing links them |
+| `.rpm` | CPack `RPM`, in a `fedora` container | Fedora, RHEL, openSUSE | rpmbuild's soname scanner does the same job |
+| AppImage | `scripts/build-appimage.sh` | everything else, including an LTS below the Qt floor | Cannot install a udev rule; carries it at `usr/share/dish/` and prints how to install it |
+| Flatpak | `packaging/flatpak/com.tinkernorth.Dish.yml` on `org.kde.Platform//6.9` | old LTS, and anyone who wants the sandbox | Needs `--device=all` for hidraw; there is no hidraw portal |
+| `.tar.gz` | CPack `TGZ` | packagers laying the tree down under their own prefix | |
+
+Build each native package on the distro it targets. Both dependency scanners
+read the built binary, so a `.deb` built against the aqtinstall Qt would demand
+a Qt no Debian ships.
+
+The `.deb` and `.rpm` release jobs **install their own package and launch it**
+before uploading. Nothing else can stand in for that: unit tests, lints and a
+file-contents check all pass against a build tree, and a build tree is exactly
+where a QML module resolves from the Qt install instead of from a `Depends:`
+line. dish-windows shipped two releases of a bundle that could not start for
+precisely this reason.
+
+Snap is deliberately not offered. `hidraw` would need a store-side auto-connect
+grant before a fresh install worked at all, which is a poor fit for an app whose
+headline feature is claiming gamepads, and the four formats above already reach
+every desktop it would.
 
 ## The udev rule is not optional
 
@@ -34,7 +81,9 @@ why `HidrawGateway::claim` distinguishes `PermissionDenied` from `Busy`: the two
 need different copy, and only one of them is fixable by the user.
 
 Dish never asks for root and never installs the rule itself. A package installs
-it; a from-source build installs it with:
+it into `/usr/lib/udev/rules.d` (the vendor directory — `/etc` belongs to the
+administrator); a from-source build with a prefix udev does not scan installs it
+with:
 
 ```sh
 sudo install -m 644 packaging/udev/70-dish-hidraw.rules /etc/udev/rules.d/
@@ -55,6 +104,14 @@ This is the one deliberate divergence from dish-windows, whose installer-based
 flow does download and apply. The shared reducer
 ([`core/reducer/UpdateMachine.h`](../src/core/reducer/UpdateMachine.h)) is
 correspondingly smaller here: six reachable phases instead of nine.
+
+`latest.json` is emitted by the `manifest` job in `.github/workflows/release.yml`
+and published as a release asset under the fixed name the client fetches. That
+job also refuses to run when the git tag and `project(Dish VERSION ...)`
+disagree — a manifest naming a version the shipped binary does not report would
+re-offer the same update forever. `minimumSupportedVersion` comes from
+[`packaging/update-policy.json`](../packaging/update-policy.json), which is
+reviewed input rather than something the job derives.
 
 A packager who does not want the check at all can ship with
 `updates_check_enabled=false` seeded in the default config; the store reads it

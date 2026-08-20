@@ -7,8 +7,8 @@
 // OS window. The page-facing contract (`StackView.view.shellApi`, the optional
 // header properties, the leave guard) is documented in docs/QML_CONTRACT.md.
 
-// Bound: the Repeater delegate reads the shell's id and its required model
-// props without falling back to dynamic lookup.
+// Bound: the inline RailItem component reads the shell's id and its required
+// destIndex without falling back to dynamic lookup.
 pragma ComponentBehavior: Bound
 
 import QtQuick
@@ -324,18 +324,39 @@ Item {
                             color: railToggle.hovered ? Theme.primaryHover : "transparent"
                             border.width: railToggle.visualFocus ? 1 : 0
                             border.color: Theme.primary
+
+                            Rectangle {
+                                visible: railToggle.visualFocus
+                                anchors.fill: parent
+                                anchors.margins: -Tokens.s1
+                                radius: Tokens.radiusChip + Tokens.s1
+                                color: "transparent"
+                                border.width: 2
+                                border.color: Theme.focusRing
+                            }
                         }
-                        contentItem: Kit.BrandGlyph {
-                            glyph: "rail"
-                            width: Tokens.glyphSm
-                            height: Tokens.glyphSm
+                        // Wrapped: a Control resizes its contentItem to the
+                        // available box, overriding the glyph's own size.
+                        contentItem: Item {
+                            Kit.BrandGlyph {
+                                glyph: "rail"
+                                width: Tokens.glyphSm
+                                height: Tokens.glyphSm
+                                anchors.verticalCenter: parent.verticalCenter
+                                // Collapsed, the toggle heads the icon strip, so
+                                // the glyph takes the rail's glyph column less
+                                // this button's own centring inset.
+                                x: shell.collapsed
+                                   ? (Tokens.railCompact - Tokens.s4) / 2 - width / 2 - Tokens.s1
+                                   : (parent.width - width) / 2
+                            }
                         }
 
                         // Declared, never attached — see DishToolTip in
                         // QML_UI_KIT.md.
                         Kit.DishToolTip {
-                            visible: railToggle.hovered
-                            delay: 800
+                            visible: railToggle.hovered || railToggle.visualFocus
+                            delay: 500
                             text: railToggle.Accessible.name
                             y: railToggle.height + Tokens.s2
                         }

@@ -23,6 +23,22 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 option(DISH_BUILD_TESTS    "Build the Dish test suite"            ON)
 option(DISH_ENABLE_WARNINGS "Treat compiler warnings as errors"   ON)
 option(DISH_ENABLE_LTO     "Enable LTO/IPO for Release builds"    ON)
+option(DISH_REQUIRE_TRANSLATIONS
+    "Fail configuration when Qt Linguist tools are missing"       OFF)
+set(DISH_SANITIZER "" CACHE STRING
+    "Sanitizer to build with: address+undefined, thread, or empty")
+
+# udev scans only /etc/udev/rules.d, /run/udev/rules.d and (/usr)/lib/udev/rules.d.
+# NOT ${CMAKE_INSTALL_SYSCONFDIR}: the relative form stays "etc" even where
+# GNUInstallDirs maps the FULL form to /etc, so a DESTINATION built from it
+# lands in /usr/etc/udev/rules.d under the usual -DCMAKE_INSTALL_PREFIX=/usr.
+# Not CMAKE_INSTALL_LIBDIR either — Debian multiarch turns that into
+# lib/x86_64-linux-gnu, which udev does not scan.
+set(DISH_UDEV_RULES_DIR "lib/udev/rules.d" CACHE STRING
+    "Directory the hidraw udev rule is installed into, relative to the prefix")
+# A Flatpak cannot own a host rules directory and an AppImage installs nothing
+# outside itself; both turn this off and degrade to the SDL path.
+option(DISH_INSTALL_UDEV_RULES "Install the hidraw udev rule" ON)
 
 if(DISH_ENABLE_LTO AND CMAKE_BUILD_TYPE STREQUAL "Release")
     include(CheckIPOSupported)
@@ -30,6 +46,14 @@ if(DISH_ENABLE_LTO AND CMAKE_BUILD_TYPE STREQUAL "Release")
     if(_ipo_supported)
         set(CMAKE_INTERPROCEDURAL_OPTIMIZATION ON)
     endif()
+endif()
+
+# Global rather than per-target: a sanitizer that instruments only some
+# translation units reports the other half as false positives.
+if(DISH_SANITIZER AND CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+    string(REPLACE "+" "," _dish_san "${DISH_SANITIZER}")
+    add_compile_options(-fsanitize=${_dish_san} -fno-omit-frame-pointer -g)
+    add_link_options(-fsanitize=${_dish_san})
 endif()
 
 # --------------------------------------------------------------------------
@@ -57,6 +81,25 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
         target_compile_options(dish_strict INTERFACE -Werror)
     endif()
 endif()
+
+# --------------------------------------------------------------------------
+# Hardening. Spelled out rather than inherited from the distro's GCC specs:
+# Ubuntu patches PIE, partial RELRO, -fstack-protector-strong and
+# _FORTIFY_SOURCE into its defaults, so a runner build looks hardened by
+# accident while the same source on Arch or a from-source toolchain ships none
+# of it. Full RELRO and a non-executable stack are nobody's default.
+# --------------------------------------------------------------------------
+add_library(dish_hardened INTERFACE)
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+    target_compile_options(dish_hardened INTERFACE
+        -fstack-protector-strong
+        # _FORTIFY_SOURCE needs an optimising build; at -O0 it is a warning,
+        # and a sanitizer run interposes the checked libc calls itself.
+        $<$<AND:$<NOT:$<CONFIG:Debug>>,$<STREQUAL:${DISH_SANITIZER},>>:-D_FORTIFY_SOURCE=3>)
+    target_link_options(dish_hardened INTERFACE
+        -Wl,-z,relro -Wl,-z,now -Wl,-z,noexecstack)
+endif()
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 # --------------------------------------------------------------------------
 # Dependencies
@@ -318,7 +361,8 @@ target_link_libraries(dish_core
         Threads::Threads
     PRIVATE
         dish_warnings
-        dish_strict)
+        dish_strict
+        dish_hardened)
 
 # --------------------------------------------------------------------------
 # UI executable
@@ -334,7 +378,7 @@ set(DISH_UI_SOURCES
 
 qt_add_executable(Dish ${DISH_UI_SOURCES})
 set_target_properties(Dish PROPERTIES OUTPUT_NAME dish)
-target_link_libraries(Dish PRIVATE dish_core Qt6::Gui Qt6::Svg dish_warnings dish_strict)
+target_link_libraries(Dish PRIVATE dish_core Qt6::Gui Qt6::Svg dish_warnings dish_strict dish_hardened)
 
 # --------------------------------------------------------------------------
 # Qt Quick UI: the Dish.Chrome QML module
@@ -452,31 +496,140 @@ if(Qt6LinguistTools_FOUND)
             translations/dish_es.ts
             translations/dish_fr.ts
             translations/dish_pt_BR.ts
+        # Must stay identical to the lupdate call in
+        # scripts/check-translations.sh, or `update_translations` writes
+        # <location> tags the staleness gate then fails on.
+        LUPDATE_OPTIONS -locations none -no-obsolete
         QM_FILES_OUTPUT_VARIABLE DISH_QM_FILES)
+elseif(DISH_REQUIRE_TRANSLATIONS)
+    message(FATAL_ERROR
+        "Qt6LinguistTools not found and DISH_REQUIRE_TRANSLATIONS is ON.")
 else()
     message(STATUS "Qt6LinguistTools not found — building without translation catalogues.")
 endif()
 
 # --------------------------------------------------------------------------
 # Install
+#
+# One component, Runtime, so `cmake --install --component Runtime` is exactly
+# the payload every packaging path wants and CPack still emits one package.
 # --------------------------------------------------------------------------
 include(GNUInstallDirs)
-install(TARGETS Dish RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+# Debian wants the doc directory named after the binary package; GNUInstallDirs
+# derives it from PROJECT_NAME, which is capitalised.
+set(CMAKE_INSTALL_DOCDIR "${CMAKE_INSTALL_DATAROOTDIR}/doc/dish")
+
+install(TARGETS Dish RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR} COMPONENT Runtime)
 # Reverse-DNS names: Wayland matches the window to its launcher by desktop-file
-# id, and Flatpak requires the app id for both the entry and the icon.
+# id, and Flatpak requires the app id for the entry, the icon and the AppStream
+# file alike. Every spelling of com.tinkernorth.Dish here is the same string.
 install(FILES packaging/dish.desktop
         DESTINATION ${CMAKE_INSTALL_DATADIR}/applications
-        RENAME com.tinkernorth.Dish.desktop)
-install(FILES packaging/dish.png
-        DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/512x512/apps
-        RENAME com.tinkernorth.Dish.png)
+        RENAME com.tinkernorth.Dish.desktop
+        COMPONENT Runtime)
+# GNOME Software and KDE Discover list an app only if it ships this, and
+# Flathub rejects a submission without it.
+install(FILES packaging/com.tinkernorth.Dish.metainfo.xml
+        DESTINATION ${CMAKE_INSTALL_DATADIR}/metainfo
+        COMPONENT Runtime)
 install(FILES packaging/dish.svg
         DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/scalable/apps
-        RENAME com.tinkernorth.Dish.svg)
-# Without this rule every USB-direct claim fails PermissionDenied and Dish
-# keeps the pad on the SDL path.
-install(FILES packaging/udev/70-dish-hidraw.rules
-        DESTINATION ${CMAKE_INSTALL_SYSCONFDIR}/udev/rules.d)
+        RENAME com.tinkernorth.Dish.svg
+        COMPONENT Runtime)
+install(FILES packaging/dish.png
+        DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/512x512/apps
+        RENAME com.tinkernorth.Dish.png
+        COMPONENT Runtime)
+
+# The rest of the hicolor ladder, rendered from the SVG. Optional because
+# rsvg-convert is a packaging-host tool, not a build dependency; without it the
+# two icons above still give a working menu entry.
+find_program(DISH_RSVG_CONVERT rsvg-convert)
+if(DISH_RSVG_CONVERT)
+    set(_dish_icons "")
+    foreach(_size IN ITEMS 16 24 32 48 64 128 256)
+        set(_out "${CMAKE_CURRENT_BINARY_DIR}/icons/${_size}/com.tinkernorth.Dish.png")
+        add_custom_command(
+            OUTPUT "${_out}"
+            COMMAND ${CMAKE_COMMAND} -E make_directory
+                    "${CMAKE_CURRENT_BINARY_DIR}/icons/${_size}"
+            COMMAND ${DISH_RSVG_CONVERT} -w ${_size} -h ${_size}
+                    -o "${_out}" "${CMAKE_CURRENT_SOURCE_DIR}/packaging/dish.svg"
+            DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/packaging/dish.svg"
+            VERBATIM)
+        list(APPEND _dish_icons "${_out}")
+        install(FILES "${_out}"
+                DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/${_size}x${_size}/apps
+                COMPONENT Runtime)
+    endforeach()
+    add_custom_target(dish_icons ALL DEPENDS ${_dish_icons})
+else()
+    message(STATUS "rsvg-convert not found — installing only the scalable and "
+                   "512x512 launcher icons.")
+endif()
+
+if(DISH_INSTALL_UDEV_RULES)
+    install(FILES packaging/udev/70-dish-hidraw.rules
+            DESTINATION "${DISH_UDEV_RULES_DIR}"
+            COMPONENT Runtime)
+    # A rule outside the four directories udev scans is inert, and the failure
+    # is silent: every USB-direct claim returns PermissionDenied instead.
+    get_filename_component(_dish_udev_abs "${DISH_UDEV_RULES_DIR}"
+                           ABSOLUTE BASE_DIR "${CMAKE_INSTALL_PREFIX}")
+    if(NOT _dish_udev_abs MATCHES "^(/etc|/run|/usr/lib|/lib)/udev/rules\\.d$")
+        message(WARNING
+            "DISH_UDEV_RULES_DIR resolves to ${_dish_udev_abs}, which udev does "
+            "not scan. USB-direct will fail PermissionDenied. Install the rule "
+            "into /etc/udev/rules.d by hand, or set DISH_UDEV_RULES_DIR.")
+    endif()
+endif()
+
+# LGPL-3.0-or-later needs both texts (the LGPL is written as permissions over
+# the GPL), THIRD_PARTY.md is the attribution manifest, and Inter ships under
+# the OFL. Debian Policy 12.5 additionally wants `copyright` under this name.
+install(FILES LICENSE COPYING.GPL3 THIRD_PARTY.md
+              packaging/fonts/Inter-LICENSE.txt packaging/deb/copyright
+        DESTINATION ${CMAKE_INSTALL_DOCDIR}
+        COMPONENT Runtime)
+
+# lintian errors on an uncompressed man page and warns on a missing changelog.
+# -n drops the timestamp so two builds of the same source produce the same bytes.
+find_program(DISH_GZIP gzip)
+if(DISH_GZIP)
+    function(dish_install_gzipped src dest_dir dest_name)
+        set(_out "${CMAKE_CURRENT_BINARY_DIR}/packaging-gz/${dest_name}")
+        add_custom_command(
+            OUTPUT "${_out}"
+            COMMAND ${CMAKE_COMMAND} -E make_directory
+                    "${CMAKE_CURRENT_BINARY_DIR}/packaging-gz"
+            COMMAND ${DISH_GZIP} -9nc "${src}" > "${_out}"
+            DEPENDS "${src}"
+            VERBATIM)
+        string(MAKE_C_IDENTIFIER "dish_gz_${dest_name}" _tgt)
+        add_custom_target(${_tgt} ALL DEPENDS "${_out}")
+        install(FILES "${_out}" DESTINATION "${dest_dir}" COMPONENT Runtime)
+    endfunction()
+    dish_install_gzipped("${CMAKE_CURRENT_SOURCE_DIR}/packaging/dish.1"
+                         "${CMAKE_INSTALL_MANDIR}/man1" "dish.1.gz")
+    # lintian parses /usr/share/doc/<pkg>/changelog.gz as a DEBIAN changelog and
+    # emits a syntax error per heading of a Keep-a-Changelog file, so generate
+    # the Debian-shaped one and point it at CHANGELOG.md. The date is fixed so
+    # two builds of the same source produce the same bytes.
+    file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/packaging-src/changelog"
+"dish (${PROJECT_VERSION}) unstable; urgency=medium
+
+  * Release ${PROJECT_VERSION}. See
+    https://github.com/TinkerNorth/dish-linux/blob/main/CHANGELOG.md
+
+ -- TinkerNorth <security@tinkernorth.com>  Thu, 01 Jan 2026 00:00:00 +0000
+")
+    dish_install_gzipped("${CMAKE_CURRENT_BINARY_DIR}/packaging-src/changelog"
+                         "${CMAKE_INSTALL_DOCDIR}" "changelog.gz")
+else()
+    install(FILES packaging/dish.1
+            DESTINATION ${CMAKE_INSTALL_MANDIR}/man1
+            COMPONENT Runtime)
+endif()
 
 # --------------------------------------------------------------------------
 # Tests
@@ -484,4 +637,142 @@ install(FILES packaging/udev/70-dish-hidraw.rules
 if(DISH_BUILD_TESTS)
     enable_testing()
     add_subdirectory(tests)
+    # test_translations asserts against the COMPILED .qm, so it must build
+    # after them or it silently checks whatever an earlier build left on disk.
+    # This cannot live in tests/CMakeLists.txt: qt_add_translations creates
+    # `release_translations` only when THIS scope is finalized, which is after
+    # add_subdirectory(tests) has run. The DEFER is what makes it work.
+    if(Qt6LinguistTools_FOUND)
+        cmake_language(DEFER CALL add_dependencies DishTests release_translations)
+    endif()
 endif()
+
+# --------------------------------------------------------------------------
+# Packaging (CPack)
+#
+# Every package is generated from the install() rules above, so it can never
+# disagree with `cmake --install` about what ships — which is how the icons,
+# the udev rule and the licence texts went missing from the hand-rolled .deb
+# this replaces.
+#
+# Build each package on the distro it targets: dpkg-shlibdeps and rpmbuild's
+# soname scanner both read the built binary, so a package built against the
+# aqtinstall Qt would demand a Qt no distro ships.
+# --------------------------------------------------------------------------
+set(CPACK_PACKAGE_NAME    "dish")
+set(CPACK_PACKAGE_VENDOR  "TinkerNorth")
+set(CPACK_PACKAGE_CONTACT "TinkerNorth <security@tinkernorth.com>")
+set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
+set(CPACK_PACKAGE_DESCRIPTION_SUMMARY
+    "Wireless gamepad client for the Satellite server")
+set(CPACK_PACKAGE_HOMEPAGE_URL "https://github.com/TinkerNorth/dish-linux")
+set(CPACK_RESOURCE_FILE_LICENSE "${CMAKE_CURRENT_SOURCE_DIR}/LICENSE")
+set(CPACK_PACKAGE_FILE_NAME "dish-${PROJECT_VERSION}-${CMAKE_SYSTEM_PROCESSOR}")
+set(CPACK_PACKAGING_INSTALL_PREFIX "/usr")
+set(CPACK_STRIP_FILES ON)
+set(CPACK_COMPONENTS_ALL Runtime)
+set(CPACK_DEB_COMPONENT_INSTALL OFF)
+set(CPACK_RPM_COMPONENT_INSTALL OFF)
+set(CPACK_SOURCE_GENERATOR "")
+
+set(CPACK_DEBIAN_PACKAGE_NAME "dish")
+set(CPACK_DEBIAN_FILE_NAME DEB-DEFAULT)
+set(CPACK_DEBIAN_PACKAGE_SECTION "utils")
+set(CPACK_DEBIAN_PACKAGE_PRIORITY "optional")
+set(CPACK_DEBIAN_PACKAGE_MAINTAINER "${CPACK_PACKAGE_CONTACT}")
+set(CPACK_DEBIAN_PACKAGE_HOMEPAGE "${CPACK_PACKAGE_HOMEPAGE_URL}")
+# The EXTENDED description only: CPack uses the summary above as the synopsis
+# and indents each line below it.
+set(CPACK_DEBIAN_PACKAGE_DESCRIPTION
+"Dish streams a local gamepad to a Satellite server over the LAN on an
+encrypted UDP channel: sticks, buttons, motion and touchpad out, rumble and
+battery back. It discovers servers over broadcast and mDNS, pairs with
+trust-on-first-use key pinning, and can drive up to four pads at once.
+.
+Supported pads may also be claimed directly over USB for a higher polling
+rate; that path needs the hidraw udev rule this package installs.
+.
+Dish never installs its own updates - it checks, and links out to the release.")
+set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)
+# What shlibdeps cannot see: QML modules and Qt plugins are opened by name at
+# run time and appear in no DT_NEEDED, so a package without them installs,
+# launches, and dies on `module "QtQuick.Effects" is not installed`. Derive the
+# list from `grep -rho '^import [A-Za-z0-9_.]*' src/qml`.
+set(DISH_DEB_RUNTIME_DEPENDS
+    "qml6-module-qtqml, qml6-module-qtqml-workerscript, qml6-module-qtquick, \
+qml6-module-qtquick-window, qml6-module-qtquick-controls, \
+qml6-module-qtquick-templates, qml6-module-qtquick-layouts, \
+qml6-module-qtquick-effects, qt6-qpa-plugins, hicolor-icon-theme"
+    CACHE STRING "Runtime-loaded Qt pieces dpkg-shlibdeps cannot infer")
+set(CPACK_DEBIAN_PACKAGE_DEPENDS "${DISH_DEB_RUNTIME_DEPENDS}")
+set(CPACK_DEBIAN_PACKAGE_RECOMMENDS "udev, qt6-wayland")
+set(CPACK_DEBIAN_PACKAGE_SUGGESTS "bluez")
+set(CPACK_DEBIAN_PACKAGE_CONTROL_EXTRA
+    "${CMAKE_CURRENT_SOURCE_DIR}/packaging/deb/postinst"
+    "${CMAKE_CURRENT_SOURCE_DIR}/packaging/deb/postrm"
+    "${CMAKE_CURRENT_SOURCE_DIR}/packaging/deb/triggers")
+set(CPACK_DEBIAN_PACKAGE_CONTROL_STRICT_PERMISSION ON)
+
+set(CPACK_RPM_PACKAGE_NAME "dish")
+set(CPACK_RPM_FILE_NAME RPM-DEFAULT)
+set(CPACK_RPM_PACKAGE_SUMMARY "${CPACK_PACKAGE_DESCRIPTION_SUMMARY}")
+set(CPACK_RPM_PACKAGE_GROUP "Amusements/Games")
+set(CPACK_RPM_PACKAGE_LICENSE "LGPL-3.0-or-later")
+set(CPACK_RPM_PACKAGE_URL "${CPACK_PACKAGE_HOMEPAGE_URL}")
+set(CPACK_RPM_PACKAGE_VENDOR "TinkerNorth")
+set(CPACK_RPM_PACKAGE_DESCRIPTION
+"Dish streams a local gamepad to a Satellite server over the LAN on an
+encrypted UDP channel: sticks, buttons, motion and touchpad out, rumble and
+battery back. It discovers servers over broadcast and mDNS, pairs with
+trust-on-first-use key pinning, and can drive up to four pads at once.
+
+Supported pads may also be claimed directly over USB for a higher polling
+rate; that path needs the hidraw udev rule this package installs.
+
+Dish never installs its own updates - it checks, and links out to the release.")
+set(CPACK_RPM_PACKAGE_AUTOREQ ON)
+set(CPACK_RPM_PACKAGE_AUTOPROV ON)
+set(CPACK_RPM_PACKAGE_REQUIRES
+    "qt6-qtdeclarative, qt6-qtsvg, hicolor-icon-theme, systemd-udev")
+set(CPACK_RPM_PACKAGE_SUGGESTS "qt6-qtwayland, bluez")
+set(CPACK_RPM_POST_INSTALL_SCRIPT_FILE
+    "${CMAKE_CURRENT_SOURCE_DIR}/packaging/rpm/post.sh")
+set(CPACK_RPM_POST_UNINSTALL_SCRIPT_FILE
+    "${CMAKE_CURRENT_SOURCE_DIR}/packaging/rpm/postun.sh")
+# rpm treats a duplicate directory claim as a conflict, and these are owned by
+# filesystem, hicolor-icon-theme and systemd.
+set(CPACK_RPM_EXCLUDE_FROM_AUTO_FILELIST_ADDITION
+    /usr/bin
+    /usr/lib
+    /usr/lib/udev
+    /usr/lib/udev/rules.d
+    /usr/share
+    /usr/share/applications
+    /usr/share/doc
+    /usr/share/icons
+    /usr/share/icons/hicolor
+    /usr/share/icons/hicolor/16x16 /usr/share/icons/hicolor/16x16/apps
+    /usr/share/icons/hicolor/24x24 /usr/share/icons/hicolor/24x24/apps
+    /usr/share/icons/hicolor/32x32 /usr/share/icons/hicolor/32x32/apps
+    /usr/share/icons/hicolor/48x48 /usr/share/icons/hicolor/48x48/apps
+    /usr/share/icons/hicolor/64x64 /usr/share/icons/hicolor/64x64/apps
+    /usr/share/icons/hicolor/128x128 /usr/share/icons/hicolor/128x128/apps
+    /usr/share/icons/hicolor/256x256 /usr/share/icons/hicolor/256x256/apps
+    /usr/share/icons/hicolor/512x512 /usr/share/icons/hicolor/512x512/apps
+    /usr/share/icons/hicolor/scalable
+    /usr/share/icons/hicolor/scalable/apps
+    /usr/share/man
+    /usr/share/man/man1
+    /usr/share/metainfo)
+
+set(CPACK_GENERATOR "TGZ")
+find_program(DISH_DPKG dpkg)
+find_program(DISH_RPMBUILD rpmbuild)
+if(DISH_DPKG)
+    list(APPEND CPACK_GENERATOR "DEB")
+endif()
+if(DISH_RPMBUILD)
+    list(APPEND CPACK_GENERATOR "RPM")
+endif()
+
+include(CPack)

@@ -1,0 +1,109 @@
+name: Version consistency
+
+# A PR-time text gate, not a build. The version has one source,
+# project(Dish VERSION ...) in CMakeLists.txt, which becomes DISH_VERSION and
+# is what the About surface and the update check report. Two files mirror it by
+# hand — the AppStream <release> and the CHANGELOG heading — and the Qt floor
+# is mirrored into four documents. This job fails the pull request that moves
+# one copy without the others. release.yml keeps its own check: only it can
+# compare the git tag against the tree.
+#
+# Pin map (verify with `gh api repos/<owner>/<repo>/git/ref/tags/<tag>`):
+#   actions/checkout @ v6.0.2 → de0fac2e4500dabe0009e67214ff5f5447ce83dd
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - CMakeLists.txt
+      - CHANGELOG.md
+      - README.md
+      - THIRD_PARTY.md
+      - docs/PACKAGING.md
+      - assets/licenses/licenses.json
+      - packaging/com.tinkernorth.Dish.metainfo.xml
+      - packaging/update-policy.json
+      - .github/workflows/version-consistency.yml
+  pull_request:
+    branches: [main]
+    paths:
+      - CMakeLists.txt
+      - CHANGELOG.md
+      - README.md
+      - THIRD_PARTY.md
+      - docs/PACKAGING.md
+      - assets/licenses/licenses.json
+      - packaging/com.tinkernorth.Dish.metainfo.xml
+      - packaging/update-policy.json
+      - .github/workflows/version-consistency.yml
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: CMakeLists.txt / AppStream / CHANGELOG / Qt floor
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Compare the version mirrors
+        run: |
+          set -euo pipefail
+          fail=0
+          err() { echo "::error::$1"; fail=1; }
+
+          ver=$(awk '/^project\(Dish/ { inproj = 1 }
+                     inproj && /^[[:space:]]*VERSION[[:space:]]/ { print $2; exit }' CMakeLists.txt)
+          if ! echo "$ver" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::could not read MAJOR.MINOR.PATCH from project(Dish VERSION ...) (got '$ver')"
+            exit 1
+          fi
+          echo "CMakeLists.txt declares $ver"
+
+          # AppStream: GNOME Software and KDE Discover show this as the version,
+          # so a stale entry tells users the wrong build shipped.
+          grep -Eq "<release version=\"$ver\"" packaging/com.tinkernorth.Dish.metainfo.xml \
+            || err "packaging/com.tinkernorth.Dish.metainfo.xml has no <release version=\"$ver\">"
+
+          # A released version needs its own heading; an unreleased tree keeps
+          # the Unreleased one.
+          grep -Eq "^## \[($ver|Unreleased)\]" CHANGELOG.md \
+            || err "CHANGELOG.md has neither a [$ver] nor an [Unreleased] heading"
+
+          # UpdateManifest rejects a manifest whose minimum is newer than its
+          # version, which would fail every client's check rather than the old
+          # ones only.
+          min=$(python3 -c 'import json;print(json.load(open("packaging/update-policy.json"))["minimumSupportedVersion"])')
+          newest=$(printf '%s\n%s\n' "$ver" "$min" | sort -V | tail -1)
+          [ "$newest" = "$ver" ] \
+            || err "packaging/update-policy.json minimumSupportedVersion ($min) is newer than $ver"
+
+          # Qt floor. CMakeLists is the source; four documents mirror it.
+          floor=$(sed -nE 's/.*qt_standard_project_setup\(REQUIRES ([0-9]+\.[0-9]+)\).*/\1/p' CMakeLists.txt)
+          [ -n "$floor" ] || err "could not read the Qt floor from qt_standard_project_setup(REQUIRES ...)"
+          if [ -n "$floor" ]; then
+            echo "Qt floor is $floor"
+            [ "$(grep -c "find_package(Qt6 $floor " CMakeLists.txt)" = 2 ] \
+              || err "CMakeLists.txt find_package(Qt6 ...) calls do not both use the $floor floor"
+            grep -Fq "Qt $floor" docs/PACKAGING.md \
+              || err "docs/PACKAGING.md does not name the Qt $floor floor"
+            grep -Fq "Qt $floor" README.md \
+              || err "README.md does not name the Qt $floor floor"
+            grep -Fq ">= $floor" THIRD_PARTY.md \
+              || err "THIRD_PARTY.md does not name the Qt >= $floor floor"
+            grep -Fq "\"version\": \"$floor+\"" assets/licenses/licenses.json \
+              || err "assets/licenses/licenses.json Qt version is not \"$floor+\""
+          fi
+
+          if [ "$fail" -ne 0 ]; then
+            echo "::error::Version sources drifted. CMakeLists.txt is the source; CONTRIBUTING.md, 'Cutting a release', has the mirror list."
+            exit 1
+          fi
+          echo "All version mirrors agree."

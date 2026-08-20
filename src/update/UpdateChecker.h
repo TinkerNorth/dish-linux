@@ -79,6 +79,7 @@ class UpdateChecker : public QObject {
 
   private:
     void construct();
+    void hookConnectivity();
     void dispatch(const reducer::UpdateEvent& event);
     void execute(const reducer::UpdateEffect& effect);
     void onPrefsChanged(const source::UpdatePreferences& prefs);

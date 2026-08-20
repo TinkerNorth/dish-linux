@@ -5,11 +5,13 @@
 
 #include "update/HttpGateways.h"
 
+#include <QNetworkInformation>
 #include <QRandomGenerator>
-#include <QTimeZone>
 #include <QSettings>
+#include <QTimeZone>
 #include <QTimer>
 
+#include <algorithm>
 #include <utility>
 
 #ifndef DISH_VERSION
@@ -55,6 +57,40 @@ void UpdateChecker::construct() {
         prefsSub_ = prefs_->state().subscribe(
             [this](const source::UpdatePreferences& p) { onPrefsChanged(p); });
     }
+
+    hookConnectivity();
+}
+
+// Without this the reducer's offline gate never fires: `online` sits at its
+// `true` default, a captive portal's HTML splash returns 200 and surfaces as
+// ManifestInvalid, and the 30 s recheck after a link returns is replaced by
+// the full failure ladder — up to six hours.
+void UpdateChecker::hookConnectivity() {
+    // A backend that will not load degrades to always-attempt: worst case the
+    // request fails and backs off, which is strictly better than never trying.
+    if (!QNetworkInformation::loadDefaultBackend()) { return; }
+    auto* info = QNetworkInformation::instance();
+    if (info == nullptr) { return; }
+
+    const auto readOnline = [](QNetworkInformation* source) {
+        if (source->supports(QNetworkInformation::Feature::CaptivePortal) &&
+            source->isBehindCaptivePortal()) {
+            return false;
+        }
+        if (!source->supports(QNetworkInformation::Feature::Reachability)) { return true; }
+        return source->reachability() == QNetworkInformation::Reachability::Online;
+    };
+
+    dispatch(reducer::update_event::ReachabilityChanged{readOnline(info)});
+
+    QObject::connect(info, &QNetworkInformation::reachabilityChanged, this,
+                     [this, info, readOnline](QNetworkInformation::Reachability) {
+                         dispatch(reducer::update_event::ReachabilityChanged{readOnline(info)});
+                     });
+    QObject::connect(info, &QNetworkInformation::isBehindCaptivePortalChanged, this,
+                     [this, info, readOnline](bool) {
+                         dispatch(reducer::update_event::ReachabilityChanged{readOnline(info)});
+                     });
 }
 
 void UpdateChecker::onPrefsChanged(const source::UpdatePreferences& prefs) {
@@ -85,11 +121,17 @@ void UpdateChecker::start() {
     const qint64 last =
         settings.value(QLatin1String(source::kKeyUpdatesLastCheckUtcMs), 0).toLongLong();
     const qint64 elapsed = now - last;
-    const bool skewed = elapsed < 0 && -elapsed > sched::kFutureSkewEscapeMs;
-    const bool withinGap = last > 0 && !skewed && elapsed >= 0 && elapsed < sched::kMinCheckGapMs;
+    const bool skewed = elapsed < -sched::kFutureSkewEscapeMs;
+    // No `elapsed >= 0` term: it made !skewed unreachable, so the escape window
+    // never decided anything and a stored time one millisecond in the future
+    // took the same path as one a century out.
+    const bool withinGap = last > 0 && !skewed && elapsed < sched::kMinCheckGapMs;
 
-    const int delay =
-        withinGap ? static_cast<int>(sched::kMinCheckGapMs - elapsed) : sched::kStartupDelayMs;
+    // Clamped because a future timestamp inside the window gives a remainder
+    // longer than the gap itself, which would overflow the cast.
+    const qint64 remaining =
+        std::clamp<qint64>(sched::kMinCheckGapMs - elapsed, 0, sched::kMinCheckGapMs);
+    const int delay = withinGap ? static_cast<int>(remaining) : sched::kStartupDelayMs;
     pendingCheckDelayMs_ = delay;
     checkTimer_->start(delay);
 }
@@ -102,10 +144,13 @@ void UpdateChecker::checkNow() {
 }
 
 void UpdateChecker::skipAvailableVersion() {
-    const QString version = status_.value().availableVersion;
-    if (version.isEmpty()) { return; }
-    if (prefs_ != nullptr) { prefs_->setSkippedVersion(version); }
-    dispatch(reducer::update_event::SkipRequested{version});
+    // `required` guards the STORE write, not just the dispatch: the reducer
+    // refuses a required SkipRequested, but a persisted skippedVersion comes
+    // back as PrefsChanged and mutes the unsupported-build nag for good.
+    const reducer::UpdateStatus current = status_.value();
+    if (current.availableVersion.isEmpty() || current.required) { return; }
+    if (prefs_ != nullptr) { prefs_->setSkippedVersion(current.availableVersion); }
+    dispatch(reducer::update_event::SkipRequested{current.availableVersion});
 }
 
 QDateTime UpdateChecker::lastCheck() const {

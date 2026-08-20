@@ -3,22 +3,37 @@
 
 #include "core/reducer/RestOutcome.h"
 #include "core/wire/SessionCrypto.h"
+#include "Network/PairingClient.h"
 
 #include <catch2/catch_test_macros.hpp>
 
 #include <array>
 #include <cstdint>
 #include <cstring>
+#include <variant>
 
 namespace reducer = dish::reducer;
 namespace wire = dish::wire;
 
 namespace {
-reducer::RestReply reply(int status, bool parsed, const char* code = "") {
+reducer::RestReply reply(int status, bool parsed, const char* code = "", bool pinMismatch = false) {
     reducer::RestReply r;
     r.status = status;
     r.bodyParsed = parsed;
     r.code = code;
+    r.pinMismatch = pinMismatch;
+    return r;
+}
+
+reducer::PairReply pairReply(int status, bool parsed, bool ok = false, bool pending = false,
+                             bool hasKey = false, bool pinMismatch = false) {
+    reducer::PairReply r;
+    r.status = status;
+    r.bodyParsed = parsed;
+    r.ok = ok;
+    r.pending = pending;
+    r.hasSharedKey = hasKey;
+    r.pinMismatch = pinMismatch;
     return r;
 }
 } // namespace
@@ -57,6 +72,73 @@ TEST_CASE("classifyRest: status 0 / unparsed body is Unreachable", "[rest][class
 TEST_CASE("classifyRest: other 5xx with a body is a retryable ServerError", "[rest][classify]") {
     REQUIRE(reducer::classifyRest(reply(500, true)) == reducer::RestVerdict::ServerError);
     REQUIRE(reducer::restVerdictRetryable(reducer::RestVerdict::ServerError));
+}
+
+// ── TOFU identity change ────────────────────────────────────────────────────
+// A pin mismatch aborts the handshake, so the reply that reaches the classifier
+// is statusless and bodiless — byte-identical to a dead link. Only the flag
+// separates them, and getting that wrong is what made a reinstalled satellite
+// (or a MITM) look "unreachable" and earn an unbounded retry curve.
+
+TEST_CASE("classifyRest: a pin mismatch is a terminal IdentityChanged", "[rest][classify]") {
+    REQUIRE(reducer::classifyRest(reply(0, false, "", /*pinMismatch=*/true)) ==
+            reducer::RestVerdict::IdentityChanged);
+    REQUIRE(reducer::restVerdictTerminal(reducer::RestVerdict::IdentityChanged));
+    REQUIRE_FALSE(reducer::restVerdictRetryable(reducer::RestVerdict::IdentityChanged));
+}
+
+TEST_CASE("classifyRest: a pin mismatch outranks the whole status ladder", "[rest][classify]") {
+    // Nothing below it is trustworthy: the abort means no proof ever transited.
+    for (const int status : {0, 200, 401, 409, 500, 503}) {
+        REQUIRE(reducer::classifyRest(reply(status, true, "NOT_PAIRED", /*pinMismatch=*/true)) ==
+                reducer::RestVerdict::IdentityChanged);
+    }
+}
+
+TEST_CASE("classifyRest: without a mismatch every existing verdict is unchanged",
+          "[rest][classify]") {
+    REQUIRE(reducer::classifyRest(reply(200, true)) == reducer::RestVerdict::Ok);
+    REQUIRE(reducer::classifyRest(reply(401, true, "NOT_PAIRED")) ==
+            reducer::RestVerdict::Unauthorized);
+    REQUIRE(reducer::classifyRest(reply(409, true)) == reducer::RestVerdict::VersionMismatch);
+    REQUIRE(reducer::classifyRest(reply(503, true)) == reducer::RestVerdict::ShuttingDown);
+    REQUIRE(reducer::classifyRest(reply(500, true)) == reducer::RestVerdict::ServerError);
+    REQUIRE(reducer::classifyRest(reply(0, false)) == reducer::RestVerdict::Unreachable);
+}
+
+TEST_CASE("classifyPair: a pin mismatch is a terminal IdentityChanged", "[rest][classify]") {
+    REQUIRE(reducer::classifyPair(pairReply(0, false, false, false, false,
+                                            /*pinMismatch=*/true)) ==
+            reducer::PairVerdict::IdentityChanged);
+    // Ahead of 409, which is the only other arm keyed off the status alone.
+    REQUIRE(reducer::classifyPair(pairReply(409, true, false, false, false,
+                                            /*pinMismatch=*/true)) ==
+            reducer::PairVerdict::IdentityChanged);
+}
+
+TEST_CASE("classifyPair: without a mismatch every existing verdict is unchanged",
+          "[rest][classify]") {
+    REQUIRE(reducer::classifyPair(pairReply(200, true, true, false, true)) ==
+            reducer::PairVerdict::Success);
+    REQUIRE(reducer::classifyPair(pairReply(200, true, false, true)) ==
+            reducer::PairVerdict::Pending);
+    REQUIRE(reducer::classifyPair(pairReply(200, true)) == reducer::PairVerdict::AuthRequired);
+    REQUIRE(reducer::classifyPair(pairReply(409, true)) == reducer::PairVerdict::VersionMismatch);
+    REQUIRE(reducer::classifyPair(pairReply(0, false)) == reducer::PairVerdict::Unreachable);
+}
+
+// PairingClient::classify is the arm the manager actually visits; it lives here
+// beside the verdict it wraps rather than in the PIN-path suite.
+TEST_CASE("PairingClient::classify: a pin mismatch yields the IdentityChanged arm",
+          "[rest][classify]") {
+    using dish::net::PairingClient;
+    dish::models::PairResponse r;
+    r.httpStatus = 0;
+    r.reachable = false;
+    REQUIRE(std::holds_alternative<PairingClient::IdentityChanged>(
+        PairingClient::classify(r, /*pinMismatch=*/true)));
+    // The default keeps the pre-existing single-argument reading of the reply.
+    REQUIRE(std::holds_alternative<PairingClient::Unreachable>(PairingClient::classify(r)));
 }
 
 TEST_CASE("classifyApproval: approved with a key", "[rest][approval]") {

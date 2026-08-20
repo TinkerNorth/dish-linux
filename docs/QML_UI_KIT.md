@@ -79,7 +79,7 @@ meaning anything.
 
 ## Component inventory
 
-38 files in `src/qml/kit/`.
+44 `.qml` files in `src/qml/kit/`.
 
 ### Primitives
 
@@ -100,7 +100,7 @@ meaning anything.
 | `Eyebrow` | `Text` | `mutedTone`. The mono, tracked, uppercase micro-label. |
 | `SectionHeader` | `Row` | `label` (natural case in, uppercase out via `font.capitalization`, never an uppercase string) and an optional `glyph`. |
 | `BrandGlyph` | `Image` | `glyph`, `glyphForToken(token)`, `tinted`, `accessibleName`. Palette-tinted per C8. |
-| `AppMark` | `BrandGlyph` | The identity mark, `dish-logo` (the window icon as a glyph): the title bar and Home's rail entry. `busy` pulses opacity, the one sanctioned brand transient. |
+| `AppMark` | `BrandGlyph` | The identity mark, `dish-logo` (the window icon as a glyph): the rail head and Home's rail entry. `busy` pulses opacity, the one sanctioned brand transient. |
 | `LiveStat` | `Text` | `live`, `rateText(hz, measured)`, `latencyText(ms, samples)`. **The only rate and latency formatter in the app.** `~` means derived or estimated; a sub-millisecond latency reads `"<1 ms"`, never `"~0.0 ms"`, mirroring `reducer::formatLatencyMs`, which is what the models render. |
 | `DishProgressBar` | `Rectangle` | `indeterminate`, `value`. Track `Theme.surfaceDim`, height fixed at 3, no caller-settable height. Static filled track under `Tokens.reducedMotion`. |
 | `LoadingSpinner` | `ColumnLayout` | `text`, `running`. The apply-overlay step spinner and the type-catalog loader. |
@@ -225,8 +225,8 @@ Every new `.qml` must be listed in `qt_add_qml_module(... QML_FILES ...)` in
 
 [`AppShell.qml`](../src/qml/AppShell.qml) is a collapsible left rail plus a
 per-page header over a `StackView`. Collapsed, the rail is a 48 px icon strip
-continuing the title bar's hamburger cell; expanded it is a 236 px labelled
-pane, and the state persists through `App.railCollapsed`.
+headed by the collapse toggle; expanded it is a 236 px labelled pane, and the
+state persists through `App.railCollapsed`.
 
 Overlays are in-scene: dialogs are `Kit.ContentDialog` popups over a scrim, and
 transient errors land in the one `NotificationToastHost` the shell drops. No
@@ -247,15 +247,17 @@ Collapsed, each entry has to be identifiable from its picture alone at
 | Connections | `satellite` |
 | Support Dish | a heart text glyph in `Theme.pulse` |
 | Settings | `gear` |
+| Rail head (collapse toggle) | `rail` |
 
 **No two rail entries may resolve to the same silhouette.** A different *state*
 of the same family (`-connected`, `-receiving`, `-off`) is not a different rail
 glyph: `dish` and `dish-connected` differ by a 3-unit dot in a 64-unit viewBox,
 which is under one pixel at 16 px. Home carries the app mark, the same identity
-as `dish.ico` and the title bar, and its ringed-dish silhouette cannot be read
-as the wire vocabulary's plain dish. The plain set holds three separable
-shapes, the tilted dish ellipse, the satellite's panel bar and the gear disc,
-and the rail needs more, which is why `brand/pad.svg` exists.
+as the window icon (`:/icons/dish.svg`) and the desktop entry, and its
+ringed-dish silhouette cannot be read as the wire vocabulary's plain dish. The
+plain set holds three separable shapes, the tilted dish ellipse, the satellite's
+panel bar and the gear disc, and the rail needs more, which is why
+`brand/pad.svg` exists.
 
 ## Brand glyphs
 
@@ -273,7 +275,8 @@ The `:/brand/` set: `dish`, `dish-connected`, `dish-disabled`, `dish-logo`,
 `dish-master`, `dish-off`, `dish-receiving`, `satellite`,
 `satellite-broadcasting`, `satellite-connected`, `satellite-disabled`,
 `satellite-master`, `satellite-off`, `bluetooth`, `bluetooth-connected`,
-`bluetooth-disabled`, `bluetooth-off`, `bluetooth-searching`, `gear`, `pad`.
+`bluetooth-disabled`, `bluetooth-off`, `bluetooth-searching`, `gear`, `pad`,
+`rail`.
 
 ```qml
 Kit.BrandGlyph {
@@ -309,7 +312,7 @@ non-colour metric. All values are `CONSTANT` except `reducedMotion`.
 | Radii (px) | `radiusBar` 2 · `radiusChip` 5 · `radiusButton` 6 · `radiusCard` 8 · `radiusDialog` 10 |
 | Glyph rungs (px) | `glyphSm` 16 · `glyphMd` 20 · `glyphLg` 28 · `glyphXl` 40 · `glyphHero` 76 |
 | Durations (ms) | `durFast` 120 · `durNormal` 200 · `durBusy` 1100 · `durToast` 4000 |
-| Shell metrics (px) | `titleBarHeight` 44 · `captionButtonWidth` 46 · `railCompact` 48 · `railExpanded` 236 · `navItemHeight` 40 · `hitRow` 44 · `minTouch` 32 · `dotSize` 8 |
+| Shell metrics (px) | `railCompact` 48 · `railExpanded` 236 · `navItemHeight` 40 · `hitRow` 44 · `minTouch` 32 · `dotSize` 8 |
 | Breakpoints (px) | `minWindowWidth` 900 · `minWindowHeight` 620 · `narrowBreakpoint` 860 · `stackBreakpoint` 760 · `wideBreakpoint` 980 |
 | Other | `disabledOpacity` 0.55 · `reducedMotion` |
 

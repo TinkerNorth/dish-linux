@@ -104,7 +104,7 @@ Kit.Page {
     // never a silent revert.
     readonly property string pathNote: {
         if (page.padFailure === "permissionDenied") {
-            return qsTr("Direct access denied — another app owns this device.");
+            return qsTr("Direct access denied — hidraw needs a udev rule. Install packaging/udev/70-dish-hidraw.rules, run udevadm control --reload-rules && udevadm trigger, then replug the controller.");
         }
         if (page.padPhase === "needsReplug") {
             return qsTr("Unplug and replug the controller to finish switching.");

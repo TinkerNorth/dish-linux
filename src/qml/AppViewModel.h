@@ -448,9 +448,9 @@ class AppViewModel : public QObject {
     void updateChanged();
     void updatePrefsChanged();
 
-    // token is "ready" | "available" | "unsupported" | "updated"; edge-detected
-    // in the coordinator, so it fires once per version per session. Periodic
-    // check FAILURES never reach here: they live in Settings.
+    // token is "available" | "unsupported"; edge-detected in the coordinator, so
+    // it fires once per version per session. Periodic check FAILURES never reach
+    // here: they live in Settings.
     void updateNotice(const QString& token, const QString& version);
 
   private:

@@ -18,6 +18,7 @@
 #include <QTimer>
 #include <QUrl>
 
+#include <memory>
 #include <utility>
 
 namespace dish::net {
@@ -42,6 +43,7 @@ struct BlockingReply {
     int status = 0;
     QByteArray body;
     bool reachable = false;
+    bool pinMismatch = false;
 };
 
 BlockingReply blockingRequest(const QString& url, const QByteArray& method, const QByteArray& body,
@@ -70,14 +72,16 @@ BlockingReply blockingRequest(const QString& url, const QByteArray& method, cons
     QObject::connect(reply, &QNetworkReply::sslErrors, reply,
                      [reply](const QList<QSslError>&) { reply->ignoreSslErrors(); });
     // TOFU: inspect the peer cert the moment the handshake completes, before the
-    // PIN or the proof transits. A mismatch aborts, which reads back as
-    // unreachable, so pairing fails safe.
+    // PIN or the proof transits. A mismatch aborts, so pairing fails safe; the
+    // flag is what keeps that abort from reading as a plain unreachable.
     const QString host = parsed.host();
-    QObject::connect(reply, &QNetworkReply::encrypted, reply, [reply, host, &pinVerify] {
-        if (!pinVerify) { return; }
-        const QByteArray der = reply->sslConfiguration().peerCertificate().toDer();
-        if (!pinVerify(host, der)) { reply->abort(); }
-    });
+    const auto pinMismatch = std::make_shared<bool>(false);
+    QObject::connect(reply, &QNetworkReply::encrypted, reply,
+                     [reply, host, &pinVerify, pinMismatch] {
+                         if (!pinVerify) { return; }
+                         const QByteArray der = reply->sslConfiguration().peerCertificate().toDer();
+                         if (!pinVerify(host, der, *pinMismatch)) { reply->abort(); }
+                     });
     QObject::connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
 
     QTimer guard;
@@ -87,6 +91,7 @@ BlockingReply blockingRequest(const QString& url, const QByteArray& method, cons
     loop.exec();
 
     BlockingReply out;
+    out.pinMismatch = *pinMismatch;
     if (!reply->isFinished()) {
         reply->abort();
         reply->deleteLater();
@@ -110,13 +115,15 @@ QJsonObject parseObject(const QByteArray& body) {
 
 } // namespace
 
-PairingClient::Outcome PairingClient::classify(const models::PairResponse& response) {
+PairingClient::Outcome PairingClient::classify(const models::PairResponse& response,
+                                               bool pinMismatch) {
     reducer::PairReply r;
     r.status = response.httpStatus;
     r.bodyParsed = response.reachable;
     r.ok = response.ok;
     r.pending = response.pending;
     r.hasSharedKey = response.sharedKey.has_value() && !response.sharedKey->isEmpty();
+    r.pinMismatch = pinMismatch;
     switch (reducer::classifyPair(r)) {
     case reducer::PairVerdict::Success:
         // classifyPair only says Success when hasSharedKey, which is exactly
@@ -129,6 +136,8 @@ PairingClient::Outcome PairingClient::classify(const models::PairResponse& respo
         return AuthRequired{};
     case reducer::PairVerdict::VersionMismatch:
         return VersionMismatch{};
+    case reducer::PairVerdict::IdentityChanged:
+        return IdentityChanged{};
     case reducer::PairVerdict::Unreachable:
         break;
     }
@@ -136,7 +145,7 @@ PairingClient::Outcome PairingClient::classify(const models::PairResponse& respo
         response.error.value_or(QCoreApplication::translate(kTrContext, "Server unreachable"))};
 }
 
-models::PairResponse PairingClient::pair(const QString& ip, int port, const QString& deviceId,
+PairingClient::Reply PairingClient::pair(const QString& ip, int port, const QString& deviceId,
                                          const QString& deviceName, const QString& pin,
                                          const QString& clientPin) {
     const QString url = QStringLiteral("https://%1:%2/api/pair").arg(ip).arg(port);
@@ -149,13 +158,13 @@ models::PairResponse PairingClient::pair(const QString& ip, int port, const QStr
     };
     const auto body = QJsonDocument(reqObj).toJson(QJsonDocument::Compact);
     const auto reply = blockingRequest(url, "POST", body, {}, {}, pinVerifier());
-    if (!reply.reachable) { return makeError("connect failed"); }
+    if (!reply.reachable) { return {makeError("connect failed"), reply.pinMismatch}; }
     auto r = models::PairResponse::fromJson(parseObject(reply.body));
     r.httpStatus = reply.status;
-    return r;
+    return {r, reply.pinMismatch};
 }
 
-models::PairResponse PairingClient::rotateKey(const QString& ip, int port, const QString& deviceId,
+PairingClient::Reply PairingClient::rotateKey(const QString& ip, int port, const QString& deviceId,
                                               const QString& deviceName, const QString& hmacProof) {
     const QString url = QStringLiteral("https://%1:%2/api/pair").arg(ip).arg(port);
     const QJsonObject reqObj{
@@ -166,23 +175,23 @@ models::PairResponse PairingClient::rotateKey(const QString& ip, int port, const
     };
     const auto body = QJsonDocument(reqObj).toJson(QJsonDocument::Compact);
     const auto reply = blockingRequest(url, "POST", body, {}, {}, pinVerifier());
-    if (!reply.reachable) { return makeError("connect failed"); }
+    if (!reply.reachable) { return {makeError("connect failed"), reply.pinMismatch}; }
     auto r = models::PairResponse::fromJson(parseObject(reply.body));
     r.httpStatus = reply.status;
-    return r;
+    return {r, reply.pinMismatch};
 }
 
-models::PairResponse PairingClient::pairStatus(const QString& ip, int port,
+PairingClient::Reply PairingClient::pairStatus(const QString& ip, int port,
                                                const QString& deviceId) {
     const QString url = QStringLiteral("https://%1:%2/api/pair/status?deviceId=%3")
                             .arg(ip)
                             .arg(port)
                             .arg(QString::fromUtf8(QUrl::toPercentEncoding(deviceId)));
     const auto reply = blockingRequest(url, "GET", {}, {}, {}, pinVerifier());
-    if (!reply.reachable) { return makeError("connect failed"); }
+    if (!reply.reachable) { return {makeError("connect failed"), reply.pinMismatch}; }
     auto r = models::PairResponse::fromStatusJson(parseObject(reply.body));
     r.httpStatus = reply.status;
-    return r;
+    return {r, reply.pinMismatch};
 }
 
 PairingClient::PinVerifier& PairingClient::pinVerifier() {

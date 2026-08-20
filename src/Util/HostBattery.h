@@ -33,6 +33,11 @@ inline constexpr std::uint8_t kBatteryStatusWired = 4;
 struct SysfsBattery {
     int capacity = 0;
     std::string status;
+    // Last so the two-field brace form still reads as {capacity, status}.
+    // False for a pack whose `capacity` file is missing or unparsable: the
+    // pack still counts as present, so an unreadable one reads as an unknown
+    // level rather than collapsing the machine to "desktop, fully charged".
+    bool capacityKnown = true;
 };
 
 // An empty list is a desktop and reads 100 / WIRED. Level is the integer mean

@@ -9,9 +9,15 @@ on:
         description: "Tag to release (must already exist)"
         required: true
 
-# Builds a release binary, packages it as both a .deb (for Debian / Ubuntu /
-# derivatives) and a self-contained AppImage (for every other distro), and
-# uploads both to the GitHub Releases page for the tag.
+# Packages a tagged commit four ways — .deb (Debian 13+), .rpm (Fedora/RHEL/
+# openSUSE), AppImage (everything else, including an LTS whose Qt is below the
+# floor) and a Flatpak bundle — emits the latest.json the in-app update check
+# reads, and uploads the lot to the GitHub Releases page for the tag.
+#
+# The .deb and .rpm jobs install their own package and launch it before
+# uploading. That is the only gate that can catch a missing runtime dependency:
+# every other check passes against a build tree, which is exactly where a QML
+# module resolves from the Qt install instead of from a Depends: line.
 #
 # Before any artifact is uploaded the `gates` job re-runs every PR-time
 # check (action-pin lint, allowlist expiry, OSV-Scanner, gitleaks)
@@ -28,15 +34,17 @@ on:
 #   actions/download-artifact       @ v8.0.1  → 3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
 #   anchore/sbom-action             @ v0.24.0 → e22c389904149dbc22b58101806040fa8d37a610
 #   anchore/scan-action             @ v7.4.0  → e1165082ffb1fe366ebaf02d8526e7c4989ea9d2
-#   github/codeql-action/upload-sarif @ v3.27.0 → 662472033e021d55d94146f66f6058822b0b39fd
+#   github/codeql-action/upload-sarif @ v4.35.4 → 68bde559dea0fdcac2102bfdf6230c5f70eb485e
 #   softprops/action-gh-release     @ v3.0.0  → b4309332981a82ec1c5618f44dd2e27cc8bfbfda
 #   slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml
 #                                   @ v2.1.0  → f7dd8c54c2067bafc12ca7a55595d5ee9b75204a
 
+# Least privilege at the top; each job widens only what it needs. A workflow
+# grant is a ceiling for the jobs AND for any reusable workflow they call, so
+# `contents: write` here would have left `gates` unable to request the
+# security-events scope _security.yml declares.
 permissions:
-  contents: write
-  id-token: write
-  attestations: write
+  contents: read
 
 concurrency:
   group: release-${{ github.ref }}
@@ -45,6 +53,12 @@ concurrency:
 jobs:
   gates:
     name: PR-time gates against tag
+    # Must be a superset of _security.yml's own permissions block: a called
+    # workflow asking for more than the caller holds fails the run outright.
+    permissions:
+      contents: read
+      pull-requests: read
+      security-events: write
     uses: ./.github/workflows/_security.yml
     with:
       osv_scan_paths: |
@@ -58,6 +72,9 @@ jobs:
     name: Required release secrets gate
     needs: [gates]
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      id-token: write
     steps:
       - name: Verify cosign keyless OIDC is reachable for tagged releases
         shell: bash
@@ -73,10 +90,202 @@ jobs:
           fi
           echo "id-token write permission present; cosign keyless flow can authenticate."
 
-  release:
-    name: Build Linux .deb + AppImage
+  # =========================================================================
+  # .deb — Debian 13 and derivatives.
+  #
+  # In a debian:trixie container against the DISTRO's Qt (6.8, above the 6.7
+  # floor), not the aqtinstall Qt the other jobs use: dpkg-shlibdeps reads the
+  # built binary's DT_NEEDED set to compute Depends, and a binary linked
+  # against a Qt no Debian ships produces a package that resolves on nothing.
+  # Ubuntu 24.04 LTS is deliberately not a .deb target — its Qt is 6.4.2, below
+  # the floor. The AppImage and the Flatpak are the answer there.
+  # =========================================================================
+  deb:
+    name: Build .deb (Debian 13)
+    needs: [gates, required-secrets]
+    runs-on: ubuntu-24.04
+    container: debian:trixie
+    timeout-minutes: 45
+    steps:
+      - name: Install build and packaging dependencies
+        run: |
+          set -eux
+          cat > /etc/apt/apt.conf.d/99-dish-acquire <<'CONF'
+          Acquire::http::Timeout "15";
+          Acquire::https::Timeout "15";
+          Acquire::Retries "2";
+          CONF
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            git ca-certificates \
+            build-essential cmake ninja-build pkg-config \
+            qt6-base-dev qt6-base-dev-tools qt6-declarative-dev qt6-svg-dev \
+            qt6-tools-dev qt6-tools-dev-tools qt6-l10n-tools \
+            libsodium-dev libsdl2-dev libdbus-1-dev \
+            dpkg-dev fakeroot file gzip \
+            librsvg2-bin desktop-file-utils appstream lintian
+
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - name: Validate desktop entry and AppStream metadata
+        run: |
+          set -euo pipefail
+          desktop-file-validate packaging/dish.desktop
+          appstreamcli validate --no-net packaging/com.tinkernorth.Dish.metainfo.xml
+
+      - name: Configure and build
+        run: |
+          cmake -S . -B build-release -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX=/usr \
+            -DDISH_BUILD_TESTS=OFF
+          cmake --build build-release --parallel
+
+      - name: Package
+        run: |
+          set -euo pipefail
+          cpack --config build-release/CPackConfig.cmake -G DEB -B build-release/packages
+          mkdir -p dist && cp build-release/packages/*.deb dist/
+
+      - name: lintian
+        run: lintian --fail-on error --tag-display-limit 0 dist/*.deb
+
+      - name: Assert package contents
+        run: |
+          set -euo pipefail
+          contents="$(dpkg-deb -c dist/*.deb)"
+          for path in \
+            ./usr/bin/dish \
+            ./usr/lib/udev/rules.d/70-dish-hidraw.rules \
+            ./usr/share/applications/com.tinkernorth.Dish.desktop \
+            ./usr/share/metainfo/com.tinkernorth.Dish.metainfo.xml \
+            ./usr/share/icons/hicolor/scalable/apps/com.tinkernorth.Dish.svg \
+            ./usr/share/doc/dish/copyright
+          do
+            grep -qE " ${path}\$" <<<"${contents}" \
+              || { echo "::error::${path} missing from the .deb"; exit 1; }
+          done
+          icon="$(sed -n 's/^Icon=//p' packaging/dish.desktop)"
+          grep -q "/apps/${icon}\." <<<"${contents}" \
+            || { echo "::error::Icon=${icon} names no installed icon"; exit 1; }
+
+      # Nothing else can stand in for this. Unit tests, lints and a contents
+      # check all pass against a build tree, and a build tree is exactly what
+      # hides a missing runtime dependency: a QML module resolves from the Qt
+      # install during development and from a Depends: line afterwards.
+      - name: Install the package and launch it
+        run: |
+          set -euo pipefail
+          apt-get install -y ./dist/*.deb
+          export QT_QPA_PLATFORM=offscreen
+          export XDG_RUNTIME_DIR=/tmp/dish-runtime
+          mkdir -p "$XDG_RUNTIME_DIR"
+          set +e
+          timeout 25 dish >/tmp/launch.log 2>&1
+          rc=$?
+          set -e
+          cat /tmp/launch.log
+          if grep -qE 'is not installed|failed to load component|Cannot load library|no such file' /tmp/launch.log; then
+            echo "::error::the installed package cannot load its Qt/QML runtime"
+            exit 1
+          fi
+          [ "$rc" = 124 ] || echo "::notice::dish exited ${rc} without a loader error"
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: linux-deb
+          path: dist/*.deb
+          if-no-files-found: error
+
+  # =========================================================================
+  # .rpm — Fedora, RHEL and openSUSE. Same reasoning as the .deb: build where
+  # the Qt comes from, and let rpmbuild's soname scanner write the Requires.
+  # =========================================================================
+  rpm:
+    name: Build .rpm (Fedora)
+    needs: [gates, required-secrets]
+    runs-on: ubuntu-24.04
+    container: fedora:42
+    timeout-minutes: 45
+    steps:
+      - name: Install build and packaging dependencies
+        run: |
+          set -eux
+          dnf -y install --setopt=install_weak_deps=False \
+            git-core ca-certificates \
+            gcc-c++ cmake ninja-build pkgconf-pkg-config rpm-build \
+            qt6-qtbase-devel qt6-qtdeclarative-devel qt6-qtsvg-devel qt6-qttools-devel \
+            libsodium-devel SDL2-devel dbus-devel \
+            librsvg2-tools desktop-file-utils libappstream-glib gzip
+
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - name: Configure and build
+        run: |
+          cmake -S . -B build-release -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX=/usr \
+            -DDISH_BUILD_TESTS=OFF
+          cmake --build build-release --parallel
+
+      - name: Package
+        run: |
+          set -euo pipefail
+          cpack --config build-release/CPackConfig.cmake -G RPM -B build-release/packages
+          mkdir -p dist && cp build-release/packages/*.rpm dist/
+
+      - name: Assert package contents and scriptlets
+        run: |
+          set -euo pipefail
+          rpm -qlp dist/*.rpm
+          rpm -qp --requires dist/*.rpm
+          # Without the reload a pad plugged in before the install keeps its
+          # root-only node and every USB-direct claim fails.
+          rpm -qp --scripts dist/*.rpm | grep -q 'udevadm control' \
+            || { echo "::error::rpm carries no udev reload scriptlet"; exit 1; }
+          rpm -qlp dist/*.rpm | grep -qx '/usr/lib/udev/rules.d/70-dish-hidraw.rules' \
+            || { echo "::error::udev rule missing or at the wrong path"; exit 1; }
+
+      - name: Install the package and launch it
+        run: |
+          set -euo pipefail
+          dnf -y install ./dist/*.rpm
+          export QT_QPA_PLATFORM=offscreen
+          export XDG_RUNTIME_DIR=/tmp/dish-runtime
+          mkdir -p "$XDG_RUNTIME_DIR"
+          set +e
+          timeout 25 dish >/tmp/launch.log 2>&1
+          rc=$?
+          set -e
+          cat /tmp/launch.log
+          if grep -qE 'is not installed|failed to load component|Cannot load library|no such file' /tmp/launch.log; then
+            echo "::error::the installed package cannot load its Qt/QML runtime"
+            exit 1
+          fi
+          [ "$rc" = 124 ] || echo "::notice::dish exited ${rc} without a loader error"
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: linux-rpm
+          path: dist/*.rpm
+          if-no-files-found: error
+
+  # =========================================================================
+  # AppImage — every other distro, including the LTS whose Qt is too old.
+  # ubuntu-22.04, not 24.04: an AppImage's floor is the glibc it linked
+  # against, and 22.04's 2.35 covers every currently-supported desktop.
+  # =========================================================================
+  appimage:
+    name: Build AppImage
     needs: [gates, required-secrets]
     runs-on: ubuntu-22.04
+    timeout-minutes: 45
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -85,11 +294,7 @@ jobs:
 
       - name: Install build dependencies
         run: |
-          # A mirror that stops answering should cost seconds, not minutes:
-          # azure.archive.ubuntu.com went dark mid-afternoon and apt sat on it
-          # for 2-6 minutes per index before failing over to archive.ubuntu.com,
-          # which is what blew this job's timeout. Bound the wait; apt still
-          # reaches the working mirror, just sooner.
+          set -eux
           sudo tee /etc/apt/apt.conf.d/99-dish-acquire >/dev/null <<'CONF'
           Acquire::http::Timeout "15";
           Acquire::https::Timeout "15";
@@ -99,7 +304,7 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             build-essential cmake ninja-build pkg-config \
             libsodium-dev libsdl2-dev \
-            file fakeroot rsync wget
+            file fakeroot rsync wget curl librsvg2-bin gzip
 
       # Not apt: jammy ships Qt 6.2 and this project's floor is 6.7. The action
       # pulls the official binaries, exports CMAKE_PREFIX_PATH, and puts qmake
@@ -107,89 +312,151 @@ jobs:
       - name: Set up Qt
         uses: ./.github/actions/setup-qt
 
-      - name: Build release
+      # Everything fiddly — QML_SOURCES_PATHS, the icon basename, the offscreen
+      # smoke test — lives in the script so a local build and CI agree.
+      - name: Build AppImage
+        run: scripts/build-appimage.sh
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: linux-appimage
+          path: |
+            dist/*.AppImage
+            dist/*.AppImage.sha256
+          if-no-files-found: error
+
+  # =========================================================================
+  # Flatpak — the sandboxed build, and the artifact a Flathub PR is validated
+  # against. flatpak-builder is driven directly so there is one fewer
+  # third-party action to pin and audit.
+  # =========================================================================
+  flatpak:
+    name: Build Flatpak bundle
+    needs: [gates, required-secrets]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Install flatpak-builder
         run: |
-          cmake -S . -B build-release -G Ninja \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DDISH_BUILD_TESTS=OFF
-          cmake --build build-release --parallel --target Dish
-          install -Dm755 build-release/dish dist/usr/bin/dish
-          install -Dm644 packaging/dish.desktop dist/usr/share/applications/dish.desktop
+          set -eux
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends flatpak flatpak-builder ca-certificates
+          sudo flatpak remote-add --if-not-exists flathub \
+            https://dl.flathub.org/repo/flathub.flatpakrepo
+          sudo flatpak install -y --noninteractive flathub \
+            org.kde.Platform//6.9 org.kde.Sdk//6.9
+
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ inputs.tag || github.ref }}
 
       - name: Stage version
         id: ver
         run: |
+          set -euo pipefail
           tag="${GITHUB_REF_NAME:-${{ inputs.tag }}}"
-          version="${tag#v}"
-          echo "tag=${tag}"        >> "$GITHUB_OUTPUT"
-          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
 
-      - name: Build .deb
+      - name: Build and export bundle
         run: |
-          pkg="${RUNNER_TEMP}/dish-deb"
-          mkdir -p "${pkg}/DEBIAN" "${pkg}/usr/bin" "${pkg}/usr/share/applications"
-
-          # The Qt Quick port dropped Widgets and added Qml/Quick/Controls2, and
-          # a binary linked against the Qt from .github/actions/setup-qt needs at
-          # least that Qt to load. Read the floor back off the build instead of
-          # writing the version down a second time.
-          qt_floor="$(qmake -query QT_VERSION | cut -d. -f1,2)"
-          atleast="(>= ${qt_floor})"
-          depends="libqt6core6t64 ${atleast}, libqt6gui6t64 ${atleast}"
-          depends="${depends}, libqt6network6t64 ${atleast}, libqt6dbus6t64 ${atleast}"
-          depends="${depends}, libqt6opengl6t64 ${atleast}, libqt6svg6 ${atleast}"
-          depends="${depends}, libqt6qml6 ${atleast}, libqt6quick6 ${atleast}"
-          depends="${depends}, libqt6quickcontrols2-6 ${atleast}"
-          depends="${depends}, libsodium23, libsdl2-2.0-0"
-          cp dist/usr/bin/dish "${pkg}/usr/bin/"
-          cp dist/usr/share/applications/dish.desktop "${pkg}/usr/share/applications/"
-          cat > "${pkg}/DEBIAN/control" <<EOF
-          Package: dish
-          Version: ${{ steps.ver.outputs.version }}
-          Section: games
-          Priority: optional
-          Architecture: amd64
-          Depends: ${depends}
-          Maintainer: TinkerNorth <noreply@tinkernorth.invalid>
-          Description: Wireless gamepad client for the Satellite server.
-           Streams local SDL gamepad input to a Satellite server over an
-           encrypted UDP channel. Mirrors the Android and macOS clients.
-          EOF
-          fakeroot dpkg-deb --build "${pkg}" "dist/dish_${{ steps.ver.outputs.version }}_amd64.deb"
-
-      - name: Build AppImage
-        run: |
-          wget -q https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage -O linuxdeploy
-          wget -q https://github.com/linuxdeploy/linuxdeploy-plugin-qt/releases/download/continuous/linuxdeploy-plugin-qt-x86_64.AppImage -O linuxdeploy-plugin-qt
-          chmod +x linuxdeploy linuxdeploy-plugin-qt
-
-          appdir="${RUNNER_TEMP}/Dish.AppDir"
-          mkdir -p "${appdir}"
-          ./linuxdeploy --appdir "${appdir}" \
-            --executable build-release/dish \
-            --desktop-file packaging/dish.desktop \
-            --plugin qt \
-            --output appimage
-          mv Dish*.AppImage "dist/dish-${{ steps.ver.outputs.version }}-x86_64.AppImage"
+          set -euo pipefail
+          flatpak-builder --force-clean --disable-rofiles-fuse \
+            --repo=build-flatpak/repo build-flatpak/build \
+            packaging/flatpak/com.tinkernorth.Dish.yml
+          mkdir -p dist
+          flatpak build-bundle build-flatpak/repo \
+            "dist/Dish-${{ steps.ver.outputs.version }}-x86_64.flatpak" \
+            com.tinkernorth.Dish
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: linux
-          path: |
-            dist/*.deb
-            dist/*.AppImage
+          name: linux-flatpak
+          path: dist/*.flatpak
+          if-no-files-found: error
+
+  # =========================================================================
+  # latest.json — the update manifest.
+  #
+  # core/update/UpdateManifest.h fetches releases/latest/download/latest.json
+  # and rejects anything whose product is not "dish-linux", whose channel is
+  # not "stable", or whose minimumSupportedVersion is malformed or newer than
+  # its version. This job is the only producer; the asset name never changes.
+  # Without it the in-app update check 404s forever.
+  # =========================================================================
+  manifest:
+    name: Emit update manifest
+    needs: [gates]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - name: Write latest.json
+        env:
+          TAG: ${{ inputs.tag || github.ref_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          version="${TAG#v}"
+          case "${version}" in
+            [0-9]*.[0-9]*.[0-9]*) ;;
+            *) echo "::error::tag '${TAG}' is not vMAJOR.MINOR.PATCH"; exit 1 ;;
+          esac
+
+          # The drift that breaks every client at once: a manifest naming a
+          # version the shipped binary does not report. DISH_VERSION comes from
+          # project(Dish VERSION ...), so checking CMakeLists checks the binary.
+          project_version="$(awk '/^project\(Dish/ { inproj = 1 }
+                                  inproj && /^[[:space:]]*VERSION[[:space:]]/ { print $2; exit }' CMakeLists.txt)"
+          [ "${project_version}" = "${version}" ] \
+            || { echo "::error::tag ${TAG} but project(Dish VERSION) is ${project_version}"; exit 1; }
+
+          min="$(python3 -c 'import json;print(json.load(open("packaging/update-policy.json"))["minimumSupportedVersion"])')"
+
+          mkdir -p dist
+          python3 - "$version" "$min" "$REPO" "$TAG" > dist/latest.json <<'PY'
+          import json, sys, datetime
+          version, minimum, repo, tag = sys.argv[1:5]
+          print(json.dumps({
+              "schema": 1,
+              "product": "dish-linux",
+              "version": version,
+              "channel": "stable",
+              "publishedAt": datetime.datetime.now(datetime.timezone.utc)
+                                 .strftime("%Y-%m-%dT%H:%M:%SZ"),
+              "minimumSupportedVersion": minimum,
+              "releaseNotesUrl": f"https://github.com/{repo}/releases/tag/{tag}",
+          }, indent=2))
+          PY
+          cat dist/latest.json
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: linux-manifest
+          path: dist/latest.json
+          if-no-files-found: error
 
   harden:
     name: Harden artifacts (scan, SBOM, sign)
-    needs: [release]
+    needs: [deb, rpm, appimage, flatpak, manifest]
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
+      security-events: write
     outputs:
       hashes: ${{ steps.hashes.outputs.hashes }}
     steps:
       - name: Download release artifacts
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: linux
+          pattern: linux-*
+          merge-multiple: true
           path: release
 
       - name: Vulnerability scan (Grype)
@@ -205,7 +472,8 @@ jobs:
 
       - name: Upload Grype SARIF to code scanning
         if: ${{ always() && steps.grype.outputs.sarif != '' }}
-        uses: github/codeql-action/upload-sarif@662472033e021d55d94146f66f6058822b0b39fd # v3.27.0
+        continue-on-error: true
+        uses: github/codeql-action/upload-sarif@68bde559dea0fdcac2102bfdf6230c5f70eb485e # v4.35.4
         with:
           sarif_file: ${{ steps.grype.outputs.sarif }}
           category: release-grype
@@ -313,6 +581,9 @@ jobs:
     name: Publish to GitHub Releases
     needs: [harden, provenance]
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
     steps:
       - name: Download hardened bundle
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1

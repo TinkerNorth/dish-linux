@@ -117,13 +117,33 @@ license — the project is LGPL-3.0-or-later end-to-end (`LICENSE`,
 
 ## What CI runs
 
-Build + style:
+Build + style — `linux-ci.yml`, four jobs:
 
-- `linux-ci.yml`: `clang-format --dry-run --Werror`, Debug build + `ctest`
-  (Catch2 suite under `tests/`), `qmllint` over every tracked QML file,
+- `ci`, once per compiler (gcc and clang): `clang-format --dry-run --Werror`,
+  Debug build + `ctest`, `qmllint` over every tracked QML file,
   `scripts/qml-lint-literals.sh`, `scripts/check-translations.sh`,
-  `clang-tidy -p build-tidy` over `src/` excluding `src/UI/` and `src/qml/`,
-  and a Release build that uploads `dish` as a CI artifact.
+  `clang-tidy -p build` over `src/` excluding `src/UI/` and `src/qml/`, then a
+  Release build that ALSO runs `ctest` and is checked for RELRO, BIND_NOW, a
+  non-executable stack and PIE. The lint steps run on the gcc leg only; the
+  clang leg exists because `-Wconversion`, `-Wshadow` and `-Wold-style-cast`
+  diverge materially between the two compilers.
+- `sanitize`: the suite under ASan+UBSan and under TSan. TSan is not optional
+  here — four long-lived threads share atomics and mutexes, and nothing else in
+  the pipeline would see a race.
+- `package`: builds the `.deb` from the install rules in a `debian:trixie`
+  container, runs `desktop-file-validate`, `appstreamcli validate` and
+  `lintian --fail-on error`, asserts the payload, then **installs the package
+  and launches it**. That last step is the only gate that can catch a missing
+  runtime dependency: every other check passes against a build tree, which is
+  exactly where a QML module resolves from the Qt install rather than from a
+  `Depends:` line.
+- `coverage`: lcov over the Debug suite, summarised into the job page.
+
+`version-consistency.yml` fails a PR that moves the version in one place and not
+the others. `CMakeLists.txt`'s `project(Dish VERSION ...)` is the source; the
+mirrors are `packaging/com.tinkernorth.Dish.metainfo.xml`'s `<release>`, the
+`CHANGELOG.md` heading, and — for the Qt floor — `docs/PACKAGING.md`,
+`README.md`, `THIRD_PARTY.md` and `assets/licenses/licenses.json`.
 
 Security gates (also blocking):
 
@@ -133,9 +153,11 @@ Security gates (also blocking):
 - `codeql.yml`: CodeQL `cpp` analysis (security-extended +
   security-and-quality query packs).
 
-`scripts/ci_local.sh` runs every gate in the same order against your worktree,
-so a green run there means a green run in CI. `--no-tidy` skips the slowest
-step for a fast loop.
+`scripts/ci_local.sh` runs those gates in the same order against your worktree,
+so a green run there means a green run in CI. `--no-tidy` skips the slowest step
+for a fast loop; `--with-package` adds the CPack/lintian leg. A gate whose tool
+is missing FAILS rather than printing a notice — pass `--allow-missing` if you
+really want to skip it, and know that you did.
 
 ## Security
 
@@ -240,15 +262,16 @@ in the config, so this repo can hold a higher bar without forking the file.
 `src/UI/` and `src/qml/` are excluded: Qt's MOC- and qmltyperegistrar-generated
 code triggers a long tail of false positives that no source change can fix.
 
-Reproduce locally:
+Reproduce locally. Reads the same `build/` the other gates use — CMakeLists exports the compile
+database globally, so a second tree only re-derives the same `src/` entries and
+costs another full build:
 
 ```sh
-cmake -S . -B build-tidy -G Ninja -DCMAKE_BUILD_TYPE=Debug \
-  -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DDISH_BUILD_TESTS=OFF
-cmake --build build-tidy --parallel
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DDISH_BUILD_TESTS=ON
+cmake --build build --parallel
 find src -type f \( -name '*.cpp' -o -name '*.h' \) \
   ! -path 'src/UI/*' ! -path 'src/qml/*' -print0 |
-  xargs -0 -n1 -P"$(nproc)" clang-tidy -p build-tidy --quiet --warnings-as-errors='*'
+  xargs -0 -n1 -P"$(nproc)" clang-tidy -p build --quiet --warnings-as-errors='*'
 ```
 
 When a check is a genuine false positive — two switch arms that share an answer

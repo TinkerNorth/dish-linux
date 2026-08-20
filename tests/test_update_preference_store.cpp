@@ -52,6 +52,9 @@ TEST_CASE("update preference store: checks default on, nothing skipped", "[updat
     const auto store = makeStore(dir.filePath(QStringLiteral("prefs.ini")));
     CHECK(store->checksEnabled());
     CHECK(store->skippedVersion().isEmpty());
+    // A fresh file must read back as the struct's own defaults, so the two
+    // cannot drift apart.
+    CHECK(store->state().value() == UpdatePreferences{});
 }
 
 TEST_CASE("update preference store: a set persists and survives a reopen",
@@ -91,6 +94,39 @@ TEST_CASE("update preference store: a seeded file is read at construction",
     CHECK(store->skippedVersion() == QStringLiteral("1.2.3"));
 }
 
+TEST_CASE("update preference store: an explicit true is read back as true",
+          "[update][update-prefs]") {
+    // The seeded case above writes `false`, which a broken reader could also
+    // produce by ignoring the file; a persisted `true` pins the other side.
+    QTemporaryDir dir;
+    REQUIRE(dir.isValid());
+    const QString ini = dir.filePath(QStringLiteral("prefs.ini"));
+    {
+        QSettings seed(ini, QSettings::IniFormat);
+        seed.setValue(QLatin1String(UpdatePreferenceStore::kKeyChecksEnabled), true);
+        seed.setValue(QLatin1String(UpdatePreferenceStore::kKeySkippedVersion),
+                      QStringLiteral("1.0.0"));
+        seed.sync();
+    }
+    const auto store = makeStore(ini);
+    CHECK(store->checksEnabled());
+    CHECK(store->skippedVersion() == QStringLiteral("1.0.0"));
+}
+
+TEST_CASE("update preference store: the preference slice compares field-wise",
+          "[update][update-prefs]") {
+    // This is the distinct-until-changed predicate for the reactive slice: a
+    // field dropped from it stops republishing, silently.
+    UpdatePreferences a;
+    UpdatePreferences b;
+    CHECK(a == b);
+    b.checksEnabled = false;
+    CHECK(a != b);
+    b = a;
+    b.skippedVersion = QStringLiteral("0.2.0");
+    CHECK(a != b);
+}
+
 TEST_CASE("update preference store: a repeat set does not re-emit", "[update][update-prefs]") {
     QTemporaryDir dir;
     REQUIRE(dir.isValid());
@@ -110,4 +146,11 @@ TEST_CASE("update preference store: a repeat set does not re-emit", "[update][up
     CHECK(probe.latest().skippedVersion == QStringLiteral("2.0.0"));
     store->setSkippedVersion(QStringLiteral("2.0.0"));
     CHECK(probe.count() == 3);
+
+    // Clearing the mute is a change like any other: without this a version
+    // stays muted forever and nothing can un-skip it.
+    store->setSkippedVersion(QString());
+    CHECK(probe.count() == 4);
+    CHECK(probe.latest().skippedVersion.isEmpty());
+    CHECK(store->skippedVersion().isEmpty());
 }

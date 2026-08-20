@@ -31,10 +31,15 @@ class HTTPClient : public QObject {
 
     // Returning false aborts the request. Pins on first contact and rejects a
     // later cert whose fingerprint differs. See source/http/SatelliteTlsVerifier.
-    using PinVerifier = std::function<bool(const QString& host, const QByteArray& certDer)>;
+    // `pinMismatch` is set only for that CHANGED-cert case, never for a missing
+    // cert, so the caller can tell an identity change from a dead link.
+    using PinVerifier =
+        std::function<bool(const QString& host, const QByteArray& certDer, bool& pinMismatch)>;
     void setPinVerifier(PinVerifier verifier) { pinVerifier_ = std::move(verifier); }
 
-    using SessionCb = std::function<void(const models::SessionResponse&)>;
+    // The mismatch rides beside the DTO because an aborted handshake leaves no
+    // body to carry it.
+    using SessionCb = std::function<void(const models::SessionResponse&, bool pinMismatch)>;
     using ControllerCb = std::function<void(const models::ControllerPutResponse&)>;
     using ViewCb = std::function<void(const models::SessionViewDto&)>;
     using CapabilitiesCb = std::function<void(const models::CapabilitiesDto&)>;
@@ -88,6 +93,7 @@ class HTTPClient : public QObject {
         bool reachable = false; // the server answered, even if with an error
         QByteArray body;
         QString etag;
+        bool pinMismatch = false;
     };
 
     void perform(const QString& url, const QByteArray& method, const QByteArray& body,

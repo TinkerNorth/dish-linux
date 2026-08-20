@@ -11,6 +11,7 @@
 #include <chrono>
 #include <unistd.h>
 
+#include <cerrno>
 #include <cstring>
 
 namespace dish::net {
@@ -48,6 +49,11 @@ bool SatelliteClient::openSocket(const std::string& ip, int port) {
     // the call still reports success.
     int tos = 0xB8;
     ::setsockopt(s, IPPROTO_IP, IP_TOS, &tos, sizeof(tos));
+
+    // Also best-effort: older kernels want CAP_NET_ADMIN and refuse it. Losing
+    // the poll spin costs latency, never the socket.
+    int busyPoll = 50;
+    ::setsockopt(s, SOL_SOCKET, SO_BUSY_POLL, &busyPoll, sizeof(busyPoll));
 
     // Bounds the recv block so the ACK loop can poll `ackRunning_` and exit.
     timeval rtv{};
@@ -217,9 +223,9 @@ void SatelliteClient::sendTouchpad(int controllerIndex, bool finger0Active, std:
     sendEncrypted(kMsgTouchpad, payload.data(), payload.size());
 }
 
-void SatelliteClient::sendEncrypted(std::uint16_t msgType, const std::uint8_t* payload,
+bool SatelliteClient::sendEncrypted(std::uint16_t msgType, const std::uint8_t* payload,
                                     std::size_t len) {
-    if (sock_ < 0) { return; }
+    if (sock_ < 0) { return false; }
     // Inner: msgType(BE16) + payloadLen(BE16) + payload.
     const std::size_t innerLen = 4 + len;
     std::vector<std::uint8_t> inner(innerLen);
@@ -244,7 +250,7 @@ void SatelliteClient::sendEncrypted(std::uint16_t msgType, const std::uint8_t* p
     // keystream, so past 2^32-1 the session goes silent instead. The proactive
     // re-key re-PUTs long before that.
     const auto ctr = reducer::wireSendCounter(seq);
-    if (!ctr.has_value()) { return; }
+    if (!ctr.has_value()) { return false; }
 
     // token(4) | counter(4 BE) | ciphertext+tag. The nonce and AAD are built
     // inside wire::encryptPacket.
@@ -255,14 +261,20 @@ void SatelliteClient::sendEncrypted(std::uint16_t msgType, const std::uint8_t* p
     unsigned long long cipherLen = 0;
     if (!wire::encryptPacket(key.data(), wire::kDirClientToServer, *ctr, tokenBe, inner.data(),
                              inner.size(), packet.data() + kHeaderSize, &cipherLen)) {
-        return;
+        return false;
     }
     packet.resize(kHeaderSize + cipherLen);
 
     std::lock_guard<std::mutex> lock(sendLock_);
-    if (sock_ < 0) { return; }
-    ::sendto(sock_, packet.data(), packet.size(), MSG_NOSIGNAL, reinterpret_cast<sockaddr*>(&dest_),
-             sizeof(dest_));
+    if (sock_ < 0) { return false; }
+    // MSG_DONTWAIT: this runs on the SDL input thread, where a blocking sendto
+    // was observed to stall 1.5s across a Wi-Fi power-save transition.
+    const ssize_t sent = ::sendto(sock_, packet.data(), packet.size(), MSG_NOSIGNAL | MSG_DONTWAIT,
+                                  reinterpret_cast<sockaddr*>(&dest_), sizeof(dest_));
+    // Soft-drop on buffer-full: UDP semantics absorb it and the next tick
+    // refreshes state.
+    if (sent < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) { return true; }
+    return sent == static_cast<ssize_t>(packet.size());
 }
 
 void SatelliteClient::startHeartbeat() {

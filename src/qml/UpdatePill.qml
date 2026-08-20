@@ -39,6 +39,16 @@ AbstractButton {
         color: pill.hovered ? Theme.primaryHover : "transparent"
         border.width: pill.visualFocus ? 1 : 0
         border.color: Theme.primary
+
+        Rectangle {
+            visible: pill.visualFocus
+            anchors.fill: parent
+            anchors.margins: -Tokens.s1
+            radius: Tokens.radiusChip + Tokens.s1
+            color: "transparent"
+            border.width: 2
+            border.color: Theme.focusRing
+        }
     }
 
     contentItem: Item {

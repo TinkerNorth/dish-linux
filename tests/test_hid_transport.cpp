@@ -10,8 +10,14 @@
 // behaviour for paths that resolve to nothing. A path shape that reaches no
 // uevent must read as not-Bluetooth, because the wired presentation is the
 // safe default.
+//
+// The hidraw gateway reads the same uevent, one level further: it enumerates off
+// sysfs so a node the user cannot open still shows up, and it needs the vendor
+// and product out of the HID_ID triple as well as the bus. That parse is pinned
+// here, beside the classifier it shares a format with.
 
 #include "core/input/HidTransport.h"
+#include "source/usb/HidrawGateway.h"
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -20,9 +26,12 @@
 #include <QTemporaryDir>
 
 #include <string>
+#include <string_view>
 
 using dish::input::isBluetoothHidDevicePath;
 using dish::input::detail::ueventSaysBluetooth;
+using dish::source::usb::detail::parseHidIds;
+using dish::source::usb::detail::ueventValue;
 
 namespace {
 
@@ -86,4 +95,50 @@ TEST_CASE("classification fails safe for paths that resolve to nothing", "[input
     // A path shape the classifier does not know is not a guess.
     CHECK_FALSE(isBluetoothHidDevicePath("/dev/ttyUSB0"));
     CHECK_FALSE(isBluetoothHidDevicePath("some-opaque-sdl-identifier"));
+}
+
+TEST_CASE("hidraw uevent: the HID_ID triple carries bus, vendor and product",
+          "[input][hid-transport]") {
+    const auto ids = parseHidIds("DRIVER=hid-generic\n"
+                                 "HID_ID=0003:0000054C:00000CE6\n"
+                                 "HID_NAME=Wireless Controller\n");
+    REQUIRE(ids.has_value());
+    CHECK(ids->bus == 0x0003U);
+    CHECK(ids->vendorId == 0x054CU);
+    CHECK(ids->productId == 0x0CE6U);
+}
+
+TEST_CASE("hidraw uevent: a Bluetooth pad reports bus 0005, which the USB-only rule drops",
+          "[input][hid-transport]") {
+    const auto ids = parseHidIds("DRIVER=playstation\n"
+                                 "HID_ID=0005:0000054C:00000CE6\n");
+    REQUIRE(ids.has_value());
+    CHECK(ids->bus == 0x0005U);
+}
+
+TEST_CASE("hidraw uevent: an identity that cannot be read is skipped, never guessed",
+          "[input][hid-transport]") {
+    // Position in the file does not matter, the same as for the classifier.
+    CHECK(parseHidIds("MODALIAS=hid:b0003g0001v0000054Cp00000CE6\n"
+                      "HID_ID=0003:0000054C:00000CE6\n")
+              .has_value());
+    CHECK_FALSE(parseHidIds("DRIVER=usbhid\nMODALIAS=usb:v054Cp0CE6\n").has_value());
+    CHECK_FALSE(parseHidIds("").has_value());
+    CHECK_FALSE(parseHidIds("HID_ID=0003:0000054C\n").has_value());      // a field short
+    CHECK_FALSE(parseHidIds("HID_ID=0003:zzzz:00000CE6\n").has_value()); // not hex
+    CHECK_FALSE(parseHidIds("HID_ID=\n").has_value());
+    // The key has to match whole, not as a prefix.
+    CHECK_FALSE(parseHidIds("HID_IDENT=0003:0000054C:00000CE6\n").has_value());
+}
+
+TEST_CASE("hidraw uevent: HID_NAME is what an unmodelled pad is named", "[input][hid-transport]") {
+    const std::string_view uevent = "DRIVER=playstation\n"
+                                    "HID_ID=0003:0000054C:00000CE6\n"
+                                    "HID_NAME=Sony Interactive Entertainment DualSense\n"
+                                    "HID_PHYS=usb-0000:00:14.0-3/input0\n";
+    CHECK(ueventValue(uevent, "HID_NAME") == "Sony Interactive Entertainment DualSense");
+    CHECK(ueventValue(uevent, "HID_UNIQ").empty());
+    CHECK(ueventValue(uevent, "HID_NA").empty());
+    // A uevent whose last line has no trailing newline still reads.
+    CHECK(ueventValue("HID_NAME=8BitDo Pro 2", "HID_NAME") == "8BitDo Pro 2");
 }

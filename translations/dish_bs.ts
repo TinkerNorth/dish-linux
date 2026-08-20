@@ -354,10 +354,6 @@
         <translation>Brzi</translation>
     </message>
     <message>
-        <source>Direct access denied — another app owns this device.</source>
-        <translation>Pristup za Brzi način odbijen — druga aplikacija drži ovaj uređaj.</translation>
-    </message>
-    <message>
         <source>Unplug and replug the controller to finish switching.</source>
         <translation>Isključite i ponovo priključite kontroler da završite prebacivanje.</translation>
     </message>
@@ -709,6 +705,10 @@
         <source>No rumble</source>
         <translation>Nema vibracije</translation>
     </message>
+    <message>
+        <source>Direct access denied — hidraw needs a udev rule. Install packaging/udev/70-dish-hidraw.rules, run udevadm control --reload-rules &amp;&amp; udevadm trigger, then replug the controller.</source>
+        <translation type="unfinished"></translation>
+    </message>
 </context>
 <context>
     <name>ConnectionsPage</name>
@@ -999,10 +999,6 @@
         <translation>Isključite i ponovo priključite kontroler da završite prebacivanje.</translation>
     </message>
     <message>
-        <source>Direct access denied — another app owns this device.</source>
-        <translation>Pristup za Brzi način odbijen — druga aplikacija drži ovaj uređaj.</translation>
-    </message>
-    <message>
         <source>Direct claim is busy — another app or driver holds the device.</source>
         <translation>Brzi način ne može preuzeti uređaj — druga aplikacija ili drajver ga drži.</translation>
     </message>
@@ -1089,6 +1085,10 @@
     <message>
         <source>Direct claim couldn’t start the controller’s report stream.</source>
         <translation>Brzi način nije mogao pokrenuti tok izvještaja kontrolera.</translation>
+    </message>
+    <message>
+        <source>Direct access denied — hidraw needs a udev rule. Install packaging/udev/70-dish-hidraw.rules, run udevadm control --reload-rules &amp;&amp; udevadm trigger, then replug the controller.</source>
+        <translation type="unfinished"></translation>
     </message>
 </context>
 <context>

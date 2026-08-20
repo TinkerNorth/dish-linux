@@ -15,6 +15,8 @@
 #include <QSslSocket>
 #include <QUrl>
 
+#include <memory>
+
 namespace dish::net {
 
 namespace {
@@ -62,26 +64,29 @@ void HTTPClient::perform(const QString& url, const QByteArray& method, const QBy
     QObject::connect(reply, &QNetworkReply::sslErrors, reply,
                      [reply](const QList<QSslError>&) { reply->ignoreSslErrors(); });
     // `encrypted` is the earliest point the peer cert is available. An abort here
-    // surfaces through `finished` as unreachable, indistinguishable from a
-    // dropped connection.
+    // reaches `finished` with no status and no body, so the mismatch itself has
+    // to be carried out of band or it reads as a dropped connection.
+    const auto pinMismatch = std::make_shared<bool>(false);
     if (pinVerifier_) {
-        QObject::connect(reply, &QNetworkReply::encrypted, reply, [this, reply, host] {
+        QObject::connect(reply, &QNetworkReply::encrypted, reply, [this, reply, host, pinMismatch] {
             const QByteArray der = reply->sslConfiguration().peerCertificate().toDer();
-            if (!pinVerifier_(host, der)) { reply->abort(); }
+            if (!pinVerifier_(host, der, *pinMismatch)) { reply->abort(); }
         });
     }
-    QObject::connect(reply, &QNetworkReply::finished, this, [reply, done = std::move(done)] {
-        reply->deleteLater();
-        RawReply out;
-        const auto statusVar = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute);
-        out.status = statusVar.isValid() ? statusVar.toInt() : 0;
-        out.body = reply->readAll();
-        // A 4xx/5xx body still means the server answered; only a missing status
-        // AND an empty body is a transport failure.
-        out.reachable = out.status != 0 || !out.body.isEmpty();
-        out.etag = QString::fromUtf8(reply->rawHeader("ETag"));
-        done(out);
-    });
+    QObject::connect(
+        reply, &QNetworkReply::finished, this, [reply, pinMismatch, done = std::move(done)] {
+            reply->deleteLater();
+            RawReply out;
+            const auto statusVar = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute);
+            out.status = statusVar.isValid() ? statusVar.toInt() : 0;
+            out.body = reply->readAll();
+            // A 4xx/5xx body still means the server answered; only a missing
+            // status AND an empty body is a transport failure.
+            out.reachable = out.status != 0 || !out.body.isEmpty();
+            out.etag = QString::fromUtf8(reply->rawHeader("ETag"));
+            out.pinMismatch = *pinMismatch;
+            done(out);
+        });
 }
 
 void HTTPClient::putSession(const QString& ip, int port, const QString& deviceId,
@@ -103,7 +108,7 @@ void HTTPClient::putSession(const QString& ip, int port, const QString& deviceId
         if (r.reachable) { resp = models::SessionResponse::fromJson(parseObject(r.body)); }
         resp.httpStatus = r.status;
         resp.reachable = r.reachable;
-        cb(resp);
+        cb(resp, r.pinMismatch);
     });
 }
 

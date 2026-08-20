@@ -1,0 +1,25 @@
+#!/bin/sh
+# SPDX-License-Identifier: LGPL-3.0-or-later
+# Copyright (C) 2026 Dish contributors.
+#
+# dpkg has already removed the rule by the time this runs; the reload is what
+# makes the removal take effect on a running udevd. Nothing is purged: settings
+# live in ~/.config/TinkerNorth/Dish.conf and are the user's data.
+set -e
+
+case "$1" in
+    remove|purge)
+        if command -v udevadm >/dev/null 2>&1; then
+            udevadm control --reload-rules >/dev/null 2>&1 || true
+            udevadm trigger --subsystem-match=hidraw >/dev/null 2>&1 || true
+        fi
+        ;;
+    upgrade|failed-upgrade|abort-install|abort-upgrade|disappear)
+        ;;
+    *)
+        echo "postrm called with unknown argument \`$1'" >&2
+        exit 1
+        ;;
+esac
+
+exit 0

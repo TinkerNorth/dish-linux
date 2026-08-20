@@ -37,7 +37,7 @@ TEST_CASE("idle + submit starts an attempt carrying the pin", "[pair-fsm]") {
 TEST_CASE("idle + reply is a stale no-op", "[pair-fsm]") {
     for (const PairVerdict v :
          {PairVerdict::Success, PairVerdict::Pending, PairVerdict::AuthRequired,
-          PairVerdict::VersionMismatch, PairVerdict::Unreachable}) {
+          PairVerdict::VersionMismatch, PairVerdict::Unreachable, PairVerdict::IdentityChanged}) {
         const auto r = reducePairing(state(PairPhase::Idle), pe::ReplyClassified{v});
         CHECK(r == state(PairPhase::Idle));
     }
@@ -131,7 +131,7 @@ TEST_CASE("succeeded + submit starts a fresh attempt", "[pair-fsm]") {
 TEST_CASE("succeeded + reply is a stale no-op", "[pair-fsm]") {
     for (const PairVerdict v :
          {PairVerdict::Success, PairVerdict::Pending, PairVerdict::AuthRequired,
-          PairVerdict::VersionMismatch, PairVerdict::Unreachable}) {
+          PairVerdict::VersionMismatch, PairVerdict::Unreachable, PairVerdict::IdentityChanged}) {
         const auto r = reducePairing(state(PairPhase::Succeeded), pe::ReplyClassified{v});
         CHECK(r == state(PairPhase::Succeeded));
     }
@@ -160,7 +160,7 @@ TEST_CASE("failed + reply is a stale no-op (preserves the retained reason)", "[p
     const auto failed = state(PairPhase::Failed, PairFailure::Unreachable, "1234");
     for (const PairVerdict v :
          {PairVerdict::Success, PairVerdict::Pending, PairVerdict::AuthRequired,
-          PairVerdict::VersionMismatch, PairVerdict::Unreachable}) {
+          PairVerdict::VersionMismatch, PairVerdict::Unreachable, PairVerdict::IdentityChanged}) {
         const auto r = reducePairing(failed, pe::ReplyClassified{v});
         CHECK(r == failed);
     }
@@ -187,6 +187,7 @@ TEST_CASE("each failing PairVerdict maps to its distinct PairFailure", "[pair-fs
         {PairVerdict::AuthRequired, PairFailure::WrongPin},
         {PairVerdict::VersionMismatch, PairFailure::VersionMismatch},
         {PairVerdict::Unreachable, PairFailure::Unreachable},
+        {PairVerdict::IdentityChanged, PairFailure::IdentityChanged},
     };
     for (const auto& c : cases) {
         const auto r = reducePairing(state(PairPhase::Submitting, std::nullopt, "1234"),

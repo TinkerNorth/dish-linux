@@ -1,0 +1,32 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: Dish
+Upstream-Contact: TinkerNorth <security@tinkernorth.com>
+Source: https://github.com/TinkerNorth/dish-linux
+
+Files: *
+Copyright: 2026 Dish contributors
+License: LGPL-3.0-or-later
+
+Files: packaging/fonts/Inter-*.ttf
+Copyright: 2016-2024 The Inter Project Authors
+License: OFL-1.1
+
+License: LGPL-3.0-or-later
+ This program is free software: you can redistribute it and/or modify it under
+ the terms of the GNU Lesser General Public License as published by the Free
+ Software Foundation, either version 3 of the License, or (at your option) any
+ later version.
+ .
+ This program is distributed in the hope that it will be useful, but WITHOUT ANY
+ WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
+ PARTICULAR PURPOSE. See the GNU Lesser General Public License for more details.
+ .
+ On Debian systems the complete text of the GNU Lesser General Public License
+ version 3 can be found in /usr/share/common-licenses/LGPL-3, and the GNU
+ General Public License version 3 it extends in /usr/share/common-licenses/GPL-3.
+
+License: OFL-1.1
+ This Font Software is licensed under the SIL Open Font License, Version 1.1.
+ The full text ships with this package as
+ /usr/share/doc/dish/Inter-LICENSE.txt and is available at
+ https://openfontlicense.org

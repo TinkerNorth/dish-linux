@@ -28,6 +28,10 @@ using dish::reducer::update_schedule::backoffDelayMs;
 using dish::reducer::update_schedule::jitteredDelayMs;
 using dish::reducer::update_schedule::kBackoffBaseMs;
 using dish::reducer::update_schedule::kBackoffCapMs;
+using dish::reducer::update_schedule::kBackoffJitter;
+using dish::reducer::update_schedule::kFutureSkewEscapeMs;
+using dish::reducer::update_schedule::kManualMinGapMs;
+using dish::reducer::update_schedule::kMinCheckGapMs;
 using dish::reducer::update_schedule::kPeriodicIntervalMs;
 using dish::reducer::update_schedule::kReconnectCheckDelayMs;
 using dish::reducer::update_schedule::kStartupDelayMs;
@@ -59,6 +63,19 @@ UpdateStatus atVersion(const QString& current) {
 UpdateStatus checking(const QString& current) {
     UpdateStatus s = atVersion(current);
     s.phase = UpdatePhase::Checking;
+    return s;
+}
+
+// Every field an arm might read is populated, so a totality sweep exercises the
+// guards rather than a blank struct.
+UpdateStatus inPhase(UpdatePhase phase) {
+    UpdateStatus s = atVersion(QStringLiteral("0.1.0"));
+    s.phase = phase;
+    s.availableVersion = QStringLiteral("0.2.0");
+    s.notesUrl = QStringLiteral("https://github.com/TinkerNorth/dish-linux/releases/tag/0.2.0");
+    s.skippedVersion = QStringLiteral("0.1.5");
+    s.consecutiveFailures = 2;
+    s.error = UpdateError::Http;
     return s;
 }
 
@@ -232,11 +249,33 @@ TEST_CASE("a failed check climbs the backoff ladder", "[update][machine]") {
     CHECK(d2->delayMs == kBackoffBaseMs * 2);
 }
 
+TEST_CASE("the schedule constants are the documented ones", "[update][machine]") {
+    // Literals, not the constants themselves: an assertion written in terms of
+    // the constant it is guarding passes whatever the constant becomes, and
+    // polling a release host on a shorter cadence than this is abuse.
+    CHECK(kStartupDelayMs == 15'000);
+    CHECK(kMinCheckGapMs == 60LL * 60 * 1000);
+    CHECK(kFutureSkewEscapeMs == 24LL * 60 * 60 * 1000);
+    CHECK(kPeriodicIntervalMs == 4 * 60 * 60 * 1000);
+    CHECK(kBackoffBaseMs == 10 * 60 * 1000);
+    CHECK(kBackoffCapMs == 6 * 60 * 60 * 1000);
+    CHECK(kBackoffJitter == 0.2);
+    CHECK(kManualMinGapMs == 10'000);
+    CHECK(kReconnectCheckDelayMs == 30'000);
+}
+
 TEST_CASE("the backoff ladder doubles and then caps", "[update][machine]") {
-    CHECK(backoffDelayMs(0) == kBackoffBaseMs);
-    CHECK(backoffDelayMs(1) == kBackoffBaseMs);
-    CHECK(backoffDelayMs(2) == kBackoffBaseMs * 2);
-    CHECK(backoffDelayMs(3) == kBackoffBaseMs * 4);
+    CHECK(backoffDelayMs(0) == 10 * 60 * 1000);
+    CHECK(backoffDelayMs(1) == 10 * 60 * 1000);
+    CHECK(backoffDelayMs(2) == 20 * 60 * 1000);
+    CHECK(backoffDelayMs(3) == 40 * 60 * 1000);
+    CHECK(backoffDelayMs(4) == 80 * 60 * 1000);
+    CHECK(backoffDelayMs(5) == 160 * 60 * 1000);
+    // The rung either side of the cap: 6 is the last true doubling, 7 is the
+    // first clamp, and a ladder that capped one rung early would still satisfy
+    // the 0..3 cases alone.
+    CHECK(backoffDelayMs(6) == 320 * 60 * 1000);
+    CHECK(backoffDelayMs(7) == kBackoffCapMs);
     CHECK(backoffDelayMs(99) == kBackoffCapMs);
 }
 
@@ -281,6 +320,41 @@ TEST_CASE("re-enabling checks behaves like a cold start", "[update][machine]") {
     const auto* next = find<ufx::ScheduleNextCheck>(r.effects);
     REQUIRE(next != nullptr);
     CHECK(next->delayMs == kStartupDelayMs);
+}
+
+TEST_CASE("every phase-event pair is total", "[update][machine]") {
+    // The header claims totality; this walks the whole grid so the claim is
+    // enforced rather than asserted in prose.
+    const std::vector<UpdatePhase> phases{UpdatePhase::Disabled,  UpdatePhase::Idle,
+                                          UpdatePhase::Checking,  UpdatePhase::UpToDate,
+                                          UpdatePhase::Available, UpdatePhase::Failed};
+    const std::vector<dish::reducer::UpdateEvent> events{
+        uev::PrefsChanged{true, QString()},
+        uev::PrefsChanged{false, QStringLiteral("0.2.0")},
+        uev::CheckRequested{UpdateTrigger::Startup},
+        uev::CheckRequested{UpdateTrigger::Periodic},
+        uev::CheckRequested{UpdateTrigger::Manual},
+        uev::CheckRequested{UpdateTrigger::Retry},
+        uev::ManifestArrived{manifest(QStringLiteral("0.2.0"))},
+        uev::ManifestArrived{manifest(QStringLiteral("0.0.1"))},
+        uev::CheckFailed{UpdateError::Offline},
+        uev::CheckFailed{UpdateError::ManifestInvalid},
+        uev::SkipRequested{QStringLiteral("0.2.0")},
+        uev::SkipRequested{QString()},
+        uev::ReachabilityChanged{true},
+        uev::ReachabilityChanged{false},
+    };
+
+    for (const UpdatePhase phase : phases) {
+        for (const auto& event : events) {
+            const auto r = reduceUpdate(inPhase(phase), event);
+            CHECK(static_cast<int>(r.next.phase) >= static_cast<int>(UpdatePhase::Disabled));
+            CHECK(static_cast<int>(r.next.phase) <= static_cast<int>(UpdatePhase::Failed));
+            // The running build is an input, never something a reduction edits.
+            CHECK(r.next.currentVersion == QStringLiteral("0.1.0"));
+            CHECK(r.next.consecutiveFailures >= 0);
+        }
+    }
 }
 
 TEST_CASE("coming back online re-arms only an offline-gated failure", "[update][machine]") {

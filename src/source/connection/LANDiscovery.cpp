@@ -61,8 +61,12 @@ QList<models::DiscoveredServer> LANDiscovery::discover(int port, int timeoutMs) 
         ::inet_ntop(AF_INET, &from.sin_addr, ipStr, INET_ADDRSTRLEN);
         const QString ip = QString::fromLatin1(ipStr);
         if (seen.contains(ip)) { continue; }
-        seen.insert(ip);
-        if (auto server = parseBeacon(json, ip)) { result.append(*server); }
+        // Marked seen only once a beacon parses: any other datagram on this port
+        // would otherwise suppress the satellite for the rest of the scan.
+        if (auto server = parseBeacon(json, ip)) {
+            seen.insert(ip);
+            result.append(*server);
+        }
     }
 
     ::close(sock);

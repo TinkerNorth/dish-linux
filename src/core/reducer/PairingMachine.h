@@ -33,6 +33,9 @@ enum class PairFailure : std::uint8_t {
     // No PairVerdict arm maps here yet. Carried so the forward and reverse
     // pairing vocabularies match.
     Declined,
+    // The pinned certificate changed. Terminal, and not a PIN problem: only an
+    // explicit Forget can clear the pin, so a retry cannot succeed.
+    IdentityChanged,
 };
 
 struct PairingState {
@@ -169,6 +172,12 @@ inline PairingState reducePairing(const PairingState& s, const PairEvent& event)
                     PairingState next = s;
                     next.phase = PairPhase::Failed;
                     next.failure = PairFailure::Unreachable;
+                    return next;
+                }
+                case PairVerdict::IdentityChanged: {
+                    PairingState next = s;
+                    next.phase = PairPhase::Failed;
+                    next.failure = PairFailure::IdentityChanged;
                     return next;
                 }
                 }

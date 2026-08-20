@@ -19,6 +19,7 @@
 #include <cstdio>
 #include <cstring>
 #include <fstream>
+#include <iterator>
 #include <optional>
 #include <string>
 #include <vector>
@@ -33,6 +34,9 @@ constexpr std::uint16_t kUsageGamepad = 0x05;
 // The Steam Controller's game interface is vendor-defined HID with no gamepad
 // usages, so it is admitted by model rather than by shape.
 constexpr std::uint16_t kUsagePageVendor = 0xFF00;
+
+// Bus 0003 in the HID_ID triple; 0005 is Bluetooth.
+constexpr std::uint32_t kBusUsb = BUS_USB;
 
 // Xbox pads reach userspace through xpad as evdev only, so they never appear
 // here. The VID is skipped anyway so a Microsoft HID peripheral that does
@@ -68,6 +72,12 @@ std::string readSysfsLine(const std::string& path) {
         line.pop_back();
     }
     return line;
+}
+
+std::string readSysfsText(const std::string& path) {
+    std::ifstream in(path, std::ios::binary);
+    if (!in) { return {}; }
+    return {std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>()};
 }
 
 std::optional<int> parseHex(const std::string& s) {
@@ -122,14 +132,21 @@ bool collectionMatchesParser(std::uint16_t page, std::uint16_t usage,
     return page == kUsagePageGenericDesktop && (usage == kUsageGamepad || usage == kUsageJoystick);
 }
 
-bool readReportDescriptor(int fd, std::vector<std::uint8_t>& out) {
-    int size = 0;
-    if (::ioctl(fd, HIDIOCGRDESCSIZE, &size) < 0 || size <= 0) { return false; }
-    hidraw_report_descriptor desc{};
-    desc.size = static_cast<std::uint32_t>(size);
-    if (::ioctl(fd, HIDIOCGRDESC, &desc) < 0) { return false; }
-    out.assign(desc.value, desc.value + desc.size);
-    return true;
+// report_descriptor is mode 0444 and holds the same bytes HIDIOCGRDESC returns.
+// Anything past HID_MAX_DESCRIPTOR_SIZE is not one, since the kernel refuses to
+// register a descriptor that large.
+constexpr std::size_t kMaxReportDescriptor = 4096;
+
+bool readReportDescriptor(const std::string& path, std::vector<std::uint8_t>& out) {
+    std::ifstream in(path, std::ios::binary);
+    if (!in) { return false; }
+    out.clear();
+    char byte = 0;
+    while (in.get(byte)) {
+        if (out.size() == kMaxReportDescriptor) { return false; }
+        out.push_back(static_cast<std::uint8_t>(byte));
+    }
+    return !out.empty();
 }
 
 // The USB interface directory backing a hidraw node, e.g.
@@ -216,6 +233,7 @@ std::vector<std::string> hidrawNodes() {
 
 struct ProbedNode {
     std::string node;
+    std::string name;
     int vendorId = 0;
     int productId = 0;
     std::uint16_t usagePage = 0;
@@ -223,37 +241,33 @@ struct ProbedNode {
     std::vector<std::uint8_t> descriptor;
 };
 
-// Opens read-only so probing never disturbs whoever currently holds the device.
-// A Bluetooth-connected pad is skipped: the per-model decoders parse the USB
-// report layout, and the BT layout differs (a DS4 streams the short 0x01 report
-// until a feature-report handshake).
+// Probes sysfs, never the node: /dev/hidraw* is 0600 root:root until the udev
+// rule lands, so opening it here would drop the device from enumeration
+// entirely instead of letting the claim fail PermissionDenied. Both attributes
+// read here are world-readable, and HID_ID carries the same bus/VID/PID
+// HIDIOCGRAWINFO would have returned.
+//
+// A Bluetooth-connected pad is skipped by the same BUS_USB rule as before: the
+// per-model decoders parse the USB report layout, and the BT layout differs (a
+// DS4 streams the short 0x01 report until a feature-report handshake).
 std::optional<ProbedNode> probe(const std::string& hidrawName) {
-    const std::string node = "/dev/" + hidrawName;
-    const int fd = ::open(node.c_str(), O_RDONLY | O_CLOEXEC);
-    if (fd < 0) { return std::nullopt; }
-
-    hidraw_devinfo devInfo{};
-    if (::ioctl(fd, HIDIOCGRAWINFO, &devInfo) < 0 || devInfo.bustype != BUS_USB) {
-        ::close(fd);
-        return std::nullopt;
-    }
+    const std::string sysDir = "/sys/class/hidraw/" + hidrawName + "/device";
+    const std::string uevent = readSysfsText(sysDir + "/uevent");
+    const auto ids = detail::parseHidIds(uevent);
+    if (!ids || ids->bus != kBusUsb) { return std::nullopt; }
 
     ProbedNode probed;
-    probed.node = node;
-    probed.vendorId = static_cast<std::uint16_t>(devInfo.vendor);
-    probed.productId = static_cast<std::uint16_t>(devInfo.product);
-    const bool ok = readReportDescriptor(fd, probed.descriptor) &&
-                    topLevelUsage(probed.descriptor.data(), probed.descriptor.size(),
-                                  probed.usagePage, probed.usage);
-    ::close(fd);
-    if (!ok) { return std::nullopt; }
+    probed.node = "/dev/" + hidrawName;
+    // HID_NAME is the same hid->name string HIDIOCGRAWNAME copies out.
+    probed.name = detail::ueventValue(uevent, "HID_NAME");
+    probed.vendorId = static_cast<std::uint16_t>(ids->vendorId);
+    probed.productId = static_cast<std::uint16_t>(ids->productId);
+    if (!readReportDescriptor(sysDir + "/report_descriptor", probed.descriptor) ||
+        !topLevelUsage(probed.descriptor.data(), probed.descriptor.size(), probed.usagePage,
+                       probed.usage)) {
+        return std::nullopt;
+    }
     return probed;
-}
-
-std::string rawName(int fd) {
-    std::array<char, 256> buf{};
-    if (::ioctl(fd, HIDIOCGRAWNAME(buf.size()), buf.data()) < 0) { return {}; }
-    return {buf.data()};
 }
 
 } // namespace
@@ -301,12 +315,7 @@ std::vector<UsbDeviceInfo> HidrawGateway::enumerate() {
         if (model != nullptr) {
             info.name = model->name;
         } else {
-            const int fd = ::open(probed->node.c_str(), O_RDONLY | O_CLOEXEC);
-            if (fd >= 0) {
-                info.name = rawName(fd);
-                ::close(fd);
-            }
-            if (info.name.empty()) { info.name = probed->node; }
+            info.name = probed->name.empty() ? probed->node : probed->name;
         }
 
         const std::string ifaceDir = usbInterfaceDir(hidrawName);
@@ -390,6 +399,12 @@ ClaimResult HidrawGateway::claim(const UsbDeviceInfo& device,
         // wherever the collection declares real usages; the guess stays as the
         // fallback for a descriptor we cannot parse.
         input::usbhid::parseReportDescriptor(descriptor.data(), descriptor.size(), claimed->layout);
+        // From the model catalog, not the descriptor: the PDP Switch pads
+        // declare their buttons in Switch usage order, and the parse above just
+        // reset this to false.
+        claimed->layout.switchOrderButtons =
+            input::usbparse::buttonOrderForDevice(device.vendorId, device.productId) ==
+            input::usbparse::ButtonOrder::Switch;
     }
     claimed->running.store(true);
     Claimed* raw = claimed.get();

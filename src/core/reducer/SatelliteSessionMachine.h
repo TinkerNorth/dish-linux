@@ -46,11 +46,12 @@ enum class SessionFailure : std::uint8_t {
     Declined,           // reachable, but the satellite refused the pair; terminal
     ServerShuttingDown, // 503, kept distinct from Unreachable so the UI can say why
     ServerError,        // any other non-2xx; usually retryable
+    IdentityChanged,    // the pinned certificate changed; terminal until Forget
 };
 
 inline bool sessionFailureTerminal(SessionFailure f) {
     return f == SessionFailure::VersionMismatch || f == SessionFailure::AuthRejected ||
-           f == SessionFailure::Declined;
+           f == SessionFailure::Declined || f == SessionFailure::IdentityChanged;
 }
 
 // Gates whether a failure toasts. Every non-user origin is silent, so
@@ -338,6 +339,11 @@ inline SessionReduction reduce(const SessionModel& s, const SessionEvent& event)
                     return toFailed(SessionFailure::VersionMismatch, /*dropKey=*/false);
                 case PairVerdict::Unreachable:
                     return toReconnecting(SessionFailure::Unreachable, /*emitNotify=*/true);
+                case PairVerdict::IdentityChanged:
+                    // The key is fine; the pin is what no longer matches, and
+                    // only Forget clears that. Retrying would hammer a box we
+                    // cannot authenticate.
+                    return toFailed(SessionFailure::IdentityChanged, /*dropKey=*/false);
                 }
                 return SessionReduction{s, {}};
             }
@@ -360,6 +366,8 @@ inline SessionReduction reduce(const SessionModel& s, const SessionEvent& event)
                     return toReconnecting(SessionFailure::ServerError, /*emitNotify=*/true);
                 case RestVerdict::Unreachable:
                     return toReconnecting(SessionFailure::Unreachable, /*emitNotify=*/true);
+                case RestVerdict::IdentityChanged:
+                    return toFailed(SessionFailure::IdentityChanged, /*dropKey=*/false);
                 }
                 return SessionReduction{s, {}};
             }

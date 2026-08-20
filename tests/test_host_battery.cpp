@@ -23,6 +23,28 @@ TEST_CASE("no battery devices (a desktop) reports 100% wired", "[hostbattery]") 
     REQUIRE(r.status == dish::util::kBatteryStatusWired);
 }
 
+TEST_CASE("a pack with no readable capacity is unknown, not a desktop", "[hostbattery]") {
+    // "No batteries found" and "batteries found but unreadable" are different
+    // facts, and only the first one means a desktop at 100 %.
+    SECTION("the only pack") {
+        const std::vector<SysfsBattery> batteries{{0, "Discharging", false}};
+        const auto r = hostBatteryFromSysfs(batteries);
+        REQUIRE(r.level == dish::util::kBatteryLevelUnknown);
+        REQUIRE(r.status == dish::util::kBatteryStatusDischarging);
+    }
+    SECTION("a readable sibling still carries the level") {
+        const std::vector<SysfsBattery> batteries{{0, "Discharging", false}, {40, "Discharging"}};
+        const auto r = hostBatteryFromSysfs(batteries);
+        REQUIRE(r.level == 40U);
+    }
+    SECTION("an unreadable pack cannot reach the full plateau") {
+        const std::vector<SysfsBattery> batteries{{0, "Not charging", false}};
+        const auto r = hostBatteryFromSysfs(batteries);
+        REQUIRE(r.level == dish::util::kBatteryLevelUnknown);
+        REQUIRE(r.status == dish::util::kBatteryStatusDischarging);
+    }
+}
+
 TEST_CASE("single discharging battery reports its capacity", "[hostbattery]") {
     const std::vector<SysfsBattery> batteries{{63, "Discharging"}};
     const auto r = hostBatteryFromSysfs(batteries);
@@ -70,11 +92,39 @@ TEST_CASE("'Not charging' with a topped-out pack reports full", "[hostbattery]")
     REQUIRE(r.status == dish::util::kBatteryStatusFull);
 }
 
-TEST_CASE("'Unknown' status on a mid-charge pack maps to unknown status", "[hostbattery]") {
+TEST_CASE("'Unknown' status on a mid-charge pack falls back to discharging", "[hostbattery]") {
+    // Once a pack exists the status is never Unknown: a 0 on the wire is read
+    // differently by the satellite than the 1 the other clients send.
     const std::vector<SysfsBattery> batteries{{55, "Unknown"}};
     const auto r = hostBatteryFromSysfs(batteries);
     REQUIRE(r.level == 55U);
-    REQUIRE(r.status == dish::util::kBatteryStatusUnknown);
+    REQUIRE(r.status == dish::util::kBatteryStatusDischarging);
+}
+
+TEST_CASE("the full plateau starts at 99, not at 100", "[hostbattery]") {
+    // The kernel stops saying "Charging" a point or two shy of 100, so the
+    // threshold is 99; 98 is the last level that still reads as discharging.
+    SECTION("98 is not yet full") {
+        const std::vector<SysfsBattery> batteries{{98, "Not charging"}};
+        const auto r = hostBatteryFromSysfs(batteries);
+        REQUIRE(r.level == 98U);
+        REQUIRE(r.status == dish::util::kBatteryStatusDischarging);
+    }
+    SECTION("99 is full") {
+        const std::vector<SysfsBattery> batteries{{99, "Not charging"}};
+        const auto r = hostBatteryFromSysfs(batteries);
+        REQUIRE(r.level == 99U);
+        REQUIRE(r.status == dish::util::kBatteryStatusFull);
+    }
+}
+
+TEST_CASE("a discharging sibling keeps a topped-out pack from reading full", "[hostbattery]") {
+    // The machine is losing charge overall, so "full" would be a lie even
+    // though one pack says Full and the mean clears the threshold.
+    const std::vector<SysfsBattery> batteries{{100, "Full"}, {98, "Discharging"}};
+    const auto r = hostBatteryFromSysfs(batteries);
+    REQUIRE(r.level == 99U);
+    REQUIRE(r.status == dish::util::kBatteryStatusDischarging);
 }
 
 TEST_CASE("capacity is clamped into the 0..100 wire range", "[hostbattery]") {
@@ -89,5 +139,22 @@ TEST_CASE("low battery keeps its level intact (UI styles it, not the wire)", "[h
     const std::vector<SysfsBattery> batteries{{8, "Discharging"}};
     const auto r = hostBatteryFromSysfs(batteries);
     REQUIRE(r.level == 8U);
+    REQUIRE(r.status == dish::util::kBatteryStatusDischarging);
+}
+
+TEST_CASE("an empty pack reports 0, not the unknown sentinel", "[hostbattery]") {
+    const std::vector<SysfsBattery> batteries{{0, "Discharging"}};
+    const auto r = hostBatteryFromSysfs(batteries);
+    REQUIRE(r.level == 0U);
+    REQUIRE(r.level != dish::util::kBatteryLevelUnknown);
+    REQUIRE(r.status == dish::util::kBatteryStatusDischarging);
+}
+
+TEST_CASE("a negative capacity clamps to 0 rather than wrapping", "[hostbattery]") {
+    // The level is a uint8 on the wire, so an unclamped -1 would go out as 255
+    // — the unknown sentinel — and read as "no reading" instead of "flat".
+    const std::vector<SysfsBattery> batteries{{-1, "Discharging"}};
+    const auto r = hostBatteryFromSysfs(batteries);
+    REQUIRE(r.level == 0U);
     REQUIRE(r.status == dish::util::kBatteryStatusDischarging);
 }

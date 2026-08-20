@@ -14,7 +14,10 @@
 // Claiming requires read/write on /dev/hidraw*, which is root-only by default.
 // packaging/udev/70-dish-hidraw.rules grants the `input` group access to the
 // supported models; without it every claim fails PermissionDenied and the FSM
-// keeps the pad on SDL.
+// keeps the pad on SDL. Enumeration therefore never touches the node: it reads
+// the world-readable sysfs attributes instead, so a pad the user cannot open
+// still enumerates and the missing rule surfaces as that claim failure rather
+// than as a device that silently never appears.
 
 #pragma once
 
@@ -24,16 +27,66 @@
 #include "core/input/UsbReportParsers.h"
 
 #include <atomic>
+#include <charconv>
 #include <cstdint>
 #include <functional>
 #include <map>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <vector>
 
 namespace dish::source::usb {
+
+namespace detail {
+
+// The bus/vendor/product a hidraw node's parent HID device publishes in its
+// sysfs uevent as HID_ID=<bus>:<vendor>:<product> — the same three fields
+// HIDIOCGRAWINFO returns, but readable without opening the node.
+// core/input/HidTransport reads the same line for its bus-only Bluetooth
+// classification; enumeration needs the vendor and product too.
+struct HidIds {
+    std::uint32_t bus = 0;
+    std::uint32_t vendorId = 0;
+    std::uint32_t productId = 0;
+};
+
+// The value of `key=` in a uevent's KEY=VALUE text; empty when the key is absent.
+inline std::string ueventValue(std::string_view uevent, std::string_view key) {
+    for (std::size_t pos = 0; pos < uevent.size();) {
+        std::size_t end = uevent.find('\n', pos);
+        if (end == std::string_view::npos) { end = uevent.size(); }
+        const std::string_view line = uevent.substr(pos, end - pos);
+        if (line.rfind(key, 0) == 0 && line.size() > key.size() && line[key.size()] == '=') {
+            return std::string(line.substr(key.size() + 1));
+        }
+        pos = end + 1;
+    }
+    return {};
+}
+
+// nullopt unless all three hex fields are there and well-formed, so a device
+// whose identity cannot be read is skipped rather than guessed at.
+inline std::optional<HidIds> parseHidIds(std::string_view uevent) {
+    const std::string value = ueventValue(uevent, "HID_ID");
+    std::string_view rest(value);
+    const auto next = [&rest](std::uint32_t& out) {
+        const std::size_t sep = rest.find(':');
+        const std::string_view token = rest.substr(0, sep);
+        const char* const last = token.data() + token.size();
+        const auto res = std::from_chars(token.data(), last, out, 16);
+        rest = sep == std::string_view::npos ? std::string_view{} : rest.substr(sep + 1);
+        return res.ec == std::errc{} && res.ptr == last;
+    };
+    HidIds ids;
+    if (!next(ids.bus) || !next(ids.vendorId) || !next(ids.productId)) { return std::nullopt; }
+    return ids;
+}
+
+} // namespace detail
 
 class HidrawGateway : public UsbDeviceGateway {
   public:

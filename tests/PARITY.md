@@ -350,8 +350,8 @@ Audited the whole `tests/` tree against the suite's standing invariants.
 |---|---|---|
 | Every concrete `Repository<K,V>` instantiates the CRUD `RepositoryContract` (8 property tests) | **PASS** | The 6 concrete subclasses in `src/` (DeadzoneRepository, MotionPreferenceRepository, RememberedSatelliteRepository, SatellitePinRepository, SatelliteSharedKeyRepository, UsbPathPreferenceRepository) each call `runRepositoryContract<…>` (+ the kernel demo). `SatelliteCatalogRepository` is an ETag HTTP cache, not a `Repository<K,V>` — tested separately (test_catalog_repository). |
 | Stateful primitives use probe-based, full-emission-sequence assertions | **PASS** | `StateSourceProbe`/`ComposerProbe`/`ControllerProbe` drive the kernel, the motion-capability composer (eager-compute snapshot + reactive re-emit), and the wake controller (acquire/release sequence, idempotent re-acquire). distinct-until-changed honored. |
-| No test opens a real socket | **PASS** | Nothing in the suite calls `::socket()`. Everything uses fakes / reducers. |
-| No test flips real system state / writes the real registry | **PASS** | `SetThreadExecutionState` appears only in the dedicated inhibitor test (process-wide, harmless, asserts own bookkeeping); the controller tests use a fake inhibitor. All QSettings go through the isolated temp-INI `QSettingsFixture` — never `HKCU\…\TinkerNorth\Dish`. |
+| No test opens a real LAN socket | **PASS** | Two files bind a loopback UDP socket on purpose — `test_satellite_client_send_counter.cpp` and `test_wifi_connection_rekey.cpp` drive the real `SatelliteClient` send path, which is the only way to read the counters actually put on the wire. Both bind 127.0.0.1 with an ephemeral port; nothing else in the suite calls `::socket()`. |
+| No test flips real system state | **PASS** | The D-Bus inhibitor test calls the real `org.freedesktop.ScreenSaver` / logind interfaces, which are absent on a headless runner and no-op there; the controller tests use a fake inhibitor. All QSettings go through the isolated temp-INI `QSettingsFixture` — never the user's `~/.config/TinkerNorth/Dish.conf`. |
 | No real TLS | **PASS** | `test_satellite_tls_verifier.cpp` drives the TOFU verdict logic against a fake cert/pin repo (pin/match/reject-keep-pin, no-peer-cert, onMismatch-only-on-real-mismatch) — no live handshake. |
 | No stranded pre-protocol-1 wire assertions | **PASS** | `test_udp_opcodes.cpp` has an explicit compile-time guard that the **deleted** topology opcodes `0x0004–0x0008`/`0x000E` must not exist as members, and asserts the heartbeat-ack(0x0003) enriched layout. `test_satellite_client_touchpad.cpp` pins the **16-byte** payload (`eventTimeMs` at bytes 12..15) and documents that the old 12-byte body is server-dropped. No test pins the old nonce/key/counter layout. |
 | Composer/mapper emits string **keys**, never `tr()` | **PASS** | `test_connection_rows.cpp` asserts the chip **vocabulary key**, not a localized string. |
@@ -473,7 +473,8 @@ only frozen-contract follow-up is the **uncalled public-IP guard** in
 
 A dated truth layer over the 2026-06-15 audit above; earlier rows are left
 verbatim as the historical record. Suite size at this addendum: **1302
-`TEST_CASE`s** (was 926 at the audit).
+`TEST_CASE`s** (was 926 at the audit). Current size, after the Linux
+architecture-and-UI-parity work: **124 files / 1531 `TEST_CASE`s**.
 
 **Structural: the Widgets UI is deleted.** The Qt Quick flows app (design
 project "Dish — Screens and Flows", synced 2026-07-26) is the ONLY UI; rows
@@ -542,9 +543,10 @@ that audit, not the original 3ea439a snapshot.
 
 - **Per-path rumble capability + the USB-direct OUTPUT write path** (rumble /
   lightbar encoders + gateway write). Today rumble is advertised on Direct
-  with no actuator: `HidrawGateway` only *detects* the endpoint
-  (`info.hasOutEndpoint = caps.OutputReportByteLength > 0`) and no
-  `HidD_SetOutputReport` / `WriteFile` call exists anywhere.
+  with no actuator: `HidrawGateway` only *detects* the endpoint (from the
+  interface's `bmAttributes` in sysfs; the quoted Windows
+  `caps.OutputReportByteLength` is the dish-windows spelling) and nothing ever
+  writes an output report. `hasOutEndpoint` has no reader.
 - **`claim()` HID-collection re-check + ranking + the kKnown model-table
   port.** No `kKnown` table and no ranking/re-check symbols in the tree.
 - **The six-layer capability fold (`Capability.kt`) + `RumbleEnabledStore` +

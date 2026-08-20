@@ -71,8 +71,6 @@ class TokensBridge : public QObject {
     Q_PROPERTY(int durToast READ durToast CONSTANT)
 
     // ── Shell metrics ────────────────────────────────────────────────────────
-    Q_PROPERTY(int titleBarHeight READ titleBarHeight CONSTANT)
-    Q_PROPERTY(int captionButtonWidth READ captionButtonWidth CONSTANT)
     Q_PROPERTY(int railCompact READ railCompact CONSTANT)
     Q_PROPERTY(int railExpanded READ railExpanded CONSTANT)
     Q_PROPERTY(int navItemHeight READ navItemHeight CONSTANT)
@@ -142,8 +140,6 @@ class TokensBridge : public QObject {
     int durBusy() const { return 1100; }
     int durToast() const { return 4000; }
 
-    int titleBarHeight() const { return 44; }
-    int captionButtonWidth() const { return 46; }
     int railCompact() const { return 48; }
     int railExpanded() const { return 236; }
     int navItemHeight() const { return 40; }

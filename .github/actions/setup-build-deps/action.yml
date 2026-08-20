@@ -1,0 +1,58 @@
+name: Set up build dependencies
+description: >
+  The apt packages every Dish job needs, plus ccache wired into a restored
+  cache. Factored out so the compiler matrix, the sanitizer legs and the
+  coverage job cannot drift from each other.
+
+inputs:
+  cache-key:
+    description: "Suffix that separates this job's compiler cache from the others'."
+    required: true
+  extra-packages:
+    description: "Additional apt packages, space separated."
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - name: Install build dependencies
+      shell: bash
+      env:
+        EXTRA_PACKAGES: ${{ inputs.extra-packages }}
+      run: |
+        set -euo pipefail
+        # A mirror that stops answering should cost seconds, not minutes:
+        # azure.archive.ubuntu.com has gone dark mid-afternoon and apt sat on it
+        # for 2-6 minutes per index before failing over.
+        sudo tee /etc/apt/apt.conf.d/99-dish-acquire >/dev/null <<'CONF'
+        Acquire::http::Timeout "15";
+        Acquire::https::Timeout "15";
+        Acquire::Retries "2";
+        CONF
+        sudo apt-get update
+        # shellcheck disable=SC2086
+        sudo apt-get install -y --no-install-recommends \
+          build-essential cmake ninja-build pkg-config ccache \
+          libsodium-dev libsdl2-dev \
+          catch2 clang-tidy ${EXTRA_PACKAGES}
+
+    - name: Restore compiler cache
+      uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+      with:
+        path: ~/.cache/ccache
+        key: ccache-${{ inputs.cache-key }}-${{ github.sha }}
+        restore-keys: |
+          ccache-${{ inputs.cache-key }}-
+
+    - name: Configure ccache
+      shell: bash
+      run: |
+        set -euo pipefail
+        ccache --set-config max_size=500M
+        # Qt's generated moc/qmlcachegen sources differ only by absolute path
+        # between the Debug and Release trees; without this every second build
+        # is a full miss.
+        ccache --set-config hash_dir=false
+        ccache --set-config sloppiness=locale,time_macros
+        ccache --zero-stats

@@ -231,7 +231,9 @@ class SatelliteClient {
     // Test-only seam to park the send counter near exhaustion.
     friend class SatelliteClientTestAccess;
 
-    void sendEncrypted(std::uint16_t msgType, const std::uint8_t* payload, std::size_t len);
+    // False only on a real failure: a buffer-full drop reports success, since
+    // UDP absorbs it.
+    bool sendEncrypted(std::uint16_t msgType, const std::uint8_t* payload, std::size_t len);
     void heartbeatLoop();
     void receiveLoop();
     void processIncoming(const std::uint8_t* buf, std::size_t n);

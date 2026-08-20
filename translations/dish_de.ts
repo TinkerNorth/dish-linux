@@ -353,10 +353,6 @@
         <translation>Direkt</translation>
     </message>
     <message>
-        <source>Direct access denied — another app owns this device.</source>
-        <translation>Direktzugriff verweigert — eine andere App besitzt dieses Gerät.</translation>
-    </message>
-    <message>
         <source>Unplug and replug the controller to finish switching.</source>
         <translation>Trenne den Controller und schließe ihn erneut an, um den Wechsel abzuschließen.</translation>
     </message>
@@ -707,6 +703,10 @@
         <source>No rumble</source>
         <translation>Keine Vibration</translation>
     </message>
+    <message>
+        <source>Direct access denied — hidraw needs a udev rule. Install packaging/udev/70-dish-hidraw.rules, run udevadm control --reload-rules &amp;&amp; udevadm trigger, then replug the controller.</source>
+        <translation type="unfinished"></translation>
+    </message>
 </context>
 <context>
     <name>ConnectionsPage</name>
@@ -991,10 +991,6 @@
         <translation>Trenne den Controller und schließe ihn erneut an, um den Wechsel abzuschließen.</translation>
     </message>
     <message>
-        <source>Direct access denied — another app owns this device.</source>
-        <translation>Direktzugriff verweigert — eine andere App besitzt dieses Gerät.</translation>
-    </message>
-    <message>
         <source>Direct claim is busy — another app or driver holds the device.</source>
         <translation>Direkt-Übernahme belegt — eine andere App oder ein Treiber hält das Gerät.</translation>
     </message>
@@ -1079,6 +1075,10 @@
     <message>
         <source>Direct claim couldn’t start the controller’s report stream.</source>
         <translation>Die Direkt-Übernahme konnte den Report-Stream des Controllers nicht starten.</translation>
+    </message>
+    <message>
+        <source>Direct access denied — hidraw needs a udev rule. Install packaging/udev/70-dish-hidraw.rules, run udevadm control --reload-rules &amp;&amp; udevadm trigger, then replug the controller.</source>
+        <translation type="unfinished"></translation>
     </message>
 </context>
 <context>

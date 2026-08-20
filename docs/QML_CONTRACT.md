@@ -124,7 +124,7 @@ project it so the type picker can tell loading from empty from failed.
 |---|---|---|---|
 | `themeMode` | `int` (RW) | `themeModeChanged` | `0` Light, `1` Dark, `2` System. |
 | `crashReportingEnabled` | `bool` (RW) | `crashReportingChanged` | Crash-reporting opt-out. Default on. |
-| `railCollapsed` | `bool` (RW) | `railCollapsedChanged` | The nav rail's persisted collapse state. The title-bar hamburger writes it. |
+| `railCollapsed` | `bool` (RW) | `railCollapsedChanged` | The nav rail's persisted collapse state. The rail-head toggle writes it. |
 | `lightbarFollowGame` | `bool` (RW) | `lightbarChanged` | Light-bar forwarding: true is "Follow game", false is "Off". |
 | `onboardingNeeded` | `bool` | `onboardingNeededChanged` | The first-run welcome has not completed. Flips false after `markOnboardingComplete()`. |
 | `appVersion` | `string` | CONSTANT | The CMake project version. |
@@ -569,7 +569,7 @@ sequence is an ambiguous activation. `F6` cycles the rail and the content pane;
 
 ## Onboarding
 
-`Main.qml` hosts a top-level `StackView` (`appRoot`) below the title bar whose
+`Main.qml` hosts a top-level `StackView` (`appRoot`) filling the window, whose
 `initialItem` is the `AppShell`. A first-run flow is shown full-screen **over**
 the shell rather than inside it:
 
@@ -594,13 +594,15 @@ loops forever.
 the mode to a concrete appearance, System included, and swaps the active
 `dish::ui::Theme` palette off its Observable. The entry point then refreshes the
 QML `Theme` singleton, whose tokens are `NOTIFY paletteChanged` so every binding
-re-reads, and flips the native chrome's `DWMWA_USE_IMMERSIVE_DARK_MODE` to match,
-so the frame never drifts light while the body re-darks.
+re-reads. There is no native frame to flip in step: the window manager draws the
+decorations and takes their appearance from the desktop, not from Dish.
 
-System mode reads the OS preference at startup and follows it live: the view
-model connects `QStyleHints::colorSchemeChanged` and re-resolves the appearance
-whenever the OS flips, but only while the stored mode is `System`. An explicit
-Light or Dark pick ignores the OS.
+System mode reads the OS preference at startup and follows it live. The concrete
+appearance comes from `QStyleHints::colorScheme()`, which Qt fills from the XDG
+`org.freedesktop.appearance` portal, and the view model connects
+`QStyleHints::colorSchemeChanged` to re-resolve whenever the desktop flips, but
+only while the stored mode is `System`. An explicit Light or Dark pick ignores
+the OS.
 
 The window body is always the themed solid `Theme.background`, so no desktop can
 show through a rounded corner on a compositing WM.
