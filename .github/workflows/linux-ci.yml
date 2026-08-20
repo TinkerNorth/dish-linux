@@ -331,8 +331,17 @@ jobs:
           # "Unsupported image format" per glyph rather than as a link error.
           echo "--- Qt image-format plugins ---"
           ls -1 /usr/lib/*/qt6/plugins/imageformats/ 2>/dev/null || echo "(no imageformats directory)"
-          dpkg -S /usr/lib/*/qt6/plugins/imageformats/libqsvg.so 2>/dev/null \
-            || echo "libqsvg.so is absent — no package here provides it"
+          # Costs nothing once the Depends: line is right, because it only runs
+          # while the plugin is still missing. Naming the package from here beats
+          # guessing it from outside the distribution.
+          if ! ls /usr/lib/*/qt6/plugins/imageformats/libqsvg.so >/dev/null 2>&1; then
+            echo "--- libqsvg.so is absent; asking the archive which package ships it ---"
+            dpkg -L libqt6svg6 2>/dev/null | grep -i plugins || echo "libqt6svg6 ships no plugins"
+            apt-get install -y --no-install-recommends apt-file >/dev/null 2>&1 \
+              && apt-file update >/dev/null 2>&1 \
+              && apt-file search -x 'qt6/plugins/imageformats/libqsvg\.so$' \
+              || echo "apt-file could not answer"
+          fi
           set +e
           # -k is load-bearing: plain `timeout` sends TERM and then waits
           # forever if the child does not die, which is how this step once sat
