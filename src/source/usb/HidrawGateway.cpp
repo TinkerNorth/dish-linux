@@ -28,13 +28,6 @@ namespace dish::source::usb {
 
 namespace {
 
-constexpr std::uint16_t kUsagePageGenericDesktop = 0x01;
-constexpr std::uint16_t kUsageJoystick = 0x04;
-constexpr std::uint16_t kUsageGamepad = 0x05;
-// The Steam Controller's game interface is vendor-defined HID with no gamepad
-// usages, so it is admitted by model rather than by shape.
-constexpr std::uint16_t kUsagePageVendor = 0xFF00;
-
 // Bus 0003 in the HID_ID triple; 0005 is Bluetooth.
 constexpr std::uint32_t kBusUsb = BUS_USB;
 
@@ -98,48 +91,6 @@ std::optional<int> parseHex(const std::string& s) {
     const auto res = std::from_chars(first, last, value, 16);
     if (res.ec != std::errc{} || res.ptr != last) { return std::nullopt; }
     return value;
-}
-
-// The top-level application collection's usage page + usage, which is what the
-// admission rule keys on. Walks short items only; a long item (0xFE) ends the
-// scan because nothing we admit uses one.
-bool topLevelUsage(const std::uint8_t* desc, std::size_t len, std::uint16_t& outPage,
-                   std::uint16_t& outUsage) {
-    std::uint32_t page = 0;
-    std::uint32_t usage = 0;
-    bool sawUsage = false;
-    for (std::size_t i = 0; i < len;) {
-        const std::uint8_t prefix = desc[i];
-        if (prefix == 0xFE) { return false; }
-        const std::uint8_t tag = prefix & 0xFC;
-        std::uint8_t size = prefix & 0x03;
-        if (size == 3) { size = 4; }
-        if (i + 1 + size > len) { return false; }
-        std::uint32_t data = 0;
-        for (std::uint8_t b = 0; b < size; b++) {
-            data |= static_cast<std::uint32_t>(desc[i + 1 + b]) << (8 * b);
-        }
-        if (tag == 0x04) { // Usage Page (global)
-            page = data;
-        } else if (tag == 0x08 && !sawUsage) { // Usage (local)
-            usage = data;
-            sawUsage = true;
-        } else if (tag == 0xA0) { // Collection
-            if (data == 0x01) {   // Application
-                outPage = static_cast<std::uint16_t>(page);
-                outUsage = static_cast<std::uint16_t>(usage);
-                return true;
-            }
-        }
-        i += 1u + size;
-    }
-    return false;
-}
-
-bool collectionMatchesParser(std::uint16_t page, std::uint16_t usage,
-                             input::usbparse::HidParser parser) {
-    if (parser == input::usbparse::HidParser::SteamController) { return page == kUsagePageVendor; }
-    return page == kUsagePageGenericDesktop && (usage == kUsageGamepad || usage == kUsageJoystick);
 }
 
 // report_descriptor is mode 0444 and holds the same bytes HIDIOCGRDESC returns.
@@ -273,8 +224,8 @@ std::optional<ProbedNode> probe(const std::string& hidrawName) {
     probed.vendorId = static_cast<std::uint16_t>(ids->vendorId);
     probed.productId = static_cast<std::uint16_t>(ids->productId);
     if (!readReportDescriptor(sysDir + "/report_descriptor", probed.descriptor) ||
-        !topLevelUsage(probed.descriptor.data(), probed.descriptor.size(), probed.usagePage,
-                       probed.usage)) {
+        !detail::topLevelUsage(probed.descriptor.data(), probed.descriptor.size(), probed.usagePage,
+                               probed.usage)) {
         return std::nullopt;
     }
     return probed;
@@ -316,7 +267,9 @@ std::vector<UsbDeviceInfo> HidrawGateway::enumerate() {
         if (probed->vendorId == kVidMicrosoft) { continue; }
 
         const auto parser = input::usbparse::parserForDevice(probed->vendorId, probed->productId);
-        if (!collectionMatchesParser(probed->usagePage, probed->usage, parser)) { continue; }
+        if (!detail::collectionMatchesParser(probed->usagePage, probed->usage, parser)) {
+            continue;
+        }
 
         UsbDeviceInfo info;
         info.vendorId = probed->vendorId;
@@ -358,7 +311,9 @@ ClaimResult HidrawGateway::claim(const UsbDeviceInfo& device,
             continue;
         }
         sawDevice = true;
-        if (!collectionMatchesParser(probed->usagePage, probed->usage, parser)) { continue; }
+        if (!detail::collectionMatchesParser(probed->usagePage, probed->usage, parser)) {
+            continue;
+        }
         const int opened = ::open(probed->node.c_str(), O_RDWR | O_CLOEXEC);
         if (opened < 0) {
             if (errno == EACCES || errno == EPERM) { sawPermissionDenied = true; }

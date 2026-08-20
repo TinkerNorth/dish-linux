@@ -17,6 +17,7 @@
 #include <QByteArray>
 #include <QCryptographicHash>
 #include <QElapsedTimer>
+#include <QNetworkReply>
 #include <QObject>
 #include <QPointer>
 #include <QString>
@@ -24,7 +25,6 @@
 #include <memory>
 
 class QNetworkAccessManager;
-class QNetworkReply;
 class QTimer;
 
 namespace dish::update {
@@ -32,6 +32,11 @@ namespace dish::update {
 // The User-Agent both gateways send: product, version, platform. No device id,
 // no account data, nothing else (PRIVACY.md 2.4).
 QString updateUserAgent();
+
+// Which side of the failure taxonomy a transport error lands on. Declared here
+// only so the mapping is testable: the reducer re-arms an Offline failure the
+// moment reachability returns, and makes an Http one wait out the backoff.
+reducer::UpdateError classify(QNetworkReply::NetworkError error);
 
 class HttpManifestGateway : public QObject, public ManifestGateway {
     Q_OBJECT

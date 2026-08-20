@@ -198,6 +198,35 @@ TEST_CASE("releaseNotesUrl is advisory: a bad value is dropped, not fatal", "[up
     }
 }
 
+TEST_CASE("the manifest the release workflow emits is one this parser accepts",
+          "[update][manifest]") {
+    // Byte-for-byte the shape of the `manifest` job in
+    // .github/workflows/release.yml — key order, indent and the ISO-8601 stamp
+    // included. That job is the only producer of latest.json, and until it
+    // existed every update check 404'd; if either side moves without the other,
+    // every client's check breaks at once and nothing else would notice.
+    const QByteArray emitted = "{\n"
+                               "  \"schema\": 1,\n"
+                               "  \"product\": \"dish-linux\",\n"
+                               "  \"version\": \"0.1.0\",\n"
+                               "  \"channel\": \"stable\",\n"
+                               "  \"publishedAt\": \"2026-08-20T03:01:37Z\",\n"
+                               "  \"minimumSupportedVersion\": \"0.1.0\",\n"
+                               "  \"releaseNotesUrl\": "
+                               "\"https://github.com/TinkerNorth/dish-linux/releases/tag/v0.1.0\"\n"
+                               "}";
+    const UpdateManifest m = ok(UpdateManifest::parse(emitted));
+    CHECK(m.schema == 1);
+    CHECK(m.product == QStringLiteral("dish-linux"));
+    CHECK(m.version == QStringLiteral("0.1.0"));
+    CHECK(m.channel == QStringLiteral("stable"));
+    CHECK(m.minimumSupportedVersion == QStringLiteral("0.1.0"));
+    // A release whose minimum equals its own version is the first release, and
+    // the notes URL must survive rather than being dropped as non-github.
+    CHECK(m.releaseNotesUrl ==
+          QStringLiteral("https://github.com/TinkerNorth/dish-linux/releases/tag/v0.1.0"));
+}
+
 TEST_CASE("unknown fields are ignored, so the schema stays additive", "[update][manifest]") {
     QByteArray json = golden();
     const qsizetype at = json.indexOf("  \"schema\": 1,");

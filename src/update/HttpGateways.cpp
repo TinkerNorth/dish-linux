@@ -8,6 +8,7 @@
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QNetworkRequest>
+#include <QSysInfo>
 #include <QTimer>
 #include <QUrl>
 
@@ -20,22 +21,6 @@
 namespace dish::update {
 
 namespace {
-
-// A transport failure that means "this machine cannot reach the internet right
-// now" rather than "GitHub said no". The distinction only changes the copy in
-// Settings; both back off identically.
-reducer::UpdateError classify(QNetworkReply::NetworkError error) {
-    switch (error) {
-    case QNetworkReply::ConnectionRefusedError:
-    case QNetworkReply::HostNotFoundError:
-    case QNetworkReply::TemporaryNetworkFailureError:
-    case QNetworkReply::NetworkSessionFailedError:
-    case QNetworkReply::UnknownNetworkError:
-        return reducer::UpdateError::Offline;
-    default:
-        return reducer::UpdateError::Http;
-    }
-}
 
 void applyCommonRequestPolicy(QNetworkRequest& request) {
     request.setRawHeader(QByteArrayLiteral("User-Agent"), updateUserAgent().toUtf8());
@@ -59,8 +44,28 @@ QNetworkAccessManager* makeManager(QObject* parent) {
 
 } // namespace
 
+// A transport failure that means "this machine cannot reach the internet right
+// now" rather than "GitHub said no". The distinction only changes the copy in
+// Settings; both back off identically.
+reducer::UpdateError classify(QNetworkReply::NetworkError error) {
+    switch (error) {
+    case QNetworkReply::ConnectionRefusedError:
+    case QNetworkReply::HostNotFoundError:
+    case QNetworkReply::TemporaryNetworkFailureError:
+    case QNetworkReply::NetworkSessionFailedError:
+    case QNetworkReply::UnknownNetworkError:
+        return reducer::UpdateError::Offline;
+    default:
+        return reducer::UpdateError::Http;
+    }
+}
+
 QString updateUserAgent() {
-    return QStringLiteral("Dish/%1 (Linux; x86_64)").arg(QLatin1String(DISH_VERSION));
+    // Derived, never baked: a hard-coded arch made every non-x86_64 build
+    // report x86_64, and the User-Agent is the only thing telling the release
+    // host which builds are in the field.
+    return QStringLiteral("Dish/%1 (Linux; %2)")
+        .arg(QLatin1String(DISH_VERSION), QSysInfo::currentCpuArchitecture());
 }
 
 // ── Manifest ────────────────────────────────────────────────────────────────

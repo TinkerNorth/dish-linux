@@ -141,7 +141,14 @@ set(DISH_TEST_SOURCES
     test_update_machine.cpp
     test_update_checker.cpp
     test_update_preference_store.cpp
-    test_translations.cpp)
+    test_translations.cpp
+    test_udev_rules_coverage.cpp
+    test_hidraw_admission.cpp
+    test_http_gateways.cpp
+    test_ui_preference_store.cpp
+    test_catalog_feature_gate.cpp
+    test_crash_log_path.cpp
+    test_reduced_motion.cpp)
 
 add_executable(DishTests ${DISH_TEST_SOURCES})
 target_link_libraries(DishTests
@@ -159,6 +166,11 @@ target_compile_definitions(DishTests PRIVATE
 target_compile_definitions(DishTests PRIVATE
     DISH_QM_DIR="${CMAKE_BINARY_DIR}"
     DISH_TS_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../translations")
+
+# Same reason again for the udev rule: it is packaging data, not a resource, and
+# the test that cross-checks it against the claimable-model table reads the file.
+target_compile_definitions(DishTests PRIVATE
+    DISH_UDEV_RULES_PATH="${CMAKE_CURRENT_SOURCE_DIR}/../packaging/udev/70-dish-hidraw.rules")
 # The `release_translations` dependency is wired from the TOP-LEVEL CMakeLists:
 # that target does not exist until this directory scope is finalized.
 
