@@ -26,8 +26,9 @@ jobs:
   shared:
     uses: ./.github/workflows/_security.yml
     with:
-      # dish-linux uses Qt6 + SDL2 from system packages and no vendored
-      # source trees, so OSV-Scanner has nothing C++ specific to chew
+      # dish-linux takes Qt6 from the official binaries (see
+      # .github/actions/setup-qt) and SDL2 from system packages, with no
+      # vendored source trees, so OSV-Scanner has nothing C++ specific to chew
       # on. Scan the worktree for any package manifests OSV recognises
       # (Gradle wrappers, CMake fetch declarations, etc.).
       osv_scan_paths: |

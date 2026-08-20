@@ -1,0 +1,70 @@
+{
+  "generatedBy": "hand-authored seed (dish-linux third-party deps)",
+  "libraries": [
+    {
+      "group": "io.qt",
+      "artifact": "qtbase",
+      "version": "6.7+",
+      "name": "Qt 6",
+      "url": "https://www.qt.io/",
+      "licenses": [
+        {
+          "name": "GNU Lesser General Public License v3.0",
+          "url": "https://www.gnu.org/licenses/lgpl-3.0.html"
+        }
+      ]
+    },
+    {
+      "group": "org.libsdl",
+      "artifact": "SDL2",
+      "version": "2.32.10",
+      "name": "Simple DirectMedia Layer (SDL2)",
+      "url": "https://www.libsdl.org/",
+      "licenses": [
+        {
+          "name": "zlib License",
+          "url": "https://www.zlib.net/zlib_license.html"
+        }
+      ]
+    },
+    {
+      "group": "org.libsodium",
+      "artifact": "libsodium",
+      "version": "1.0.22",
+      "name": "libsodium",
+      "url": "https://libsodium.org/",
+      "licenses": [
+        {
+          "name": "ISC License",
+          "url": "https://opensource.org/license/isc-license-txt"
+        }
+      ]
+    },
+    {
+      "group": "org.catchorg",
+      "artifact": "Catch2",
+      "version": "3.5.4",
+      "name": "Catch2",
+      "url": "https://github.com/catchorg/Catch2",
+      "licenses": [
+        {
+          "name": "Boost Software License 1.0",
+          "url": "https://www.boost.org/LICENSE_1_0.txt"
+        }
+      ]
+    },
+    {
+      "group": "com.rsms",
+      "artifact": "inter",
+      "version": "4.001",
+      "name": "Inter",
+      "url": "https://rsms.me/inter/",
+      "licenses": [
+        {
+          "name": "SIL Open Font License 1.1",
+          "url": "https://openfontlicense.org/open-font-license-official-text/"
+        }
+      ]
+    }
+  ]
+}

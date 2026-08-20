@@ -1,0 +1,18 @@
+<?xml version="1.0"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Controller">
+  <title>Controller</title>
+  <desc>Default game controller — body with two grips, a d-pad and four face buttons. The one rail silhouette that is neither a dish, a satellite nor a gear.</desc>
+  <g opacity="1">
+      <rect x="6" y="21" width="52" height="24" rx="12" fill="#8FCFE3"></rect>
+      <circle cx="17" cy="42" r="11" fill="#8FCFE3"></circle>
+      <circle cx="47" cy="42" r="11" fill="#8FCFE3"></circle>
+      <g fill="#ffffff" opacity="0.55">
+        <rect x="11" y="29" width="15" height="5"></rect>
+        <rect x="16" y="24" width="5" height="15"></rect>
+        <circle cx="43" cy="26" r="3.5"></circle>
+        <circle cx="50" cy="32" r="3.5"></circle>
+        <circle cx="43" cy="38" r="3.5"></circle>
+        <circle cx="36" cy="32" r="3.5"></circle>
+      </g>
+    </g>
+</svg>

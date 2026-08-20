@@ -1,0 +1,97 @@
+# Flatpak manifest for Dish.
+#
+#   flatpak install -y flathub org.kde.Platform//6.9 org.kde.Sdk//6.9
+#   flatpak-builder --force-clean --user --install build-flatpak \
+#     packaging/flatpak/com.tinkernorth.Dish.yml
+#
+# The KDE runtime, not freedesktop: it already carries Qt 6 (Base, Declarative,
+# QuickControls2, Svg, Wayland), which is the whole reason a Flatpak is the
+# answer on an LTS whose distro Qt is below this project's floor.
+app-id: com.tinkernorth.Dish
+runtime: org.kde.Platform
+runtime-version: '6.9'
+sdk: org.kde.Sdk
+command: dish
+
+finish-args:
+  # --share=ipc is what makes the X11 fallback usable (MIT-SHM) rather than glacial.
+  - --share=ipc
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --device=dri
+
+  # LAN discovery (UDP broadcast + mDNS), the pairing REST call and the
+  # encrypted UDP session all need the host network.
+  - --share=network
+
+  # SDL input needs /dev/input/event*; USB-direct needs O_RDWR on /dev/hidraw*,
+  # which no narrower grant provides — there is no hidraw portal, and
+  # org.freedesktop.portal.Usb covers raw USB devices, not hidraw character
+  # devices. If a reviewer rejects this, ship --device=input alone: the SDL path
+  # still works, USB-direct reports PermissionDenied, and the user can restore it
+  # with `flatpak override --user --device=all com.tinkernorth.Dish`.
+  - --device=all
+
+  # Util/DisplaySleepInhibitor holds the screen awake through this name.
+  - --talk-name=org.freedesktop.ScreenSaver
+  # BluetoothRadioProbe needs Adapter1.Powered to tell "no adapter" from "off".
+  - --system-talk-name=org.bluez
+
+  # No --filesystem: settings land in ~/.var/app/com.tinkernorth.Dish/config/.
+
+modules:
+  # Neither is in org.kde.Platform. Checksums verified against the release
+  # tarballs; re-verify on every bump with `curl -sL <url> | sha256sum`.
+  - name: libsodium
+    buildsystem: autotools
+    config-opts:
+      - --disable-static
+    sources:
+      - type: archive
+        url: https://github.com/jedisct1/libsodium/releases/download/1.0.20-RELEASE/libsodium-1.0.20.tar.gz
+        sha256: ebb65ef6ca439333c2bb41a0c1990587288da07f6c7fd07cb3a18cc18d30ce19
+    cleanup:
+      - /include
+      - /lib/pkgconfig
+      - '*.la'
+
+  - name: sdl2
+    buildsystem: cmake-ninja
+    config-opts:
+      - -DCMAKE_BUILD_TYPE=Release
+      - -DSDL_STATIC=OFF
+      - -DSDL_SHARED=ON
+      - -DSDL_TEST=OFF
+      # Dish uses SDL for gamepads only; the render and audio backends are dead
+      # weight in the sandbox.
+      - -DSDL_RENDER=OFF
+      - -DSDL_AUDIO=OFF
+      - -DSDL_HIDAPI=ON
+      - -DSDL_JOYSTICK=ON
+      - -DSDL_HAPTIC=ON
+    sources:
+      - type: archive
+        url: https://github.com/libsdl-org/SDL/releases/download/release-2.30.9/SDL2-2.30.9.tar.gz
+        sha256: 24b574f71c87a763f50704bbb630cbe38298d544a1f890f099a4696b1d6beba4
+    cleanup:
+      - /include
+      - /lib/pkgconfig
+      - /lib/cmake
+      - /bin/sdl2-config
+      - /share/aclocal
+      - '*.la'
+
+  - name: dish
+    buildsystem: cmake-ninja
+    config-opts:
+      - -DCMAKE_BUILD_TYPE=Release
+      - -DDISH_BUILD_TESTS=OFF
+      # A rule under /app is read by nothing; the app degrades to SDL and says so.
+      - -DDISH_INSTALL_UDEV_RULES=OFF
+    sources:
+      - type: dir
+        path: ../..
+    post-install:
+      # Carried so a user who wants USB-direct can install it on the host.
+      - install -Dm644 packaging/udev/70-dish-hidraw.rules
+        /app/share/dish/70-dish-hidraw.rules

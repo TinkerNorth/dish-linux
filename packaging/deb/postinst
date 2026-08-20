@@ -1,0 +1,30 @@
+#!/bin/sh
+# SPDX-License-Identifier: LGPL-3.0-or-later
+# Copyright (C) 2026 Dish contributors.
+#
+# udev reads a new rule file only after a reload, and applies it only to
+# devices that (re)appear afterwards — so reload AND retrigger, or a pad
+# plugged in before the install keeps its root-only node until the next replug
+# and every USB-direct claim fails PermissionDenied.
+#
+# Best-effort throughout: a container or chroot has no running udevd, and
+# failing the install over that would be wrong. The icon cache is left to
+# hicolor-icon-theme's own trigger (see the `triggers` file).
+set -e
+
+case "$1" in
+    configure)
+        if command -v udevadm >/dev/null 2>&1; then
+            udevadm control --reload-rules >/dev/null 2>&1 || true
+            udevadm trigger --subsystem-match=hidraw >/dev/null 2>&1 || true
+        fi
+        ;;
+    abort-upgrade|abort-remove|abort-deconfigure)
+        ;;
+    *)
+        echo "postinst called with unknown argument \`$1'" >&2
+        exit 1
+        ;;
+esac
+
+exit 0

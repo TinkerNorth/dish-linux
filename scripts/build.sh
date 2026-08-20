@@ -5,9 +5,9 @@
 # Convenience wrapper around cmake/ninja for local development.
 #
 # Usage:
-#   scripts/build.sh                # release build into ./build
+#   scripts/build.sh                # release build into ./build-release
 #   scripts/build.sh debug          # debug build into ./build-debug
-#   scripts/build.sh release test   # release build then run ctest
+#   scripts/build.sh test           # debug build then run ctest
 #   scripts/build.sh clean          # wipe all build directories
 
 set -euo pipefail
@@ -22,7 +22,9 @@ for arg in "$@"; do
     case "${arg}" in
         debug|Debug)     config="debug" ;;
         release|Release) config="release" ;;
-        test|tests)      run_tests=1 ;;
+        # Tests are a debug concern: an assertion is worth more than the
+        # optimizer here.
+        test|tests)      run_tests=1; config="debug" ;;
         clean)
             rm -rf build build-debug build-release build-tidy
             echo "removed build directories"
@@ -41,7 +43,7 @@ done
 
 case "${config}" in
     debug)   cmake_type="Debug";   build_dir="build-debug" ;;
-    release) cmake_type="Release"; build_dir="build" ;;
+    release) cmake_type="Release"; build_dir="build-release" ;;
 esac
 
 generator="Unix Makefiles"
@@ -56,7 +58,8 @@ cmake -S . -B "${build_dir}" -G "${generator}" \
 cmake --build "${build_dir}" --parallel
 
 if [[ "${run_tests}" -eq 1 ]]; then
-    (cd "${build_dir}" && ctest --output-on-failure --parallel)
+    # No display in a bare shell; the QML tests construct QGuiApplication.
+    (cd "${build_dir}" && QT_QPA_PLATFORM=offscreen ctest --output-on-failure --parallel)
 fi
 
 echo

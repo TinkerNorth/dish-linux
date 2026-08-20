@@ -1,0 +1,4 @@
+{
+  "_comment": "Reviewed release input, read by release.yml when it emits latest.json. minimumSupportedVersion is the oldest Dish build that may keep running unattended: clients below it treat the update as required and ignore a skip. Raise it only for a security fix or a protocol break, in its own reviewed commit, and never above the version being released — core/update/UpdateManifest.cpp rejects a manifest whose minimum is newer than its version, which would fail every client's check rather than just the old ones.",
+  "minimumSupportedVersion": "0.1.0"
+}

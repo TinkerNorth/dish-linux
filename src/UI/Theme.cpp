@@ -3,129 +3,127 @@
 
 #include "Theme.h"
 
-#include <QPalette>
+#include <QGuiApplication>
+#include <QStyleHints>
 
 namespace dish::ui {
+
+const ThemePalette& darkPalette() {
+    static const ThemePalette kDark{
+        /*background*/ 0xFF060818,
+        /*surface*/ 0xFF0C1027,
+        /*surfaceDim*/ 0xFF131A3A,
+        /*primary*/ 0xFF4FE3FF,
+        /*primaryDark*/ 0xFF2C93AD,
+        /*onPrimary*/ 0xFF060818,
+        /*onSurface*/ 0xFFE6ECFF,
+        /*muted*/ 0xFF93A0C8,
+        // outline is web rgba(79,227,255,0.18) expressed as ARGB (alpha 0x2E).
+        /*outline*/ 0x2E4FE3FF,
+        /*success*/ 0xFF22C55E,
+        /*error*/ 0xFFE74C3C,
+        /*warning*/ 0xFFF59E0B,
+        /*pulse*/ 0xFFFF6FB5,
+        /*glyph*/ 0xFF8FCFE3,       // 11.0:1 here, but 1.7:1 on white — hence a token
+        /*disabledFg*/ 0xFF6C7799,  // 4.2:1 on surface
+        /*mutedStrong*/ 0xFF7E8CB4, // 5.6:1 on surface
+    };
+    return kDark;
+}
+
+const ThemePalette& lightPalette() {
+    // The cyan accent darkens here because a bright cyan on white is illegible;
+    // status hues stay in family but shift to AA-contrast-on-light variants.
+    static const ThemePalette kLight{
+        /*background*/ 0xFFF5F7FC,
+        /*surface*/ 0xFFFFFFFF,
+        /*surfaceDim*/ 0xFFE7ECF6,
+        /*primary*/ 0xFF0E7C97,
+        /*primaryDark*/ 0xFF0A5E73,
+        /*onPrimary*/ 0xFFFFFFFF,
+        /*onSurface*/ 0xFF0C1430,
+        /*muted*/ 0xFF5A6680,
+        /*outline*/ 0x330E7C97, // darkened-cyan @ ~20% alpha
+        /*success*/ 0xFF1B873F,
+        /*error*/ 0xFFC0392B,
+        /*warning*/ 0xFFB7791F,
+        /*pulse*/ 0xFFC2417F,
+        /*glyph*/ 0xFF2F7E96,
+        // Deliberately LIGHTER than its dark counterpart: "disabled" reads as
+        // receding, which on a white card means paler.
+        /*disabledFg*/ 0xFF8A93A6,  // 3.1:1 on surface
+        /*mutedStrong*/ 0xFF4B566E, // 7.4:1 on surface
+    };
+    return kLight;
+}
+
+const ThemePalette& paletteFor(Appearance appearance) {
+    return appearance == Appearance::Light ? lightPalette() : darkPalette();
+}
+
+QRgb Theme::background = darkPalette().background;
+QRgb Theme::surface = darkPalette().surface;
+QRgb Theme::surfaceDim = darkPalette().surfaceDim;
+QRgb Theme::primary = darkPalette().primary;
+QRgb Theme::primaryDark = darkPalette().primaryDark;
+QRgb Theme::onPrimary = darkPalette().onPrimary;
+QRgb Theme::onSurface = darkPalette().onSurface;
+QRgb Theme::muted = darkPalette().muted;
+QRgb Theme::outline = darkPalette().outline;
+QRgb Theme::success = darkPalette().success;
+QRgb Theme::error = darkPalette().error;
+QRgb Theme::warning = darkPalette().warning;
+QRgb Theme::pulse = darkPalette().pulse;
+QRgb Theme::glyph = darkPalette().glyph;
+QRgb Theme::disabledFg = darkPalette().disabledFg;
+QRgb Theme::mutedStrong = darkPalette().mutedStrong;
+
+namespace {
+Appearance g_activeAppearance = Appearance::Dark;
+} // namespace
+
+void setActivePalette(const ThemePalette& palette) {
+    Theme::background = palette.background;
+    Theme::surface = palette.surface;
+    Theme::surfaceDim = palette.surfaceDim;
+    Theme::primary = palette.primary;
+    Theme::primaryDark = palette.primaryDark;
+    Theme::onPrimary = palette.onPrimary;
+    Theme::onSurface = palette.onSurface;
+    Theme::muted = palette.muted;
+    Theme::outline = palette.outline;
+    Theme::success = palette.success;
+    Theme::error = palette.error;
+    Theme::warning = palette.warning;
+    Theme::pulse = palette.pulse;
+    Theme::glyph = palette.glyph;
+    Theme::disabledFg = palette.disabledFg;
+    Theme::mutedStrong = palette.mutedStrong;
+}
+
+Appearance activeAppearance() { return g_activeAppearance; }
+
+void setActiveAppearance(Appearance appearance) {
+    g_activeAppearance = appearance;
+    setActivePalette(paletteFor(appearance));
+}
+
+// Qt reads the XDG org.freedesktop.appearance portal for this, so it is the
+// whole implementation on Linux rather than a fallback. A desktop that exposes
+// no portal reports Unknown and Dish stays dark.
+Appearance detectSystemAppearance() {
+    if (auto* hints = QGuiApplication::styleHints()) {
+        if (hints->colorScheme() == Qt::ColorScheme::Light) { return Appearance::Light; }
+        if (hints->colorScheme() == Qt::ColorScheme::Dark) { return Appearance::Dark; }
+    }
+    return Appearance::Dark;
+}
 
 QString hex(QRgb c) {
     return QStringLiteral("#%1%2%3")
         .arg(qRed(c), 2, 16, QLatin1Char('0'))
         .arg(qGreen(c), 2, 16, QLatin1Char('0'))
         .arg(qBlue(c), 2, 16, QLatin1Char('0'));
-}
-
-void applyDishTheme(QApplication& app) {
-    QPalette p;
-    const QColor bg(Theme::background);
-    const QColor surface(Theme::surface);
-    const QColor onSurface(Theme::onSurface);
-    const QColor primary(Theme::primary);
-    p.setColor(QPalette::Window, bg);
-    p.setColor(QPalette::WindowText, onSurface);
-    p.setColor(QPalette::Base, surface);
-    p.setColor(QPalette::AlternateBase, QColor(Theme::surfaceDim));
-    p.setColor(QPalette::ToolTipBase, surface);
-    p.setColor(QPalette::ToolTipText, onSurface);
-    p.setColor(QPalette::Text, onSurface);
-    p.setColor(QPalette::Button, surface);
-    p.setColor(QPalette::ButtonText, onSurface);
-    p.setColor(QPalette::Highlight, primary);
-    p.setColor(QPalette::HighlightedText, QColor(Theme::onPrimary));
-    p.setColor(QPalette::Disabled, QPalette::Text, QColor(Theme::muted));
-    p.setColor(QPalette::Disabled, QPalette::ButtonText, QColor(Theme::muted));
-    app.setPalette(p);
-
-    // Disabled-state alpha — design spec (ds-components.jsx → Button) calls
-    // for `opacity: 0.4` on disabled buttons. Qt stylesheets can't apply a
-    // CSS-style `opacity` to a widget, but rgba() colors at 40 % alpha on the
-    // primary tint reproduce the same visual on this dark background. Press
-    // feedback (hover/pressed selectors) is intentionally omitted from the
-    // `:disabled` cascade so a stray click on a not-tappable button doesn't
-    // flash the primary tint. Hex strings:
-    //   * `rgba(79,227,255,0.4)`  — primary @ 40 % (outlined disabled fg + border)
-    //   * `rgba(6,8,24,0.4)`      — onPrimary @ 40 % (filled #primary disabled fg)
-    const QString qss =
-        QStringLiteral(
-            "QMainWindow, QDialog { background-color: %1; }"
-            "QWidget { color: %2; font-family: 'Inter','Roboto',sans-serif; font-size: 13px; }"
-            "QFrame#card { background-color: %3; border: 1px solid %4; border-radius: 8px; }"
-            "QLabel#section { font-family: monospace; color: %5; letter-spacing: 1.5px; "
-            "                font-size: 11px; }"
-            "QPushButton { background: transparent; color: %5; border: 1px solid %5; "
-            "             border-radius: 6px; padding: 6px 12px; font-weight: 500; }"
-            "QPushButton:hover { background-color: rgba(79,227,255,0.12); }"
-            "QPushButton:pressed { background-color: rgba(79,227,255,0.18); }"
-            "QPushButton:disabled { color: rgba(79,227,255,0.4); "
-            "                      border-color: rgba(79,227,255,0.4); "
-            "                      background: transparent; }"
-            "QPushButton#primary { background-color: %5; color: %7; border: none; }"
-            "QPushButton#primary:hover { background-color: %8; }"
-            "QPushButton#primary:disabled { background-color: rgba(79,227,255,0.4); "
-            "                              color: rgba(6,8,24,0.4); border: none; }"
-            "QListWidget, QTreeWidget { background-color: %3; border: 1px solid %4; "
-            "                          border-radius: 8px; padding: 4px; }"
-            "QStatusBar { background-color: %3; color: %6; }"
-            "QLineEdit { background-color: %3; color: %2; border: 1px solid %4; "
-            "           border-radius: 6px; padding: 6px 8px; }"
-            "QLineEdit:focus { border-color: %5; }"
-            "QProgressBar { background-color: %3; border: 1px solid %4; border-radius: 2px; }"
-            "QProgressBar::chunk { background-color: %5; border-radius: 2px; }")
-            .arg(hex(Theme::background), hex(Theme::onSurface), hex(Theme::surface),
-                 hex(Theme::outline), hex(Theme::primary), hex(Theme::muted), hex(Theme::onPrimary),
-                 hex(Theme::primaryDark), hex(Theme::surfaceDim));
-    app.setStyleSheet(qss);
-}
-
-QString sectionHeaderQss() {
-    return QStringLiteral(
-               "font-family: monospace; color: %1; letter-spacing: 1.5px; font-size: 11px;")
-        .arg(hex(Theme::primary));
-}
-
-QString outlinedButtonQss() {
-    return QStringLiteral(
-               "background: transparent; color: %1; border: 1px solid %1; border-radius: 6px; "
-               "padding: 6px 12px;")
-        .arg(hex(Theme::primary));
-}
-
-QString dotQss(QRgb color) {
-    return QStringLiteral("background-color: %1; border-radius: 4px;").arg(hex(color));
-}
-
-QString capabilityChipQss(bool on) {
-    // `on`  : primary text on a faint primary fill, no border — "feature live".
-    // `off` : muted text, transparent fill, muted border — "hardware absent".
-    // The faint fill reuses the same rgba(79,227,255,0.14) tint the QPushButton
-    // hover state uses, so the chip sits in the established palette.
-    if (on) {
-        return QStringLiteral("color: %1; background-color: rgba(79,227,255,0.14); "
-                              "border: 1px solid transparent; border-radius: 5px; "
-                              "padding: 2px 7px; font-size: 10px; font-weight: 500;")
-            .arg(hex(Theme::primary));
-    }
-    return QStringLiteral("color: %1; background-color: transparent; "
-                          "border: 1px solid %1; border-radius: 5px; "
-                          "padding: 2px 7px; font-size: 10px; font-weight: 500;")
-        .arg(hex(Theme::muted));
-}
-
-QString batteryChipQss(bool lowBattery) {
-    // Same pill geometry as capabilityChipQss's `on` branch. A healthy battery
-    // reuses the cyan `primary` tint; a low battery (< ~15 %) swaps to the
-    // amber `warning` token so the player can't miss it. The faint fill alpha
-    // is kept as a literal rgba() — QSS needs the alpha inline and there is no
-    // half-alpha colour token.
-    if (lowBattery) {
-        return QStringLiteral("color: %1; background-color: rgba(245,158,11,0.16); "
-                              "border: 1px solid transparent; border-radius: 5px; "
-                              "padding: 2px 7px; font-size: 10px; font-weight: 600;")
-            .arg(hex(Theme::warning));
-    }
-    return QStringLiteral("color: %1; background-color: rgba(79,227,255,0.14); "
-                          "border: 1px solid transparent; border-radius: 5px; "
-                          "padding: 2px 7px; font-size: 10px; font-weight: 500;")
-        .arg(hex(Theme::primary));
 }
 
 } // namespace dish::ui

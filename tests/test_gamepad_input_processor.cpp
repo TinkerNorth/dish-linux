@@ -72,11 +72,26 @@ TEST_CASE("zeroAndSendAll emits a neutral report for every known device", "[inpu
     REQUIRE(zeros == 2);
 }
 
-// ---------------------------------------------------------------------------
-// Per-device deadzones — mirrors the dish-mac GamepadInputProcessor tests
-// and the Android per-device `flat` pipeline. Pinning these here keeps the
-// wire format identical across all three clients.
-// ---------------------------------------------------------------------------
+TEST_CASE("drainTelemetry resets per-second counters and keeps lifetime total", "[input]") {
+    GamepadInputProcessor p;
+    p.setReportSender([](const std::string&, std::uint16_t, std::uint8_t, std::uint8_t,
+                         std::int16_t, std::int16_t, std::int16_t, std::int16_t) {});
+
+    GamepadInputProcessor::DeviceState s;
+    p.publish("pad", s);
+    p.publish("pad", s);
+    p.publish("pad", s);
+
+    auto snap = p.drainTelemetry();
+    REQUIRE(snap.events == 3);
+    REQUIRE(snap.sends == 3);
+    REQUIRE(snap.totalSent == 3);
+
+    auto snap2 = p.drainTelemetry();
+    REQUIRE(snap2.events == 0);
+    REQUIRE(snap2.sends == 0);
+    REQUIRE(snap2.totalSent == 3);
+}
 
 TEST_CASE("applyDeadzones zeroes sticks at or below threshold", "[input]") {
     GamepadInputProcessor::Deadzones dz{3277, 13};
@@ -184,15 +199,11 @@ TEST_CASE("remove clears deadzones too", "[input]") {
                           std::int16_t) { lastLx = lx; });
     p.setDeadzones("pad", {5000, 0});
     p.remove("pad");
-    // After remove, a fresh publish should not pull the old deadzone — small
-    // input passes through.
     GamepadInputProcessor::DeviceState s;
     s.lx = 100;
     p.publish("pad", s);
     REQUIRE(lastLx == 100);
 }
-
-// ── Motion rate limiting + dispatch ─────────────────────────────────────────
 
 TEST_CASE("publishMotionAt forwards the first sample with delta 0", "[motion]") {
     GamepadInputProcessor p;
@@ -219,27 +230,8 @@ TEST_CASE("publishMotionAt drops samples inside the 4 ms gate", "[motion]") {
 
     GamepadInputProcessor::MotionSample s{};
     REQUIRE(p.publishMotionAt("pad-1", s, 1'000'000));
+    // Still inside the kMotionMinIntervalUs (4 000 µs) gate.
     REQUIRE_FALSE(p.publishMotionAt("pad-1", s, 1'000'000 + 3'999));
-    REQUIRE(calls == 1);
-}
-
-TEST_CASE("publishMotionAt drops the second sample even when the clock starts at 0", "[motion]") {
-    // Regression for the rate-limiter "never emitted" sentinel bug: the gate
-    // used to overload `lastUs == 0` as "no prior emission". A monotonic or
-    // test clock can legitimately report 0 for the very first sample — with
-    // the old sentinel the second sample at t=0..3999 µs was misread as
-    // *another* first sample and forwarded, blowing the 250 Hz cap. The gate
-    // now carries an explicit `hasEmitted` flag, so a first sample at exactly
-    // nowUs=0 still arms the gate and the next within-window sample drops.
-    GamepadInputProcessor p;
-    int calls = 0;
-    p.setMotionSender([&](const std::string&, std::int16_t, std::int16_t, std::int16_t,
-                          std::int16_t, std::int16_t, std::int16_t, std::uint32_t) { ++calls; });
-
-    GamepadInputProcessor::MotionSample s{};
-    REQUIRE(p.publishMotionAt("pad-1", s, 0));           // first sample at t=0
-    REQUIRE_FALSE(p.publishMotionAt("pad-1", s, 1));     // 1 µs later — inside gate, drop
-    REQUIRE_FALSE(p.publishMotionAt("pad-1", s, 3'999)); // still inside the 4 ms gate, drop
     REQUIRE(calls == 1);
 }
 
@@ -271,6 +263,8 @@ TEST_CASE("publishMotionAt does NOT advance the gate on a dropped sample", "[mot
     REQUIRE_FALSE(p.publishMotionAt("pad-1", s, 1'000));
     REQUIRE_FALSE(p.publishMotionAt("pad-1", s, 2'000));
     REQUIRE_FALSE(p.publishMotionAt("pad-1", s, 3'000));
+    // The gate is measured from the last EMITTED sample; had the drops advanced
+    // it, this would have been pushed out to 7 000 µs.
     REQUIRE(p.publishMotionAt("pad-1", s, 4'000));
     REQUIRE(calls == 2);
 }
@@ -292,6 +286,31 @@ TEST_CASE("publishMotionAt rate-limits each device independently", "[motion]") {
     REQUIRE_FALSE(p.publishMotionAt("b", s, 1'000));
     REQUIRE(aCalls == 1);
     REQUIRE(bCalls == 1);
+}
+
+TEST_CASE("publishMotionAt rate-limits correctly when the clock starts at 0", "[motion]") {
+    // A monotonic clock can legitimately read 0 for the first sample, so the
+    // gate tracks an explicit hasEmitted flag rather than testing prev != 0.
+    GamepadInputProcessor p;
+    int calls = 0;
+    std::uint32_t lastDt = 99;
+    p.setMotionSender([&](const std::string&, std::int16_t, std::int16_t, std::int16_t,
+                          std::int16_t, std::int16_t, std::int16_t, std::uint32_t dt) {
+        ++calls;
+        lastDt = dt;
+    });
+
+    GamepadInputProcessor::MotionSample s{};
+    REQUIRE(p.publishMotionAt("pad-1", s, 0));
+    REQUIRE(calls == 1);
+    REQUIRE(lastDt == 0U);
+
+    REQUIRE_FALSE(p.publishMotionAt("pad-1", s, 2'000));
+    REQUIRE(calls == 1);
+
+    REQUIRE(p.publishMotionAt("pad-1", s, 4'000));
+    REQUIRE(calls == 2);
+    REQUIRE(lastDt == 4'000U);
 }
 
 TEST_CASE("remove resets the motion rate-limit for that device", "[motion]") {
@@ -333,8 +352,6 @@ TEST_CASE("publishMotion passes through gyro + accel sample data verbatim", "[mo
     REQUIRE(observed.accelZ == -600);
 }
 
-// ── Battery forwarding ─────────────────────────────────────────────────────
-
 TEST_CASE("publishBattery forwards the first sample", "[battery]") {
     GamepadInputProcessor p;
     int calls = 0;
@@ -352,15 +369,14 @@ TEST_CASE("publishBattery forwards the first sample", "[battery]") {
     REQUIRE(lastStatus == 1);
 }
 
-// MSG_BATTERY is a fixed 30 s heartbeat: an unchanged value must still reach
-// the wire every poll so a dropped UDP packet self-heals on the next tick.
-// publishBattery therefore forwards every sample — it does NOT coalesce.
+// MSG_BATTERY is a fixed 30 s heartbeat: an unchanged value must still reach the
+// wire every poll so a dropped UDP packet self-heals on the next tick.
 TEST_CASE("publishBattery forwards every sample, including unchanged ones", "[battery]") {
     GamepadInputProcessor p;
     int calls = 0;
     p.setBatterySender([&](const std::string&, std::uint8_t, std::uint8_t) { ++calls; });
 
-    p.publishBattery("pad", {100, 4});
+    p.publishBattery("pad", {100, 4}); // Wired, full.
     p.publishBattery("pad", {100, 4});
     p.publishBattery("pad", {100, 4});
     REQUIRE(calls == 3);
@@ -386,8 +402,8 @@ TEST_CASE("publishBattery emits on status change at the same level", "[battery]"
         lastStatus = st;
     });
 
-    p.publishBattery("pad", {80, 1});
-    p.publishBattery("pad", {80, 2});
+    p.publishBattery("pad", {80, 1}); // Discharging.
+    p.publishBattery("pad", {80, 2}); // Charging.
     REQUIRE(calls == 2);
     REQUIRE(lastStatus == 2);
 }
@@ -404,99 +420,161 @@ TEST_CASE("publishBattery forwards every device's samples", "[battery]") {
     REQUIRE(calls == 4);
 }
 
-// ── Touchpad forwarding ────────────────────────────────────────────────────
-// publishTouchpad is a pure pass-through to the TouchpadSender: the SDL bridge
-// has already assembled the full two-finger state, and a touchpad is an
-// absolute surface, so there is no deadzone / rate-limit / coalesce step.
+// A touchpad is an absolute surface and the SDL bridge has already assembled the
+// two-finger snapshot, so publishTouchpad has no deadzone / rate-limit / coalesce
+// step: it is a pure pass-through.
 
-TEST_CASE("publishTouchpad forwards the sample verbatim to the sender", "[touchpad]") {
+TEST_CASE("publishTouchpad forwards the sample to the touchpad sender", "[touchpad]") {
     GamepadInputProcessor p;
-    bool called = false;
+    int calls = 0;
     GamepadInputProcessor::TouchpadSample observed{};
     p.setTouchpadSender([&](const std::string& id, const GamepadInputProcessor::TouchpadSample& s) {
-        called = true;
+        ++calls;
         observed = s;
         REQUIRE(id == "pad-1");
     });
 
-    GamepadInputProcessor::TouchpadSample s{};
-    s.finger0Active = true;
-    s.finger0Id = 7;
-    s.finger0X = 1234;
-    s.finger0Y = -5678;
-    s.finger1Active = true;
-    s.finger1Id = 9;
-    s.finger1X = -4321;
-    s.finger1Y = 8765;
-    s.buttonPressed = true;
-    p.publishTouchpad("pad-1", s);
+    GamepadInputProcessor::TouchpadSample sample{};
+    sample.finger0Active = true;
+    sample.finger0Id = 7;
+    sample.finger0X = 1234;
+    sample.finger0Y = -5678;
+    sample.finger1Active = true;
+    sample.finger1Id = 8;
+    sample.finger1X = -1;
+    sample.finger1Y = 32767;
+    sample.buttonPressed = true;
+    p.publishTouchpad("pad-1", sample);
 
-    REQUIRE(called);
+    REQUIRE(calls == 1);
     REQUIRE(observed.finger0Active);
     REQUIRE(observed.finger0Id == 7);
     REQUIRE(observed.finger0X == 1234);
     REQUIRE(observed.finger0Y == -5678);
     REQUIRE(observed.finger1Active);
-    REQUIRE(observed.finger1Id == 9);
-    REQUIRE(observed.finger1X == -4321);
-    REQUIRE(observed.finger1Y == 8765);
+    REQUIRE(observed.finger1Id == 8);
+    REQUIRE(observed.finger1X == -1);
+    REQUIRE(observed.finger1Y == 32767);
     REQUIRE(observed.buttonPressed);
 }
 
 TEST_CASE("publishTouchpad forwards every sample, including unchanged ones", "[touchpad]") {
-    // Touchpad input is event-driven and not coalesced — every assembled
-    // state change reaches the wire, even a repeat of the same coordinates.
     GamepadInputProcessor p;
     int calls = 0;
     p.setTouchpadSender(
         [&](const std::string&, const GamepadInputProcessor::TouchpadSample&) { ++calls; });
 
-    GamepadInputProcessor::TouchpadSample s{};
-    s.finger0Active = true;
-    p.publishTouchpad("pad", s);
-    p.publishTouchpad("pad", s);
-    p.publishTouchpad("pad", s);
+    GamepadInputProcessor::TouchpadSample sample{};
+    sample.finger0Active = true;
+    p.publishTouchpad("pad", sample);
+    p.publishTouchpad("pad", sample);
+    p.publishTouchpad("pad", sample);
     REQUIRE(calls == 3);
 }
 
-TEST_CASE("publishTouchpad is a no-op when no sender is installed", "[touchpad]") {
-    // No TouchpadSender set — publishTouchpad must not crash, just drop.
+TEST_CASE("publishTouchpad forwards each device's samples independently", "[touchpad]") {
     GamepadInputProcessor p;
-    GamepadInputProcessor::TouchpadSample s{};
-    s.finger0Active = true;
-    p.publishTouchpad("pad", s); // must not throw / crash
-    SUCCEED("publishTouchpad tolerated a missing sender");
-}
-
-TEST_CASE("publishTouchpad forwards each device's samples", "[touchpad]") {
-    GamepadInputProcessor p;
-    int calls = 0;
+    std::unordered_map<std::string, int> byId;
     p.setTouchpadSender(
-        [&](const std::string&, const GamepadInputProcessor::TouchpadSample&) { ++calls; });
+        [&](const std::string& id, const GamepadInputProcessor::TouchpadSample&) { ++byId[id]; });
 
-    GamepadInputProcessor::TouchpadSample s{};
-    p.publishTouchpad("a", s);
-    p.publishTouchpad("b", s);
-    p.publishTouchpad("a", s);
-    REQUIRE(calls == 3);
+    GamepadInputProcessor::TouchpadSample sample{};
+    p.publishTouchpad("a", sample);
+    p.publishTouchpad("b", sample);
+    p.publishTouchpad("a", sample);
+    REQUIRE(byId["a"] == 2);
+    REQUIRE(byId["b"] == 1);
 }
 
-TEST_CASE("publishTouchpad carries a monotonic per-finger tracking id through", "[touchpad]") {
-    // The SDL bridge bumps the tracking id on each fresh contact; the
-    // processor must hand whatever it is given straight to the sender so the
-    // receiver can tell a new touch from a continuation.
+TEST_CASE("publishTouchpad is a no-op when no touchpad sender is installed", "[touchpad]") {
+    // A pad with a trackpad can attach before AppModel wires the sender.
     GamepadInputProcessor p;
-    std::uint8_t lastF0Id = 0;
-    p.setTouchpadSender([&](const std::string&, const GamepadInputProcessor::TouchpadSample& s) {
-        lastF0Id = s.finger0Id;
-    });
+    GamepadInputProcessor::TouchpadSample sample{};
+    sample.finger0Active = true;
+    p.publishTouchpad("pad", sample); // must not throw / dereference null
+    SUCCEED();
+}
 
-    GamepadInputProcessor::TouchpadSample s{};
-    s.finger0Active = true;
-    s.finger0Id = 1;
-    p.publishTouchpad("pad", s);
-    REQUIRE(lastF0Id == 1);
-    s.finger0Id = 2; // fresh contact — bumped id
-    p.publishTouchpad("pad", s);
-    REQUIRE(lastF0Id == 2);
+// The per-device atomics the hot path bumps are what InputRateStore samples to
+// derive Hz, so motion must count only what cleared the rate-limit gate.
+
+TEST_CASE("inputCounters tally one gamepad event per publish", "[input][rate]") {
+    GamepadInputProcessor p;
+    p.setReportSender([](const std::string&, std::uint16_t, std::uint8_t, std::uint8_t,
+                         std::int16_t, std::int16_t, std::int16_t, std::int16_t) {});
+    REQUIRE(p.inputCounters("pad").gamepadEvents == 0);
+
+    GamepadInputProcessor::DeviceState s;
+    for (int i = 0; i < 7; ++i) {
+        s.wButtons = static_cast<std::uint16_t>(i); // distinct states, still 7 publishes
+        p.publish("pad", s);
+    }
+    const auto c = p.inputCounters("pad");
+    REQUIRE(c.gamepadEvents == 7);
+    REQUIRE(c.motionEvents == 0);
+}
+
+TEST_CASE("inputCounters count a gamepad event even for an unchanged state", "[input][rate]") {
+    GamepadInputProcessor p;
+    p.setReportSender([](const std::string&, std::uint16_t, std::uint8_t, std::uint8_t,
+                         std::int16_t, std::int16_t, std::int16_t, std::int16_t) {});
+    GamepadInputProcessor::DeviceState s; // identical each time
+    p.publish("pad", s);
+    p.publish("pad", s);
+    p.publish("pad", s);
+    REQUIRE(p.inputCounters("pad").gamepadEvents == 3);
+}
+
+TEST_CASE("inputCounters motion tally counts only forwarded samples", "[input][rate]") {
+    GamepadInputProcessor p;
+    int forwarded = 0;
+    p.setMotionSender([&](const std::string&, std::int16_t, std::int16_t, std::int16_t,
+                          std::int16_t, std::int16_t, std::int16_t,
+                          std::uint32_t) { ++forwarded; });
+
+    const GamepadInputProcessor::MotionSample m{};
+    const std::uint64_t minGap = GamepadInputProcessor::kMotionMinIntervalUs;
+    REQUIRE(p.publishMotionAt("pad", m, 0));
+    REQUIRE_FALSE(p.publishMotionAt("pad", m, 1));
+    REQUIRE(p.publishMotionAt("pad", m, minGap));
+
+    REQUIRE(forwarded == 2);
+    const auto c = p.inputCounters("pad");
+    REQUIRE(c.motionEvents == 2); // the dropped one did not count
+    REQUIRE(c.gamepadEvents == 0);
+}
+
+TEST_CASE("inputCounters are independent per device", "[input][rate]") {
+    GamepadInputProcessor p;
+    p.setReportSender([](const std::string&, std::uint16_t, std::uint8_t, std::uint8_t,
+                         std::int16_t, std::int16_t, std::int16_t, std::int16_t) {});
+    GamepadInputProcessor::DeviceState s;
+    p.publish("a", s);
+    p.publish("a", s);
+    p.publish("b", s);
+    REQUIRE(p.inputCounters("a").gamepadEvents == 2);
+    REQUIRE(p.inputCounters("b").gamepadEvents == 1);
+    REQUIRE(p.inputCounters("ghost").gamepadEvents == 0); // never-seen device reads 0
+}
+
+TEST_CASE("remove resets a device's input counters so a re-attach re-baselines", "[input][rate]") {
+    GamepadInputProcessor p;
+    p.setReportSender([](const std::string&, std::uint16_t, std::uint8_t, std::uint8_t,
+                         std::int16_t, std::int16_t, std::int16_t, std::int16_t) {});
+    p.setMotionSender([](const std::string&, std::int16_t, std::int16_t, std::int16_t, std::int16_t,
+                         std::int16_t, std::int16_t, std::uint32_t) {});
+    GamepadInputProcessor::DeviceState s;
+    p.publish("pad", s);
+    p.publish("pad", s);
+    (void)p.publishMotionAt("pad", GamepadInputProcessor::MotionSample{}, 0);
+    REQUIRE(p.inputCounters("pad").gamepadEvents == 2);
+    REQUIRE(p.inputCounters("pad").motionEvents == 1);
+
+    p.remove("pad");
+    const auto c = p.inputCounters("pad");
+    REQUIRE(c.gamepadEvents == 0);
+    REQUIRE(c.motionEvents == 0);
+
+    p.publish("pad", s);
+    REQUIRE(p.inputCounters("pad").gamepadEvents == 1);
 }

@@ -17,24 +17,22 @@
 
 namespace dish::net {
 
-// Aggregates the wifi pool into the flat [ConnectionSummary] the UI consumes
-// and owns the slot->connection binding table. Mirrors
-// dish-mac/Network/ConnectionHub.swift (the WiFi-only subset of the Android
-// ConnectionHub.kt — no Bluetooth-HID-Device on Linux desktop).
+// Aggregates the wifi pool into the flat ConnectionSummary list the UI consumes,
+// and owns the slot to connection binding table.
 class ConnectionHub : public QObject {
     Q_OBJECT
   public:
     using ReportSender = std::function<void(std::uint16_t, std::uint8_t, std::uint8_t, std::int16_t,
                                             std::int16_t, std::int16_t, std::int16_t)>;
 
-    // IMU sender: gyroX/Y/Z, accelX/Y/Z, timestampDeltaUs. All host-LE.
+    // gyroX/Y/Z, accelX/Y/Z, timestampDeltaUs.
     using MotionSender = std::function<void(std::int16_t, std::int16_t, std::int16_t, std::int16_t,
                                             std::int16_t, std::int16_t, std::uint32_t)>;
 
-    // Battery sender: level (0..100 or 0xFF), status (BATTERY_STATUS_*).
+    // level (0..100 or 0xFF), status (BATTERY_STATUS_*).
     using BatterySender = std::function<void(std::uint8_t, std::uint8_t)>;
 
-    // Touchpad sender: finger0(active,id,x,y), finger1(active,id,x,y), button.
+    // finger0(active,id,x,y), finger1(active,id,x,y), button, eventTimeMs.
     using TouchpadSender =
         std::function<void(bool, std::uint8_t, std::int16_t, std::int16_t, bool, std::uint8_t,
                            std::int16_t, std::int16_t, bool, std::uint32_t)>;
@@ -44,34 +42,41 @@ class ConnectionHub : public QObject {
     QList<models::ConnectionSummary> connections() const { return summaries_; }
     QHash<QString, QString> bindings() const { return bindings_; }
 
-    // Returns the live ReportSender for the connection bound to `slotId`, or
-    // an empty function if nothing is bound. The returned closure does a single
-    // mutex-guarded shared_ptr load on the hot path; safe to call from the SDL
-    // gamepad thread.
+    // Empty when nothing is bound. The returned closure does one mutex-guarded
+    // shared_ptr load, so it is safe to call from the SDL input thread.
     ReportSender reportSenderForSlot(const QString& slotId) const;
 
-    // Parallel motion/battery routes — same shape as reportSenderForSlot,
-    // returned as a closure capturing the connection pointer.
     MotionSender motionSenderForSlot(const QString& slotId) const;
     BatterySender batterySenderForSlot(const QString& slotId) const;
     TouchpadSender touchpadSenderForSlot(const QString& slotId) const;
 
-    // Predicate answering "does the physical pad behind this slot have an
-    // addressable RGB LED?". Installed by AppModel (which owns the SDL bridge
-    // that detects the LED). bind() consults it so the resulting
-    // MSG_CONTROLLER_ADD advertises CAP_LIGHTBAR for an LED-bearing pad. When
-    // unset, slots are treated as having no lightbar.
+    // The seams below let bind() stamp per-device hardware facts onto the
+    // REST descriptor. AppModel installs them off the SDL bridge's device
+    // classification; each is unset in tests and before the bridge exists, and
+    // the fallbacks are chosen so an unset resolver understates capability.
+
+    // Unset means no lightbar, so CAP_LIGHTBAR is not advertised.
     using LightbarCapabilityFn = std::function<bool(const QString& slotId)>;
     void setLightbarCapabilityFn(LightbarCapabilityFn fn) { lightbarCapabilityFn_ = std::move(fn); }
 
-    // Predicate answering "does the physical pad behind this slot have a
-    // motion sensor (gyro / accelerometer)?". Same source as the lightbar
-    // predicate — the SDL bridge's per-device IMU probe. bind() consults it
-    // so MSG_CONTROLLER_ADD advertises CAP_MOTION only for a pad that
-    // actually streams IMU samples. When unset, slots are treated as having
-    // no motion.
+    // Unset means no motion, so CAP_MOTION is not advertised.
     using MotionCapabilityFn = std::function<bool(const QString& slotId)>;
     void setMotionCapabilityFn(MotionCapabilityFn fn) { motionCapabilityFn_ = std::move(fn); }
+
+    // Unset means no rumble, so CAP_RUMBLE is not advertised.
+    using RumbleCapabilityFn = std::function<bool(const QString& slotId)>;
+    void setRumbleCapabilityFn(RumbleCapabilityFn fn) { rumbleCapabilityFn_ = std::move(fn); }
+
+    // A proto CONTROLLER_TYPE_*, which is how a DualSense registers as a virtual
+    // DS4 rather than an Xbox pad. Unset means CONTROLLER_TYPE_XBOX.
+    using ControllerTypeFn = std::function<int(const QString& slotId)>;
+    void setControllerTypeFn(ControllerTypeFn fn) { controllerTypeFn_ = std::move(fn); }
+
+    // A proto::kTouchpadMode* value, folded by AppModel from the pad's touch
+    // source, the type's catalog gate, and the per-satellite pick. The satellite
+    // discards every MSG_TOUCHPAD unless the descriptor declares a mode.
+    using TouchpadModeFn = std::function<std::uint8_t(const QString& slotId)>;
+    void setTouchpadModeFn(TouchpadModeFn fn) { touchpadModeFn_ = std::move(fn); }
 
     void bind(const QString& slotId, const QString& connectionId);
     void unbind(const QString& slotId);
@@ -90,6 +95,9 @@ class ConnectionHub : public QObject {
     QHash<QString, QString> bindings_; // slotId -> connectionId
     LightbarCapabilityFn lightbarCapabilityFn_;
     MotionCapabilityFn motionCapabilityFn_;
+    RumbleCapabilityFn rumbleCapabilityFn_;
+    ControllerTypeFn controllerTypeFn_;
+    TouchpadModeFn touchpadModeFn_;
 };
 
 } // namespace dish::net

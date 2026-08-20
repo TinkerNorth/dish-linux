@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 // Copyright (C) 2026 Dish contributors.
 //
-// Tiny big-endian helpers used by the wire protocol. The Satellite header
-// transmits sequence number / timestamp / nonce in network byte order.
+// Big-endian helpers for the wire protocol, whose packet header and inner
+// type+length fields are network byte order. Payload bodies are little-endian
+// and do not use these.
 
 #pragma once
 

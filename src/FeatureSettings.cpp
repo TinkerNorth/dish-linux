@@ -3,13 +3,13 @@
 
 #include "FeatureSettings.h"
 
+#include <QCoreApplication>
+
 namespace dish {
 
 namespace {
 
-// QSettings key for the persisted light-bar mode. The string values match
-// dish-mac's LightbarMode rawValue ("followGame" / "off") so a future shared
-// sync layer sees one vocabulary.
+// Persisted verbatim, and shared with the other Dish clients: do not rename.
 constexpr const char* kLightbarModeKey = "feature_lightbar_mode";
 constexpr const char* kLightbarFollowGame = "followGame";
 constexpr const char* kLightbarOff = "off";
@@ -27,21 +27,22 @@ QString lightbarModeToKey(LightbarMode mode) {
 }
 
 LightbarMode lightbarModeFromKey(const QString& key) {
-    // Lenient: only the exact "off" token disables the light bar. Anything
-    // else — including an empty / unknown value from a first launch or a
-    // forward-newer config — falls back to the documented default.
+    // Only the exact "off" token disables the light bar; an empty or unknown
+    // value from a first launch or a newer config falls back to the default.
     if (key == QLatin1String(kLightbarOff)) { return LightbarMode::Off; }
     return LightbarMode::FollowGame;
 }
 
 QString lightbarModeLabel(LightbarMode mode) {
+    // Routed through translate() so lupdate picks the labels up under the
+    // "FeatureSettings" context.
     switch (mode) {
     case LightbarMode::Off:
-        return QStringLiteral("Off");
+        return QCoreApplication::translate("FeatureSettings", "Off");
     case LightbarMode::FollowGame:
         break;
     }
-    return QStringLiteral("Follow game");
+    return QCoreApplication::translate("FeatureSettings", "Follow game");
 }
 
 FeatureSettings::FeatureSettings(QObject* parent)

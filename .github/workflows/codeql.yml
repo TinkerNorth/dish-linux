@@ -39,11 +39,25 @@ jobs:
 
       - name: Install build dependencies
         run: |
+          # A mirror that stops answering should cost seconds, not minutes:
+          # azure.archive.ubuntu.com went dark mid-afternoon and apt sat on it
+          # for 2-6 minutes per index before failing over to archive.ubuntu.com,
+          # which is what blew this job's timeout. Bound the wait; apt still
+          # reaches the working mirror, just sooner.
+          sudo tee /etc/apt/apt.conf.d/99-dish-acquire >/dev/null <<'CONF'
+          Acquire::http::Timeout "15";
+          Acquire::https::Timeout "15";
+          Acquire::Retries "2";
+          CONF
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             build-essential cmake ninja-build pkg-config \
-            qt6-base-dev qt6-base-dev-tools qt6-svg-dev \
             libsodium-dev libsdl2-dev
+
+      # Not apt: noble ships Qt 6.4.2 and this project's floor is 6.7. The
+      # action pulls the official binaries and exports CMAKE_PREFIX_PATH.
+      - name: Set up Qt
+        uses: ./.github/actions/setup-qt
 
       - name: Initialize CodeQL
         uses: github/codeql-action/init@68bde559dea0fdcac2102bfdf6230c5f70eb485e # v4.35.4

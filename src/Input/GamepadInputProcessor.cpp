@@ -3,9 +3,9 @@
 
 #include "GamepadInputProcessor.h"
 
-#include <algorithm>
+#include "core/input/Deadzones.h"
+
 #include <chrono>
-#include <cmath>
 
 namespace dish::input {
 
@@ -38,6 +38,10 @@ void GamepadInputProcessor::publish(const DeviceId& id, const DeviceState& state
         if (auto it = deadzones_.find(id); it != deadzones_.end()) { dz = it->second; }
         filtered = applyDeadzones(state, dz);
         states_[id] = filtered;
+        ++telEvents_;
+        ++telSends_;
+        ++telTotalSent_;
+        rateCounters_[id].gamepad.fetch_add(1, std::memory_order_relaxed);
         snapshot = sender_;
     }
     if (snapshot) {
@@ -67,6 +71,16 @@ void GamepadInputProcessor::remove(const DeviceId& id) {
     states_.erase(id);
     deadzones_.erase(id);
     lastMotionUs_.erase(id);
+    rateCounters_.erase(id);
+}
+
+GamepadInputProcessor::InputRateCounters
+GamepadInputProcessor::inputCounters(const DeviceId& id) const {
+    std::lock_guard<std::mutex> lock(mtx_);
+    const auto it = rateCounters_.find(id);
+    if (it == rateCounters_.end()) { return InputRateCounters{}; }
+    return InputRateCounters{it->second.gamepad.load(std::memory_order_relaxed),
+                             it->second.motion.load(std::memory_order_relaxed)};
 }
 
 bool GamepadInputProcessor::publishMotionAt(const DeviceId& id, const MotionSample& sample,
@@ -77,18 +91,21 @@ bool GamepadInputProcessor::publishMotionAt(const DeviceId& id, const MotionSamp
         std::lock_guard<std::mutex> lock(mtx_);
         MotionGate& gate = lastMotionUs_[id];
         if (gate.hasEmitted && nowUs - gate.lastUs < kMotionMinIntervalUs) {
-            // Inside the rate-limit window — drop. Deliberately do NOT update
-            // the gate; otherwise a hot stream of dropped samples would push
-            // it forward and starve the legitimate sender for longer than
-            // one period.
+            // Deliberately do NOT advance `gate`: a hot stream of dropped
+            // samples would push it forward and starve the sender for longer
+            // than one period.
             return false;
         }
+        // Relative to the previous *emitted* packet, not the previous attempt,
+        // so the receiver gets true inter-arrival timing. Delta stays 0 on the
+        // first emission — the wire spec's first-packet sentinel.
         if (gate.hasEmitted) {
             const std::uint64_t d = nowUs - gate.lastUs;
             deltaUs = (d > 0xFFFFFFFFULL) ? 0xFFFFFFFFU : static_cast<std::uint32_t>(d);
         }
         gate.lastUs = nowUs;
         gate.hasEmitted = true;
+        rateCounters_[id].motion.fetch_add(1, std::memory_order_relaxed);
         snapshot = motionSender_;
     }
     if (snapshot) {
@@ -106,9 +123,6 @@ void GamepadInputProcessor::publishMotion(const DeviceId& id, const MotionSample
 }
 
 void GamepadInputProcessor::publishBattery(const DeviceId& id, const BatterySample& sample) {
-    // Pure pass-through — no coalescing. MSG_BATTERY is a fixed 30 s
-    // heartbeat, so an unchanged sample must still reach the wire; the SDL
-    // bridge's 30 s poll gate is what bounds the rate.
     BatterySender snapshot;
     {
         std::lock_guard<std::mutex> lock(mtx_);
@@ -131,29 +145,29 @@ void GamepadInputProcessor::publishTouchpad(const DeviceId& id, const TouchpadSa
     if (snapshot) { snapshot(id, sample); }
 }
 
-std::int16_t scaleAxis(float v, float maxMagnitude) {
-    const auto clamped = std::clamp(v, -1.0f, 1.0f);
-    const auto scaled = static_cast<int>(clamped * maxMagnitude);
-    return static_cast<std::int16_t>(
-        std::clamp(scaled, static_cast<int>(INT16_MIN), static_cast<int>(INT16_MAX)));
+GamepadInputProcessor::TelemetrySnapshot GamepadInputProcessor::drainTelemetry() {
+    std::lock_guard<std::mutex> lock(mtx_);
+    TelemetrySnapshot snap{telEvents_, telSends_, telTotalSent_};
+    telEvents_ = 0;
+    telSends_ = 0;
+    return snap;
 }
 
-std::uint8_t scaleTrigger(float v) {
-    const auto clamped = std::clamp(v, 0.0f, 1.0f);
-    const auto scaled = static_cast<int>(std::lround(clamped * 255.0f));
-    return static_cast<std::uint8_t>(std::clamp(scaled, 0, 255));
-}
+// Thin forwarders to the pure core/input layer, kept so existing call sites
+// stay unchanged.
+std::int16_t scaleAxis(float v, float maxMagnitude) { return deadzone::scaleAxis(v, maxMagnitude); }
+
+std::uint8_t scaleTrigger(float v) { return deadzone::scaleTrigger(v); }
 
 GamepadInputProcessor::DeviceState applyDeadzones(const GamepadInputProcessor::DeviceState& state,
                                                   const GamepadInputProcessor::Deadzones& dz) {
     auto out = state;
-    const auto stickFlat = static_cast<std::int32_t>(dz.stickFlat);
-    if (std::abs(static_cast<std::int32_t>(out.lx)) <= stickFlat) { out.lx = 0; }
-    if (std::abs(static_cast<std::int32_t>(out.ly)) <= stickFlat) { out.ly = 0; }
-    if (std::abs(static_cast<std::int32_t>(out.rx)) <= stickFlat) { out.rx = 0; }
-    if (std::abs(static_cast<std::int32_t>(out.ry)) <= stickFlat) { out.ry = 0; }
-    if (out.lt <= dz.triggerFlat) { out.lt = 0; }
-    if (out.rt <= dz.triggerFlat) { out.rt = 0; }
+    out.lx = deadzone::applyStick(out.lx, dz.stickFlat);
+    out.ly = deadzone::applyStick(out.ly, dz.stickFlat);
+    out.rx = deadzone::applyStick(out.rx, dz.stickFlat);
+    out.ry = deadzone::applyStick(out.ry, dz.stickFlat);
+    out.lt = deadzone::applyTrigger(out.lt, dz.triggerFlat);
+    out.rt = deadzone::applyTrigger(out.rt, dz.triggerFlat);
     return out;
 }
 

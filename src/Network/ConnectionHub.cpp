@@ -12,10 +12,12 @@ namespace dish::net {
 ConnectionHub::ConnectionHub(WifiConnectionManager* wifi, ConnectionStore* store, QObject* parent)
     : QObject(parent), wifi_(wifi), store_(store) {
     QObject::connect(wifi_, &WifiConnectionManager::poolChanged, this, &ConnectionHub::rebuild);
-    // A discovery-result delta also splits paired Idle entries into Ready
-    // (in the current scan) vs Saved (not in the scan) \u2014 rebuild on it too.
+    // A scan moves Idle paired entries between Ready and Saved, so every row's
+    // LinkState has to be re-derived.
     QObject::connect(wifi_, &WifiConnectionManager::discoveredChanged, this,
                      &ConnectionHub::rebuild);
+    // Otherwise a rejected controller-add leaves a phantom binding: the slot card
+    // claims it is bound while the satellite has no controller for it.
     QObject::connect(wifi_, &WifiConnectionManager::slotRegistrationFailed, this,
                      &ConnectionHub::unbind);
     rebuild();
@@ -25,12 +27,6 @@ void ConnectionHub::rebuild() {
     QHash<QString, models::RememberedWifi> remembered;
     for (const auto& r : store_->remembered()) { remembered.insert(r.id, r); }
 
-    // Ids in the current discovery scan \u2014 the "Presence axis = seen" predicate
-    // used to split an Idle paired entry into Ready (we see it on the network)
-    // vs Saved (we don't). Mirrors dish-android's discoveredIdSet. Unpaired
-    // entries that are *only* in the scan (not remembered, not in the live
-    // pool) are handled by ConnectionsPage's separate discovered list \u2014 same
-    // split dish-android and dish-windows use.
     QSet<QString> discoveredIds;
     for (const auto& s : wifi_->discoveredServers()) { discoveredIds.insert(s.id()); }
 
@@ -47,19 +43,8 @@ void ConnectionHub::rebuild() {
         const models::DiscoveredServer server =
             (conn != nullptr) ? conn->server() : remembered.value(id).toDiscovered();
         if (!server.isValid()) { continue; }
-        // Derive LinkState from the wire-level SessionState plus whether this
-        // id is currently in the discovery set. Mirrors dish-android's
-        // ConnectionHub.buildSatelliteSummary.
-        //
-        // - SessionState::Live      -> LinkState::Connected
-        // - SessionState::Linking   -> LinkState::Connecting
-        // - SessionState::Faltering -> LinkState::Unstable ("unsteady": >= 2
-        //   consecutive missed heartbeat acks, below the death threshold)
-        // - SessionState::Idle / no conn:
-        //     remembered w/o key    -> LinkState::Stale ("needs pairing": a
-        //       terminal 401 or close-notify(unpaired) dropped the key)
-        //     in discoveredIds      -> LinkState::Ready
-        //     not in discoveredIds  -> LinkState::Saved
+        // Every branch below reassigns this; the initializer only silences MSVC
+        // C4701, which cannot prove the default-less switch is exhaustive.
         models::LinkState live = models::LinkState::Saved;
         if (conn != nullptr) {
             switch (conn->state()) {
@@ -70,7 +55,14 @@ void ConnectionHub::rebuild() {
                 live = models::LinkState::Connecting;
                 break;
             case SessionState::Faltering:
+                // Entered at >=2 consecutive missed acks, recovers on the next.
                 live = models::LinkState::Unstable;
+                break;
+            case SessionState::Stale:
+                // The heartbeat dropped or a reconnect's pair came back
+                // AuthRequired. The chip reads "Needs pairing" while the manager
+                // keeps retrying silently.
+                live = models::LinkState::Stale;
                 break;
             case SessionState::Idle:
                 live = discoveredIds.contains(id) ? models::LinkState::Ready
@@ -79,13 +71,6 @@ void ConnectionHub::rebuild() {
             }
         } else {
             live = discoveredIds.contains(id) ? models::LinkState::Ready : models::LinkState::Saved;
-        }
-        // A remembered satellite whose pairing key was dropped (terminal 401,
-        // close-notify(unpaired)) parks on "Needs pairing" instead of
-        // masquerading as connectable.
-        if ((live == models::LinkState::Ready || live == models::LinkState::Saved) &&
-            remembered.contains(id) && !store_->sharedKey(id).has_value()) {
-            live = models::LinkState::Stale;
         }
         std::optional<QString> bound;
         for (auto it = bindings_.begin(); it != bindings_.end(); ++it) {
@@ -121,9 +106,9 @@ ConnectionHub::ReportSender ConnectionHub::reportSenderForSlot(const QString& sl
     if (cid.isEmpty()) { return {}; }
     auto* conn = wifi_->get(cid);
     if (conn == nullptr) { return {}; }
-    // Capture by raw pointer — WifiConnection is parented to the manager and
-    // outlives the input thread (Manager dtor disconnects all sessions before
-    // destruction). The internal ClientRef provides per-call thread safety.
+    // A raw pointer is safe here: WifiConnection is parented to the manager, whose
+    // dtor disconnects every session before destruction, and the internal ClientRef
+    // gives per-call thread safety.
     return [conn](std::uint16_t buttons, std::uint8_t lt, std::uint8_t rt, std::int16_t lx,
                   std::int16_t ly, std::int16_t rx,
                   std::int16_t ry) { conn->sendReport(buttons, lt, rt, lx, ly, rx, ry); };
@@ -175,14 +160,15 @@ void ConnectionHub::bind(const QString& slotId, const QString& connectionId) {
     current.insert(slotId, connectionId);
     bindings_ = current;
     rebuild();
-    // Resolve the slot's pad capabilities so the controller-add can advertise
-    // CAP_LIGHTBAR / CAP_MOTION. The resolvers are absent in tests / before the
-    // bridge is wired — treat that as "no lightbar / no motion". The emulated
-    // type comes from the satellite catalog (WifiConnection::setCatalog), not
-    // the physical pad.
     const bool hasLightbar = lightbarCapabilityFn_ && lightbarCapabilityFn_(slotId);
     const bool hasMotion = motionCapabilityFn_ && motionCapabilityFn_(slotId);
-    if (auto* c = wifi_->get(connectionId)) { c->attachSlot(slotId, hasLightbar, hasMotion); }
+    const bool hasRumble = rumbleCapabilityFn_ && rumbleCapabilityFn_(slotId);
+    const int controllerType = controllerTypeFn_ ? controllerTypeFn_(slotId) : 0;
+    const std::uint8_t touchpadMode =
+        touchpadModeFn_ ? touchpadModeFn_(slotId) : proto::kTouchpadModeOff;
+    if (auto* c = wifi_->get(connectionId)) {
+        c->attachSlot(slotId, controllerType, hasLightbar, hasMotion, hasRumble, touchpadMode);
+    }
 }
 
 void ConnectionHub::unbind(const QString& slotId) {

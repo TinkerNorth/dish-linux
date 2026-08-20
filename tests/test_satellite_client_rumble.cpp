@@ -1,14 +1,6 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 // Copyright (C) 2026 Dish contributors.
 
-// Coverage for SatelliteClient::parseRumbleMessage — the pure decoder for
-// the satellite → dish MSG_RUMBLE payload (wire layout described in the
-// declaration). The full I/O path (decrypt + dispatch) is intentionally
-// out of scope for this test file; it would require driving the receive
-// loop with a fake socket. The decoder is the only part that has its own
-// branching logic worth pinning down with unit tests, and it's exposed
-// publicly + statically for exactly that reason.
-
 #include "Network/SatelliteClient.h"
 
 #include <catch2/catch_test_macros.hpp>
@@ -21,8 +13,8 @@ using dish::net::SatelliteClient;
 
 namespace {
 
-// Build the fixed 7-byte rumble payload. Matches the producer side in
-// satellite/src/adapters/client_adapter.cpp::sendRumble.
+// The fixed 7-byte payload as the sender emits it: ctrlIdx(1) then strong,
+// weak and duration as big-endian u16.
 std::array<std::uint8_t, 7> rumblePayload(std::uint8_t ctrlIdx, std::uint16_t strong,
                                           std::uint16_t weak, std::uint16_t dur) {
     return {
@@ -68,8 +60,7 @@ TEST_CASE("parseRumbleMessage decodes max-magnitude payload without overflow", "
 }
 
 TEST_CASE("parseRumbleMessage rejects a truncated payload", "[rumble]") {
-    // Anything shorter than 7 bytes is malformed — the satellite never emits
-    // such a packet, but a malicious / racing peer could.
+    // A short packet is never emitted by a healthy peer, only a hostile one.
     std::array<std::uint8_t, 6> shortPayload{};
     REQUIRE_FALSE(
         SatelliteClient::parseRumbleMessage(shortPayload.data(), shortPayload.size()).has_value());
@@ -79,8 +70,6 @@ TEST_CASE("parseRumbleMessage rejects a truncated payload", "[rumble]") {
 }
 
 TEST_CASE("parseRumbleMessage tolerates extra trailing bytes (forward-compat)", "[rumble]") {
-    // Future protocol extensions may append fields after the fixed payload.
-    // The decoder must return successfully and ignore the unknown bytes.
     std::vector<std::uint8_t> p(20, 0xAA);
     auto base = rumblePayload(2, 100, 50, 700);
     std::copy(base.begin(), base.end(), p.begin());
@@ -93,8 +82,6 @@ TEST_CASE("parseRumbleMessage tolerates extra trailing bytes (forward-compat)", 
 }
 
 TEST_CASE("parseRumbleMessage handles big-endian boundary cases", "[rumble]") {
-    // Cover the byte-swap path: 0x00FF (low byte set), 0xFF00 (high byte set),
-    // and 0x0100 (a value where naive little-endian read would be wrong).
     SECTION("low byte only") {
         auto p = rumblePayload(0, 0x00FF, 0x00FF, 0x00FF);
         const auto rm = SatelliteClient::parseRumbleMessage(p.data(), p.size());
@@ -123,7 +110,6 @@ TEST_CASE("parseRumbleMessage handles big-endian boundary cases", "[rumble]") {
 }
 
 TEST_CASE("parseRumbleMessage accepts the minimum exact-length payload", "[rumble]") {
-    // A payload of exactly kRumblePayloadLen bytes is the canonical wire shape.
     auto p = rumblePayload(1, 0x0100, 0x0080, 250);
     REQUIRE(p.size() == SatelliteClient::kRumblePayloadLen);
     const auto rm = SatelliteClient::parseRumbleMessage(p.data(), p.size());

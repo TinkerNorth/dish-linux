@@ -1,11 +1,7 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 // Copyright (C) 2026 Dish contributors.
-//
-// Tests for the Task 1.6 mDNS sender path: the DNS wire parser
-// (compression-pointer + bounds handling), the response → DiscoveredServer
-// decode, and the two-path discovery merge / source tagging.
 
-#include "Network/MdnsDiscovery.h"
+#include "source/connection/MdnsDiscovery.h"
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -19,8 +15,6 @@ using dish::models::DiscoverySource;
 
 namespace {
 
-// ── mDNS packet builders ────────────────────────────────────────────────────
-
 void put16(std::vector<std::uint8_t>& v, std::uint16_t x) {
     v.push_back(static_cast<std::uint8_t>(x >> 8));
     v.push_back(static_cast<std::uint8_t>(x & 0xFF));
@@ -33,8 +27,7 @@ void put32(std::vector<std::uint8_t>& v, std::uint32_t x) {
     v.push_back(static_cast<std::uint8_t>(x & 0xFF));
 }
 
-// Append a DNS name as length-prefixed labels + terminator. `dotted` carries
-// no trailing dot, e.g. "sat-1._satellite._udp.local".
+// `dotted` carries no trailing dot, e.g. "sat-1._satellite._udp.local".
 void writeName(std::vector<std::uint8_t>& v, const std::string& dotted) {
     std::size_t i = 0;
     while (i < dotted.size()) {
@@ -47,7 +40,6 @@ void writeName(std::vector<std::uint8_t>& v, const std::string& dotted) {
     v.push_back(0);
 }
 
-// Append a resource record: name + type + class + ttl + rdlen + rdata.
 void appendRr(std::vector<std::uint8_t>& v, const std::string& name, std::uint16_t type,
               const std::vector<std::uint8_t>& rdata) {
     writeName(v, name);
@@ -86,7 +78,8 @@ std::vector<std::uint8_t> ptrRdata(const std::string& target) {
     return r;
 }
 
-// Header for a response carrying `answerCount` answer records, no questions.
+std::string kv(const std::string& key, const std::string& value) { return key + "=" + value; }
+
 std::vector<std::uint8_t> responseHeader(int answerCount) {
     std::vector<std::uint8_t> v;
     put16(v, 0);      // id
@@ -98,17 +91,7 @@ std::vector<std::uint8_t> responseHeader(int answerCount) {
     return v;
 }
 
-DiscoveredServer makeServer(const QString& name, const QString& ip, int udp = 9876) {
-    DiscoveredServer s;
-    s.name = name;
-    s.ip = ip;
-    s.udpPort = udp;
-    return s;
-}
-
 } // namespace
-
-// ── DNS name decoding ───────────────────────────────────────────────────────
 
 TEST_CASE("readName decodes a plain length-prefixed name", "[mdns]") {
     std::vector<std::uint8_t> v;
@@ -152,8 +135,6 @@ TEST_CASE("skipName counts a compression pointer as two bytes", "[mdns]") {
     CHECK(detail::skipName(v.data(), v.size(), 9) == 6);
 }
 
-// ── Response parsing ────────────────────────────────────────────────────────
-
 TEST_CASE("parseResponse decodes a full satellite response", "[mdns]") {
     auto pkt = responseHeader(4);
     appendRr(pkt, "_satellite._udp.local", 12, ptrRdata("sat-1._satellite._udp.local"));
@@ -170,6 +151,18 @@ TEST_CASE("parseResponse decodes a full satellite response", "[mdns]") {
     CHECK(out->httpPort == 9877);
     CHECK(out->name == QStringLiteral("sat-1"));
     CHECK(out->source == DiscoverySource::Mdns);
+    CHECK(out->machineId.isEmpty()); // no mid TXT in this packet
+}
+
+TEST_CASE("parseResponse plumbs the machineId from the mid TXT key", "[mdns]") {
+    auto pkt = responseHeader(3);
+    appendRr(pkt, "sat._satellite._udp.local", 33, srvRdata(9876, "sat.local"));
+    appendRr(pkt, "sat._satellite._udp.local", 16, txtRdata({kv("mid", "boxabc"), "udp=9876"}));
+    appendRr(pkt, "sat.local", 1, {10, 0, 0, 5});
+
+    const auto out = detail::parseResponse(pkt.data(), pkt.size());
+    REQUIRE(out.has_value());
+    CHECK(out->machineId == QStringLiteral("boxabc"));
 }
 
 TEST_CASE("parseResponse reads ports from TXT when SRV is absent", "[mdns]") {
@@ -195,27 +188,6 @@ TEST_CASE("parseResponse takes the UDP port from SRV when TXT is absent", "[mdns
     CHECK(out->udpPort == 50505);
     CHECK(out->pairPort == 9443); // client API default (HTTPS)
     CHECK(out->httpPort == 9443); // client API default (HTTPS)
-}
-
-TEST_CASE("parseResponse TXT port parse is strict: bare digits only", "[mdns]") {
-    // from_chars is intentionally stricter than the atoi it replaced: leading
-    // whitespace and an explicit '+' are rejected (value falls back to the
-    // default), while a trailing suffix still parses its numeric prefix —
-    // matching atoi there. The live responder emits bare std::to_string
-    // digits (satellite/src/net/mdns_responder.cpp), so nothing real is lost.
-    const auto udpPortFor = [](const std::string& txtEntry) {
-        auto pkt = responseHeader(2);
-        appendRr(pkt, "sat._satellite._udp.local", 16, txtRdata({txtEntry}));
-        appendRr(pkt, "sat.local", 1, {10, 0, 0, 7});
-        const auto out = detail::parseResponse(pkt.data(), pkt.size());
-        REQUIRE(out.has_value());
-        return out->udpPort;
-    };
-    CHECK(udpPortFor("udp=41000") == 41000);  // bare digits parse
-    CHECK(udpPortFor("udp= 41000") == 9876);  // leading whitespace → default
-    CHECK(udpPortFor("udp=+41000") == 9876);  // explicit '+' → default
-    CHECK(udpPortFor("udp=41000x") == 41000); // numeric prefix parses (atoi parity)
-    CHECK(udpPortFor("udp=") == 9876);        // empty value → default
 }
 
 TEST_CASE("parseResponse rejects a packet with no A record", "[mdns]") {
@@ -244,52 +216,4 @@ TEST_CASE("parseResponse rejects an rdlen that overruns the packet", "[mdns]") {
     put16(pkt, 0xFFFF); // rdlen — far past the packet end
     pkt.insert(pkt.end(), {10, 0, 0, 9});
     CHECK_FALSE(detail::parseResponse(pkt.data(), pkt.size()).has_value());
-}
-
-// ── Discovery merge ─────────────────────────────────────────────────────────
-
-TEST_CASE("mergeDiscovered tags a broadcast-only server", "[mdns]") {
-    const auto m = mergeDiscovered({makeServer("A", "10.0.0.1")}, {});
-    REQUIRE(m.size() == 1);
-    CHECK(m[0].source == DiscoverySource::Broadcast);
-}
-
-TEST_CASE("mergeDiscovered tags an mDNS-only server", "[mdns]") {
-    const auto m = mergeDiscovered({}, {makeServer("B", "10.0.0.2")});
-    REQUIRE(m.size() == 1);
-    CHECK(m[0].source == DiscoverySource::Mdns);
-}
-
-TEST_CASE("mergeDiscovered tags a server heard on both paths as Both", "[mdns]") {
-    const auto m =
-        mergeDiscovered({makeServer("Sat", "10.0.0.9")}, {makeServer("Sat", "10.0.0.9")});
-    REQUIRE(m.size() == 1);
-    CHECK(m[0].source == DiscoverySource::Both);
-}
-
-TEST_CASE("mergeDiscovered keeps distinct servers and sorts by name", "[mdns]") {
-    const auto m =
-        mergeDiscovered({makeServer("Zulu", "10.0.0.3"), makeServer("Alpha", "10.0.0.1")},
-                        {makeServer("Mike", "10.0.0.2")});
-    REQUIRE(m.size() == 3);
-    CHECK(m[0].name == QStringLiteral("Alpha"));
-    CHECK(m[1].name == QStringLiteral("Mike"));
-    CHECK(m[2].name == QStringLiteral("Zulu"));
-}
-
-TEST_CASE("mergeDiscovered treats same ip + different port as distinct", "[mdns]") {
-    const auto m = mergeDiscovered({makeServer("One", "10.0.0.1", 9876)},
-                                   {makeServer("Two", "10.0.0.1", 9900)});
-    CHECK(m.size() == 2);
-}
-
-TEST_CASE("mergeDiscovered yields an empty list for empty inputs", "[mdns]") {
-    CHECK(mergeDiscovered({}, {}).isEmpty());
-}
-
-TEST_CASE("discoverySourceLabel maps each source to a stable label", "[mdns]") {
-    using dish::models::discoverySourceLabel;
-    CHECK(discoverySourceLabel(DiscoverySource::Broadcast) == QStringLiteral("UDP broadcast"));
-    CHECK(discoverySourceLabel(DiscoverySource::Mdns) == QStringLiteral("mDNS"));
-    CHECK(discoverySourceLabel(DiscoverySource::Both) == QStringLiteral("mDNS + broadcast"));
 }

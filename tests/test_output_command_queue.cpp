@@ -1,14 +1,9 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 // Copyright (C) 2026 Dish contributors.
 
-// Coverage for dish::input::OutputCommandQueue — the thread-safe queue that
-// marshals rumble / lightbar commands from the SatelliteClient receive thread
-// onto the SDL thread (Task 1.4 threading fix). SDLGamepadBridge::applyRumble
-// and applyLightbar each construct one OutputCommand and push() it; runLoop
-// drain()s the batch on the SDL thread. The queue and the OutputCommand
-// factories carry no SDL/Qt dependency, so the marshalling is unit-testable
-// on any host with no controller attached — exactly the seam the task asks
-// for ("isolate the testable logic (queue ...) into pure functions").
+// OutputCommandQueue marshals rumble / lightbar commands from the SatelliteClient
+// receive thread onto the SDL thread. It carries no SDL dependency, so the
+// marshalling is testable on a host with no controller attached.
 
 #include "Input/OutputCommandQueue.h"
 
@@ -67,7 +62,6 @@ TEST_CASE("drain empties the queue", "[outputqueue]") {
     REQUIRE(q.size() == 1U);
     (void)q.drain();
     REQUIRE(q.size() == 0U);
-    // A second drain with nothing queued is empty, not a repeat of the batch.
     REQUIRE(q.drain().empty());
 }
 
@@ -79,7 +73,6 @@ TEST_CASE("the queue preserves FIFO order across mixed command kinds", "[outputq
 
     const auto batch = q.drain();
     REQUIRE(batch.size() == 3U);
-    // First in, first out.
     REQUIRE(batch[0].kind == OutputKind::Rumble);
     REQUIRE(batch[0].strongMagnitude == 100);
     REQUIRE(batch[1].kind == OutputKind::Lightbar);
@@ -89,9 +82,8 @@ TEST_CASE("the queue preserves FIFO order across mixed command kinds", "[outputq
 }
 
 TEST_CASE("a rumble 'stop' (all-zero magnitudes) survives the round trip", "[outputqueue]") {
-    // durationMs == 0 is the wire's "stop" signal; the queue must not drop or
-    // mangle it — drainOutputCommands forwards it to SDL_GameControllerRumble
-    // verbatim.
+    // durationMs == 0 is the wire's "stop" signal and is forwarded to SDL
+    // verbatim, so the queue must not drop or normalise it.
     OutputCommandQueue q;
     q.push(OutputCommand::rumble(QStringLiteral("sdl:2"), 0, 0, 0));
     const auto batch = q.drain();
@@ -104,9 +96,8 @@ TEST_CASE("a rumble 'stop' (all-zero magnitudes) survives the round trip", "[out
 
 TEST_CASE("push from another thread is observed by a draining consumer",
           "[outputqueue][threading]") {
-    // This mirrors the real topology: the SatelliteClient receive thread
-    // pushes; the SDL thread drains. The queue's own mutex is the only thing
-    // making that safe — exercise it under contention.
+    // The real topology: the receive thread pushes, the SDL thread drains, and
+    // the queue's own mutex is the only thing making that safe.
     OutputCommandQueue q;
     constexpr int kCount = 2000;
 
@@ -130,7 +121,6 @@ TEST_CASE("push from another thread is observed by a draining consumer",
     for (auto& cmd : q.drain()) { collected.push_back(cmd); }
 
     REQUIRE(collected.size() == static_cast<std::size_t>(kCount));
-    // FIFO is preserved: command i carries (i & 0xFF) in r.
     for (int i = 0; i < kCount; ++i) {
         REQUIRE(collected[static_cast<std::size_t>(i)].kind == OutputKind::Lightbar);
         REQUIRE(collected[static_cast<std::size_t>(i)].r == static_cast<std::uint8_t>(i & 0xFF));

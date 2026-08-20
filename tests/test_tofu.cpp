@@ -1,14 +1,9 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 // Copyright (C) 2026 Dish contributors.
 //
-// TOFU pinning (PURE) — the verdict ladder + SHA-256 known vectors, the same
-// cases dish-windows / dish-android pin. The verdict rules:
-//   * stored == nullopt        -> TrustFirstUse  (only never-pinned trusts)
-//   * equalsIgnoreCase(hex)    -> Match
-//   * otherwise                -> Mismatch       (an empty-string pin CAN mismatch)
-// The fingerprint is lowercase 64-hex SHA-256 of the cert DER bytes.
+// The fingerprint is lowercase 64-hex SHA-256 over the cert DER bytes.
 
-#include "Network/Tofu.h"
+#include "core/net/Tofu.h"
 
 #include <catch2/catch_test_macros.hpp>
 

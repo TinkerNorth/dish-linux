@@ -3,6 +3,7 @@
 
 #include "HTTPClient.h"
 
+#include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QNetworkAccessManager>
@@ -14,13 +15,14 @@
 #include <QSslSocket>
 #include <QUrl>
 
+#include <memory>
+
 namespace dish::net {
 
 namespace {
 
 constexpr int kTimeoutMs = 5000;
 
-// Parse a reply body into a JSON object; empty object on malformed/empty.
 QJsonObject parseObject(const QByteArray& body) {
     if (body.isEmpty()) { return {}; }
     QJsonParseError err{};
@@ -39,19 +41,19 @@ HTTPClient::~HTTPClient() = default;
 
 void HTTPClient::perform(const QString& url, const QByteArray& method, const QByteArray& body,
                          const QString& deviceId, const QString& hmacProof,
+                         const QString& acceptLanguage, const QString& ifNoneMatch,
                          std::function<void(const RawReply&)> done) {
     QNetworkRequest req((QUrl(url)));
     req.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
-    // Every authenticated route carries the device id + a proof of the pairing
-    // key, so a diverged key fails HERE with a terminal 401 instead of a
-    // silently-undecryptable UDP session (contract §hmacProof).
+    // The proof header exists so a diverged pairing key fails here with a
+    // terminal 401 rather than as a silently undecryptable UDP session.
     if (!deviceId.isEmpty()) { req.setRawHeader("X-Device-Id", deviceId.toUtf8()); }
     if (!hmacProof.isEmpty()) { req.setRawHeader("X-Hmac-Proof", hmacProof.toUtf8()); }
+    if (!acceptLanguage.isEmpty()) { req.setRawHeader("Accept-Language", acceptLanguage.toUtf8()); }
+    if (!ifNoneMatch.isEmpty()) { req.setRawHeader("If-None-Match", ifNoneMatch.toUtf8()); }
 
-    // Self-signed cert: there is no CA chain to validate, so peer verification
-    // is off (curl --insecure). Trust is enforced by the TOFU pin verifier on
-    // the `encrypted` signal below — VerifyNone here just stops Qt from
-    // refusing the self-signed chain before we get a chance to pin it.
+    // VerifyNone only stops Qt refusing the self-signed chain before we get a
+    // chance to pin it; the `encrypted` handler below is the real gate.
     QSslConfiguration tls = QSslConfiguration::defaultConfiguration();
     tls.setPeerVerifyMode(QSslSocket::VerifyNone);
     req.setSslConfiguration(tls);
@@ -61,28 +63,30 @@ void HTTPClient::perform(const QString& url, const QByteArray& method, const QBy
     auto* reply = nam_->sendCustomRequest(req, method, body);
     QObject::connect(reply, &QNetworkReply::sslErrors, reply,
                      [reply](const QList<QSslError>&) { reply->ignoreSslErrors(); });
-    // TOFU pin check: once the handshake completes the peer cert is available.
-    // First contact pins + proceeds; a cert whose fingerprint differs from the
-    // pin aborts the request (the `finished` handler then reports it
-    // unreachable, exactly as a dropped connection would). No verifier
-    // installed → no-op.
+    // `encrypted` is the earliest point the peer cert is available. An abort here
+    // reaches `finished` with no status and no body, so the mismatch itself has
+    // to be carried out of band or it reads as a dropped connection.
+    const auto pinMismatch = std::make_shared<bool>(false);
     if (pinVerifier_) {
-        QObject::connect(reply, &QNetworkReply::encrypted, reply, [this, reply, host] {
+        QObject::connect(reply, &QNetworkReply::encrypted, reply, [this, reply, host, pinMismatch] {
             const QByteArray der = reply->sslConfiguration().peerCertificate().toDer();
-            if (!pinVerifier_(host, der)) { reply->abort(); }
+            if (!pinVerifier_(host, der, *pinMismatch)) { reply->abort(); }
         });
     }
-    QObject::connect(reply, &QNetworkReply::finished, this, [reply, done = std::move(done)] {
-        reply->deleteLater();
-        RawReply out;
-        const auto statusVar = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute);
-        out.status = statusVar.isValid() ? statusVar.toInt() : 0;
-        out.body = reply->readAll();
-        // A transport-level failure with no HTTP status is unreachable; a body
-        // (including a 4xx/5xx error body) means the server answered.
-        out.reachable = out.status != 0 || !out.body.isEmpty();
-        done(out);
-    });
+    QObject::connect(
+        reply, &QNetworkReply::finished, this, [reply, pinMismatch, done = std::move(done)] {
+            reply->deleteLater();
+            RawReply out;
+            const auto statusVar = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute);
+            out.status = statusVar.isValid() ? statusVar.toInt() : 0;
+            out.body = reply->readAll();
+            // A 4xx/5xx body still means the server answered; only a missing
+            // status AND an empty body is a transport failure.
+            out.reachable = out.status != 0 || !out.body.isEmpty();
+            out.etag = QString::fromUtf8(reply->rawHeader("ETag"));
+            out.pinMismatch = *pinMismatch;
+            done(out);
+        });
 }
 
 void HTTPClient::putSession(const QString& ip, int port, const QString& deviceId,
@@ -99,12 +103,12 @@ void HTTPClient::putSession(const QString& ip, int port, const QString& deviceId
         {"hostFeatures", QJsonObject{{"mouseControl", mouseControl}}},
     };
     const auto body = QJsonDocument(obj).toJson(QJsonDocument::Compact);
-    perform(url, "PUT", body, deviceId, hmacProof, [cb = std::move(cb)](const RawReply& r) {
+    perform(url, "PUT", body, deviceId, hmacProof, {}, {}, [cb = std::move(cb)](const RawReply& r) {
         models::SessionResponse resp;
         if (r.reachable) { resp = models::SessionResponse::fromJson(parseObject(r.body)); }
         resp.httpStatus = r.status;
         resp.reachable = r.reachable;
-        cb(resp);
+        cb(resp, r.pinMismatch);
     });
 }
 
@@ -112,7 +116,7 @@ void HTTPClient::getSession(const QString& ip, int port, const QString& connecti
                             const QString& deviceId, const QString& hmacProof, ViewCb cb) {
     const QString url =
         QStringLiteral("https://%1:%2/api/connections/%3").arg(ip).arg(port).arg(connectionId);
-    perform(url, "GET", {}, deviceId, hmacProof, [cb = std::move(cb)](const RawReply& r) {
+    perform(url, "GET", {}, deviceId, hmacProof, {}, {}, [cb = std::move(cb)](const RawReply& r) {
         models::SessionViewDto view;
         if (r.reachable) { view = models::SessionViewDto::fromJson(parseObject(r.body)); }
         view.httpStatus = r.status;
@@ -121,25 +125,15 @@ void HTTPClient::getSession(const QString& ip, int port, const QString& connecti
     });
 }
 
-void HTTPClient::getCatalog(const QString& ip, int port, CatalogCb cb) {
-    const QString url = QStringLiteral("https://%1:%2/api/catalog").arg(ip).arg(port);
-    // Unauthenticated route: empty deviceId/proof → perform attaches no auth
-    // headers. Unreachable/old satellite → empty catalog (caller falls back).
-    perform(url, "GET", {}, {}, {}, [cb = std::move(cb)](const RawReply& r) {
-        models::ServerCatalog catalog;
-        if (r.reachable) { catalog = models::ServerCatalog::fromJson(parseObject(r.body)); }
-        cb(catalog);
-    });
-}
-
 void HTTPClient::deleteSession(const QString& ip, int port, const QString& connectionId,
                                const QString& deviceId, const QString& hmacProof, AckCb cb) {
     const QString url =
         QStringLiteral("https://%1:%2/api/connections/%3").arg(ip).arg(port).arg(connectionId);
-    perform(url, "DELETE", {}, deviceId, hmacProof, [cb = std::move(cb)](const RawReply& r) {
-        const auto code = models::SessionResponse::fromJson(parseObject(r.body)).code;
-        cb(r.status, r.reachable, code.value_or(QString()));
-    });
+    perform(url, "DELETE", {}, deviceId, hmacProof, {}, {},
+            [cb = std::move(cb)](const RawReply& r) {
+                const auto code = models::SessionResponse::fromJson(parseObject(r.body)).code;
+                cb(r.status, r.reachable, code.value_or(QString()));
+            });
 }
 
 void HTTPClient::putController(const QString& ip, int port, const QString& connectionId,
@@ -151,7 +145,7 @@ void HTTPClient::putController(const QString& ip, int port, const QString& conne
                             .arg(connectionId)
                             .arg(descriptor.ctrlIdx);
     const auto body = QJsonDocument(descriptor.toJson()).toJson(QJsonDocument::Compact);
-    perform(url, "PUT", body, deviceId, hmacProof, [cb = std::move(cb)](const RawReply& r) {
+    perform(url, "PUT", body, deviceId, hmacProof, {}, {}, [cb = std::move(cb)](const RawReply& r) {
         models::ControllerPutResponse resp;
         if (r.reachable) { resp = models::ControllerPutResponse::fromJson(parseObject(r.body)); }
         resp.httpStatus = r.status;
@@ -168,21 +162,52 @@ void HTTPClient::deleteController(const QString& ip, int port, const QString& co
                             .arg(port)
                             .arg(connectionId)
                             .arg(ctrlIdx);
-    perform(url, "DELETE", {}, deviceId, hmacProof, [cb = std::move(cb)](const RawReply& r) {
-        models::ControllerPutResponse resp;
-        if (r.reachable) { resp = models::ControllerPutResponse::fromJson(parseObject(r.body)); }
-        resp.httpStatus = r.status;
-        resp.reachable = r.reachable;
-        cb(resp);
-    });
+    perform(url, "DELETE", {}, deviceId, hmacProof, {}, {},
+            [cb = std::move(cb)](const RawReply& r) {
+                models::ControllerPutResponse resp;
+                if (r.reachable) {
+                    resp = models::ControllerPutResponse::fromJson(parseObject(r.body));
+                }
+                resp.httpStatus = r.status;
+                resp.reachable = r.reachable;
+                cb(resp);
+            });
 }
 
 void HTTPClient::unpair(const QString& ip, int port, const QString& deviceId,
                         const QString& hmacProof, AckCb cb) {
     const QString url = QStringLiteral("https://%1:%2/api/pair").arg(ip).arg(port);
-    perform(url, "DELETE", {}, deviceId, hmacProof, [cb = std::move(cb)](const RawReply& r) {
-        const auto code = models::SessionResponse::fromJson(parseObject(r.body)).code;
-        cb(r.status, r.reachable, code.value_or(QString()));
+    perform(url, "DELETE", {}, deviceId, hmacProof, {}, {},
+            [cb = std::move(cb)](const RawReply& r) {
+                const auto code = models::SessionResponse::fromJson(parseObject(r.body)).code;
+                cb(r.status, r.reachable, code.value_or(QString()));
+            });
+}
+
+void HTTPClient::getCapabilities(const QString& ip, int port, CapabilitiesCb cb) {
+    const QString url = QStringLiteral("https://%1:%2/api/server/capabilities").arg(ip).arg(port);
+    perform(url, "GET", {}, {}, {}, {}, {}, [cb = std::move(cb)](const RawReply& r) {
+        models::CapabilitiesDto caps;
+        if (r.reachable) { caps = models::CapabilitiesDto::fromJson(parseObject(r.body)); }
+        caps.httpStatus = r.status;
+        caps.reachable = r.reachable;
+        cb(caps);
+    });
+}
+
+void HTTPClient::getCatalog(const QString& ip, int port, const QString& acceptLanguage,
+                            const QString& etag, CatalogCb cb) {
+    const QString url = QStringLiteral("https://%1:%2/api/catalog").arg(ip).arg(port);
+    perform(url, "GET", {}, {}, {}, acceptLanguage, etag, [cb = std::move(cb)](const RawReply& r) {
+        models::CatalogDto cat;
+        if (r.status != 304 && r.reachable) {
+            cat = models::CatalogDto::fromJson(parseObject(r.body));
+        }
+        cat.httpStatus = r.status;
+        cat.notModified = r.status == 304;
+        cat.reachable = r.reachable;
+        cat.etag = r.etag;
+        cb(cat);
     });
 }
 
