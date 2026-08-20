@@ -327,6 +327,12 @@ jobs:
           export QT_QPA_PLATFORM=offscreen
           export XDG_RUNTIME_DIR=/tmp/dish-runtime
           mkdir -p "$XDG_RUNTIME_DIR"
+          # The SVG handler is a run-time plugin, so its absence shows up as
+          # "Unsupported image format" per glyph rather than as a link error.
+          echo "--- Qt image-format plugins ---"
+          ls -1 /usr/lib/*/qt6/plugins/imageformats/ 2>/dev/null || echo "(no imageformats directory)"
+          dpkg -S /usr/lib/*/qt6/plugins/imageformats/libqsvg.so 2>/dev/null \
+            || echo "libqsvg.so is absent — no package here provides it"
           set +e
           # -k is load-bearing: plain `timeout` sends TERM and then waits
           # forever if the child does not die, which is how this step once sat
@@ -339,6 +345,11 @@ jobs:
           if grep -qE 'is not installed|failed to load component|Cannot load library|no such file' /tmp/launch.log; then
             echo "::error::the installed package cannot load its Qt/QML runtime"
             exit 1
+          fi
+          # Not fatal yet, but the app renders no iconography at all when this
+          # fires, and a log flood is easy to miss. Surfaced until it is fixed.
+          if grep -q 'Error decoding:' /tmp/launch.log; then
+            echo "::warning::the installed app cannot decode its brand SVGs — the Qt SVG image plugin is missing or unloadable"
           fi
           # Staying up past the deadline is the pass: 124 means it took the
           # TERM, 137 means it needed the KILL. The second is worth saying out
