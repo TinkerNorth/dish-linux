@@ -303,6 +303,15 @@ AppViewModel::AppViewModel(dish::AppModel* model, QObject* parent)
         [this](const source::ThemeMode&) { emit themeModeChanged(); }, false);
     crashSub_ = model_->crashStore()->state().subscribe(
         [this](bool) { emit crashReportingChanged(); }, false);
+    backgroundSub_ = model_->backgroundStore()->state().subscribe(
+        [this](const source::BackgroundPreferences&) { emit runInBackgroundChanged(); }, false);
+    QObject::connect(model_->background(), &composer::BackgroundCoordinator::showWindowRequested,
+                     this, &AppViewModel::showWindowRequested);
+    QObject::connect(model_->background(), &composer::BackgroundCoordinator::quitRequested, this,
+                     &AppViewModel::quitRequested);
+    QObject::connect(model_->background(),
+                     &composer::BackgroundCoordinator::trayAvailabilityChanged, this,
+                     [this](bool) { emit trayAvailableChanged(); });
     onboardingSub_ = model_->onboardingStore()->state().subscribe(
         [this](const source::OnboardingState&) {
             const bool needed = !model_->onboardingStore()->welcomeCompleted();
@@ -810,6 +819,22 @@ bool AppViewModel::crashReportingEnabled() const { return model_->crashStore()->
 
 void AppViewModel::setCrashReportingEnabled(bool enabled) {
     model_->crashStore()->setEnabled(enabled);
+}
+
+bool AppViewModel::runInBackground() const { return model_->backgroundStore()->runInBackground(); }
+
+void AppViewModel::setRunInBackground(bool enabled) {
+    model_->backgroundStore()->setRunInBackground(enabled);
+}
+
+bool AppViewModel::trayAvailable() const { return model_->background()->trayAvailable(); }
+
+bool AppViewModel::requestWindowClose() {
+    return model_->background()->closeRequested() == reducer::CloseAction::HideToBackground;
+}
+
+void AppViewModel::setWindowVisible(bool visible) {
+    model_->background()->setWindowVisible(visible);
 }
 
 QString AppViewModel::appVersion() const { return QStringLiteral(DISH_VERSION); }

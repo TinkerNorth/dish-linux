@@ -12,10 +12,15 @@
 #include "Network/WifiConnectionManager.h"
 #include "architecture/Observable.h"
 #include "composer/CatalogComposer.h"
+#include "composer/BackgroundCoordinator.h"
 #include "composer/ConnectionCoordinator.h"
 #include "composer/CrashReportingBackend.h"
 #include "composer/CrashReportingController.h"
+#include "composer/SleepCoordinator.h"
+
 #include "composer/ThemeController.h"
+#include "composer/TrayComposer.h"
+#include "composer/TrayController.h"
 #include "composer/WakeStateComposer.h"
 #include "composer/WakeStateController.h"
 #include "repository/DeadzoneRepository.h"
@@ -24,6 +29,8 @@
 #include "core/reducer/PollRateSampler.h"
 #include "source/inputrate/InputRateStore.h"
 #include "source/http/SatelliteCatalogRepository.h"
+#include "source/notification/DesktopNotifier.h"
+#include "source/store/BackgroundPreferenceStore.h"
 #include "source/store/ControllerTypeStore.h"
 #include "source/store/CrashReportingStore.h"
 #include "source/store/JoystickRemapStore.h"
@@ -33,6 +40,8 @@
 #include "source/store/ThemePreferenceStore.h"
 #include "source/store/UpdatePreferenceStore.h"
 #include "source/store/UsbPathPreferenceStore.h"
+#include "source/system/SleepMonitor.h"
+#include "source/tray/TrayIcon.h"
 #include "source/usb/UsbGamepadManager.h"
 #include "source/usb/HidrawGateway.h"
 #include "update/UpdateChecker.h"
@@ -96,6 +105,10 @@ class AppModel : public QObject {
     source::OnboardingPreferenceStore* onboardingStore() { return &onboardingStore_; }
     source::ThemePreferenceStore* themeStore() { return &themeStore_; }
     source::CrashReportingStore* crashStore() { return &crashStore_; }
+    source::BackgroundPreferenceStore* backgroundStore() { return &backgroundStore_; }
+    // The close policy, the tray's two commands and the window-visible fact the
+    // tray item is derived from.
+    composer::BackgroundCoordinator* background() { return backgroundCoordinator_; }
 
     // The auto-updater. The store is the reactive preference slice the Settings
     // page binds to; the coordinator owns the state machine, the timers and the
@@ -302,6 +315,18 @@ class AppModel : public QObject {
     composer::NoopCrashReportingBackend crashBackend_;
     composer::ThemeController themeController_;
     composer::CrashReportingController crashController_;
+
+    // Declaration order matters: the coordinators borrow the store, the tray and
+    // the notifier, and the tray composer captures the coordinator's Observable.
+    // unique_ptr on the three platform edges so a headless build can hold none.
+    std::unique_ptr<source::TrayIcon> tray_;
+    std::unique_ptr<source::DesktopNotifier> notifier_;
+    std::unique_ptr<source::SleepMonitor> sleepMonitor_;
+    source::BackgroundPreferenceStore backgroundStore_;
+    composer::BackgroundCoordinator* backgroundCoordinator_;
+    composer::SleepCoordinator* sleepCoordinator_;
+    composer::TrayComposer trayComposer_;
+    composer::TrayController trayController_;
 
     // Declaration order matters: the coordinator subscribes to the store's
     // Observable, so the store must outlive it.

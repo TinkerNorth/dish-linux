@@ -34,8 +34,18 @@ finish-args:
 
   # Util/DisplaySleepInhibitor holds the screen awake through this name.
   - --talk-name=org.freedesktop.ScreenSaver
+  # The tray item registers itself with the shell's watcher. Nothing is needed
+  # for com.canonical.dbusmenu: that is an interface exported on our own
+  # connection, which the host reaches through the unique name it already has.
+  - --talk-name=org.kde.StatusNotifierWatcher
+  # "Dish is still running" has to reach a user whose window just vanished.
+  - --talk-name=org.freedesktop.Notifications
   # BluetoothRadioProbe needs Adapter1.Powered to tell "no adapter" from "off".
   - --system-talk-name=org.bluez
+  # Both logind locks: DisplaySleepInhibitor's idle block, and SleepMonitor's
+  # sleep delay plus its PrepareForSleep subscription. Without this the sandbox
+  # silently loses the suspend handling the host build has.
+  - --system-talk-name=org.freedesktop.login1
 
   # No --filesystem: settings land in ~/.var/app/com.tinkernorth.Dish/config/.
 

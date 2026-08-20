@@ -142,6 +142,7 @@ set(DISH_CORE_SOURCES
     src/core/update/UpdateManifest.cpp
     src/core/reducer/RestOutcome.h
     src/core/reducer/Backoff.h
+    src/core/reducer/BackgroundMode.h
     src/core/reducer/Reconcile.h
     src/core/reducer/CloseNotify.h
     src/core/reducer/PathChoice.h
@@ -152,6 +153,8 @@ set(DISH_CORE_SOURCES
     src/core/reducer/UsbPathMachine.cpp
     src/core/reducer/UsbTwinDedup.h
     src/core/reducer/SatelliteLinkState.h
+    src/core/reducer/SleepCycle.h
+    src/core/reducer/TrayPresentation.h
     src/core/reducer/ConnectionRows.h
     src/core/reducer/CarriedPads.h
     src/core/reducer/LateSlotConverge.h
@@ -255,6 +258,7 @@ set(DISH_CORE_SOURCES
     src/source/store/CrashReportingStore.cpp
     src/source/store/TouchpadModeStore.h
     src/source/store/UiPreferenceStore.h
+    src/source/store/BackgroundPreferenceStore.h
     src/source/store/UpdatePreferenceStore.h
     # xpad publishes no hidraw node for Xbox pads, so this path serves
     # DualSense/DS4/Switch Pro/8BitDo and Xbox pads stay on SDL.
@@ -266,11 +270,16 @@ set(DISH_CORE_SOURCES
     src/source/notification/EventChannel.h
     src/source/notification/DishNotifications.h
     src/source/notification/DishNotifications.cpp
+    src/source/notification/DesktopNotifier.h
+    src/source/notification/DesktopNotifier.cpp
     src/source/inputrate/SlotInputRates.h
     src/source/inputrate/InputRateStore.h
     src/source/inputrate/InputRateStore.cpp
     src/source/system/BluetoothRadioProbe.h
     src/source/system/BluetoothRadioProbe.cpp
+    src/source/system/SleepMonitor.h
+    src/source/system/SleepMonitor.cpp
+    src/source/tray/TrayIcon.h
     # Update checking. In dish_core (not the exe) because the tests link this
     # library, not the exe.
     src/update/UpdatePorts.h
@@ -297,6 +306,10 @@ set(DISH_CORE_SOURCES
     src/composer/ConnectionsComposer.cpp
     src/composer/ConnectionCoordinator.h
     src/composer/ConnectionCoordinator.cpp
+    src/composer/BackgroundCoordinator.h
+    src/composer/BackgroundCoordinator.cpp
+    src/composer/SleepCoordinator.h
+    src/composer/SleepCoordinator.cpp
     src/composer/CatalogComposer.h
     src/composer/CatalogComposer.cpp
     src/composer/MotionCapabilityComposer.h
@@ -305,6 +318,9 @@ set(DISH_CORE_SOURCES
     src/composer/WakeStateComposer.h
     src/composer/WakeStateController.h
     src/composer/WakeStateController.cpp
+    src/composer/TrayComposer.h
+    src/composer/TrayController.h
+    src/composer/TrayController.cpp
     src/composer/ThemeController.h
     src/composer/ThemeController.cpp
     src/composer/CrashReportingBackend.h
@@ -716,7 +732,7 @@ hicolor-icon-theme"
     CACHE STRING "Runtime-loaded Qt pieces dpkg-shlibdeps cannot infer")
 set(CPACK_DEBIAN_PACKAGE_DEPENDS "${DISH_DEB_RUNTIME_DEPENDS}")
 set(CPACK_DEBIAN_PACKAGE_RECOMMENDS "udev, qt6-wayland")
-set(CPACK_DEBIAN_PACKAGE_SUGGESTS "bluez")
+set(CPACK_DEBIAN_PACKAGE_SUGGESTS "bluez, gnome-shell-extension-appindicator")
 set(CPACK_DEBIAN_PACKAGE_CONTROL_EXTRA
     "${CMAKE_CURRENT_SOURCE_DIR}/packaging/deb/postinst"
     "${CMAKE_CURRENT_SOURCE_DIR}/packaging/deb/postrm"
@@ -744,7 +760,7 @@ set(CPACK_RPM_PACKAGE_AUTOREQ ON)
 set(CPACK_RPM_PACKAGE_AUTOPROV ON)
 set(CPACK_RPM_PACKAGE_REQUIRES
     "qt6-qtdeclarative, qt6-qtsvg, hicolor-icon-theme, systemd-udev")
-set(CPACK_RPM_PACKAGE_SUGGESTS "qt6-qtwayland, bluez")
+set(CPACK_RPM_PACKAGE_SUGGESTS "qt6-qtwayland, bluez, gnome-shell-extension-appindicator")
 set(CPACK_RPM_POST_INSTALL_SCRIPT_FILE
     "${CMAKE_CURRENT_SOURCE_DIR}/packaging/rpm/post.sh")
 set(CPACK_RPM_POST_UNINSTALL_SCRIPT_FILE

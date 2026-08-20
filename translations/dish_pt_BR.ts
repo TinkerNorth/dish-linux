@@ -2823,6 +2823,22 @@
         <source>Checking connects to github.com and sends no account data.</source>
         <translation type="unfinished">A verificação se conecta ao github.com e não envia dados de conta.</translation>
     </message>
+    <message>
+        <source>Window</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Keep running in the background</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Closing the window keeps controllers streaming. Quit from the tray icon.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>This desktop has no tray, so closing the window quits Dish.</source>
+        <translation type="unfinished"></translation>
+    </message>
 </context>
 <context>
     <name>SetupWizardPage</name>
@@ -3670,6 +3686,17 @@
     <message>
         <source>Controller disconnected — unbound from %1.</source>
         <translation>Controle desconectado — desvinculado de %1.</translation>
+    </message>
+</context>
+<context>
+    <name>dish::composer::BackgroundCoordinator</name>
+    <message>
+        <source>Dish is still running</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Controllers keep streaming. Quit from the tray icon.</source>
+        <translation type="unfinished"></translation>
     </message>
 </context>
 <context>

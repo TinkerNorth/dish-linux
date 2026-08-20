@@ -913,6 +913,23 @@ void WifiConnectionManager::forget(const QString& id) {
     }
 }
 
+void WifiConnectionManager::prepareForSleep() {
+    // Snapshot the keys: disconnect() fans out through poolChanged into the
+    // hub's rebuild, which reshapes connections_ under a live iterator.
+    const auto ids = connections_.keys();
+    for (const auto& id : ids) { disconnect(id); }
+}
+
+void WifiConnectionManager::resumeFromSleep() {
+    // A backoff curve armed before the suspend is measuring wall clock the
+    // machine spent asleep, so the first attempt after a resume starts over.
+    retryAttempts_.clear();
+    // Rescan before reconnecting: a laptop that resumes on another network has
+    // a stale remembered IP, and only discovery can relearn it.
+    startDiscovery();
+    autoReconnectAll();
+}
+
 void WifiConnectionManager::autoReconnectAll() {
     for (const auto& r : store_->remembered()) {
         auto* existing = connections_.value(r.id, nullptr);
