@@ -74,8 +74,8 @@ class AppViewModel : public QObject {
                    NOTIFY crashReportingChanged)
 
     // ── Settings: window ──────────────────────────────────────────────────────
-    Q_PROPERTY(bool runInBackground READ runInBackground WRITE setRunInBackground
-                   NOTIFY runInBackgroundChanged)
+    Q_PROPERTY(bool runInBackground READ runInBackground WRITE setRunInBackground NOTIFY
+                   runInBackgroundChanged)
     // False means no StatusNotifier host is there to draw the item, so the
     // preference above cannot take effect and the row says so.
     Q_PROPERTY(bool trayAvailable READ trayAvailable NOTIFY trayAvailableChanged)

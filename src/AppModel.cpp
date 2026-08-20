@@ -62,11 +62,12 @@ AppModel::AppModel(std::unique_ptr<util::DisplaySleepInhibitor> inhibitor, QObje
                                                                  notifier_.get(), this)),
       sleepCoordinator_(new composer::SleepCoordinator(sleepMonitor_.get(), connections_, this)),
       trayComposer_(backgroundCoordinator_->windowVisible(), streamingSlotCount_),
-      trayController_(trayComposer_.state(), tray_.get()), updateChecker_(&updatePrefs_, this), catalogHttp_(new net::HTTPClient(this)),
-      catalogRepo_(catalogHttp_), motionEnabledStore_(&motionPrefRepo_),
-      joystickRemapStore_(&joystickRemapRepo_), catalogSnapshot_(composer::CatalogSnapshot{}),
-      catalogComposer_(catalogSnapshot_), usbPathStore_(&usbPathRepo_), usbObserver_(this),
-      usbScanTimer_(new QTimer(this)), inputRateTimer_(new QTimer(this)) {
+      trayController_(trayComposer_.state(), tray_.get()), updateChecker_(&updatePrefs_, this),
+      catalogHttp_(new net::HTTPClient(this)), catalogRepo_(catalogHttp_),
+      motionEnabledStore_(&motionPrefRepo_), joystickRemapStore_(&joystickRemapRepo_),
+      catalogSnapshot_(composer::CatalogSnapshot{}), catalogComposer_(catalogSnapshot_),
+      usbPathStore_(&usbPathRepo_), usbObserver_(this), usbScanTimer_(new QTimer(this)),
+      inputRateTimer_(new QTimer(this)) {
     QObject::connect(hub_, &net::ConnectionHub::changed, this, &AppModel::onHubChanged);
     QObject::connect(bridge_, &input::SDLGamepadBridge::devicesChanged, this,
                      &AppModel::onBridgeDevicesChanged);

@@ -19,9 +19,7 @@ struct SleepReduction {
     SleepPhase next = SleepPhase::Awake;
     SleepEffect effect = SleepEffect::None;
 
-    bool operator==(const SleepReduction& o) const {
-        return next == o.next && effect == o.effect;
-    }
+    bool operator==(const SleepReduction& o) const { return next == o.next && effect == o.effect; }
     bool operator!=(const SleepReduction& o) const { return !(*this == o); }
 };
 
@@ -33,9 +31,7 @@ inline SleepReduction reduceSleepCycle(SleepPhase current, bool preparingForSlee
         }
         return SleepReduction{SleepPhase::Awake, SleepEffect::None};
     case SleepPhase::Suspending:
-        if (preparingForSleep) {
-            return SleepReduction{SleepPhase::Suspending, SleepEffect::None};
-        }
+        if (preparingForSleep) { return SleepReduction{SleepPhase::Suspending, SleepEffect::None}; }
         return SleepReduction{SleepPhase::Awake, SleepEffect::Reconnect};
     }
     return SleepReduction{current, SleepEffect::None};

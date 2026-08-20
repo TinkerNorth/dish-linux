@@ -53,7 +53,8 @@ void BackgroundCoordinator::onAvailabilityChanged(bool available) {
 void BackgroundCoordinator::announce() {
     if (notifier_ == nullptr) { return; }
     notifier_->notify(
-        QCoreApplication::translate("dish::composer::BackgroundCoordinator", "Dish is still running"),
+        QCoreApplication::translate("dish::composer::BackgroundCoordinator",
+                                    "Dish is still running"),
         QCoreApplication::translate("dish::composer::BackgroundCoordinator",
                                     "Controllers keep streaming. Quit from the tray icon."));
 }

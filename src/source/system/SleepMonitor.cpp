@@ -33,8 +33,7 @@ void LogindSleepMonitor::start() {
         return;
     }
     if (!bus.connect(logindService(), logindPath(), logindManager(),
-                     QStringLiteral("PrepareForSleep"), this,
-                     SLOT(handlePrepareForSleep(bool)))) {
+                     QStringLiteral("PrepareForSleep"), this, SLOT(handlePrepareForSleep(bool)))) {
         qCWarning(lcDishSleep) << "login1 PrepareForSleep subscribe failed";
         return;
     }
@@ -71,10 +70,9 @@ void LogindSleepMonitor::acquireDelay() {
         qCDebug(lcDishSleep) << "logind unavailable; no suspend delay lock";
         return;
     }
-    const QDBusReply<QDBusUnixFileDescriptor> reply =
-        iface.call(QStringLiteral("Inhibit"), QStringLiteral("sleep"), QStringLiteral("Dish"),
-                   QStringLiteral("Closing satellite sessions before suspend"),
-                   QStringLiteral("delay"));
+    const QDBusReply<QDBusUnixFileDescriptor> reply = iface.call(
+        QStringLiteral("Inhibit"), QStringLiteral("sleep"), QStringLiteral("Dish"),
+        QStringLiteral("Closing satellite sessions before suspend"), QStringLiteral("delay"));
     if (!reply.isValid()) {
         qCWarning(lcDishSleep) << "login1 sleep-delay Inhibit failed:" << reply.error().message();
         return;
