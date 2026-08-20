@@ -74,10 +74,20 @@ std::string readSysfsLine(const std::string& path) {
     return line;
 }
 
+// Chunked rather than the istreambuf_iterator pair: GCC 13 cannot see through
+// that constructor's inlined sbumpc and reports -Wnull-dereference on
+// libstdc++'s own gptr(), which is -Werror here. sysfs files are small, so one
+// resize-and-read loop costs nothing.
 std::string readSysfsText(const std::string& path) {
     std::ifstream in(path, std::ios::binary);
     if (!in) { return {}; }
-    return {std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>()};
+    std::string out;
+    std::array<char, 4096> buf{};
+    while (in.read(buf.data(), static_cast<std::streamsize>(buf.size())) || in.gcount() > 0) {
+        out.append(buf.data(), static_cast<std::size_t>(in.gcount()));
+        if (!in) { break; }
+    }
+    return out;
 }
 
 std::optional<int> parseHex(const std::string& s) {

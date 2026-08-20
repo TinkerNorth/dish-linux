@@ -5,6 +5,7 @@
 #   scripts/ci_local.sh                    every gate
 #   scripts/ci_local.sh --no-tidy          skip clang-tidy (fastest loop)
 #   scripts/ci_local.sh --with-package     also build and lint the .deb
+#   scripts/ci_local.sh --with-sanitizers  also run the ASan/UBSan and TSan legs
 #   scripts/ci_local.sh --allow-missing    downgrade a missing tool to a notice
 #
 # Without --allow-missing a gate whose tool is absent FAILS rather than printing
@@ -15,11 +16,13 @@ cd "$(dirname "$0")/.."
 
 TIDY=1
 PACKAGE=0
+SANITIZE=0
 ALLOW_MISSING=0
 for arg in "$@"; do
   case "$arg" in
     --no-tidy) TIDY=0 ;;
     --with-package) PACKAGE=1 ;;
+    --with-sanitizers) SANITIZE=1 ;;
     --allow-missing|--allow-missing-tools) ALLOW_MISSING=1 ;;
     *) echo "unknown flag: $arg" >&2; exit 2 ;;
   esac
@@ -105,6 +108,23 @@ if [ "$TIDY" -eq 1 ]; then
     find src -type f \( -name '*.cpp' -o -name '*.h' \) ! -path 'src/UI/*' ! -path 'src/qml/*' -print0 |
       xargs -0 -n1 -P"$(nproc)" clang-tidy -p build --quiet --warnings-as-errors='*'
   fi
+fi
+
+if [ "$SANITIZE" -eq 1 ]; then
+  for san in address+undefined thread; do
+    step "Sanitizer: ${san}"
+    cmake -S . -B "build-san-${san}" -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+      -DDISH_BUILD_TESTS=ON -DDISH_SANITIZER="${san}"
+    # DishTests only: the Qt Quick app target adds qmlcachegen output where GCC
+    # refuses atomic_thread_fence under TSan, and the suite never runs it.
+    cmake --build "build-san-${san}" --parallel --target DishTests
+    ( cd "build-san-${san}" && \
+      QT_QPA_PLATFORM=offscreen \
+      ASAN_OPTIONS=detect_leaks=1:abort_on_error=1 \
+      UBSAN_OPTIONS=print_stacktrace=1:halt_on_error=1 \
+      TSAN_OPTIONS="halt_on_error=1:suppressions=$(pwd)/../tests/tsan.suppressions" \
+      ctest --output-on-failure --parallel 1 )
+  done
 fi
 
 step "Configure + build + test (Release)"

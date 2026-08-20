@@ -211,8 +211,12 @@ jobs:
             -DCMAKE_C_COMPILER_LAUNCHER=ccache \
             -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
 
+      # DishTests, not everything: the suite covers dish_core, and the Qt Quick
+      # app target adds only qmlcachegen output, where GCC reports
+      # -Wnull-dereference inside Qt's own qglobalstatic.h and refuses
+      # atomic_thread_fence under TSan. Instrumenting it buys no coverage.
       - name: Build
-        run: cmake --build build-san --parallel
+        run: cmake --build build-san --parallel --target DishTests
 
       - name: Run tests
         working-directory: build-san
@@ -220,7 +224,10 @@ jobs:
           QT_QPA_PLATFORM: offscreen
           ASAN_OPTIONS: detect_leaks=1:abort_on_error=1
           UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
-          TSAN_OPTIONS: halt_on_error=1
+          # Qt and glib are uninstrumented, so their own cross-thread new/delete
+          # reads as a race. tests/tsan.suppressions says exactly what is
+          # excluded and why.
+          TSAN_OPTIONS: halt_on_error=1:suppressions=${{ github.workspace }}/tests/tsan.suppressions
         # Serial: two instrumented processes at once is what makes a sanitizer
         # run flake on a shared runner.
         run: ctest --output-on-failure --parallel 1
@@ -228,6 +235,11 @@ jobs:
   package:
     name: Package (.deb) and launch it
     runs-on: ubuntu-24.04
+    # A container job's default shell is `sh`, which has neither `<<<` nor
+    # `pipefail`; every step here assumes bash.
+    defaults:
+      run:
+        shell: bash
     # Debian 13's Qt is 6.8, above the 6.7 floor, and dpkg-shlibdeps must read a
     # binary linked against the Qt the package will resolve against. Ubuntu
     # 24.04 LTS is deliberately not a .deb target: its Qt is 6.4.2.

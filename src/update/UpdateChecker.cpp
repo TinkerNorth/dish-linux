@@ -29,7 +29,12 @@ qint64 systemClockMs() { return QDateTime::currentMSecsSinceEpoch(); }
 } // namespace
 
 UpdateChecker::UpdateChecker(source::UpdatePreferenceStore* prefs, QObject* parent)
-    : UpdateChecker(prefs, std::make_unique<HttpManifestGateway>(), parent) {}
+    : UpdateChecker(prefs, std::make_unique<HttpManifestGateway>(), parent) {
+    // Production only. The gateway-injecting constructor is the test seam, and
+    // loading the backend there would start NetworkManager's D-Bus thread in
+    // every test that builds a checker.
+    hookConnectivity();
+}
 
 UpdateChecker::UpdateChecker(source::UpdatePreferenceStore* prefs,
                              std::unique_ptr<ManifestGateway> gateway, QObject* parent)
@@ -57,8 +62,6 @@ void UpdateChecker::construct() {
         prefsSub_ = prefs_->state().subscribe(
             [this](const source::UpdatePreferences& p) { onPrefsChanged(p); });
     }
-
-    hookConnectivity();
 }
 
 // Without this the reducer's offline gate never fires: `online` sits at its

@@ -1,0 +1,16 @@
+# ThreadSanitizer suppressions.
+#
+# Qt and the glib event dispatcher it uses ship uninstrumented, so the
+# happens-before edges they establish — the QDBusConnection thread's handoff in
+# particular — are invisible to TSan, and every object one of them allocates on
+# one thread and frees on another reads as a race between its own new and its
+# own delete.
+#
+# `called_from_lib` suppresses TSan's INTERCEPTORS when the named library is the
+# immediate caller. A race in Dish's own code, or in an interceptor Dish calls,
+# still reports. Do not widen this to `race:` patterns.
+called_from_lib:libQt6Core.so
+called_from_lib:libQt6DBus.so
+called_from_lib:libglib-2.0.so
+called_from_lib:libgobject-2.0.so
+called_from_lib:libdbus-1.so
