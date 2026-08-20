@@ -37,6 +37,27 @@ if [[ -z "$lupdate" ]]; then
     exit 1
 fi
 
+# Before 6.9, lupdate resolves a class whose definition and member bodies live
+# in different files to a bare class name, dropping the namespace. It would
+# rewrite the dish::net::WifiConnectionManager context to WifiConnectionManager
+# — not what moc hands tr() at run time, so the entry could never be looked up.
+# Since this script rewrites the catalogues in place, refuse rather than let a
+# distro lupdate quietly do that. CI pins the version in
+# .github/actions/setup-qt.
+lupdate_version="$("$lupdate" -version 2>/dev/null || true)"
+if [[ ! "$lupdate_version" =~ ([0-9]+)\.([0-9]+) ]]; then
+    echo "could not read a version out of '$lupdate -version'." >&2
+    exit 1
+fi
+lupdate_major="${BASH_REMATCH[1]}"
+lupdate_minor="${BASH_REMATCH[2]}"
+if (( lupdate_major < 6 || (lupdate_major == 6 && lupdate_minor < 9) )); then
+    echo "lupdate ${lupdate_major}.${lupdate_minor} is too old; this gate needs 6.9 or newer." >&2
+    echo "It would drop the namespace off a context and rewrite catalogues that" >&2
+    echo "no longer match what tr() looks up. Point LUPDATE at a newer Qt." >&2
+    exit 1
+fi
+
 if ! git diff --quiet -- translations/; then
     echo "translations/ is already dirty; commit or stash first." >&2
     exit 1

@@ -64,15 +64,12 @@ fi
 if [ "$TIDY" -eq 1 ]; then
   if command -v clang-tidy >/dev/null 2>&1; then
     step "clang-tidy (src, UI + qml excluded — mirrors CI)"
-    cmake -S . -B build-tidy -G Ninja \
-      -DCMAKE_BUILD_TYPE=Debug \
-      -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
-      -DDISH_BUILD_TESTS=OFF
-    cmake --build build-tidy --parallel
+    # Same build/ the gates above used: CMakeLists exports the compile database
+    # globally, so a second tree would only re-derive the same src/ entries.
     NPROC="$(nproc)"
     TIDY_RC=0
     find src -type f \( -name '*.cpp' -o -name '*.h' \) ! -path 'src/UI/*' ! -path 'src/qml/*' -print0 |
-      xargs -0 -n1 -P"${NPROC}" clang-tidy -p build-tidy --quiet --warnings-as-errors='*' || TIDY_RC=$?
+      xargs -0 -n1 -P"${NPROC}" clang-tidy -p build --quiet --warnings-as-errors='*' || TIDY_RC=$?
     if [ "$TIDY_RC" -ne 0 ]; then exit "$TIDY_RC"; fi
   else
     echo ""; echo "=== clang-tidy skipped (not installed) ==="

@@ -65,6 +65,10 @@ at construction and the checker arms no timer.
 Qt 6.7. The QML module uses `qt_standard_project_setup(REQUIRES 6.7)` and the
 kit is written against that type surface.
 
+CI builds two minors above the floor (`.github/actions/setup-qt`) because the
+translation gate needs `lupdate` 6.9 — see CONTRIBUTING.md. The code itself
+still builds and tests clean at 6.7, which is what this table is about.
+
 | Distro | Ships | Status |
 |---|---|---|
 | Debian 13 | 6.8 | fine |

@@ -408,6 +408,30 @@ qt_add_qml_module(Dish
 # so their directory has to be on the include path for it to compile.
 target_include_directories(Dish PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src/qml/chrome)
 
+# qmlcachegen compiles every .qml in the module to C++ and adds the result to
+# this target, so Qt's generated translation units inherit dish_warnings and
+# dish_strict. They do not survive them: `text.length > 0` compiles to a
+# qsizetype-to-int assignment that -Wconversion rejects, and generated code
+# admits no source fix. Same carve-out dish_strict already makes for Catch2's
+# headers — the gate is for the code we write.
+get_target_property(_dish_target_sources Dish SOURCES)
+set(_dish_qmlcache_sources "")
+foreach(_source IN LISTS _dish_target_sources)
+    if(_source MATCHES "\\.rcc/qmlcache/.+_qml\\.cpp$")
+        list(APPEND _dish_qmlcache_sources "${_source}")
+    endif()
+endforeach()
+if(_dish_qmlcache_sources)
+    set_source_files_properties(${_dish_qmlcache_sources} PROPERTIES COMPILE_OPTIONS "-w")
+else()
+    # Either this Qt runs no cachegen, in which case there is nothing to carve
+    # out, or it moved the output and the next -Wconversion failure will name
+    # the new path. Say so here rather than fail a configure that may be fine.
+    message(STATUS
+        "No qmlcachegen output on the Dish target; the generated-code warning "
+        "carve-out matched nothing.")
+endif()
+
 target_link_libraries(Dish PRIVATE Qt6::Quick Qt6::Qml Qt6::QuickControls2)
 
 # --------------------------------------------------------------------------

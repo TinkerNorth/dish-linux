@@ -71,6 +71,13 @@ Six catalogues in `translations/`. A new user-facing string needs a catalogue
 entry in the same commit — `scripts/check-translations.sh` re-runs `lupdate` in
 CI and fails on any diff. Run it locally and commit the result.
 
+It needs Qt 6.9 or newer, the version CI pins in `.github/actions/setup-qt`.
+Before 6.9, `lupdate` drops the namespace from a class whose definition and
+member bodies sit in different files: `dish::net::WifiConnectionManager` comes
+back out as `WifiConnectionManager`, which is not the context `moc` hands
+`tr()` at run time, so the entry it writes could never be looked up. The script
+refuses to run on an older one rather than let that land.
+
 Coverage is reported, never enforced: translating a string is a separate act
 from extracting it. English is a real catalogue rather than the untranslated
 fallback, because a `%n` message carries one source string but needs one plural

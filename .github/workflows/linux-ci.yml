@@ -20,7 +20,14 @@ jobs:
     name: Build, test, lint, format
     runs-on: ubuntu-24.04
     # Cap a hung step instead of burning the 6h default on a billed runner.
-    timeout-minutes: 30
+    # 30 was set against the pre-port tree. This job provisions Qt, builds ~285
+    # sources twice, runs 1498 tests and sweeps clang-tidy over src/, which sits
+    # near 25 minutes when the network behaves. It has not lately: two runs on
+    # two different runners spent 21 and 14+ minutes inside `apt-get install`
+    # alone, against ~1.5 minutes for a larger package set earlier the same day.
+    # An hour still catches a hung step; it does not fail the build over a
+    # mirror having a bad afternoon.
+    timeout-minutes: 60
 
     steps:
       - name: Checkout code
@@ -28,13 +35,26 @@ jobs:
 
       - name: Install build dependencies
         run: |
+          # A mirror that stops answering should cost seconds, not minutes:
+          # azure.archive.ubuntu.com went dark mid-afternoon and apt sat on it
+          # for 2-6 minutes per index before failing over to archive.ubuntu.com,
+          # which is what blew this job's timeout. Bound the wait; apt still
+          # reaches the working mirror, just sooner.
+          sudo tee /etc/apt/apt.conf.d/99-dish-acquire >/dev/null <<'CONF'
+          Acquire::http::Timeout "15";
+          Acquire::https::Timeout "15";
+          Acquire::Retries "2";
+          CONF
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             build-essential cmake ninja-build pkg-config \
-            qt6-base-dev qt6-base-dev-tools qt6-declarative-dev \
-            qt6-svg-dev qt6-tools-dev qt6-l10n-tools \
-            libsodium-dev libsdl2-dev libdbus-1-dev \
+            libsodium-dev libsdl2-dev \
             catch2 clang-tidy
+
+      # Not apt: noble ships Qt 6.4.2 and this project's floor is 6.7. The
+      # action pulls the official binaries and exports CMAKE_PREFIX_PATH.
+      - name: Set up Qt
+        uses: ./.github/actions/setup-qt
 
       - name: Set up Python
         uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
@@ -72,8 +92,7 @@ jobs:
         run: |
           # git's * crosses directory levels; 'src/qml/**/*.qml' would miss the
           # top-level Main and AppShell.
-          qmllint6 -I build --unqualified info $(git ls-files 'src/qml/*.qml') \
-            || qmllint -I build --unqualified info $(git ls-files 'src/qml/*.qml')
+          qmllint -I build --unqualified info $(git ls-files 'src/qml/*.qml')
 
       # qmllint checks a QML file RESOLVES; this checks it used the design
       # tokens. A hard-coded `#4FE3FF` or `radius: 8` still renders, it just
@@ -88,19 +107,18 @@ jobs:
 
       - name: clang-tidy
         run: |
-          cmake -S . -B build-tidy -G Ninja \
-            -DCMAKE_BUILD_TYPE=Debug \
-            -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
-            -DDISH_BUILD_TESTS=OFF
-          # Build first so generated mocs exist for clang-tidy.
-          cmake --build build-tidy --parallel
+          # Reads the Debug tree built above rather than configuring and
+          # building a second one. CMakeLists exports the compile database
+          # globally, so build/ already has one whose src/ entries are the same
+          # 73 a tests-off tree produces, and its mocs are already generated —
+          # the second build bought nothing and cost this job several minutes.
           # --warnings-as-errors keeps the sweep-clean check set gated without
           # forking the fleet-canonical .clang-tidy (WarningsAsErrors: '').
           find src -type f \( -name '*.cpp' -o -name '*.h' \) \
             ! -path 'src/UI/*' \
             ! -path 'src/qml/*' \
             -print0 | xargs -0 -n1 -P"$(nproc)" \
-              clang-tidy -p build-tidy --quiet --warnings-as-errors='*'
+              clang-tidy -p build --quiet --warnings-as-errors='*'
 
       - name: Configure (Release)
         run: cmake -S . -B build-release -G Ninja -DCMAKE_BUILD_TYPE=Release -DDISH_BUILD_TESTS=OFF

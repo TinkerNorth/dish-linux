@@ -1,0 +1,120 @@
+name: Set up Qt
+description: >
+  Installs the Qt this project is written against and points CMake at it.
+  Ubuntu's archive tops out at 6.4.2, below the floor in docs/PACKAGING.md, so
+  CI takes the official binaries through aqtinstall instead of apt.
+
+inputs:
+  qt-version:
+    description: "Qt version to install. Keep at or above the floor in docs/PACKAGING.md."
+    required: false
+    # Above the 6.7 floor on purpose: lupdate only resolves a class defined
+    # across a header/source pair back to its namespace from 6.9 on. Below that
+    # the translation gate rewrites dish::net::WifiConnectionManager to a bare
+    # WifiConnectionManager, which is not the context moc gives tr() at run
+    # time, so the catalogue entry would never be found.
+    default: "6.9.3"
+  aqtinstall-version:
+    description: "aqtinstall release used to fetch it, pinned like every other CI tool."
+    required: false
+    default: "3.3.0"
+
+outputs:
+  qt-root:
+    description: "Prefix of the installed Qt. Also exported as CMAKE_PREFIX_PATH."
+    value: ${{ steps.install.outputs.qt-root }}
+
+runs:
+  using: composite
+  steps:
+    # The runner image carries most of libQt6Gui's DT_NEEDED set already; these
+    # are the ones it does not, plus the -dev symlinks needed to LINK against
+    # libGL/libEGL. libdbus is here for Qt6DBus, which the screensaver inhibit,
+    # the BlueZ probe and the appearance portal all go through.
+    - name: Install the system libraries Qt links against
+      shell: bash
+      run: |
+        set -euo pipefail
+        # No apt-get update here on purpose. Every caller refreshes the lists in
+        # the step right before this one, and a second refresh is not free: on a
+        # runner whose azure.archive.ubuntu.com is not answering, apt sits on it
+        # for minutes before failing over, and doing that twice a job is what
+        # pushed this workflow past its timeout twice.
+        sudo apt-get install -y --no-install-recommends \
+          libgl1-mesa-dev libegl1-mesa-dev \
+          libfontconfig1-dev libxkbcommon-dev \
+          libx11-dev libdbus-1-dev
+
+    # Inputs reach the shell as environment variables, never as ${{ }} spliced
+    # into the script — same rule the workflows follow.
+    - name: Install aqtinstall (pinned ${{ inputs.aqtinstall-version }})
+      shell: bash
+      env:
+        AQTINSTALL_VERSION: ${{ inputs.aqtinstall-version }}
+      run: |
+        pipx install "aqtinstall==${AQTINSTALL_VERSION}"
+        pipx ensurepath
+        echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+    - name: Install Qt ${{ inputs.qt-version }}
+      id: install
+      shell: bash
+      env:
+        QT_VERSION: ${{ inputs.qt-version }}
+      run: |
+        set -euo pipefail
+        version="${QT_VERSION}"
+
+        # No architecture argument on purpose: aqt resolves linux/desktop to
+        # linux_gcc_64 from 6.7 and gcc_64 below it, so moving qt-version does
+        # not need a second edit here. No -m either — the desktop package's own
+        # archives are qtbase, qtdeclarative, qtsvg, qttools, qttranslations,
+        # qtwayland and icu, which covers every module this project links.
+        aqt install-qt linux desktop "${version}" --outputdir "${RUNNER_TEMP}/Qt"
+
+        # aqt lays the install down as <outputdir>/<version>/<arch>. Read the
+        # arch directory back instead of hard-coding a name Qt has changed once
+        # already. -print -quit rather than a pipe to head: SIGPIPE under
+        # pipefail would fail the step.
+        root="$(find "${RUNNER_TEMP}/Qt/${version}" -mindepth 1 -maxdepth 1 -xtype d -print -quit)"
+        qmake=""
+        for candidate in "${root}/bin/qmake6" "${root}/bin/qmake"; do
+          [ -x "${candidate}" ] && qmake="${candidate}" && break
+        done
+        if [ -z "${qmake}" ]; then
+          echo "::error::aqt installed no usable Qt under ${RUNNER_TEMP}/Qt/${version}"
+          exit 1
+        fi
+
+        # Ask Qt where its own pieces are rather than assuming the layout: the
+        # host tools are not in <root>/bin on every build of Qt.
+        prefix="$("${qmake}" -query QT_INSTALL_PREFIX)"
+        host_bins="$("${qmake}" -query QT_HOST_BINS)"
+        libs="$("${qmake}" -query QT_INSTALL_LIBS)"
+
+        # A module missing here reads as a confusing find_package or
+        # command-not-found failure three steps later, so name it now.
+        missing=""
+        for module in Qt6Core Qt6Gui Qt6Network Qt6DBus Qt6Svg \
+                      Qt6Qml Qt6Quick Qt6QuickControls2 Qt6LinguistTools; do
+          [ -d "${libs}/cmake/${module}" ] || missing="${missing} ${module}"
+        done
+        for tool in qmllint lupdate lrelease; do
+          [ -x "${host_bins}/${tool}" ] || missing="${missing} ${tool}"
+        done
+        if [ -n "${missing}" ]; then
+          echo "::error::Qt ${version} installed without:${missing}"
+          exit 1
+        fi
+
+        echo "qt-root=${prefix}" >> "$GITHUB_OUTPUT"
+        {
+          echo "${host_bins}"
+          echo "${root}/bin"
+        } >> "$GITHUB_PATH"
+        {
+          echo "CMAKE_PREFIX_PATH=${prefix}"
+          echo "QT_ROOT_DIR=${prefix}"
+          echo "LD_LIBRARY_PATH=${libs}${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
+        } >> "$GITHUB_ENV"
+        echo "Qt $("${qmake}" -query QT_VERSION) at ${prefix} (tools in ${host_bins})"
