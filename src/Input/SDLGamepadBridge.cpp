@@ -129,6 +129,11 @@ void SDLGamepadBridge::runLoop() {
     // decoders map by physical position. Without this hint a Switch Pro would
     // disagree with itself across the SDL and Direct paths.
     SDL_SetHint(SDL_HINT_GAMECONTROLLER_USE_BUTTON_LABELS, "0");
+    // Qt owns this process's lifecycle. Left to itself SDL installs SIGINT and
+    // SIGTERM handlers that raise SDL_QUIT, which nothing here consumes — so
+    // the app ignored SIGTERM entirely and a logout sat through systemd's full
+    // 90 s wait before the SIGKILL. Packaging CI is what caught it.
+    SDL_SetHint(SDL_HINT_NO_SIGNAL_HANDLERS, "1");
     if (SDL_InitSubSystem(SDL_INIT_GAMECONTROLLER | SDL_INIT_JOYSTICK) != 0) {
         running_.store(false);
         return;
