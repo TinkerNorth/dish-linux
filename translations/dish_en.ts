@@ -3774,9 +3774,9 @@
     </message>
     <message numerus="yes">
         <source>Streaming to %n controller(s)</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>Streaming to %n controller</numerusform>
+            <numerusform>Streaming to %n controllers</numerusform>
         </translation>
     </message>
     <message>
