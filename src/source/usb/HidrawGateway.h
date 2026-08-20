@@ -38,6 +38,7 @@
 #include <string>
 #include <string_view>
 #include <thread>
+#include <utility>
 #include <vector>
 
 namespace dish::source::usb {
@@ -97,43 +98,82 @@ constexpr std::uint16_t kUsagePageVendor = 0xFF00;
 // The top-level application collection's usage page + usage, which is what the
 // admission rule keys on. Walks short items only; a long item (0xFE) ends the
 // scan because nothing we admit uses one.
-inline bool topLevelUsage(const std::uint8_t* desc, std::size_t len, std::uint16_t& outPage,
-                          std::uint16_t& outUsage) {
+inline std::vector<std::pair<std::uint16_t, std::uint16_t>> topLevelUsages(const std::uint8_t* desc,
+                                                                           std::size_t len) {
+    std::vector<std::pair<std::uint16_t, std::uint16_t>> found;
     std::uint32_t page = 0;
     std::uint32_t usage = 0;
     bool sawUsage = false;
+    int depth = 0;
     for (std::size_t i = 0; i < len;) {
         const std::uint8_t prefix = desc[i];
-        if (prefix == 0xFE) { return false; }
+        if (prefix == 0xFE) { return found; }
         const std::uint8_t tag = prefix & 0xFC;
         std::uint8_t size = prefix & 0x03;
         if (size == 3) { size = 4; }
-        if (i + 1 + size > len) { return false; }
+        if (i + 1 + size > len) { return found; }
         std::uint32_t data = 0;
         for (std::uint8_t b = 0; b < size; b++) {
             data |= static_cast<std::uint32_t>(desc[i + 1 + b]) << (8 * b);
         }
-        if (tag == 0x04) { // Usage Page (global)
+        switch (tag) {
+        case 0x04: // Usage Page (global): survives Main items.
             page = data;
-        } else if (tag == 0x08 && !sawUsage) { // Usage (local)
-            usage = data;
-            sawUsage = true;
-        } else if (tag == 0xA0) { // Collection
-            if (data == 0x01) {   // Application
-                outPage = static_cast<std::uint16_t>(page);
-                outUsage = static_cast<std::uint16_t>(usage);
-                return true;
+            break;
+        case 0x08: // Usage (local)
+            if (!sawUsage) {
+                usage = data;
+                sawUsage = true;
             }
+            break;
+        case 0xA0: // Collection
+            // Application collections only at depth 0: a nested one describes a
+            // part of the enclosing device, not a device of its own.
+            if (depth == 0 && data == 0x01) {
+                found.emplace_back(static_cast<std::uint16_t>(page),
+                                   static_cast<std::uint16_t>(usage));
+            }
+            ++depth;
+            sawUsage = false;
+            usage = 0;
+            break;
+        case 0xC0: // End Collection
+            if (depth > 0) { --depth; }
+            sawUsage = false;
+            usage = 0;
+            break;
+        case 0x80: // Input
+        case 0x90: // Output
+        case 0xB0: // Feature
+            // Locals are consumed by the Main item that follows them, so a
+            // Usage spent here must not decide the next collection's identity.
+            sawUsage = false;
+            usage = 0;
+            break;
+        default:
+            break;
         }
         i += 1u + size;
     }
-    return false;
+    return found;
 }
 
 inline bool collectionMatchesParser(std::uint16_t page, std::uint16_t usage,
                                     input::usbparse::HidParser parser) {
     if (parser == input::usbparse::HidParser::SteamController) { return page == kUsagePageVendor; }
     return page == kUsagePageGenericDesktop && (usage == kUsageGamepad || usage == kUsageJoystick);
+}
+
+// ANY top-level application collection may be the parser's, because hidraw
+// publishes one node per USB interface and an interface may declare several.
+// Windows never had to care: its HID stack gives each top-level collection its
+// own device path, so WinHidGateway is handed the gamepad one directly.
+inline bool admitsParser(const std::uint8_t* desc, std::size_t len,
+                         input::usbparse::HidParser parser) {
+    for (const auto& [page, usage] : topLevelUsages(desc, len)) {
+        if (collectionMatchesParser(page, usage, parser)) { return true; }
+    }
+    return false;
 }
 
 } // namespace detail

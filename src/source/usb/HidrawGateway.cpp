@@ -197,8 +197,6 @@ struct ProbedNode {
     std::string name;
     int vendorId = 0;
     int productId = 0;
-    std::uint16_t usagePage = 0;
-    std::uint16_t usage = 0;
     std::vector<std::uint8_t> descriptor;
 };
 
@@ -223,9 +221,10 @@ std::optional<ProbedNode> probe(const std::string& hidrawName) {
     probed.name = detail::ueventValue(uevent, "HID_NAME");
     probed.vendorId = static_cast<std::uint16_t>(ids->vendorId);
     probed.productId = static_cast<std::uint16_t>(ids->productId);
+    // Admission is decided per parser at the call sites, so probe keeps the
+    // descriptor and only requires that it declares a top-level collection.
     if (!readReportDescriptor(sysDir + "/report_descriptor", probed.descriptor) ||
-        !detail::topLevelUsage(probed.descriptor.data(), probed.descriptor.size(), probed.usagePage,
-                               probed.usage)) {
+        detail::topLevelUsages(probed.descriptor.data(), probed.descriptor.size()).empty()) {
         return std::nullopt;
     }
     return probed;
@@ -267,7 +266,7 @@ std::vector<UsbDeviceInfo> HidrawGateway::enumerate() {
         if (probed->vendorId == kVidMicrosoft) { continue; }
 
         const auto parser = input::usbparse::parserForDevice(probed->vendorId, probed->productId);
-        if (!detail::collectionMatchesParser(probed->usagePage, probed->usage, parser)) {
+        if (!detail::admitsParser(probed->descriptor.data(), probed->descriptor.size(), parser)) {
             continue;
         }
 
@@ -311,7 +310,7 @@ ClaimResult HidrawGateway::claim(const UsbDeviceInfo& device,
             continue;
         }
         sawDevice = true;
-        if (!detail::collectionMatchesParser(probed->usagePage, probed->usage, parser)) {
+        if (!detail::admitsParser(probed->descriptor.data(), probed->descriptor.size(), parser)) {
             continue;
         }
         const int opened = ::open(probed->node.c_str(), O_RDWR | O_CLOEXEC);

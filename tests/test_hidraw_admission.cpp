@@ -29,10 +29,21 @@
 #include <vector>
 
 using dish::input::usbparse::HidParser;
+using dish::source::usb::detail::admitsParser;
 using dish::source::usb::detail::collectionMatchesParser;
-using dish::source::usb::detail::topLevelUsage;
+using dish::source::usb::detail::topLevelUsages;
 
 namespace {
+
+// The first top-level application collection, for the cases that are about one.
+bool firstTopLevelUsage(const std::uint8_t* desc, std::size_t len, std::uint16_t& outPage,
+                        std::uint16_t& outUsage) {
+    const auto all = topLevelUsages(desc, len);
+    if (all.empty()) { return false; }
+    outPage = all.front().first;
+    outUsage = all.front().second;
+    return true;
+}
 
 // HID Usage Table values, spelled out so the test pins the spec rather than
 // re-reading the constants under test.
@@ -239,7 +250,7 @@ TEST_CASE("hidraw admission reads the top-level usage off every gamepad fixture"
         INFO(fixture.what);
         std::uint16_t page = 0;
         std::uint16_t usage = 0;
-        REQUIRE(topLevelUsage(fixture.bytes, fixture.len, page, usage));
+        REQUIRE(firstTopLevelUsage(fixture.bytes, fixture.len, page, usage));
         CHECK(page == kGenericDesktop);
         CHECK((usage == kGamepad || usage == kJoystick));
     }
@@ -248,7 +259,7 @@ TEST_CASE("hidraw admission reads the top-level usage off every gamepad fixture"
 TEST_CASE("hidraw admission reads a vendor-defined top-level usage", "[hidraw-admission]") {
     std::uint16_t page = 0;
     std::uint16_t usage = 0;
-    REQUIRE(topLevelUsage(kVendorDescriptor, sizeof(kVendorDescriptor), page, usage));
+    REQUIRE(firstTopLevelUsage(kVendorDescriptor, sizeof(kVendorDescriptor), page, usage));
     CHECK(page == kVendorPage);
 }
 
@@ -273,14 +284,14 @@ TEST_CASE("hidraw admission refuses a malformed descriptor without reading past 
         INFO(c.what);
         std::uint16_t page = 0;
         std::uint16_t usage = 0;
-        CHECK_FALSE(topLevelUsage(c.bytes.data(), c.bytes.size(), page, usage));
+        CHECK_FALSE(firstTopLevelUsage(c.bytes.data(), c.bytes.size(), page, usage));
     }
 }
 
 TEST_CASE("hidraw admission refuses an empty descriptor", "[hidraw-admission]") {
     std::uint16_t page = 0;
     std::uint16_t usage = 0;
-    CHECK_FALSE(topLevelUsage(nullptr, 0, page, usage));
+    CHECK_FALSE(firstTopLevelUsage(nullptr, 0, page, usage));
 }
 
 TEST_CASE("hidraw admission admits the Steam Controller only on its vendor page",
@@ -317,42 +328,46 @@ TEST_CASE("hidraw admission walks a real descriptor into a claim decision", "[hi
         INFO(fixture.what);
         std::uint16_t page = 0;
         std::uint16_t usage = 0;
-        REQUIRE(topLevelUsage(fixture.bytes, fixture.len, page, usage));
+        REQUIRE(firstTopLevelUsage(fixture.bytes, fixture.len, page, usage));
         CHECK(collectionMatchesParser(page, usage, HidParser::GenericHid));
         CHECK_FALSE(collectionMatchesParser(page, usage, HidParser::SteamController));
     }
 
     std::uint16_t page = 0;
     std::uint16_t usage = 0;
-    REQUIRE(topLevelUsage(kVendorDescriptor, sizeof(kVendorDescriptor), page, usage));
+    REQUIRE(firstTopLevelUsage(kVendorDescriptor, sizeof(kVendorDescriptor), page, usage));
     CHECK(collectionMatchesParser(page, usage, HidParser::SteamController));
     CHECK_FALSE(collectionMatchesParser(page, usage, HidParser::GenericHid));
 }
 
-TEST_CASE("hidraw admission sees only the first top-level collection", "[hidraw-admission]") {
-    // Behaviour pin, not an endorsement: a pad that declares a keyboard
-    // collection ahead of its gamepad one is refused here and never reaches the
-    // layout parser, even on a fast-lane vendor with a udev rule. Windows does
-    // not have the problem — its HID stack splits every top-level collection
-    // into its own device path, so WinHidGateway is handed the gamepad one.
-    std::uint16_t page = 0;
-    std::uint16_t usage = 0;
-    REQUIRE(topLevelUsage(kKeyboardThenGamepadDescriptor, sizeof(kKeyboardThenGamepadDescriptor),
-                          page, usage));
-    CHECK(page == kGenericDesktop);
-    CHECK(usage == kKeyboard);
-    CHECK_FALSE(collectionMatchesParser(page, usage, HidParser::GenericHid));
+TEST_CASE("hidraw admission reads every top-level collection, not just the first",
+          "[hidraw-admission]") {
+    // hidraw publishes one node per USB interface and an interface may declare
+    // several top-level collections, so a pad that declares a keyboard ahead of
+    // its gamepad must still be claimable. Windows never had to care: its HID
+    // stack gives each collection its own device path.
+    const auto all =
+        topLevelUsages(kKeyboardThenGamepadDescriptor, sizeof(kKeyboardThenGamepadDescriptor));
+    REQUIRE(all.size() == 2);
+    CHECK(all[0].first == kGenericDesktop);
+    CHECK(all[0].second == kKeyboard);
+    CHECK(all[1].first == kGenericDesktop);
+    CHECK(all[1].second == kGamepad);
+    // The first collection alone would refuse it.
+    CHECK_FALSE(collectionMatchesParser(all[0].first, all[0].second, HidParser::GenericHid));
+    CHECK(admitsParser(kKeyboardThenGamepadDescriptor, sizeof(kKeyboardThenGamepadDescriptor),
+                       HidParser::GenericHid));
 }
 
-TEST_CASE("hidraw admission keeps the first usage it saw, not the collection's own",
+TEST_CASE("hidraw admission judges a collection on its own usage, not an earlier one",
           "[hidraw-admission]") {
-    // Second behaviour pin. A local Usage is spent by the next Main item, but
-    // this walk latches the first one it sees for the rest of the descriptor,
-    // so the pointer usage is what the gamepad collection is judged on.
+    // A local Usage is spent by the Main item that follows it, so a Usage
+    // declared for an earlier collection must not decide this one's identity.
     std::uint16_t page = 0;
     std::uint16_t usage = 0;
-    REQUIRE(topLevelUsage(kPhysicalBeforeApplicationDescriptor,
-                          sizeof(kPhysicalBeforeApplicationDescriptor), page, usage));
-    CHECK(usage == kPointer);
-    CHECK_FALSE(collectionMatchesParser(page, usage, HidParser::GenericHid));
+    REQUIRE(firstTopLevelUsage(kPhysicalBeforeApplicationDescriptor,
+                               sizeof(kPhysicalBeforeApplicationDescriptor), page, usage));
+    CHECK(usage != kPointer);
+    CHECK(admitsParser(kPhysicalBeforeApplicationDescriptor,
+                       sizeof(kPhysicalBeforeApplicationDescriptor), HidParser::GenericHid));
 }
