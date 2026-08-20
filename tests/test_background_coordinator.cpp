@@ -24,8 +24,8 @@
 #include <vector>
 
 using dish::composer::BackgroundCoordinator;
-using dish::reducer::CloseAction;
 using dish::reducer::TrayPresentation;
+using dish::reducer::WindowCloseAction;
 using dish::source::BackgroundPreferenceStore;
 using dish::test::StateSourceProbe;
 
@@ -120,7 +120,7 @@ TEST_CASE("BackgroundCoordinator: a close hides when enabled and a tray host is 
 
     REQUIRE(store->runInBackground()); // the default
     REQUIRE(c.trayAvailable());
-    REQUIRE(c.closeRequested() == CloseAction::HideToBackground);
+    REQUIRE(c.closeRequested() == WindowCloseAction::HideToBackground);
 }
 
 TEST_CASE("BackgroundCoordinator: a close quits when the tray host is missing", "[background]") {
@@ -135,7 +135,7 @@ TEST_CASE("BackgroundCoordinator: a close quits when the tray host is missing", 
 
     REQUIRE(store->runInBackground());
     REQUIRE_FALSE(c.trayAvailable());
-    REQUIRE(c.closeRequested() == CloseAction::Quit);
+    REQUIRE(c.closeRequested() == WindowCloseAction::Quit);
 }
 
 TEST_CASE("BackgroundCoordinator: a close quits when the preference is off", "[background]") {
@@ -148,7 +148,7 @@ TEST_CASE("BackgroundCoordinator: a close quits when the preference is off", "[b
     BackgroundCoordinator c(store.get(), &tray, &notifier);
 
     REQUIRE(c.trayAvailable());
-    REQUIRE(c.closeRequested() == CloseAction::Quit);
+    REQUIRE(c.closeRequested() == WindowCloseAction::Quit);
 }
 
 TEST_CASE("BackgroundCoordinator: the notice fires once across repeated closes", "[background]") {
@@ -159,7 +159,7 @@ TEST_CASE("BackgroundCoordinator: the notice fires once across repeated closes",
     FakeNotifier notifier;
     BackgroundCoordinator c(store.get(), &tray, &notifier);
 
-    REQUIRE(c.closeRequested() == CloseAction::HideToBackground);
+    REQUIRE(c.closeRequested() == WindowCloseAction::HideToBackground);
     REQUIRE(notifier.count() == 1);
     REQUIRE_FALSE(notifier.notices().at(0).summary.isEmpty());
     REQUIRE_FALSE(notifier.notices().at(0).body.isEmpty());
@@ -180,14 +180,14 @@ TEST_CASE("BackgroundCoordinator: the notice is spent on the store, not in memor
     FakeNotifier first;
     {
         BackgroundCoordinator c(store.get(), &tray, &first);
-        REQUIRE(c.closeRequested() == CloseAction::HideToBackground);
+        REQUIRE(c.closeRequested() == WindowCloseAction::HideToBackground);
     }
     REQUIRE(first.count() == 1);
     REQUIRE(store->noticeShown());
 
     FakeNotifier second;
     BackgroundCoordinator restarted(store.get(), &tray, &second);
-    REQUIRE(restarted.closeRequested() == CloseAction::HideToBackground);
+    REQUIRE(restarted.closeRequested() == WindowCloseAction::HideToBackground);
     REQUIRE(second.count() == 0);
 }
 
@@ -200,7 +200,7 @@ TEST_CASE("BackgroundCoordinator: a quitting close announces nothing", "[backgro
     FakeNotifier notifier;
     BackgroundCoordinator c(store.get(), &tray, &notifier);
 
-    REQUIRE(c.closeRequested() == CloseAction::Quit);
+    REQUIRE(c.closeRequested() == WindowCloseAction::Quit);
     REQUIRE(notifier.count() == 0);
     // The notice is unspent: it belongs to the first hide, whenever that comes.
     REQUIRE_FALSE(store->noticeShown());
@@ -342,7 +342,7 @@ TEST_CASE("BackgroundCoordinator: tolerates a null tray item", "[background]") {
     BackgroundCoordinator c(store.get(), nullptr, &notifier);
 
     REQUIRE_FALSE(c.trayAvailable());
-    REQUIRE(c.closeRequested() == CloseAction::Quit);
+    REQUIRE(c.closeRequested() == WindowCloseAction::Quit);
     REQUIRE(notifier.count() == 0);
     c.setWindowVisible(false);
     REQUIRE_FALSE(c.windowVisible().value());
@@ -355,7 +355,7 @@ TEST_CASE("BackgroundCoordinator: tolerates a null notifier", "[background]") {
     FakeTrayIcon tray;
     BackgroundCoordinator c(store.get(), &tray, nullptr);
 
-    REQUIRE(c.closeRequested() == CloseAction::HideToBackground);
+    REQUIRE(c.closeRequested() == WindowCloseAction::HideToBackground);
     // The notice is still spent: a missing notification service must not make
     // the coordinator retry the announcement on every close.
     REQUIRE(store->noticeShown());
@@ -368,6 +368,6 @@ TEST_CASE("BackgroundCoordinator: tolerates a null store", "[background]") {
     BackgroundCoordinator c(nullptr, &tray, &notifier);
 
     REQUIRE(c.trayAvailable());
-    REQUIRE(c.closeRequested() == CloseAction::Quit);
+    REQUIRE(c.closeRequested() == WindowCloseAction::Quit);
     REQUIRE(notifier.count() == 0);
 }

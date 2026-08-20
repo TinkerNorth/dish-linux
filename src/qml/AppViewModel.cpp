@@ -830,7 +830,7 @@ void AppViewModel::setRunInBackground(bool enabled) {
 bool AppViewModel::trayAvailable() const { return model_->background()->trayAvailable(); }
 
 bool AppViewModel::requestWindowClose() {
-    return model_->background()->closeRequested() == reducer::CloseAction::HideToBackground;
+    return model_->background()->closeRequested() == reducer::WindowCloseAction::HideToBackground;
 }
 
 void AppViewModel::setWindowVisible(bool visible) {

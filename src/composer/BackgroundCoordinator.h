@@ -31,7 +31,7 @@ class BackgroundCoordinator : public QObject {
 
     // Decides, and announces the first hide. Not const: the notice is one-shot
     // and answering the question is what spends it.
-    reducer::CloseAction closeRequested();
+    reducer::WindowCloseAction closeRequested();
 
     bool trayAvailable() const;
 

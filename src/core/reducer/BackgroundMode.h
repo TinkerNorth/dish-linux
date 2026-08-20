@@ -10,18 +10,18 @@
 
 namespace dish::reducer {
 
-enum class CloseAction : std::uint8_t { Quit, HideToBackground };
+enum class WindowCloseAction : std::uint8_t { Quit, HideToBackground };
 
 // Hiding with no tray host strands a running process behind no window and no
 // menu, so the preference alone never decides.
-inline CloseAction decideCloseAction(bool backgroundEnabled, bool trayAvailable) {
-    if (backgroundEnabled && trayAvailable) { return CloseAction::HideToBackground; }
-    return CloseAction::Quit;
+inline WindowCloseAction decideWindowCloseAction(bool backgroundEnabled, bool trayAvailable) {
+    if (backgroundEnabled && trayAvailable) { return WindowCloseAction::HideToBackground; }
+    return WindowCloseAction::Quit;
 }
 
 // A window that vanishes without a word reads as a crash.
-inline bool shouldAnnounceBackground(CloseAction action, bool alreadyAnnounced) {
-    return action == CloseAction::HideToBackground && !alreadyAnnounced;
+inline bool shouldAnnounceBackground(WindowCloseAction action, bool alreadyAnnounced) {
+    return action == WindowCloseAction::HideToBackground && !alreadyAnnounced;
 }
 
 } // namespace dish::reducer

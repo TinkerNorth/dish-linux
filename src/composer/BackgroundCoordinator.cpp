@@ -26,9 +26,9 @@ bool BackgroundCoordinator::trayAvailable() const {
     return tray_ != nullptr && tray_->isAvailable();
 }
 
-reducer::CloseAction BackgroundCoordinator::closeRequested() {
+reducer::WindowCloseAction BackgroundCoordinator::closeRequested() {
     const bool enabled = prefs_ != nullptr && prefs_->runInBackground();
-    const auto action = reducer::decideCloseAction(enabled, trayAvailable());
+    const auto action = reducer::decideWindowCloseAction(enabled, trayAvailable());
     const bool announced = prefs_ != nullptr && prefs_->noticeShown();
     if (reducer::shouldAnnounceBackground(action, announced)) {
         announce();
