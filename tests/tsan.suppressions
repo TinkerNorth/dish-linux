@@ -11,6 +11,8 @@
 # still reports. Do not widen this to `race:` patterns.
 called_from_lib:libQt6Core.so
 called_from_lib:libQt6DBus.so
+# The HTTP thread QNetworkAccessManager runs the manifest fetch on.
+called_from_lib:libQt6Network.so
 called_from_lib:libglib-2.0.so
 called_from_lib:libgobject-2.0.so
 called_from_lib:libdbus-1.so

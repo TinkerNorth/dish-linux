@@ -36,39 +36,28 @@ std::optional<bool> portalAnimationsEnabled() {
     return value.toBool();
 }
 
-// Plasma expresses the same preference as a duration multiplier; zero is off.
 std::optional<bool> kdeAnimationsEnabled() {
     const QString config =
         QStandardPaths::locate(QStandardPaths::GenericConfigLocation, QStringLiteral("kdeglobals"));
     if (config.isEmpty()) { return std::nullopt; }
     QSettings globals(config, QSettings::IniFormat);
-    const QVariant factor = globals.value(QStringLiteral("KDE/AnimationDurationFactor"));
-    if (!factor.isValid()) { return std::nullopt; }
-    return factor.toDouble() > 0.0;
+    return kdeAnimationsEnabledFor(globals.value(QStringLiteral("KDE/AnimationDurationFactor")));
 }
 
-// Motion stays allowed when nothing answers: a missing probe is not a stated
-// preference.
 bool probeReducedMotion() {
-    if (const auto enabled = portalAnimationsEnabled()) { return !*enabled; }
-    if (const auto enabled = kdeAnimationsEnabled()) { return !*enabled; }
-    return false;
+    return reducedMotionFrom(portalAnimationsEnabled, kdeAnimationsEnabled);
 }
 
 } // namespace
 
-TokensBridge::TokensBridge(QObject* parent)
-    : QObject(parent), reducedMotion_(probeReducedMotion()) {}
+TokensBridge::TokensBridge(QObject* parent) : QObject(parent), motion_(probeReducedMotion()) {}
 
 QString TokensBridge::monoFamily() const { return ui::preferredMonoFamily(); }
 
 QString TokensBridge::sansFamily() const { return ui::preferredSansFamily(); }
 
 void TokensBridge::refreshMotionPreference() {
-    const bool next = probeReducedMotion();
-    if (next == reducedMotion_) { return; }
-    reducedMotion_ = next;
-    emit reducedMotionChanged();
+    if (motion_.update(probeReducedMotion())) { emit reducedMotionChanged(); }
 }
 
 } // namespace dish::chrome

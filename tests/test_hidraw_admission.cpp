@@ -44,6 +44,8 @@ constexpr std::uint16_t kMouse = 0x02;
 constexpr std::uint16_t kJoystick = 0x04;
 constexpr std::uint16_t kGamepad = 0x05;
 constexpr std::uint16_t kKeyboard = 0x06;
+// The Steam Controller's game interface declares usage 1 on its vendor page.
+constexpr std::uint16_t kVendorUsage = 0x01;
 
 // A standard two-stick gamepad: X/Y/Z/Rz (bytes 0-3), 4-bit hat + 4-bit pad
 // (byte 4), 10 buttons + 6-bit pad (bytes 5-6). 56-bit / 7-byte input report,
@@ -171,6 +173,37 @@ const std::uint8_t kSwitchOrderDescriptor[] = {
 const std::uint8_t kVendorDescriptor[] = {0x06, 0x00, 0xFF, 0x09, 0x01, 0xA1, 0x01,
                                           0x75, 0x08, 0x95, 0x01, 0x81, 0x02, 0xC0};
 
+// A composite device: a keyboard application collection, then a gamepad one.
+// The kernel publishes ONE hidraw node per HID interface, so both collections
+// arrive in a single descriptor.
+const std::uint8_t kKeyboardThenGamepadDescriptor[] = {
+    0x05, 0x01, // Usage Page (Generic Desktop)
+    0x09, 0x06, // Usage (Keyboard)
+    0xA1, 0x01, // Collection (Application)
+    0x75, 0x08, //   Report Size (8)
+    0x95, 0x01, //   Report Count (1)
+    0x81, 0x02, //   Input (Data,Var,Abs)
+    0xC0,       // End Collection
+    0x09, 0x05, // Usage (Game Pad)
+    0xA1, 0x01, // Collection (Application)
+    0x75, 0x08, //   Report Size (8)
+    0x95, 0x01, //   Report Count (1)
+    0x81, 0x02, //   Input (Data,Var,Abs)
+    0xC0,       // End Collection
+};
+
+// A physical collection opened before the application one, so the gamepad usage
+// arrives after a Main item has already consumed the pointer usage.
+const std::uint8_t kPhysicalBeforeApplicationDescriptor[] = {
+    0x05, 0x01, // Usage Page (Generic Desktop)
+    0x09, 0x01, // Usage (Pointer)
+    0xA1, 0x00, // Collection (Physical)
+    0xC0,       // End Collection
+    0x09, 0x05, // Usage (Game Pad)
+    0xA1, 0x01, // Collection (Application)
+    0xC0,       // End Collection
+};
+
 struct Fixture {
     const char* what;
     const std::uint8_t* bytes;
@@ -186,8 +219,17 @@ const Fixture kGamepadFixtures[] = {
 };
 
 // Every parser but the Steam Controller's shares one admission rule.
-constexpr HidParser kShapeAdmittedParsers[] = {HidParser::DualShock4, HidParser::DualSense,
-                                               HidParser::SwitchProUsb, HidParser::GenericHid};
+struct ParserCase {
+    const char* what;
+    HidParser parser;
+};
+
+const ParserCase kShapeAdmittedParsers[] = {
+    {"DualShock4", HidParser::DualShock4},
+    {"DualSense", HidParser::DualSense},
+    {"SwitchProUsb", HidParser::SwitchProUsb},
+    {"GenericHid", HidParser::GenericHid},
+};
 
 } // namespace
 
@@ -243,7 +285,7 @@ TEST_CASE("hidraw admission refuses an empty descriptor", "[hidraw-admission]") 
 
 TEST_CASE("hidraw admission admits the Steam Controller only on its vendor page",
           "[hidraw-admission]") {
-    CHECK(collectionMatchesParser(kVendorPage, 0x01, HidParser::SteamController));
+    CHECK(collectionMatchesParser(kVendorPage, kVendorUsage, HidParser::SteamController));
 
     // The pad also publishes a keyboard and a mouse collection; claiming either
     // would reconfigure the wrong interface. A gamepad collection is refused
@@ -256,15 +298,16 @@ TEST_CASE("hidraw admission admits the Steam Controller only on its vendor page"
 
 TEST_CASE("hidraw admission requires a gamepad or joystick collection of every other parser",
           "[hidraw-admission]") {
-    for (const HidParser parser : kShapeAdmittedParsers) {
-        CHECK(collectionMatchesParser(kGenericDesktop, kGamepad, parser));
-        CHECK(collectionMatchesParser(kGenericDesktop, kJoystick, parser));
+    for (const ParserCase& c : kShapeAdmittedParsers) {
+        INFO(c.what);
+        CHECK(collectionMatchesParser(kGenericDesktop, kGamepad, c.parser));
+        CHECK(collectionMatchesParser(kGenericDesktop, kJoystick, c.parser));
 
-        CHECK_FALSE(collectionMatchesParser(kGenericDesktop, kKeyboard, parser));
-        CHECK_FALSE(collectionMatchesParser(kGenericDesktop, kMouse, parser));
-        CHECK_FALSE(collectionMatchesParser(kGenericDesktop, kPointer, parser));
-        CHECK_FALSE(collectionMatchesParser(kConsumer, kGamepad, parser));
-        CHECK_FALSE(collectionMatchesParser(kVendorPage, kGamepad, parser));
+        CHECK_FALSE(collectionMatchesParser(kGenericDesktop, kKeyboard, c.parser));
+        CHECK_FALSE(collectionMatchesParser(kGenericDesktop, kMouse, c.parser));
+        CHECK_FALSE(collectionMatchesParser(kGenericDesktop, kPointer, c.parser));
+        CHECK_FALSE(collectionMatchesParser(kConsumer, kGamepad, c.parser));
+        CHECK_FALSE(collectionMatchesParser(kVendorPage, kGamepad, c.parser));
     }
 }
 
@@ -283,5 +326,33 @@ TEST_CASE("hidraw admission walks a real descriptor into a claim decision", "[hi
     std::uint16_t usage = 0;
     REQUIRE(topLevelUsage(kVendorDescriptor, sizeof(kVendorDescriptor), page, usage));
     CHECK(collectionMatchesParser(page, usage, HidParser::SteamController));
+    CHECK_FALSE(collectionMatchesParser(page, usage, HidParser::GenericHid));
+}
+
+TEST_CASE("hidraw admission sees only the first top-level collection", "[hidraw-admission]") {
+    // Behaviour pin, not an endorsement: a pad that declares a keyboard
+    // collection ahead of its gamepad one is refused here and never reaches the
+    // layout parser, even on a fast-lane vendor with a udev rule. Windows does
+    // not have the problem — its HID stack splits every top-level collection
+    // into its own device path, so WinHidGateway is handed the gamepad one.
+    std::uint16_t page = 0;
+    std::uint16_t usage = 0;
+    REQUIRE(topLevelUsage(kKeyboardThenGamepadDescriptor, sizeof(kKeyboardThenGamepadDescriptor),
+                          page, usage));
+    CHECK(page == kGenericDesktop);
+    CHECK(usage == kKeyboard);
+    CHECK_FALSE(collectionMatchesParser(page, usage, HidParser::GenericHid));
+}
+
+TEST_CASE("hidraw admission keeps the first usage it saw, not the collection's own",
+          "[hidraw-admission]") {
+    // Second behaviour pin. A local Usage is spent by the next Main item, but
+    // this walk latches the first one it sees for the rest of the descriptor,
+    // so the pointer usage is what the gamepad collection is judged on.
+    std::uint16_t page = 0;
+    std::uint16_t usage = 0;
+    REQUIRE(topLevelUsage(kPhysicalBeforeApplicationDescriptor,
+                          sizeof(kPhysicalBeforeApplicationDescriptor), page, usage));
+    CHECK(usage == kPointer);
     CHECK_FALSE(collectionMatchesParser(page, usage, HidParser::GenericHid));
 }

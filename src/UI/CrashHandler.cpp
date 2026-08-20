@@ -20,7 +20,6 @@ namespace dish::crash {
 namespace {
 
 constexpr int kMaxFrames = 64;
-constexpr std::size_t kPathMax = 512;
 constexpr std::size_t kAltStackSize = 64 * 1024;
 
 // Static so SA_ONSTACK has somewhere to run when the fault is a stack overflow.
@@ -32,25 +31,11 @@ char g_logPath[kPathMax] = {};
 std::atomic<bool> g_installed{false};
 std::atomic<bool> g_inHandler{false};
 
-void appendPath(char* dst, std::size_t cap, const char* part) {
-    const std::size_t used = std::strlen(dst);
-    const std::size_t room = cap - used - 1;
-    std::strncat(dst + used, part, room);
-}
-
-// $XDG_STATE_HOME/dish, else $HOME/.local/state/dish. Empty when neither is
-// set, which leaves the handler writing to stderr only.
+// Split around the mkdir: the ladder itself is the inline logDirFor, and only
+// the directory it lands on gets created.
 void resolveLogPath() {
-    const char* stateHome = std::getenv("XDG_STATE_HOME");
-    if (stateHome != nullptr && stateHome[0] == '/') {
-        std::strncpy(g_logPath, stateHome, kPathMax - 1);
-    } else {
-        const char* home = std::getenv("HOME");
-        if (home == nullptr || home[0] != '/') { return; }
-        std::strncpy(g_logPath, home, kPathMax - 1);
-        appendPath(g_logPath, kPathMax, "/.local/state");
-    }
-    appendPath(g_logPath, kPathMax, "/dish");
+    logDirFor(g_logPath, kPathMax, std::getenv("XDG_STATE_HOME"), std::getenv("HOME"));
+    if (g_logPath[0] == '\0') { return; }
     ::mkdir(g_logPath, 0700);
     appendPath(g_logPath, kPathMax, "/crash.log");
 }
@@ -62,23 +47,6 @@ void writeAll(int fd, const char* text) {
         const ssize_t n = ::write(fd, text + written, len - written);
         if (n <= 0) { return; }
         written += static_cast<std::size_t>(n);
-    }
-}
-
-const char* signalName(int sig) {
-    switch (sig) {
-    case SIGSEGV:
-        return "SIGSEGV\n";
-    case SIGABRT:
-        return "SIGABRT\n";
-    case SIGBUS:
-        return "SIGBUS\n";
-    case SIGFPE:
-        return "SIGFPE\n";
-    case SIGILL:
-        return "SIGILL\n";
-    default:
-        return "signal\n";
     }
 }
 

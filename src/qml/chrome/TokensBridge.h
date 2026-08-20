@@ -10,9 +10,55 @@
 
 #include <QObject>
 #include <QString>
+#include <QVariant>
 #include <QtQml/qqmlregistration.h>
 
+#include <optional>
+
 namespace dish::chrome {
+
+// The reduced-motion rules are inline here rather than in the .cpp: the .cpp is
+// compiled into the exe, which the tests cannot link.
+
+// Plasma states the preference as a duration multiplier; zero means off. A
+// malformed value is not a stated preference — QVariant::toDouble reports 0.0
+// on failure, which would otherwise silently read as "animations off".
+inline std::optional<bool> kdeAnimationsEnabledFor(const QVariant& durationFactor) {
+    if (!durationFactor.isValid()) { return std::nullopt; }
+    bool numeric = false;
+    const double factor = durationFactor.toDouble(&numeric);
+    if (!numeric) { return std::nullopt; }
+    return factor > 0.0;
+}
+
+// The portal answers for GNOME and anything mirroring its schema; KDE is asked
+// only when the portal stays silent. Nothing answering is not a stated
+// preference either, so motion stays allowed.
+template <typename PortalProbe, typename KdeProbe>
+bool reducedMotionFrom(PortalProbe&& portal, KdeProbe&& kde) {
+    if (const std::optional<bool> animations = portal()) { return !*animations; }
+    if (const std::optional<bool> animations = kde()) { return !*animations; }
+    return false;
+}
+
+// Holds the sampled preference and reports whether a re-sample actually moved
+// it, so the change signal fires once per change and not once per sample.
+class MotionPreference {
+  public:
+    MotionPreference() = default;
+    explicit MotionPreference(bool reducedNow) : reduced_(reducedNow) {}
+
+    bool reduced() const { return reduced_; }
+
+    bool update(bool reducedNow) {
+        if (reducedNow == reduced_) { return false; }
+        reduced_ = reducedNow;
+        return true;
+    }
+
+  private:
+    bool reduced_ = false;
+};
 
 class TokensBridge : public QObject {
     Q_OBJECT
@@ -155,7 +201,7 @@ class TokensBridge : public QObject {
 
     qreal disabledOpacity() const { return 0.55; }
 
-    bool reducedMotion() const { return reducedMotion_; }
+    bool reducedMotion() const { return motion_.reduced(); }
     // Called on window activation: neither probe carries a change signal a
     // Quick app can bind to.
     Q_INVOKABLE void refreshMotionPreference();
@@ -164,7 +210,7 @@ class TokensBridge : public QObject {
     void reducedMotionChanged();
 
   private:
-    bool reducedMotion_ = false;
+    MotionPreference motion_;
 };
 
 } // namespace dish::chrome

@@ -41,8 +41,9 @@ using dish::source::usb::HidrawGateway;
 
 namespace {
 
-// One `ATTRS{idVendor}==` line of the rules file. No product means the line
-// matches every product of that vendor.
+// One `ATTRS{idVendor}==` line of the rules file, ids kept exactly as written
+// so their spelling can be checked. No product means the line matches every
+// product of that vendor.
 struct Rule {
     std::string vendor;
     std::string product; // empty = vendor-wide
@@ -96,9 +97,9 @@ std::vector<Rule> readRules() {
         const auto vendor = quotedValue(line, "ATTRS{idVendor}==");
         if (!vendor) { continue; }
         Rule rule;
-        rule.vendor = lowerHex(*vendor);
+        rule.vendor = *vendor;
         if (const auto product = quotedValue(line, "ATTRS{idProduct}==")) {
-            rule.product = lowerHex(*product);
+            rule.product = *product;
         }
         // A line that matches but hands out nothing leaves the node root-only,
         // so coverage has to mean granted, not merely mentioned.
@@ -110,21 +111,23 @@ std::vector<Rule> readRules() {
     return rules;
 }
 
+// The file and the C++ table need not agree on hex case, so every comparison
+// goes through here.
+bool sameId(const std::string& text, int id) { return lowerHex(text) == idText(id); }
+
 // A vendor-wide line covers every product of the vendor, which is what the
 // fast lane and the Sony/Nintendo parser lanes need.
 bool coversWholeVendor(const std::vector<Rule>& rules, int vid) {
     for (const Rule& rule : rules) {
-        if (rule.grantsAccess && rule.product.empty() && rule.vendor == idText(vid)) {
-            return true;
-        }
+        if (rule.grantsAccess && rule.product.empty() && sameId(rule.vendor, vid)) { return true; }
     }
     return false;
 }
 
 bool covers(const std::vector<Rule>& rules, int vid, int pid) {
     for (const Rule& rule : rules) {
-        if (!rule.grantsAccess || rule.vendor != idText(vid)) { continue; }
-        if (rule.product.empty() || rule.product == idText(pid)) { return true; }
+        if (!rule.grantsAccess || !sameId(rule.vendor, vid)) { continue; }
+        if (rule.product.empty() || sameId(rule.product, pid)) { return true; }
     }
     return false;
 }
@@ -133,8 +136,8 @@ bool covers(const std::vector<Rule>& rules, int vid, int pid) {
 // lanes that key on the vendor alone, so only a vendor-wide rule can cover one.
 constexpr int kUnlistedPids[] = {0x0000, 0x0001, 0x7FFF, 0xFFFF};
 
-// The vendor a rule names, or nullopt when it is not a plain hex literal (a
-// glob, say) — those are reported rather than resolved.
+// The vendor a rule names — from_chars takes either case — or nullopt when it
+// is not a plain hex literal (a glob, say); those are reported, not resolved.
 std::optional<int> ruleVendorId(const Rule& rule) {
     int value = 0;
     const char* const last = rule.vendor.data() + rule.vendor.size();
@@ -172,17 +175,17 @@ TEST_CASE("udev rules cover every vendor the code claims without a table row", "
     }
 
     const HidrawGateway gateway;
-    std::vector<int> vendorLanes;
+    bool foundVendorLane = false;
     for (int vid = 0; vid <= 0xFFFF; vid++) {
         for (const int pid : kUnlistedPids) {
             if (!claimedByVendorLane(gateway, vid, pid)) { continue; }
             INFO("vendor " << idText(vid) << " claims unlisted product " << idText(pid));
             CHECK(coversWholeVendor(rules, vid));
-            if (vendorLanes.empty() || vendorLanes.back() != vid) { vendorLanes.push_back(vid); }
+            foundVendorLane = true;
         }
     }
     // A scan that found nothing would pass the loop above vacuously.
-    CHECK_FALSE(vendorLanes.empty());
+    CHECK(foundVendorLane);
 }
 
 TEST_CASE("udev rules grant access with ids spelled the way sysfs publishes them", "[udev]") {
@@ -224,11 +227,11 @@ TEST_CASE("udev rules naming a model the code never claims only warn", "[udev]")
         const auto vid = ruleVendorId(rule);
         bool claimed = false;
         for (const int pid : kUnlistedPids) {
-            claimed = claimed || (vid && claimedByVendorLane(gateway, *vid, pid));
+            claimed = claimed || (vid.has_value() && claimedByVendorLane(gateway, *vid, pid));
         }
         for (const auto& model : kKnownModels) {
-            if (!vid || model.vid != *vid) { continue; }
-            claimed = claimed || rule.product.empty() || rule.product == idText(model.pid);
+            if (!sameId(rule.vendor, model.vid)) { continue; }
+            claimed = claimed || rule.product.empty() || sameId(rule.product, model.pid);
         }
         if (claimed) { continue; }
         WARN("rules line " << rule.line << " covers " << rule.vendor << ":"
