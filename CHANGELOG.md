@@ -109,6 +109,12 @@ the repos share a version number.
 
 ### Fixed
 
+- Logout and shutdown no longer discard the session's settings. SIGTERM's
+  default disposition killed the process where it stood, so `~AppModel` never
+  ran: the SDL input thread was not stopped and `QSettings` never wrote what
+  the session changed. The signal is now delivered through a self-pipe and
+  quits the event loop, so `main` unwinds the way it does on a normal exit; a
+  second signal still kills, so a shutdown that wedges is not unkillable.
 - The beacon parser's `service` check is a structured JSON field read rather
   than a substring probe of the raw body, so a crafted beacon cannot spoof the
   service name through an unrelated string field. `[wire-coordinated]` — the
