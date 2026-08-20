@@ -1,0 +1,97 @@
+// SPDX-License-Identifier: LGPL-3.0-or-later
+// Copyright (C) 2026 Dish contributors.
+//
+// The entry window. The window manager draws the decorations, so the shell's
+// own header is the only chrome Dish paints. It owns the two close policies the
+// shell cannot see — the keep-awake confirm and the wizard leave guard — and
+// both run before the window may go.
+
+import QtQuick
+import QtQuick.Controls.Basic
+import QtQuick.Window
+import Dish.Chrome
+import "kit" as Kit
+
+ApplicationWindow {
+    id: root
+    width: 980
+    height: 640
+    // The wizard is the tightest surface in the app: two 232px banner slots, a
+    // >=60px wire, the rail and the page padding. Below this it clips.
+    minimumWidth: Tokens.minWindowWidth
+    minimumHeight: Tokens.minWindowHeight
+    visible: true
+    title: qsTr("Dish")
+
+    // The themed solid. Tiling and compositing WMs both get a window that is
+    // opaque everywhere, so no desktop can show through a rounded corner.
+    color: Theme.background
+
+    // Set once both guards have cleared, so the re-entrant close() the guard
+    // callback issues passes straight through.
+    property bool closeApproved: false
+
+    function approveClose() {
+        root.closeApproved = true;
+        // Deferred: close() is being called from inside the closing handler.
+        Qt.callLater(function () { root.close(); });
+    }
+
+    // The desktop's reduced-motion setting can change while Dish runs and no
+    // portal signal reaches a Quick app; re-sample whenever we regain focus.
+    onActiveChanged: {
+        if (root.active)
+            Tokens.refreshMotionPreference();
+    }
+
+    // Closing is an intent, not a fact: a page holding an unsaved draft gets
+    // first refusal, and an active stream is confirmed rather than dropped.
+    onClosing: function (close) {
+        if (root.closeApproved)
+            return;
+        close.accepted = false;
+        shell.requestNavigation(function () {
+            if (App.keepAwakeActive)
+                quitConfirm.open();
+            else
+                root.approveClose();
+        });
+    }
+
+    // Transparent, so the window's themed body shows through. A first-run flow
+    // is pushed here full-screen — over, not inside, the nav shell.
+    StackView {
+        id: appRoot
+        anchors.fill: parent
+        background: null
+
+        initialItem: AppShell { id: shell }
+    }
+
+    Kit.ConfirmDialog {
+        id: quitConfirm
+        eyebrow: qsTr("Streaming")
+        heading: qsTr("Stop streaming and quit?")
+        bodyText: qsTr("A controller is still streaming and the display is being kept awake.")
+        acceptText: qsTr("Quit")
+        rejectText: qsTr("Cancel")
+        destructiveAccept: true
+        onAccepted: {
+            quitConfirm.close();
+            root.approveClose();
+        }
+    }
+
+    // Skip is a completion too, or the welcome loops forever.
+    Component.onCompleted: {
+        if (App.onboardingNeeded) {
+            const flow = appRoot.push(Qt.resolvedUrl("onboarding/OnboardingFlow.qml"));
+            flow.completed.connect(function (runSetup) {
+                appRoot.pop();
+                App.markOnboardingComplete();
+                if (runSetup)
+                    shell.openSetupWizard("");
+            });
+        }
+    }
+}

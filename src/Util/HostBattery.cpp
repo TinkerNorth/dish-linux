@@ -46,11 +46,20 @@ BatteryReading hostBatteryFromSysfs(const std::vector<SysfsBattery>& batteries) 
     // same value SDL's WIRED power level mapped to before this fallback.
     if (batteries.empty()) { return {100, kBatteryStatusWired}; }
 
-    // Average the capacities so a multi-battery laptop reports one figure.
+    // Average the readable capacities so a multi-battery laptop reports one
+    // figure. Packs present but all unreadable is a different fact from no
+    // packs at all, and only the second one means "desktop".
     long capacitySum = 0;
-    for (const auto& b : batteries) { capacitySum += b.capacity; }
-    const int avgCapacity = static_cast<int>(capacitySum / static_cast<long>(batteries.size()));
-    const std::uint8_t level = static_cast<std::uint8_t>(std::clamp(avgCapacity, 0, 100));
+    long readable = 0;
+    for (const auto& b : batteries) {
+        if (!b.capacityKnown) { continue; }
+        capacitySum += b.capacity;
+        ++readable;
+    }
+    const bool levelKnown = readable > 0;
+    const std::uint8_t level = levelKnown ? static_cast<std::uint8_t>(std::clamp(
+                                                static_cast<int>(capacitySum / readable), 0, 100))
+                                          : kBatteryLevelUnknown;
 
     // Fold the per-battery `status` text into one wire status. "Charging"
     // anywhere wins (the machine is gaining charge); then "Discharging"; then
@@ -68,16 +77,13 @@ BatteryReading hostBatteryFromSysfs(const std::vector<SysfsBattery>& batteries) 
         }
     }
 
-    std::uint8_t status = kBatteryStatusUnknown;
+    // Never Unknown once a pack exists: firmware that only ever says
+    // "Not charging" would otherwise put a 0 on the wire where the other
+    // clients put a 1, and the satellite reads the two differently.
+    std::uint8_t status = kBatteryStatusDischarging;
     if (anyCharging) {
         status = kBatteryStatusCharging;
-    } else if (anyDischarging) {
-        status = kBatteryStatusDischarging;
-    } else if (anyFull || level >= kFullThresholdPercent) {
-        // A "Full" textual status, or — when no battery reported a status we
-        // recognise (some firmware only ever says "Not charging" / "Unknown")
-        // — a pack that has reached the topped-out threshold. Either way,
-        // report full rather than leaving the status unknown.
+    } else if (!anyDischarging && (anyFull || (levelKnown && level >= kFullThresholdPercent))) {
         status = kBatteryStatusFull;
     }
     return {level, status};
@@ -96,14 +102,14 @@ BatteryReading readHostBattery() {
 
             SysfsBattery battery;
             const std::string capacityText = readSysfsFile(dir / "capacity");
-            if (capacityText.empty()) {
-                // A battery device with no readable capacity is useless to
-                // us; skip it rather than averaging in a bogus 0.
-                continue;
-            }
             try {
                 battery.capacity = std::stoi(capacityText);
-            } catch (const std::exception&) { continue; }
+            } catch (const std::exception&) {
+                // Kept in the list with the flag cleared: dropping it here is
+                // what made a laptop with one unreadable pack report as a
+                // desktop at 100%.
+                battery.capacityKnown = false;
+            }
             battery.status = readSysfsFile(dir / "status");
             batteries.push_back(std::move(battery));
         }

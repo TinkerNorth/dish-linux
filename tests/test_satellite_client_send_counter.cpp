@@ -1,15 +1,13 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 // Copyright (C) 2026 Dish contributors.
+//
+// Counters are monotonic per direction and never repeat under one session key:
+// a session that exhausts the 2^32 space goes silent rather than wrap into
+// ChaCha20-Poly1305 nonce reuse. Asserted on the wire bytes over loopback UDP.
 
-// The send-counter never-wrap invariant (contract §Crypto): counters are
-// monotonic per direction, never repeat a value under one session key, and a
-// session that exhausts the 2^32 space goes SILENT instead of wrapping into
-// ChaCha20-Poly1305 nonce reuse. Exercised over a real loopback UDP socket so
-// the assertion is on the wire bytes, not on internal state alone.
-
-#include "Network/Reconcile.h"
 #include "Network/SatelliteClient.h"
-#include "Network/SessionCrypto.h"
+#include "core/reducer/Reconcile.h"
+#include "core/wire/SessionCrypto.h"
 #include "satellite_client_test_access.h"
 
 #include <catch2/catch_test_macros.hpp>
@@ -21,7 +19,6 @@
 #include <unistd.h>
 
 #include <array>
-#include <atomic>
 #include <chrono>
 #include <cstdint>
 #include <optional>
@@ -35,8 +32,6 @@ using dish::net::SatelliteClientTestAccess;
 
 namespace {
 
-// Bind an ephemeral loopback UDP socket the client under test sends into.
-// Returns the fd (or -1) and fills `port`.
 int bindLoopback(std::uint16_t& port) {
     const int fd = ::socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
     if (fd < 0) { return -1; }
@@ -90,6 +85,11 @@ struct LoopbackClient {
         client.closeSocket();
         if (fd >= 0) { ::close(fd); }
     }
+    LoopbackClient(const LoopbackClient&) = delete;
+    LoopbackClient& operator=(const LoopbackClient&) = delete;
+    LoopbackClient(LoopbackClient&&) = delete;
+    LoopbackClient& operator=(LoopbackClient&&) = delete;
+
     static std::array<std::uint8_t, 32> key(std::uint8_t fill) {
         std::array<std::uint8_t, 32> k{};
         k.fill(fill);
@@ -128,8 +128,8 @@ TEST_CASE("send path goes silent at counter exhaustion instead of wrapping into 
     lb.sendOne();
     CHECK_FALSE(recvDatagram(lb.fd).has_value()); // silent: no wrapped-counter packets
 
-    // The exhausted counter must keep reading re-PUT needed, never wrap back
-    // under the threshold — the alive tick's guard depends on it.
+    // The alive tick's guard depends on the exhausted counter still reading
+    // re-PUT needed rather than wrapping back under the threshold.
     CHECK(lb.client.sendCounter() == 0xFFFFFFFFu);
     CHECK(dish::reducer::counterNeedsRepush(lb.client.sendCounter()));
 }
@@ -145,14 +145,13 @@ TEST_CASE("a session never repeats a counter value under one key; re-key restart
     std::uint32_t prev = 0;
     while (const auto pkt = recvDatagram(lb.fd)) {
         const std::uint32_t ctr = counterOf(*pkt);
-        CHECK(ctr > prev); // strictly monotonic on the wire
+        CHECK(ctr > prev);
         prev = ctr;
-        CHECK(seen.insert(ctr).second); // no value ever repeats
+        CHECK(seen.insert(ctr).second);
     }
     CHECK(seen.size() == 3);
 
-    // Re-key (fresh token + key, as the proactive re-PUT installs): counters
-    // restart at 1 in a fresh nonce space and traffic flows again.
+    // A re-key installs a fresh nonce space, so counters restart at 1.
     lb.client.setConnectionParams({0x55, 0x66, 0x77, 0x88}, LoopbackClient::key(0x3C));
     CHECK(lb.client.sendCounter() == 1);
     lb.sendOne();
@@ -162,13 +161,11 @@ TEST_CASE("a session never repeats a counter value under one key; re-key restart
 }
 
 TEST_CASE("a live re-key never tears the (key, token, counter) draw", "[send_counter]") {
-    // Hammer the send path from two threads while the owner thread re-keys
-    // through many generations. Every packet on the wire must decrypt under
-    // the key its token selects, and no (token, counter) pair may repeat —
-    // torn material (old key + fresh counter, or half-swapped token/key)
-    // fails one of the two.
+    // Two sender threads against an owner thread re-keying. Torn material (old
+    // key with a fresh counter, or a half-swapped token/key) fails either the
+    // decrypt under the token-selected key or the (token, counter) uniqueness.
     LoopbackClient lb;
-    const int rcvbuf = 1 << 20; // best effort — drops are fine, mixups are not
+    const int rcvbuf = 1 << 20; // best effort: drops are fine, mixups are not
     ::setsockopt(lb.fd, SOL_SOCKET, SO_RCVBUF, &rcvbuf, sizeof(rcvbuf));
 
     constexpr std::uint8_t kGens = 40;
@@ -180,9 +177,8 @@ TEST_CASE("a live re-key never tears the (key, token, counter) draw", "[send_cou
     };
     lb.client.setConnectionParams(tokenFor(0), keyFor(0));
 
-    std::atomic<bool> stop{false};
-    const auto sender = [&lb, &stop] {
-        for (int i = 0; i < 1500 && !stop.load(std::memory_order_relaxed); ++i) { lb.sendOne(); }
+    const auto sender = [&lb] {
+        for (int i = 0; i < 1500; ++i) { lb.sendOne(); }
     };
     std::thread a(sender);
     std::thread b(sender);
@@ -192,7 +188,6 @@ TEST_CASE("a live re-key never tears the (key, token, counter) draw", "[send_cou
     }
     a.join();
     b.join();
-    stop.store(true, std::memory_order_relaxed);
 
     std::set<std::pair<std::uint8_t, std::uint32_t>> seen;
     int decrypted = 0;
@@ -212,4 +207,29 @@ TEST_CASE("a live re-key never tears the (key, token, counter) draw", "[send_cou
         decrypted++;
     }
     CHECK(decrypted > 0);
+}
+
+TEST_CASE("a datagram lost after the counter was drawn never rewinds or reuses it",
+          "[send_counter]") {
+    // The input-thread send is MSG_DONTWAIT, so a full buffer is a soft drop:
+    // gaps in the delivered counters are normal, and every attempt must still
+    // burn exactly one value — replaying one would repeat a nonce under the key.
+    LoopbackClient lb;
+    const int rcvbuf = 1024; // clamped to the kernel floor; forces receive drops
+    ::setsockopt(lb.fd, SOL_SOCKET, SO_RCVBUF, &rcvbuf, sizeof(rcvbuf));
+
+    constexpr int kSends = 200;
+    for (int i = 0; i < kSends; ++i) { lb.sendOne(); }
+    CHECK(lb.client.sendCounter() == static_cast<std::uint32_t>(kSends) + 1u);
+
+    std::set<std::uint32_t> seen;
+    std::uint32_t prev = 0;
+    while (const auto pkt = recvDatagram(lb.fd)) {
+        const std::uint32_t ctr = counterOf(*pkt);
+        CHECK(ctr > prev); // a gap is fine, going backwards is not
+        CHECK(ctr <= static_cast<std::uint32_t>(kSends));
+        prev = ctr;
+        CHECK(seen.insert(ctr).second);
+    }
+    CHECK_FALSE(seen.empty());
 }

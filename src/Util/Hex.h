@@ -12,12 +12,11 @@
 
 namespace dish::util {
 
-// Encode raw bytes as lowercase hex.
+// Lowercase output.
 std::string toHex(const std::uint8_t* data, std::size_t size);
 std::string toHex(const std::vector<std::uint8_t>& bytes);
 
-// Decode an even-length lowercase/uppercase hex string. Returns std::nullopt on
-// invalid input (odd length or non-hex characters).
+// Either case accepted; nullopt on odd length or a non-hex character.
 std::optional<std::vector<std::uint8_t>> fromHex(std::string_view hex);
 
 } // namespace dish::util

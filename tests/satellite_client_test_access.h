@@ -9,12 +9,12 @@
 
 namespace dish::net {
 
-// Definition of the test-only friend seam declared in SatelliteClient.h.
-// Shared by every test TU that needs it (one definition — ODR).
+// The one definition of the test-only friend seam declared in SatelliteClient.h,
+// shared by every test TU that needs it (ODR).
 class SatelliteClientTestAccess {
   public:
-    // Park the 64-bit send counter so exhaustion is reachable without four
-    // billion sends. `next` is the next value sendEncrypted will draw.
+    // Parks the send counter so nonce exhaustion is reachable without 2^64 sends.
+    // `next` is the value sendEncrypted draws next.
     static void seedSendCounter(SatelliteClient& client, std::uint64_t next) {
         client.sendCounter_.reset(next);
     }

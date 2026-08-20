@@ -8,65 +8,45 @@
 #include <QString>
 
 #include <atomic>
-#include <cstdint>
 #include <memory>
+#include <cstdint>
 
 namespace dish {
 
-// How the controller light bar should behave while a slot is bound.
-//
-// Mirrors the choice DS4Windows / DualSenseX expose ("lightbar from game" vs
-// "off") and dish-mac's LightbarMode. Dish has no custom-colour picker — a
-// forwarder reflects what the host game sets — so the meaningful axis is just
-// follow-vs-off.
+// There is no custom-colour picker: a forwarder reflects what the host game sets,
+// so the only meaningful axis is follow versus off.
 enum class LightbarMode : std::uint8_t {
-    // Apply the colour the host game writes (forwarded via MSG_LIGHTBAR).
-    FollowGame,
-    // Ignore the host colour; leave the controller's light bar untouched.
-    Off,
+    FollowGame, // apply the colour the host game writes, via MSG_LIGHTBAR
+    Off,        // leave the controller's light bar untouched
 };
 
-// Pure mappings between LightbarMode and its persisted / displayed strings.
-// Free functions (no QObject) so unit tests can pin them without a settings
-// store. `lightbarModeFromKey` is lenient: an unknown / empty key falls back
-// to the documented default (FollowGame).
+// `lightbarModeFromKey` is lenient: an unknown or empty key falls back to
+// FollowGame.
 QString lightbarModeToKey(LightbarMode mode);
 LightbarMode lightbarModeFromKey(const QString& key);
 QString lightbarModeLabel(LightbarMode mode);
 
-// User-facing on/off preferences for the forwarded controller features that
-// Dish *acts on* from the host game. Today this is just the light bar; the
-// class is the C++ analogue of dish-mac's FeatureSettings and is the natural
-// home for future rumble / motion toggles.
+// User-facing on/off preferences for the forwarded features Dish acts on from the
+// host game, persisted to QSettings.
 //
-// Persisted to QSettings so the choice survives relaunch — the same store
-// ConnectionStore uses. The QSettings instance is injectable so tests can
-// supply an in-memory / temp-file store.
-//
-// Thread-safety: setLightbarMode() / lightbarMode() are main-thread only (they
-// touch QSettings + emit a Qt signal). lightbarFollowGame() reads a plain
-// std::atomic and is safe to call from any thread — it exists so the
-// SatelliteClient receive thread can gate the light-bar apply without
-// touching the Qt object.
+// setLightbarMode() and lightbarMode() are main-thread only: they touch QSettings
+// and emit a Qt signal. lightbarFollowGame() reads an atomic and is callable from
+// any thread, which is how the SatelliteClient receive thread gates the apply
+// without touching the QObject.
 class FeatureSettings : public QObject {
     Q_OBJECT
   public:
     explicit FeatureSettings(QObject* parent = nullptr);
-    // Test seam: inject the backing QSettings.
+    // Test seam: inject an in-memory or temp-file store.
     explicit FeatureSettings(std::unique_ptr<QSettings> settings, QObject* parent = nullptr);
     ~FeatureSettings() override;
 
     LightbarMode lightbarMode() const { return lightbarMode_; }
     void setLightbarMode(LightbarMode mode);
 
-    // Thread-safe gate for the hot path: true when the light bar should follow
-    // the host game (LightbarMode::FollowGame), false when it is Off. Read on
-    // the SatelliteClient receive thread.
     bool lightbarFollowGame() const { return lightbarFollowGame_.load(std::memory_order_relaxed); }
 
   signals:
-    // Emitted after any feature preference changes so the UI re-renders and
-    // AppModel can refresh thread-safe snapshots.
     void changed();
 
   private:
@@ -74,8 +54,8 @@ class FeatureSettings : public QObject {
 
     std::unique_ptr<QSettings> settings_;
     LightbarMode lightbarMode_ = LightbarMode::FollowGame;
-    // Mirror of (lightbarMode_ == FollowGame), kept in sync by setLightbarMode
-    // / load so the receive thread never has to read lightbarMode_ directly.
+    // Mirrors (lightbarMode_ == FollowGame) so the receive thread never reads
+    // lightbarMode_ directly.
     std::atomic<bool> lightbarFollowGame_{true};
 };
 

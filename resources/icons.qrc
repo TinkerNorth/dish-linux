@@ -1,18 +1,29 @@
 <!--
-  Qt resource bundle for dish-linux. The existing `icons` prefix holds the
-  app launcher icon; the new `brand` prefix carries the v6 TinkerNorth
-  iconography (dish, satellite, bluetooth + state variants) shared with
-  dish-windows, dish-android (as VectorDrawables), dish-mac (as native
-  SwiftUI paths), and the satellite/dish web dashboards.
+  Qt resource bundle for dish-linux. Four prefixes: the launcher icon, the
+  bundled UI face, the third-party attribution manifest, and the v6 TinkerNorth
+  brand iconography shared with dish-windows, dish-android (as VectorDrawables),
+  dish-mac (as native SwiftUI paths), and the satellite web dashboards.
 
-  Resources are addressed as e.g. `:/brand/dish-connected.svg`. Qt 6's
-  built-in SVG support handles SMIL animation in the *-animated.svg files;
-  for static contexts (status row glyphs) the non-animated variants are
-  preferred so the UI doesn't get visually noisy.
+  Resources are addressed as e.g. `:/brand/dish-connected.svg`. The
+  *-animated.svg files hold no SMIL — Qt runs none — so BrandGlyph falls back
+  to the family base and expresses the transient in QML.
 -->
 <RCC>
   <qresource prefix="/icons">
     <file alias="dish.svg">../packaging/dish.svg</file>
+  </qresource>
+  <qresource prefix="/fonts">
+    <!-- Inter (SIL OFL 1.1, packaging/fonts/Inter-LICENSE.txt): the design
+         system's UI face. Bundled so the app matches the design on machines
+         without Inter installed; loaded in main() via QFontDatabase. -->
+    <file alias="Inter-Regular.ttf">../packaging/fonts/Inter-Regular.ttf</file>
+    <file alias="Inter-Medium.ttf">../packaging/fonts/Inter-Medium.ttf</file>
+    <file alias="Inter-SemiBold.ttf">../packaging/fonts/Inter-SemiBold.ttf</file>
+    <file alias="Inter-Bold.ttf">../packaging/fonts/Inter-Bold.ttf</file>
+    <file alias="Inter-LICENSE.txt">../packaging/fonts/Inter-LICENSE.txt</file>
+  </qresource>
+  <qresource prefix="/licenses">
+    <file alias="licenses.json">../assets/licenses/licenses.json</file>
   </qresource>
   <qresource prefix="/brand">
     <file alias="bluetooth.svg">brand/bluetooth.svg</file>
@@ -23,6 +34,9 @@
     <file alias="bluetooth-searching.svg">brand/bluetooth-searching.svg</file>
     <file alias="bluetooth-searching-animated.svg">brand/bluetooth-searching-animated.svg</file>
     <file alias="dish.svg">brand/dish.svg</file>
+    <!-- The app MARK (satellite dish in a gear): the identity glyph, distinct
+         from `dish.svg`, the plain dish silhouette the wire vocabulary draws. -->
+    <file alias="dish-logo.svg">brand/dish-logo.svg</file>
     <file alias="dish-connected.svg">brand/dish-connected.svg</file>
     <file alias="dish-disabled.svg">brand/dish-disabled.svg</file>
     <file alias="dish-master.svg">brand/dish-master.svg</file>
@@ -30,6 +44,11 @@
     <file alias="dish-receiving.svg">brand/dish-receiving.svg</file>
     <file alias="dish-receiving-animated.svg">brand/dish-receiving-animated.svg</file>
     <file alias="dish-scanning-animated.svg">brand/dish-scanning-animated.svg</file>
+    <file alias="gear.svg">brand/gear.svg</file>
+    <file alias="pad.svg">brand/pad.svg</file>
+    <!-- The rail collapse control. Linux draws no title bar of its own, so the
+         toggle lives at the rail head and needs a glyph of its own. -->
+    <file alias="rail.svg">brand/rail.svg</file>
     <file alias="satellite.svg">brand/satellite.svg</file>
     <file alias="satellite-broadcasting.svg">brand/satellite-broadcasting.svg</file>
     <file alias="satellite-broadcasting-animated.svg">brand/satellite-broadcasting-animated.svg</file>

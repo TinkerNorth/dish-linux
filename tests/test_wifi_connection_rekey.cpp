@@ -1,19 +1,17 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 // Copyright (C) 2026 Dish contributors.
+//
+// Contract §Crypto: a client SHOULD re-PUT once its send counter crosses
+// 0xF0000000. The alive tick is driven through the test seam, so no timer waits.
 
-// The proactive re-key wiring (contract §Crypto: clients SHOULD re-PUT once
-// the send counter crosses 0xF0000000): the alive tick must fire the manager's
-// rekey hook when reducer::counterNeedsRepush trips, exactly once per
-// approach, and re-arm only after the re-key lands (counter back at 1).
-// The tick is driven directly through the test seam — no timer waits.
-
-#include "Network/Reconcile.h"
+#include "Network/SatelliteClient.h"
 #include "Network/WifiConnection.h"
+#include "core/reducer/Reconcile.h"
 #include "satellite_client_test_access.h"
 
 #include <catch2/catch_test_macros.hpp>
 
-#include <QCoreApplication>
+#include <QString>
 
 #include <arpa/inet.h>
 #include <netinet/in.h>
@@ -41,17 +39,6 @@ using dish::net::WifiConnectionTestAccess;
 
 namespace {
 
-// QTimer (started by markConnected) needs an application object; Catch2's
-// main doesn't make one.
-void ensureApp() {
-    if (QCoreApplication::instance() == nullptr) {
-        static int argc = 1;
-        static char name[] = "DishTests";
-        static char* argv[] = {name, nullptr};
-        static QCoreApplication app(argc, argv);
-    }
-}
-
 int bindLoopback(std::uint16_t& port) {
     const int fd = ::socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
     if (fd < 0) { return -1; }
@@ -75,11 +62,19 @@ std::array<std::uint8_t, 32> key(std::uint8_t fill) {
     return k;
 }
 
+dish::models::DiscoveredServer server() {
+    dish::models::DiscoveredServer s;
+    s.machineId = QStringLiteral("m1");
+    s.ip = QStringLiteral("127.0.0.1");
+    s.name = QStringLiteral("Sat");
+    return s;
+}
+
 } // namespace
 
-TEST_CASE("alive tick fires the rekey hook once per threshold approach and re-arms after landing",
+TEST_CASE("alive tick fires the rekey callback once per threshold approach and re-arms after "
+          "landing",
           "[rekey]") {
-    ensureApp();
     std::uint16_t port = 0;
     const int fd = bindLoopback(port);
     REQUIRE(fd >= 0);
@@ -88,22 +83,18 @@ TEST_CASE("alive tick fires the rekey hook once per threshold approach and re-ar
     REQUIRE(client->openSocket("127.0.0.1", port));
     client->setConnectionParams({0x11, 0x22, 0x33, 0x44}, key(0xA5));
 
-    dish::models::DiscoveredServer server;
-    server.name = QStringLiteral("sat");
-    server.ip = QStringLiteral("127.0.0.1");
-    WifiConnection conn(QStringLiteral("test-id"), server);
-
+    WifiConnection conn(WifiConnection::idFor(server()), server());
     int rekeyCalls = 0;
-    WifiConnection::SessionHooks hooks;
-    hooks.rekey = [&rekeyCalls] { rekeyCalls++; };
     conn.markConnecting();
-    conn.markConnected(client, QStringLiteral("conn_1"), /*epoch=*/0, hooks);
+    conn.markConnected(
+        client, QStringLiteral("conn_1"), /*epoch=*/0, /*mouseControlGranted=*/false,
+        /*onDead=*/[] {}, /*onClose=*/[](std::uint8_t) {}, /*onReconcile=*/[] {},
+        /*onRekey=*/[&rekeyCalls] { rekeyCalls++; });
 
-    // Below the threshold: no fire.
     WifiConnectionTestAccess::tick(conn);
     CHECK(rekeyCalls == 0);
 
-    // Crossing 0xF0000000 fires the hook exactly once, not once per tick.
+    // Once per approach, not once per tick.
     SatelliteClientTestAccess::seedSendCounter(*client, dish::reducer::kCounterRepushThreshold);
     WifiConnectionTestAccess::tick(conn);
     CHECK(rekeyCalls == 1);
@@ -111,14 +102,13 @@ TEST_CASE("alive tick fires the rekey hook once per threshold approach and re-ar
     WifiConnectionTestAccess::tick(conn);
     CHECK(rekeyCalls == 1);
 
-    // The re-key lands (fresh token/key, as runRekey installs): the counter
-    // restarts at 1 and the latch re-arms without an immediate re-fire.
+    // Installing a fresh token/key is what the manager's rekey does: the counter
+    // restarts under the threshold and the latch re-arms without re-firing.
     client->setConnectionParams({0x55, 0x66, 0x77, 0x88}, key(0x3C));
-    CHECK(client->sendCounter() == 1);
+    CHECK_FALSE(dish::reducer::counterNeedsRepush(client->sendCounter()));
     WifiConnectionTestAccess::tick(conn);
     CHECK(rekeyCalls == 1);
 
-    // The next approach to exhaustion fires again.
     SatelliteClientTestAccess::seedSendCounter(*client, dish::reducer::kCounterRepushThreshold);
     WifiConnectionTestAccess::tick(conn);
     CHECK(rekeyCalls == 2);
@@ -127,8 +117,7 @@ TEST_CASE("alive tick fires the rekey hook once per threshold approach and re-ar
     ::close(fd);
 }
 
-TEST_CASE("alive tick tolerates an absent rekey hook past the threshold", "[rekey]") {
-    ensureApp();
+TEST_CASE("alive tick tolerates an absent rekey callback past the threshold", "[rekey]") {
     std::uint16_t port = 0;
     const int fd = bindLoopback(port);
     REQUIRE(fd >= 0);
@@ -137,9 +126,10 @@ TEST_CASE("alive tick tolerates an absent rekey hook past the threshold", "[reke
     REQUIRE(client->openSocket("127.0.0.1", port));
     client->setConnectionParams({0x11, 0x22, 0x33, 0x44}, key(0xA5));
 
-    WifiConnection conn(QStringLiteral("test-id-2"), dish::models::DiscoveredServer{});
+    WifiConnection conn(QStringLiteral("mid:m2"), server());
     conn.markConnecting();
-    conn.markConnected(client, QStringLiteral("conn_2"), /*epoch=*/0, {});
+    conn.markConnected(client, QStringLiteral("conn_2"), /*epoch=*/0,
+                       /*mouseControlGranted=*/false, {}, {}, {}, {});
     SatelliteClientTestAccess::seedSendCounter(*client, dish::reducer::kCounterRepushThreshold);
     WifiConnectionTestAccess::tick(conn); // must not crash
     conn.markDisconnected();

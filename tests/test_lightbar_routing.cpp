@@ -1,15 +1,6 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 // Copyright (C) 2026 Dish contributors.
 
-// Coverage for dish::LightbarRouting — the pure decision layer behind the
-// light bar (Task 1.4). AppModel's lightbar handler calls this function; it
-// is pure (decoded message + gate bool -> optional colour) so the routing
-// rule is unit-testable without the SDL / network stack.
-//
-// The rule under test:
-//   * a MSG_LIGHTBAR colour is applied when "Follow game" is on,
-//   * "Off" suppresses the colour.
-
 #include "LightbarRouting.h"
 
 #include "Network/SatelliteClient.h"

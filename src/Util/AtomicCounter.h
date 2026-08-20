@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 // Copyright (C) 2026 Dish contributors.
 //
-// Lock-free monotonically-increasing 64-bit counter. Mirrors the
-// AtomicCounter type in dish-mac/Sources/Dish/Util/AtomicCounter.swift.
+// Lock-free monotonically-increasing 64-bit counter (the UDP nonce source on
+// the input hot path).
 
 #pragma once
 
@@ -21,8 +21,7 @@ class AtomicCounter {
     AtomicCounter& operator=(AtomicCounter&&) = delete;
     ~AtomicCounter() = default;
 
-    // Returns the previous value, then atomically increments. Equivalent to
-    // Swift's wrappingIncrementThenLoad on a UInt64 (we never expect to wrap).
+    // Returns the value from *before* the increment.
     std::uint64_t next() noexcept { return value_.fetch_add(1, std::memory_order_relaxed); }
 
     std::uint64_t load() const noexcept { return value_.load(std::memory_order_relaxed); }

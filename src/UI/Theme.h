@@ -1,56 +1,87 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 // Copyright (C) 2026 Dish contributors.
 //
-// Color palette lifted verbatim from dish-android/res/values/colors.xml so
-// every client renders identically side-by-side. Same hex values as
-// dish-mac/UI/Theme.swift.
+// Colour tokens, lifted verbatim from dish-android's colors.xml so every client
+// renders identically side-by-side. Both palettes MUST stay in lockstep with the
+// android `values/` and `values-night/` resources; DESIGN.md carries the token
+// <-> hex mapping and the cross-client schema the names come from.
 
 #pragma once
 
-#include <QApplication>
 #include <QColor>
 #include <QString>
+#include <cstdint>
 
 namespace dish::ui {
 
-struct Theme {
-    // Cyan / deep-space palette — mirrors dish-website. See DESIGN.md for
-    // the token name <-> hex mapping and the cross-repo schema.
-    static constexpr QRgb background = 0xFF060818;
-    static constexpr QRgb surface = 0xFF0C1027;
-    static constexpr QRgb surfaceDim = 0xFF131A3A;
-    static constexpr QRgb primary = 0xFF4FE3FF;
-    static constexpr QRgb primaryDark = 0xFF2C93AD;
-    static constexpr QRgb onPrimary = 0xFF060818;
-    static constexpr QRgb onSurface = 0xFFE6ECFF;
-    static constexpr QRgb muted = 0xFF93A0C8;
-    // outline is web rgba(79,227,255,0.18) expressed as ARGB (alpha 0x2E).
-    static constexpr QRgb outline = 0x2E4FE3FF;
-    static constexpr QRgb success = 0xFF22C55E;
-    static constexpr QRgb error = 0xFFE74C3C;
-    static constexpr QRgb warning = 0xFFF59E0B;
+struct ThemePalette {
+    QRgb background;
+    QRgb surface;
+    QRgb surfaceDim;
+    QRgb primary;
+    QRgb primaryDark;
+    QRgb onPrimary;
+    QRgb onSurface;
+    QRgb muted;
+    QRgb outline;
+    QRgb success;
+    QRgb error;
+    QRgb warning;
+    // The donation accent — the one hue Dish uses beyond cyan, reserved for the
+    // Support Dish surface and its rail entry.
+    QRgb pulse;
+    // The shipped SVGs bake a light-cyan that computes to 1.7:1 on a white card,
+    // so BrandGlyph re-tints by palette (never by state).
+    QRgb glyph;
+    // Disabled-control foreground, >= 3:1 on `surface` in both palettes. Never
+    // multiplied by an opacity on top of an already-muted colour.
+    QRgb disabledFg;
+    // Drawn-but-unavailable INFORMATION, >= 4.5:1. Distinct from `disabledFg`,
+    // which is for controls.
+    QRgb mutedStrong;
 };
 
-// Apply the global Qt palette + a stylesheet matching dish-android's themes.
-void applyDishTheme(QApplication& app);
+// The resolved half of android's ThemeMode: System is resolved to one of these
+// before a palette is selected.
+enum class Appearance : std::uint8_t { Dark, Light };
 
-// Format a QRgb as a `#RRGGBB` string for embedding in QSS.
+const ThemePalette& darkPalette();
+const ThemePalette& lightPalette();
+const ThemePalette& paletteFor(Appearance appearance);
+
+struct Theme {
+    // Non-const statics aliasing the ACTIVE palette's fields, so call sites
+    // resolve to the currently-applied appearance. setActivePalette() rewrites
+    // them; they start on dark so a build that never calls it still renders.
+    static QRgb background;
+    static QRgb surface;
+    static QRgb surfaceDim;
+    static QRgb primary;
+    static QRgb primaryDark;
+    static QRgb onPrimary;
+    static QRgb onSurface;
+    static QRgb muted;
+    static QRgb outline;
+    static QRgb success;
+    static QRgb error;
+    static QRgb warning;
+    static QRgb pulse;
+    static QRgb glyph;
+    static QRgb disabledFg;
+    static QRgb mutedStrong;
+};
+
+// Swaps the Theme::* tokens. Callers must re-read them: the QML ThemeBridge
+// does so on refresh(), and the native chrome flips its immersive-dark attribute.
+void setActivePalette(const ThemePalette& palette);
+
+Appearance activeAppearance();
+void setActiveAppearance(Appearance appearance);
+
+// The OS appearance-preference seam. Injected as a std::function in tests so
+// System resolution can be driven without touching the real registry.
+Appearance detectSystemAppearance();
+
 QString hex(QRgb c);
-
-// Style helpers used by the dialogs / SlotCard.
-QString sectionHeaderQss();
-QString outlinedButtonQss();
-QString dotQss(QRgb color);
-
-// Pill for one detected controller capability in the SlotCard. `on == true`
-// renders a filled, primary-tinted chip ("hardware present, feature active");
-// `on == false` renders a dimmed, muted-outline chip ("hardware absent").
-// Mirrors the dish-mac CapabilityChip.
-QString capabilityChipQss(bool on);
-
-// Battery-chip pill used in SlotCard, sat next to the motion chip. Shares the
-// capability-chip pill geometry. `lowBattery` swaps the cyan/primary tint for
-// the amber `warning` token so a near-flat pad reads at a glance.
-QString batteryChipQss(bool lowBattery);
 
 } // namespace dish::ui

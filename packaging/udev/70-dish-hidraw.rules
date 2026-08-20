@@ -1,0 +1,35 @@
+# Dish USB-direct: read/write access to the hidraw nodes of supported gamepads.
+#
+# /dev/hidraw* is root-only by default. Without this file every USB-direct claim
+# fails PermissionDenied and Dish keeps the pad on the SDL path, which still
+# works but is rate-capped.
+#
+# Install:  sudo install -m 644 70-dish-hidraw.rules /etc/udev/rules.d/
+#           sudo udevadm control --reload-rules && sudo udevadm trigger
+#
+# uaccess grants the user logged in at the seat, which is what a desktop install
+# wants. The `input` group fallback covers headless and non-logind sessions.
+
+KERNEL!="hidraw*", GOTO="dish_hidraw_end"
+
+# Sony — DualShock 4, DualSense, DualSense Edge
+ATTRS{idVendor}=="054c", MODE="0660", GROUP="input", TAG+="uaccess"
+
+# Nintendo — Switch Pro Controller
+ATTRS{idVendor}=="057e", MODE="0660", GROUP="input", TAG+="uaccess"
+
+# 8BitDo
+ATTRS{idVendor}=="2dc8", MODE="0660", GROUP="input", TAG+="uaccess"
+
+# Valve — Steam Controller (wired and dongle)
+ATTRS{idVendor}=="28de", ATTRS{idProduct}=="1102", MODE="0660", GROUP="input", TAG+="uaccess"
+ATTRS{idVendor}=="28de", ATTRS{idProduct}=="1142", MODE="0660", GROUP="input", TAG+="uaccess"
+
+# PDP — wired Switch pads
+ATTRS{idVendor}=="0e6f", ATTRS{idProduct}=="0180", MODE="0660", GROUP="input", TAG+="uaccess"
+ATTRS{idVendor}=="0e6f", ATTRS{idProduct}=="0181", MODE="0660", GROUP="input", TAG+="uaccess"
+ATTRS{idVendor}=="0e6f", ATTRS{idProduct}=="0184", MODE="0660", GROUP="input", TAG+="uaccess"
+ATTRS{idVendor}=="0e6f", ATTRS{idProduct}=="0185", MODE="0660", GROUP="input", TAG+="uaccess"
+ATTRS{idVendor}=="0e6f", ATTRS{idProduct}=="0187", MODE="0660", GROUP="input", TAG+="uaccess"
+
+LABEL="dish_hidraw_end"

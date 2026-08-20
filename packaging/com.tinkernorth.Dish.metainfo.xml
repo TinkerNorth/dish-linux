@@ -1,0 +1,104 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- SPDX-License-Identifier: CC0-1.0
+     Copyright (C) 2026 Dish contributors.
+
+     The <id> is the same reverse-DNS name main() gives setDesktopFileName and
+     CMake gives the .desktop file and the icons. All four must agree or GNOME
+     Software, KDE Discover and Flathub each show a different half of the app.
+     Validate: appstreamcli validate packaging/com.tinkernorth.Dish.metainfo.xml -->
+<component type="desktop-application">
+  <id>com.tinkernorth.Dish</id>
+
+  <name>Dish</name>
+  <summary>Stream a gamepad to a Satellite server over your LAN</summary>
+
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>LGPL-3.0-or-later</project_license>
+
+  <developer id="com.tinkernorth">
+    <name>TinkerNorth</name>
+  </developer>
+
+  <description>
+    <p>
+      Dish turns this machine into a wireless gamepad for a Satellite server on
+      the same network. Pair once, pick a controller, and the pad's sticks,
+      buttons, motion and rumble travel over an encrypted UDP channel.
+    </p>
+    <p>Dish can:</p>
+    <ul>
+      <li>Find Satellite servers on the LAN automatically, or connect by address</li>
+      <li>Pair with trust-on-first-use key pinning, so a swapped server is caught</li>
+      <li>Stream up to four pads at once, each mapped to its own remote slot</li>
+      <li>Carry rumble, battery level, motion and touchpad input both ways</li>
+      <li>Remap buttons, tune deadzones, and save a layout per controller</li>
+      <li>Claim supported pads directly over USB, for a higher polling rate</li>
+    </ul>
+    <p>
+      Dish never installs its own updates. It checks for a new release and links
+      out to it; your package manager owns the binary.
+    </p>
+  </description>
+
+  <launchable type="desktop-id">com.tinkernorth.Dish.desktop</launchable>
+
+  <provides>
+    <binary>dish</binary>
+    <!-- Same device set as packaging/udev/70-dish-hidraw.rules, so a software
+         centre can offer Dish when a supported pad is plugged in. -->
+    <modalias>usb:v054Cp*d*</modalias>
+    <modalias>usb:v057Ep*d*</modalias>
+    <modalias>usb:v2DC8p*d*</modalias>
+    <modalias>usb:v28DEp1102d*</modalias>
+    <modalias>usb:v28DEp1142d*</modalias>
+    <modalias>usb:v0E6Fp0180d*</modalias>
+    <modalias>usb:v0E6Fp0181d*</modalias>
+    <modalias>usb:v0E6Fp0184d*</modalias>
+    <modalias>usb:v0E6Fp0185d*</modalias>
+    <modalias>usb:v0E6Fp0187d*</modalias>
+  </provides>
+
+  <categories>
+    <category>Game</category>
+    <category>Utility</category>
+  </categories>
+
+  <keywords>
+    <keyword>gamepad</keyword>
+    <keyword>controller</keyword>
+    <keyword>satellite</keyword>
+    <keyword>remote</keyword>
+    <keyword>streaming</keyword>
+  </keywords>
+
+  <url type="homepage">https://github.com/TinkerNorth/dish-linux</url>
+  <url type="bugtracker">https://github.com/TinkerNorth/dish-linux/issues</url>
+  <url type="help">https://github.com/TinkerNorth/dish-linux/blob/main/README.md</url>
+  <url type="vcs-browser">https://github.com/TinkerNorth/dish-linux</url>
+  <url type="contribute">https://github.com/TinkerNorth/dish-linux/blob/main/CONTRIBUTING.md</url>
+
+  <!-- Kept in step with project(Dish VERSION ...); version-consistency.yml
+       fails the PR that moves one without the other. -->
+  <releases>
+    <release version="0.1.0" date="2026-08-20" type="stable">
+      <url type="details">https://github.com/TinkerNorth/dish-linux/releases/tag/v0.1.0</url>
+      <description>
+        <p>First Linux release: Qt Quick UI, LAN and mDNS discovery, TOFU pairing, SDL and USB-direct input paths, and six UI languages.</p>
+      </description>
+    </release>
+  </releases>
+
+  <content_rating type="oars-1.1" />
+
+  <supports>
+    <control>pointing</control>
+    <control>keyboard</control>
+    <control>gamepad</control>
+  </supports>
+
+  <requires>
+    <display_length compare="ge">768</display_length>
+  </requires>
+
+  <update_contact>security_AT_tinkernorth.com</update_contact>
+</component>

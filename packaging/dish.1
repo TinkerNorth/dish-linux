@@ -1,0 +1,49 @@
+.\" SPDX-License-Identifier: LGPL-3.0-or-later
+.\" Copyright (C) 2026 Dish contributors.
+.TH DISH 1 "2026-08-20" "dish" "User Commands"
+.SH NAME
+dish \- wireless gamepad client for the Satellite server
+.SH SYNOPSIS
+.B dish
+.SH DESCRIPTION
+.B Dish
+streams a local gamepad to a Satellite server on the same network over an
+encrypted UDP channel. Sticks, buttons, motion and touchpad travel out; rumble
+and battery level come back. Servers are found over LAN broadcast and mDNS, or
+entered by address, and pairing pins the server's key on first use.
+.PP
+Dish takes no command-line options. Everything is configured in the UI.
+.SH USB\-DIRECT
+Supported controllers can be claimed directly through
+.IR /dev/hidraw* ,
+which raises the polling rate above what the SDL path allows. Those nodes are
+root\-only by default, so the claim needs the udev rule this package installs at
+.IR /usr/lib/udev/rules.d/70\-dish\-hidraw.rules .
+If the rule is absent, or udev has not been reloaded since it was installed,
+every claim fails with a permission error and Dish keeps the controller on the
+SDL path \(em still streaming, just rate\-capped. Reload with:
+.PP
+.RS
+.nf
+sudo udevadm control \-\-reload\-rules && sudo udevadm trigger
+.fi
+.RE
+.SH FILES
+.TP
+.I ~/.config/TinkerNorth/Dish.conf
+Settings, paired servers and pinned keys.
+.TP
+.I $XDG_STATE_HOME/dish/crash.log
+Backtrace written by the crash handler.
+.TP
+.I /usr/lib/udev/rules.d/70\-dish\-hidraw.rules
+hidraw access for the supported controllers.
+.SH UPDATES
+Dish never installs its own updates. It checks a release manifest and links out
+to the release page; the package manager owns the binary. Set
+.I updates_check_enabled=false
+in the configuration to disable the check entirely.
+.SH BUGS
+Report at https://github.com/TinkerNorth/dish\-linux/issues
+.SH SEE ALSO
+.BR udevadm (8)
