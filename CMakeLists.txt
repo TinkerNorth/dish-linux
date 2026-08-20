@@ -201,6 +201,8 @@ set(DISH_CORE_SOURCES
     src/Util/HostBattery.cpp
     src/Util/DisplaySleepInhibitor.h
     src/Util/DisplaySleepInhibitor.cpp
+    src/Util/UnixSignalWatcher.h
+    src/Util/UnixSignalWatcher.cpp
     # In dish_core so test_translations exercises the real locale-fallback path
     # rather than a copy of it.
     src/Util/Localization.h

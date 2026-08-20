@@ -4,6 +4,7 @@
 #include "AppModel.h"
 #include "UI/CrashHandler.h"
 #include "Util/Localization.h"
+#include "Util/UnixSignalWatcher.h"
 #include "qml/QmlEntryPoint.h"
 
 #include <QFont>
@@ -15,6 +16,7 @@
 
 #include <sodium.h>
 
+#include <csignal>
 #include <cstdio>
 
 int main(int argc, char* argv[]) {
@@ -62,6 +64,16 @@ int main(int argc, char* argv[]) {
     QFont uiFont(QStringLiteral("Inter"));
     uiFont.setPixelSize(13); // the token base; pages override per role
     app.setFont(uiFont);
+
+    // Logout and shutdown arrive as SIGTERM, whose default disposition kills
+    // the process where it stands: ~AppModel never runs, so the input thread is
+    // not stopped and QSettings never flushes what the session changed. Quit
+    // the loop instead and let main unwind normally.
+    const auto quitSignals = dish::util::installSignalWatcher({SIGINT, SIGTERM, SIGHUP});
+    if (quitSignals) {
+        QObject::connect(quitSignals.get(), &dish::util::UnixSignalWatcher::signalled, &app,
+                         [](int) { QCoreApplication::quit(); });
+    }
 
     // runQmlApp owns the engine and exposes the model to QML as the `App`
     // context property.

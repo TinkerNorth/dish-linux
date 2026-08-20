@@ -342,12 +342,31 @@ jobs:
               && apt-file search -x 'qt6/plugins/imageformats/libqsvg\.so$' \
               || echo "apt-file could not answer"
           fi
+          # Signalled by hand rather than through `timeout`, which reports 124
+          # whether the child shut down cleanly or had to be killed — the one
+          # distinction this step exists to make. Every wait below is bounded,
+          # because an unbounded one is how this step once sat for 40 minutes
+          # and took the job's timeout with it.
           set +e
-          # -k is load-bearing: plain `timeout` sends TERM and then waits
-          # forever if the child does not die, which is how this step once sat
-          # for 40 minutes and took the job's timeout with it. The follow-up
-          # KILL can be neither blocked nor handled.
-          timeout -k 10 25 dish >/tmp/launch.log 2>&1
+          dish >/tmp/launch.log 2>&1 &
+          app=$!
+          sleep 20
+          started=0
+          kill -0 "$app" 2>/dev/null && started=1
+          needed_kill=0
+          if [ "$started" = 1 ]; then
+            kill -TERM "$app"
+            waited=0
+            while [ "$waited" -lt 15 ] && kill -0 "$app" 2>/dev/null; do
+              sleep 1
+              waited=$((waited + 1))
+            done
+            if kill -0 "$app" 2>/dev/null; then
+              kill -KILL "$app"
+              needed_kill=1
+            fi
+          fi
+          wait "$app"
           rc=$?
           set -e
           cat /tmp/launch.log
@@ -360,18 +379,23 @@ jobs:
           if grep -q 'Error decoding:' /tmp/launch.log; then
             echo "::warning::the installed app cannot decode its brand SVGs — the Qt SVG image plugin is missing or unloadable"
           fi
-          # Staying up past the deadline is the pass: 124 means it took the
-          # TERM, 137 means it needed the KILL. The second is worth saying out
-          # loud — an app that ignores TERM is a problem of its own.
-          case "$rc" in
-            124) ;;
-            137) echo "::warning::dish did not exit on SIGTERM; it needed SIGKILL" ;;
-            # >=128 is death by signal, i.e. it did not stay up. Not a hard
-            # failure yet — a container has no GPU and no bus, so the cause may
-            # be environmental — but it must not read as routine.
-            1[3-9][0-9]|12[0-3]) echo "::warning::dish died on signal $((rc - 128)) during startup" ;;
-            *) echo "::notice::dish exited ${rc} without a loader error" ;;
-          esac
+          if [ "$started" != 1 ]; then
+            echo "::error::dish exited on its own (${rc}) instead of staying up"
+            exit 1
+          fi
+          # SIGTERM is what a logout sends. Ignoring it means ~AppModel never
+          # runs, so the input thread is not stopped and QSettings never writes
+          # what the session changed — the user loses their settings every time
+          # they log out, and nothing else in CI would notice.
+          if [ "$needed_kill" = 1 ]; then
+            echo "::error::dish did not exit on SIGTERM; it needed SIGKILL"
+            exit 1
+          fi
+          if [ "$rc" != 0 ]; then
+            echo "::error::dish shut down on SIGTERM but exited ${rc}"
+            exit 1
+          fi
+          echo "::notice::dish came up, shut down on SIGTERM and exited 0"
 
       - name: Upload the .deb
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

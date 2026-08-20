@@ -148,6 +148,7 @@ set(DISH_TEST_SOURCES
     test_ui_preference_store.cpp
     test_catalog_feature_gate.cpp
     test_crash_log_path.cpp
+    test_unix_signal_watcher.cpp
     test_reduced_motion.cpp)
 
 add_executable(DishTests ${DISH_TEST_SOURCES})
