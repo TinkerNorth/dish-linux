@@ -33,6 +33,8 @@ Physical controllers only. There is no on-screen touch gamepad; that belongs to
 - Per-device deadzones, button remapping, and a guided setup wizard
 - Holds the display awake while a slot is streaming, releases it on the last
   unbind
+- Keeps streaming with the window closed, behind a tray icon that quits it
+- Closes its sessions on suspend and re-opens them on resume
 - Light and dark themes that follow the desktop, six UI languages
 
 ## Install and run
@@ -152,6 +154,47 @@ the UI binding contract and the hardening roadmap are in
 [`docs/QML_UI_KIT.md`](docs/QML_UI_KIT.md), the design tokens in
 [`DESIGN.md`](DESIGN.md), and how a build becomes an installed Dish in
 [`docs/PACKAGING.md`](docs/PACKAGING.md).
+
+### Running in the background
+
+Closing the window leaves Dish running behind a tray icon; quit it from that
+icon's menu. Nothing is hidden that cannot be reached: the item registers with
+`org.kde.StatusNotifierWatcher`, and if no StatusNotifier host owns that name
+the close falls back to quitting rather than stranding a running process with
+no window and no menu. *Keep running in the background* in Settings turns the
+whole behaviour off, and the switch reads as unavailable on a desktop with no
+tray.
+
+Bare GNOME is that desktop. It ships no StatusNotifier host, so the tray needs
+the AppIndicator extension; KDE, XFCE, Cinnamon, MATE, LXQt, sway and Waybar
+all carry one already. The `.deb` and `.rpm` name the extension as a suggestion
+rather than a dependency, because Dish works without it — it just keeps quitting
+on close.
+
+### Suspend, resume and a closed lid
+
+Dish holds a logind `sleep`/`delay` lock, so on `PrepareForSleep` it closes its
+satellite sessions before the machine goes down, and re-opens them on resume
+rather than waiting out the ~10 s heartbeat death. A resume also rescans, so a
+laptop that wakes on a different network relearns a moved satellite instead of
+retrying a stale address.
+
+**Closing the lid still suspends, and no application can change that.**
+`LidSwitchIgnoreInhibited` defaults to `yes` in `logind.conf`, which means
+logind executes the lid action even when an app holds a `handle-lid-switch`
+inhibitor — the lid is treated as a deliberate user action, like the power key.
+Keeping Dish streaming with the lid shut is therefore a system setting, not an
+app one:
+
+```sh
+# /etc/systemd/logind.conf — pick the ones you want
+HandleLidSwitch=ignore
+HandleLidSwitchExternalPower=ignore
+```
+
+then `sudo systemctl restart systemd-logind`. GNOME and KDE expose the same
+choice in their power settings. Docked already works untouched:
+`HandleLidSwitchDocked` defaults to `ignore`.
 
 ### Desktop integration
 

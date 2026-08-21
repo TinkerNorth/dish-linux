@@ -20,6 +20,21 @@ the repos share a version number.
 
 ### Added
 
+- Running in the background. Closing the window leaves Dish streaming behind a
+  StatusNotifierItem tray icon whose menu is the way back and the way out, and a
+  one-time desktop notification says so the first time it happens. The hide is
+  gated on a StatusNotifier host actually owning the watcher name, so a desktop
+  without one keeps quitting on close rather than stranding a running process
+  with no window and no menu; the item re-registers when the panel restarts.
+  *Keep running in the background* in Settings turns it off.
+- Suspend and resume handling. A logind `sleep`/`delay` lock buys time on
+  `PrepareForSleep` to close the satellite sessions before the machine goes
+  down, and a resume rescans and re-opens them instead of waiting out the ~10 s
+  heartbeat death. Tearing down first is load-bearing: a session the machine
+  slept through comes back `Faltering`, which slips past both reconnect guards,
+  so a bare reconnect would open a second socket beside the frozen one. A closed
+  lid still suspends — `LidSwitchIgnoreInhibited` defaults to `yes`, so that is
+  a `logind.conf` setting rather than something an application can hold.
 - The unidirectional-dataflow architecture the sibling clients use: the
   header-only kernel in `src/architecture/` (`Observable`, `StateSource`,
   `Composer`, `Controller`, `Repository`), pure reducers and mappers in

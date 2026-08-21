@@ -83,6 +83,15 @@ set(DISH_TEST_SOURCES
     test_screen_wake_controller.cpp
     test_wake_state_composer.cpp
     test_wake_state_controller.cpp
+    # Background running, the tray gateway and the suspend/resume edge.
+    test_background_mode.cpp
+    test_background_preference_store.cpp
+    test_background_coordinator.cpp
+    test_tray_presentation.cpp
+    test_tray_composer.cpp
+    test_tray_controller.cpp
+    test_sleep_cycle.cpp
+    test_sleep_coordinator.cpp
     test_dish_notifications.cpp
     test_input_rate_tracker.cpp
     test_input_rate_store.cpp

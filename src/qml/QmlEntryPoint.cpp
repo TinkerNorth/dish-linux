@@ -28,6 +28,10 @@ int runQmlApp(dish::AppModel& model) {
     // styles would only fight them.
     QQuickStyle::setStyle(QStringLiteral("Basic"));
 
+    // Closing the window is allowed to mean "keep streaming", so the process
+    // must outlive it. Main.qml's approveClose() is the one real quit path.
+    QGuiApplication::setQuitOnLastWindowClosed(false);
+
     // Uncreatable: instances are only ever vended through App.slotModel /
     // App.connectionModel, but QML must be able to name the type in a delegate.
     qmlRegisterUncreatableType<dish::qml::SlotListModel>(

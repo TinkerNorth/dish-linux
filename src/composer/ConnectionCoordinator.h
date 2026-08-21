@@ -57,6 +57,11 @@ class ConnectionCoordinator : public QObject {
     // forgetConnection, which drops them.
     void disconnectConnection(const QString& connectionId);
 
+    // Close every session while logind holds the suspend, and re-establish them
+    // on resume rather than waiting out the ~10 s heartbeat death.
+    void prepareForSleep();
+    void resumeFromSleep();
+
   signals:
     // A Qt bridge for consumers that can't hold an Observable subscription. The
     // authoritative value is always connections().value().

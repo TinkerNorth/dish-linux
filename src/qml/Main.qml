@@ -2,9 +2,9 @@
 // Copyright (C) 2026 Dish contributors.
 //
 // The entry window. The window manager draws the decorations, so the shell's
-// own header is the only chrome Dish paints. It owns the two close policies the
-// shell cannot see — the keep-awake confirm and the wizard leave guard — and
-// both run before the window may go.
+// own header is the only chrome Dish paints. It owns the close policies the
+// shell cannot see — hide-to-background, the keep-awake confirm and the wizard
+// leave guard — and all of them run before the window may go.
 
 import QtQuick
 import QtQuick.Controls.Basic
@@ -33,8 +33,27 @@ ApplicationWindow {
 
     function approveClose() {
         root.closeApproved = true;
-        // Deferred: close() is being called from inside the closing handler.
-        Qt.callLater(function () { root.close(); });
+        // Qt.quit(), not close(): quitOnLastWindowClosed is false so the process
+        // outlives its window, and closing one would only hide it.
+        Qt.callLater(function () { Qt.quit(); });
+    }
+
+    // The tray item is derived from this, and the shell is the only thing that
+    // knows it.
+    onVisibleChanged: App.setWindowVisible(root.visible)
+
+    Connections {
+        target: App
+
+        function onShowWindowRequested() {
+            root.show();
+            root.raise();
+            root.requestActivate();
+        }
+
+        function onQuitRequested() {
+            root.approveClose();
+        }
     }
 
     // The desktop's reduced-motion setting can change while Dish runs and no
@@ -50,6 +69,12 @@ ApplicationWindow {
         if (root.closeApproved)
             return;
         close.accepted = false;
+        // A hide discards nothing, so it skips the leave guard and the
+        // keep-awake confirm: the stream is meant to survive it.
+        if (App.requestWindowClose()) {
+            root.hide();
+            return;
+        }
         shell.requestNavigation(function () {
             if (App.keepAwakeActive)
                 quitConfirm.open();

@@ -2823,6 +2823,22 @@
         <source>Checking connects to github.com and sends no account data.</source>
         <translation type="unfinished">A verificação se conecta ao github.com e não envia dados de conta.</translation>
     </message>
+    <message>
+        <source>Window</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Keep running in the background</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Closing the window keeps controllers streaming. Quit from the tray icon.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>This desktop has no tray, so closing the window quits Dish.</source>
+        <translation type="unfinished"></translation>
+    </message>
 </context>
 <context>
     <name>SetupWizardPage</name>
@@ -3673,6 +3689,17 @@
     </message>
 </context>
 <context>
+    <name>dish::composer::BackgroundCoordinator</name>
+    <message>
+        <source>Dish is still running</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Controllers keep streaming. Quit from the tray icon.</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
     <name>dish::net::WifiConnectionManager</name>
     <message>
         <source>Refusing to connect to a non-local address (%1).</source>
@@ -3737,6 +3764,28 @@
     <message>
         <source>Couldn’t open browser</source>
         <translation>Não foi possível abrir o navegador</translation>
+    </message>
+</context>
+<context>
+    <name>dish::source::StatusNotifierTrayIcon</name>
+    <message>
+        <source>Idle</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message numerus="yes">
+        <source>Streaming to %n controller(s)</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>Show Dish</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Quit</source>
+        <translation type="unfinished">Sair</translation>
     </message>
 </context>
 <context>
