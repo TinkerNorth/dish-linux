@@ -160,6 +160,7 @@ set(DISH_CORE_SOURCES
     src/core/reducer/RestOutcome.h
     src/core/reducer/Backoff.h
     src/core/reducer/BackgroundMode.h
+    src/core/reducer/KeepAwake.h
     src/core/reducer/Reconcile.h
     src/core/reducer/CloseNotify.h
     src/core/reducer/PathChoice.h
@@ -219,8 +220,6 @@ set(DISH_CORE_SOURCES
     src/Util/Endian.h
     src/Util/HostBattery.h
     src/Util/HostBattery.cpp
-    src/Util/DisplaySleepInhibitor.h
-    src/Util/DisplaySleepInhibitor.cpp
     src/Util/UnixSignalWatcher.h
     src/Util/UnixSignalWatcher.cpp
     # In dish_core so test_translations exercises the real locale-fallback path
@@ -276,6 +275,7 @@ set(DISH_CORE_SOURCES
     src/source/store/TouchpadModeStore.h
     src/source/store/UiPreferenceStore.h
     src/source/store/BackgroundPreferenceStore.h
+    src/source/store/KeepAwakePreferenceStore.h
     src/source/store/UpdatePreferenceStore.h
     # xpad publishes no hidraw node for Xbox pads, so this path serves
     # DualSense/DS4/Switch Pro/8BitDo and Xbox pads stay on SDL.
@@ -290,14 +290,17 @@ set(DISH_CORE_SOURCES
     src/source/notification/DesktopNotifier.h
     src/source/notification/DesktopNotifier.cpp
     src/source/inputrate/SlotInputRates.h
+    src/source/input/ControllerActivitySource.h
     src/source/inputrate/InputRateStore.h
     src/source/inputrate/InputRateStore.cpp
     src/source/system/BluetoothRadioProbe.h
     src/source/system/BluetoothRadioProbe.cpp
     src/source/system/SecretServiceStore.h
     src/source/system/SleepMonitor.h
+    src/source/system/WakeInhibitor.h
     src/source/system/SecretServiceStore.cpp
     src/source/system/SleepMonitor.cpp
+    src/source/system/WakeInhibitor.cpp
     src/source/tray/TrayIcon.h
     src/source/tray/StatusNotifierTrayIcon.h
     src/source/tray/StatusNotifierTrayIcon.cpp

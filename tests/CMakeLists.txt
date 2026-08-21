@@ -85,6 +85,9 @@ set(DISH_TEST_SOURCES
     test_wake_state_controller.cpp
     # Background running, the tray gateway and the suspend/resume edge.
     test_background_mode.cpp
+    test_keep_awake.cpp
+    test_keep_awake_preference_store.cpp
+    test_controller_activity_source.cpp
     test_background_preference_store.cpp
     test_background_coordinator.cpp
     test_tray_presentation.cpp
@@ -98,7 +101,7 @@ set(DISH_TEST_SOURCES
     test_latency_window.cpp
     test_slot_live_stats.cpp
     test_motion_indicator_state.cpp
-    test_freedesktop_screensaver_inhibitor.cpp
+    test_freedesktop_wake_inhibitor.cpp
     test_satellite_client_rumble.cpp
     test_satellite_client_motion.cpp
     test_satellite_client_touchpad.cpp

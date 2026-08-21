@@ -147,7 +147,8 @@ degrades rather than breaks:
 |---|---|---|
 | light/dark | `QStyleHints::colorScheme()` over the XDG appearance portal | dark |
 | reduced motion | XDG settings portal (`org.gnome.desktop.interface enable-animations`), then `kdeglobals` | motion allowed |
-| keep-awake | `org.freedesktop.ScreenSaver.Inhibit` on the session bus | the inhibit silently no-ops |
+| keep-awake (machine) | `login1.Inhibit("idle", …, "block")` on the system bus | the inhibit silently no-ops |
+| keep-awake (display) | `org.freedesktop.ScreenSaver.Inhibit` on the session bus, only when the display opt-in is on | the inhibit silently no-ops |
 
 Bluetooth presence and power come from sysfs and BlueZ directly, not a portal,
 because the wizard needs to tell "no adapter" from "adapter off" and only the

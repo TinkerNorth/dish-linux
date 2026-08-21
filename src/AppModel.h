@@ -27,6 +27,7 @@
 #include "repository/MotionPreferenceRepository.h"
 #include "core/reducer/BindingPresence.h"
 #include "core/reducer/PollRateSampler.h"
+#include "source/input/ControllerActivitySource.h"
 #include "source/inputrate/InputRateStore.h"
 #include "source/http/SatelliteCatalogRepository.h"
 #include "source/notification/DesktopNotifier.h"
@@ -34,6 +35,7 @@
 #include "source/store/ControllerTypeStore.h"
 #include "source/store/CrashReportingStore.h"
 #include "source/store/JoystickRemapStore.h"
+#include "source/store/KeepAwakePreferenceStore.h"
 #include "source/store/MotionEnabledStore.h"
 #include "source/store/OnboardingPreferenceStore.h"
 #include "source/store/TouchpadModeStore.h"
@@ -41,12 +43,12 @@
 #include "source/store/UpdatePreferenceStore.h"
 #include "source/store/UsbPathPreferenceStore.h"
 #include "source/system/SleepMonitor.h"
+#include "source/system/WakeInhibitor.h"
 #include "source/tray/StatusNotifierTrayIcon.h"
 #include "source/tray/TrayIcon.h"
 #include "source/usb/UsbGamepadManager.h"
 #include "source/usb/HidrawGateway.h"
 #include "update/UpdateChecker.h"
-#include "Util/DisplaySleepInhibitor.h"
 
 #include <QHash>
 #include <QObject>
@@ -83,7 +85,7 @@ class AppModel : public QObject {
   public:
     // The unique_ptr overload lets tests inject a fake inhibitor.
     explicit AppModel(QObject* parent = nullptr);
-    AppModel(std::unique_ptr<util::DisplaySleepInhibitor> inhibitor, QObject* parent = nullptr);
+    AppModel(std::unique_ptr<source::WakeInhibitor> inhibitor, QObject* parent = nullptr);
     ~AppModel() override;
 
     net::ConnectionStore* store() { return store_.get(); }
@@ -95,11 +97,9 @@ class AppModel : public QObject {
     input::GamepadInputProcessor* processor() { return &processor_; }
     input::SDLGamepadBridge* bridge() { return bridge_; }
     composer::WakeStateController* wake() { return &wakeController_; }
-    // The keep-screen-on OVERRIDE counter: an INPUT to the wake composer, not
-    // its result. Nothing sets it today, so never bind UI to it.
-    arch::Observable<int>& keepAwakeCount() { return shouldKeepScreenOn_; }
-    // The derived wake intent, where `shouldInhibit` means the inhibitor is
-    // held. Read-only; the header's streaming pill subscribes to it.
+    source::KeepAwakePreferenceStore* keepAwakeStore() { return &keepAwakeStore_; }
+    // The derived wake intent, where `reach` is how far the hold reaches.
+    // Read-only; the header's streaming pill subscribes to it.
     const arch::Observable<composer::WakeState>& wakeState() const { return wakeComposer_.state(); }
     FeatureSettings* featureSettings() { return featureSettings_; }
 
@@ -300,13 +300,16 @@ class AppModel : public QObject {
     QSet<QString> rumbleWiredConnections_;
     // unique_ptr so tests can swap in a fake. WakeStateController holds a raw
     // back-pointer, so the lifetime must stay tied to the AppModel.
-    std::unique_ptr<util::DisplaySleepInhibitor> inhibitor_;
+    std::unique_ptr<source::WakeInhibitor> inhibitor_;
     // Declaration order matters: the Composer captures the Observables and the
-    // Controller captures the Composer's state, so both must precede it.
+    // Controller captures the Composer's state, so both must precede it. The
+    // activity source borrows processor_, which is declared above.
     arch::Observable<int> streamingSlotCount_{0};
-    arch::Observable<int> shouldKeepScreenOn_{0};
+    source::KeepAwakePreferenceStore keepAwakeStore_;
+    source::ControllerActivitySource controllerActivity_;
     composer::WakeStateComposer wakeComposer_;
     composer::WakeStateController wakeController_;
+    arch::Observable<reducer::KeepAwakePreferences>::Subscription keepAwakePrefsSub_;
 
     // Declaration order matters: each controller captures its store's
     // Observable, and the crash controller its backend, so all must precede.

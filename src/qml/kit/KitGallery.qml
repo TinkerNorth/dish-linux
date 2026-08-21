@@ -378,6 +378,15 @@ Item {
                         value: 12
                         maxValue: 30
                     }
+                    SliderRow {
+                        id: gallerySliderMinutes
+                        width: parent.width
+                        label: qsTr("Let go after")
+                        value: 5
+                        minValue: 1
+                        maxValue: 180
+                        valueText: qsTr("%1 min").arg(gallerySliderMinutes.displayValue)
+                    }
                 }
 
                 Specimen {

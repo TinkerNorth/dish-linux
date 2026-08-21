@@ -123,12 +123,24 @@ class AppViewModel : public QObject {
     Q_PROPERTY(int streamingSlotCount READ streamingSlotCount NOTIFY stateChanged)
     Q_PROPERTY(QString firstOnlineName READ firstOnlineName NOTIFY stateChanged)
     Q_PROPERTY(int foundCount READ foundCount NOTIFY discoveredChanged)
-    // True while the display-sleep inhibitor is held.
-    Q_PROPERTY(bool keepAwakeActive READ keepAwakeActive NOTIFY stateChanged)
+    // How far the hold currently reaches: "off" | "system" | "display".
+    Q_PROPERTY(QString keepAwakeReach READ keepAwakeReach NOTIFY stateChanged)
     Q_PROPERTY(
         bool railCollapsed READ railCollapsed WRITE setRailCollapsed NOTIFY railCollapsedChanged)
     Q_PROPERTY(bool lightbarFollowGame READ lightbarFollowGame WRITE setLightbarFollowGame NOTIFY
                    lightbarChanged)
+
+    // ── Settings: keep awake ─────────────────────────────────────────────────
+    // 0 Off, 1 While a controller is active, 2 While connected — the
+    // SettingsPage option order.
+    Q_PROPERTY(
+        int keepAwakeMode READ keepAwakeMode WRITE setKeepAwakeMode NOTIFY keepAwakePrefsChanged)
+    // Minutes of stillness before mode 1 lets go. Clamped 1..180 by the store.
+    Q_PROPERTY(int keepAwakeTimeoutMinutes READ keepAwakeTimeoutMinutes WRITE
+                   setKeepAwakeTimeoutMinutes NOTIFY keepAwakePrefsChanged)
+    // Whether the hold covers the screen as well as the machine.
+    Q_PROPERTY(bool keepDisplayAwake READ keepDisplayAwake WRITE setKeepDisplayAwake NOTIFY
+                   keepAwakePrefsChanged)
 
     // ── Bluetooth radio ──────────────────────────────────────────────────────
     // Two facts, not one: an absent adapter and a switched-off radio need
@@ -226,11 +238,18 @@ class AppViewModel : public QObject {
     int streamingSlotCount() const { return streamingSlotCount_; }
     QString firstOnlineName() const { return firstOnlineName_; }
     int foundCount() const;
-    bool keepAwakeActive() const { return keepAwakeActive_; }
+    QString keepAwakeReach() const { return keepAwakeReach_; }
     bool railCollapsed() const;
     Q_INVOKABLE void setRailCollapsed(bool collapsed);
     bool lightbarFollowGame() const;
     Q_INVOKABLE void setLightbarFollowGame(bool followGame);
+
+    int keepAwakeMode() const;
+    Q_INVOKABLE void setKeepAwakeMode(int mode);
+    int keepAwakeTimeoutMinutes() const;
+    Q_INVOKABLE void setKeepAwakeTimeoutMinutes(int minutes);
+    bool keepDisplayAwake() const;
+    Q_INVOKABLE void setKeepDisplayAwake(bool enabled);
 
     bool bluetoothPresent() const { return bluetoothPresent_; }
     bool bluetoothEnabled() const { return bluetoothEnabled_; }
@@ -460,6 +479,8 @@ class AppViewModel : public QObject {
     // Folds FeatureSettings::changed so an external mutation re-reads too.
     void lightbarChanged();
 
+    void keepAwakePrefsChanged();
+
     // The rising edge of a connection going live after a pair. Best-effort,
     // fired at most once per live transition.
     void pairingSucceeded();
@@ -519,7 +540,7 @@ class AppViewModel : public QObject {
     int boundSlotCount_ = 0;
     int streamingSlotCount_ = 0;
     QString firstOnlineName_;
-    bool keepAwakeActive_ = false;
+    QString keepAwakeReach_ = QStringLiteral("off");
 
     int eventsPerSec_ = 0;
     int sendsPerSec_ = 0;
@@ -573,6 +594,7 @@ class AppViewModel : public QObject {
     arch::Observable<bool>::Subscription crashSub_;
     arch::Observable<source::OnboardingState>::Subscription onboardingSub_;
     arch::Observable<composer::WakeState>::Subscription keepAwakeSub_;
+    arch::Observable<reducer::KeepAwakePreferences>::Subscription keepAwakePrefsSub_;
     arch::Observable<source::BackgroundPreferences>::Subscription backgroundSub_;
 
     // The updater's whole surface is this one cached slice, republished by the

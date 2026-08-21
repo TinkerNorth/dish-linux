@@ -76,7 +76,9 @@ ApplicationWindow {
             return;
         }
         shell.requestNavigation(function () {
-            if (App.keepAwakeActive)
+            // Gated on the stream, not on the keep-awake hold: turning keep-awake
+            // off must not also remove the confirm before a live stream dies.
+            if (App.streamingSlotCount > 0)
                 quitConfirm.open();
             else
                 root.approveClose();
@@ -97,7 +99,11 @@ ApplicationWindow {
         id: quitConfirm
         eyebrow: qsTr("Streaming")
         heading: qsTr("Stop streaming and quit?")
-        bodyText: qsTr("A controller is still streaming and the display is being kept awake.")
+        bodyText: App.keepAwakeReach === "display"
+                  ? qsTr("A controller is still streaming, and the display is being kept awake.")
+                  : App.keepAwakeReach === "system"
+                    ? qsTr("A controller is still streaming, and the computer is being kept awake.")
+                    : qsTr("A controller is still streaming.")
         acceptText: qsTr("Quit")
         rejectText: qsTr("Cancel")
         destructiveAccept: true

@@ -20,6 +20,16 @@ the repos share a version number.
 
 ### Added
 
+- Configurable keep-awake, under *Power* in Settings. **Never**, **While
+  playing** (the default: hold only while a bound controller has actually been
+  actuated inside a 1–180 minute idle window, 5 by default) or **While
+  connected** (hold for as long as a slot streams, however long the pad sits
+  still). The hold now covers the **machine** by default and the display only on
+  request, because forwarding a pad needs the computer, not the panel. Activity
+  is measured post-deadzone against a reference that only advances when it
+  moves, so a drifting stick cannot pin the machine awake and a slow deliberate
+  push still registers. The streaming pill names the reach it actually holds and
+  carries a **Configure** button through to the setting.
 - Running in the background. Closing the window leaves Dish streaming behind a
   StatusNotifierItem tray icon whose menu is the way back and the way out, and a
   one-time desktop notification says so the first time it happens. The hide is

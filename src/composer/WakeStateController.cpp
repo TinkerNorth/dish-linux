@@ -3,28 +3,25 @@
 
 #include "composer/WakeStateController.h"
 
-#include "Util/DisplaySleepInhibitor.h"
+#include "source/system/WakeInhibitor.h"
 
 namespace dish::composer {
 
 WakeStateController::WakeStateController(const arch::Observable<WakeState>& wakeState,
-                                         util::DisplaySleepInhibitor* inhibitor, QString reason)
+                                         source::WakeInhibitor* inhibitor, QString reason)
     : arch::Controller<WakeState>(wakeState), inhibitor_(inhibitor), reason_(std::move(reason)) {}
 
-bool WakeStateController::isInhibiting() const {
-    return inhibitor_ != nullptr && inhibitor_->isHeld();
+reducer::KeepAwakeReach WakeStateController::held() const {
+    return inhibitor_ == nullptr ? reducer::KeepAwakeReach::None : inhibitor_->held();
 }
+
+bool WakeStateController::isInhibiting() const { return held() != reducer::KeepAwakeReach::None; }
 
 void WakeStateController::apply(const WakeState& value) {
     // Belt-and-braces: the kernel already tore the subscription down on stop().
-    if (stopped_) { return; }
-    if (inhibitor_ == nullptr) { return; }
-    // acquire/release are idempotent, so the OS is only touched on a real flip.
-    if (value.shouldInhibit) {
-        inhibitor_->acquire(reason_);
-    } else {
-        inhibitor_->release();
-    }
+    if (stopped_ || inhibitor_ == nullptr) { return; }
+    // apply is idempotent, so the OS is only touched on a real move.
+    inhibitor_->apply(value.reach, reason_);
 }
 
 void WakeStateController::onStarting() {
@@ -35,8 +32,7 @@ void WakeStateController::onStarting() {
 void WakeStateController::stop() {
     stopped_ = true;
     cancelCollection();
-    // Release too, or the wake flag is stranded when streaming ends.
-    if (inhibitor_ != nullptr) { inhibitor_->release(); }
+    if (inhibitor_ != nullptr) { inhibitor_->apply(reducer::KeepAwakeReach::None, reason_); }
 }
 
 } // namespace dish::composer

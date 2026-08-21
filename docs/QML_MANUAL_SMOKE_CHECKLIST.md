@@ -162,6 +162,36 @@ and no panel.
       `systemctl --user restart plasma-plasmashell`). The item comes back by
       itself and Show still works.
 
+## Keep awake
+
+`systemd-inhibit --list` is the oracle: Dish's `idle`/`block` lock is the
+machine hold, and `qdbus org.freedesktop.ScreenSaver /ScreenSaver` reports the
+display one. Neither is visible to CI.
+
+- [ ] **Default reach is the machine, not the screen.** With a pad streaming on
+      a fresh config, `systemd-inhibit --list` shows a Dish `idle`/`block` lock
+      and the screen still blanks on its normal schedule. The pill reads
+      "Streaming · computer kept awake".
+- [ ] **Configure lands on the setting.** Click **Configure** on the pill from
+      any destination. Settings opens at the rail root, not as a pushed detail
+      with a back chevron.
+- [ ] **Never means never.** Set *Keep the computer awake* to Never. The lock
+      disappears immediately, the pill drops to "Streaming", and the quit
+      confirm still appears when closing with a pad streaming.
+- [ ] **The idle window lets go and takes back.** Set While playing with a
+      1-minute window. Leave the pad untouched: within ~1 minute the lock
+      disappears and the pill drops to "Streaming". Move a stick: the lock and
+      the suffix come back within a second.
+- [ ] **A resting pad does not hold it.** With a USB-direct DualSense or DS4
+      claimed (which gets no deadzone), leave it on the desk under While
+      playing. The lock must still expire — a drifting stick must not read as
+      activity.
+- [ ] **While connected ignores stillness.** Set While connected and leave the
+      pad untouched well past the window. The lock stays.
+- [ ] **The display opt-in widens, never creates.** Turn *Keep the display
+      awake too* on: the screen stops blanking and the pill reads "display kept
+      awake". Turn the mode to Never with the switch still on: no lock at all.
+
 ## Suspend and resume
 
 - [ ] **Suspend closes the sessions.** With a pad streaming, `systemctl

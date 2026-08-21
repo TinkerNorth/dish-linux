@@ -76,7 +76,7 @@ layer together.
 | `src/composer/` | Composers (pure derive), Controllers (side effects), Coordinators (command services) | `core/`, `source/`, `repository/` | yes (QObject) |
 | `src/qml/` | QML bridge: the `AppViewModel` facade, role models, chrome singletons, and the `.qml` tree | everything | yes (Quick) |
 | `src/Models/` | Shared value types (`models::ControllerSlot`, `DiscoveredServer`, notifications) | `core/` | yes (QString) |
-| `src/Util/` | Leaf helpers with no domain state: endian, hex, host battery, display-sleep inhibitor, locale install | nothing | mixed |
+| `src/Util/` | Leaf helpers with no domain state: endian, hex, host battery, locale install | nothing | mixed |
 | `src/UI/` | The design-token palette (`Theme`), the font-family probes (`FontStacks`), crash handling, the `SlotLiveStats` mapper, `common/ExternalLink`, `licenses/LicenseManifest` | `core/` | yes (Gui) |
 | `src/Input/` | The SDL bridge, the input processor, joystick mapping, the output command queue | `core/` | yes |
 | `src/Network/` | Sockets and the REST control plane: `SatelliteClient`, `ConnectionHub`, `WifiConnectionManager`, `HTTPClient`, `PairingClient` | `core/` | yes |

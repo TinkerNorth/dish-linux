@@ -31,8 +31,9 @@ Physical controllers only. There is no on-screen touch gamepad; that belongs to
   down by the host
 - Several satellites side by side, with per-slot controller binding
 - Per-device deadzones, button remapping, and a guided setup wizard
-- Holds the display awake while a slot is streaming, releases it on the last
-  unbind
+- Keeps the computer awake while a slot is streaming — never, only while a
+  controller is actually being used, or for as long as the link is up — with an
+  optional idle timeout and an opt-in for the display too
 - Keeps streaming with the window closed, behind a tray icon that quits it
 - Closes its sessions on suspend and re-opens them on resume
 - Light and dark themes that follow the desktop, six UI languages
@@ -205,8 +206,9 @@ choice in their power settings. Docked already works untouched:
 Three portal-backed facts, each with a documented fallback so a minimal desktop
 degrades rather than breaks: light/dark from the XDG appearance portal (falling
 back to dark), reduced motion from the XDG settings portal then `kdeglobals`
-(falling back to motion allowed), and keep-awake from
-`org.freedesktop.ScreenSaver.Inhibit` (falling back to a silent no-op).
+(falling back to motion allowed), and keep-awake from logind's `idle` inhibit
+plus, when the display opt-in is on, `org.freedesktop.ScreenSaver.Inhibit`
+(each falling back to a silent no-op).
 Bluetooth presence and power come from sysfs and BlueZ directly, because the
 wizard needs to tell "no adapter" from "adapter off".
 
