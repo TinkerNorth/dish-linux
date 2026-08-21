@@ -121,6 +121,10 @@ set(DISH_TEST_SOURCES
     test_usb_poll_rate.cpp
     test_poll_rate_sampler.cpp
     test_path_choice.cpp
+    test_transport_failure.cpp
+    test_app_settings_migration.cpp
+    test_secret_service_store.cpp
+    test_crash_report.cpp
     test_usb_path_resolution.cpp
     test_usb_path_preference_store.cpp
     test_usb_gamepad_manager.cpp
@@ -184,4 +188,10 @@ target_compile_definitions(DishTests PRIVATE
 # The `release_translations` dependency is wired from the TOP-LEVEL CMakeLists:
 # that target does not exist until this directory scope is finalized.
 
-catch_discover_tests(DishTests)
+# SKIP_RETURN_CODE 4 is Catch2's contract: a test case that calls SKIP() exits 4,
+# and without telling CTest what that means, every skip is reported as a failure.
+# The keyring round-trip is the case that needs it — it exercises a real
+# org.freedesktop.secrets and skips where none answers, which is every CI runner
+# and every headless box, so treating its skip as a failure made the whole suite
+# red anywhere without a desktop keyring.
+catch_discover_tests(DishTests PROPERTIES SKIP_RETURN_CODE 4)

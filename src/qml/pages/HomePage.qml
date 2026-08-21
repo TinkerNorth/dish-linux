@@ -501,7 +501,29 @@ Kit.Page {
     Menu {
         id: rowMenu
 
+        // Widest item, recomputed whenever the Repeater rebuilds the list —
+        // `count` is the dependency that makes this re-evaluate.
+        readonly property real widestItem: {
+            let widest = 0;
+            for (let i = 0; i < rowMenu.count; ++i) {
+                const entry = rowMenu.itemAt(i);
+                if (entry)
+                    widest = Math.max(widest, entry.implicitWidth);
+            }
+            return widest;
+        }
+
         background: Rectangle {
+            // A Menu takes its width from its BACKGROUND, not from its items:
+            // the style's default background carries implicitWidth 200, and
+            // replacing it with a bare Rectangle drops that to 0. The menu then
+            // opens, takes focus and draws nothing — indistinguishable from a
+            // dead button. Sized to the widest item so a longer translation is
+            // not clipped, with a floor so a one-word menu is not a sliver.
+            // Same fix ComboButton already carries.
+            implicitWidth: Math.max(Tokens.menuMinWidth,
+                                    rowMenu.widestItem
+                                    + rowMenu.leftPadding + rowMenu.rightPadding)
             color: Theme.surface
             border.width: 1
             border.color: Theme.outline

@@ -72,6 +72,9 @@ class AppViewModel : public QObject {
     Q_PROPERTY(int themeMode READ themeMode WRITE setThemeMode NOTIFY themeModeChanged)
     Q_PROPERTY(bool crashReportingEnabled READ crashReportingEnabled WRITE setCrashReportingEnabled
                    NOTIFY crashReportingChanged)
+    // True when the last run left a backtrace on disk. Drives the whole report
+    // card: no crash, no card, so the UI is silent in the ordinary case.
+    Q_PROPERTY(bool hasCrashReport READ hasCrashReport NOTIFY crashReportChanged)
 
     // ── Settings: window ──────────────────────────────────────────────────────
     Q_PROPERTY(bool runInBackground READ runInBackground WRITE setRunInBackground NOTIFY
@@ -188,7 +191,20 @@ class AppViewModel : public QObject {
     // accessor, and the pages call these as functions.
     Q_INVOKABLE void setThemeMode(int mode);
     bool crashReportingEnabled() const;
+    bool hasCrashReport() const;
     Q_INVOKABLE void setCrashReportingEnabled(bool enabled);
+
+    // ── Crash report ─────────────────────────────────────────────────────────
+    // The redacted text, exactly as it would be sent. Shown before any send so
+    // the user approves what leaves the machine rather than trusting a promise.
+    Q_INVOKABLE QString crashReportText() const;
+    // Puts that same text on the clipboard.
+    Q_INVOKABLE void copyCrashReport() const;
+    // Opens a prefilled GitHub issue in the browser. Nothing is uploaded by Dish
+    // itself: the browser is the transport and the user is the one who submits.
+    Q_INVOKABLE void openCrashIssue() const;
+    // Deletes the log, which is what makes the card go away.
+    Q_INVOKABLE void discardCrashReport();
     bool runInBackground() const;
     Q_INVOKABLE void setRunInBackground(bool enabled);
     bool trayAvailable() const;
@@ -421,6 +437,7 @@ class AppViewModel : public QObject {
 
     void themeModeChanged();
     void crashReportingChanged();
+    void crashReportChanged();
     void onboardingNeededChanged();
     void runInBackgroundChanged();
     void trayAvailableChanged();

@@ -2708,10 +2708,6 @@
         <translation>Diagnóstico</translation>
     </message>
     <message>
-        <source>Anonymous crash reports help fix bugs. Opt out any time.</source>
-        <translation>Los informes de fallos anónimos ayudan a corregir errores. Puedes desactivarlos cuando quieras.</translation>
-    </message>
-    <message>
         <source>Your package manager installs updates. Dish only tells you one exists.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -2756,10 +2752,6 @@
         <translation>Las funciones solo se aplican si el hardware de tu mando las admite — la lista de mandos muestra lo que se detectó.</translation>
     </message>
     <message>
-        <source>Share crash reports</source>
-        <translation type="unfinished">Compartir informes de fallos</translation>
-    </message>
-    <message>
         <source>Automatic update checks are off.</source>
         <translation type="unfinished">Las comprobaciones automáticas de actualizaciones están desactivadas.</translation>
     </message>
@@ -2794,6 +2786,30 @@
     <message>
         <source>Choose how Dish looks. System matches your desktop’s light or dark setting.</source>
         <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Save crash reports</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Writes a crash report to this machine so you can read it and send it yourself. Nothing is uploaded.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Dish closed unexpectedly last time. The report below has had your home folder, network addresses and any key-like values removed.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Copy</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Report on GitHub</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Dismiss</source>
+        <translation type="unfinished">Descartar</translation>
     </message>
     <message>
         <source>Updates</source>
@@ -3700,7 +3716,58 @@
     </message>
 </context>
 <context>
+    <name>dish::net::PairingClient</name>
+    <message>
+        <source>Server unreachable</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
     <name>dish::net::WifiConnectionManager</name>
+    <message>
+        <source>Server unreachable — check it&apos;s powered on and on the same Wi-Fi.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>That machine is reachable, but no satellite is listening on it. Start Satellite there, then try again.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The satellite stopped responding. It may have gone to sleep or left the network.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Could not set up a secure connection to the satellite.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>This satellite no longer recognizes this device. Re-pair needed.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>This app and the satellite speak different protocol versions.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>This satellite&apos;s security identity changed. If it was reinstalled, forget it here and pair again.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>That PIN wasn&apos;t accepted. Check the code on the satellite and try again.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The satellite hasn&apos;t confirmed pairing yet. Try again in a moment.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The satellite declined this device. Pairing was not approved.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Timed out waiting for approval on the satellite. Try again.</source>
+        <translation type="unfinished"></translation>
+    </message>
     <message>
         <source>Refusing to connect to a non-local address (%1).</source>
         <translation>Se rechaza la conexión a una dirección no local (%1).</translation>

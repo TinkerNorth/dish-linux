@@ -12,6 +12,7 @@
 #include "composer/CatalogComposer.h"
 #include "composer/ConnectionCoordinator.h"
 #include "composer/StreamingSlotCount.h"
+#include "UI/CrashReport.h"
 #include "core/catalog/BundledCatalog.h"
 #include "core/input/Deadzones.h"
 #include "core/reducer/CapabilitySolver.h"
@@ -35,6 +36,7 @@
 #include "UI/licenses/LicenseManifest.h"
 
 #include <QDateTime>
+#include <QClipboard>
 #include <QDesktopServices>
 #include <QGuiApplication>
 #include <QSet>
@@ -816,6 +818,26 @@ void AppViewModel::setThemeMode(int mode) {
 }
 
 bool AppViewModel::crashReportingEnabled() const { return model_->crashStore()->enabled(); }
+
+bool AppViewModel::hasCrashReport() const { return crash::hasCrashLog(); }
+
+QString AppViewModel::crashReportText() const {
+    return crash::buildReport(crash::readCrashLog(), QString::fromLocal8Bit(qgetenv("HOME")));
+}
+
+void AppViewModel::copyCrashReport() const {
+    if (auto* clipboard = QGuiApplication::clipboard()) { clipboard->setText(crashReportText()); }
+}
+
+void AppViewModel::openCrashIssue() const {
+    // openUrl, not a network call: Dish never speaks to GitHub on this path, and
+    // the user submits the issue themselves from a page they can still edit.
+    QDesktopServices::openUrl(crash::issueUrl(crashReportText()));
+}
+
+void AppViewModel::discardCrashReport() {
+    if (crash::discardCrashLog()) { emit crashReportChanged(); }
+}
 
 void AppViewModel::setCrashReportingEnabled(bool enabled) {
     model_->crashStore()->setEnabled(enabled);

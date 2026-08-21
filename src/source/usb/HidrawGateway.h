@@ -79,6 +79,11 @@ inline std::optional<HidIds> parseHidIds(std::string_view uevent) {
         const std::size_t sep = rest.find(':');
         const std::string_view token = rest.substr(0, sep);
         const char* const last = token.data() + token.size();
+        // from_chars takes a (first, last) pair, so the length IS being passed —
+        // `last` two lines up is exactly the bound the check asks for. It simply
+        // does not model from_chars as a size-aware callee, and nothing here ever
+        // treats token.data() as a C string.
+        // NOLINTNEXTLINE(bugprone-suspicious-stringview-data-usage)
         const auto res = std::from_chars(token.data(), last, out, 16);
         rest = sep == std::string_view::npos ? std::string_view{} : rest.substr(sep + 1);
         return res.ec == std::errc{} && res.ptr == last;

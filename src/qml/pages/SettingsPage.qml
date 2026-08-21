@@ -252,10 +252,60 @@ Kit.Page {
                 Kit.Card {
                     Layout.fillWidth: true
                     contentItem: Kit.LabeledSwitch {
-                        label: qsTr("Share crash reports")
-                        description: qsTr("Anonymous crash reports help fix bugs. Opt out any time.")
+                        // Nothing is transmitted, so the copy must not imply it is.
+                        // This switch controls whether a crash is RECORDED locally.
+                        label: qsTr("Save crash reports")
+                        description: qsTr("Writes a crash report to this machine so you can read it and send it yourself. Nothing is uploaded.")
                         checked: App.crashReportingEnabled
                         onToggled: (checked) => App.setCrashReportingEnabled(checked)
+                    }
+                }
+
+                // Only after a crash. In the ordinary case this card does not exist.
+                Kit.Card {
+                    Layout.fillWidth: true
+                    visible: App.hasCrashReport
+                    contentItem: ColumnLayout {
+                        spacing: Tokens.s4
+
+                        Label {
+                            Layout.fillWidth: true
+                            wrapMode: Text.WordWrap
+                            text: qsTr("Dish closed unexpectedly last time. The report below has had your home folder, network addresses and any key-like values removed.")
+                            color: Tokens.textMeta
+                        }
+
+                        ScrollView {
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: 160
+                            clip: true
+
+                            TextArea {
+                                readOnly: true
+                                wrapMode: TextEdit.NoWrap
+                                font.family: Tokens.monoFamily
+                                text: App.crashReportText()
+                            }
+                        }
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: Tokens.s4
+
+                            Kit.OutlineButton {
+                                text: qsTr("Copy")
+                                onClicked: App.copyCrashReport()
+                            }
+                            Kit.OutlineButton {
+                                text: qsTr("Report on GitHub")
+                                onClicked: App.openCrashIssue()
+                            }
+                            Item { Layout.fillWidth: true }
+                            Kit.OutlineButton {
+                                text: qsTr("Dismiss")
+                                onClicked: App.discardCrashReport()
+                            }
+                        }
                     }
                 }
             }

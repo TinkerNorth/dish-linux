@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 // Copyright (C) 2026 Dish contributors.
 
+#include "repository/AppSettings.h"
 #include "repository/ConnectionStore.h"
 
 #include "Network/WifiConnection.h"
@@ -41,19 +42,24 @@ void migrateLegacyNamespaces(QSettings& settings) {
         const QString id = legacyKey.mid(legacyPrefix.size());
         const QString newKey = QLatin1String(keys::kSharedKeyPrefix) + id;
         if (!settings.contains(newKey)) { settings.setValue(newKey, settings.value(legacyKey)); }
+        // Drop the legacy copy once the current namespace holds it. This used to
+        // be harmless duplication inside one plaintext file; now that keys move
+        // to the keyring it is the difference between a secret leaving the disk
+        // and a forgotten second copy of it staying there forever.
+        settings.remove(legacyKey);
     }
+    settings.sync();
 }
 
 } // namespace
 
-ConnectionStore::ConnectionStore(std::shared_ptr<QSettings> settings)
-    : settings_(settings
-                    ? std::move(settings)
-                    : std::make_shared<QSettings>(QStringLiteral("Dish"), QStringLiteral("Dish"))),
-      satellites_(nullptr), keys_(nullptr), pins_(nullptr) {
+ConnectionStore::ConnectionStore(std::shared_ptr<QSettings> settings,
+                                 std::shared_ptr<source::SecretServiceStore> secrets)
+    : settings_(settings ? std::move(settings) : repository::makeSettings()), satellites_(nullptr),
+      keys_(nullptr), pins_(nullptr) {
     migrateLegacyNamespaces(*settings_);
     satellites_ = std::make_unique<RememberedSatelliteRepository>(settings_);
-    keys_ = std::make_unique<SatelliteSharedKeyRepository>(settings_);
+    keys_ = std::make_unique<SatelliteSharedKeyRepository>(settings_, std::move(secrets));
     pins_ = std::make_unique<SatellitePinRepository>(settings_);
 }
 

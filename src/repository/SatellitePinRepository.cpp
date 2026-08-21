@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 // Copyright (C) 2026 Dish contributors.
 
+#include "repository/AppSettings.h"
 #include "repository/SatellitePinRepository.h"
 
 #include "repository/SettingsKeys.h"
@@ -8,10 +9,7 @@
 namespace dish::repository {
 
 SatellitePinRepository::SatellitePinRepository(std::shared_ptr<QSettings> settings)
-    : settings_(settings
-                    ? std::move(settings)
-                    : std::make_shared<QSettings>(QStringLiteral("Dish"), QStringLiteral("Dish"))) {
-}
+    : settings_(settings ? std::move(settings) : repository::makeSettings()) {}
 
 std::optional<QString> SatellitePinRepository::get(const QString& id) const {
     std::lock_guard<std::mutex> lock(mutex_);

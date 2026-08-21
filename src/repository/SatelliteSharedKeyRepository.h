@@ -5,9 +5,14 @@
 // "satellite_shared_key:<id>" namespace of the shared connection-store
 // QSettings. The session manager reads the key to derive a session key.
 //
-// The key is stored as PLAINTEXT HEX in the user's registry hive, with no DPAPI
-// wrap. That is a documented, deliberate trade-off — see PRIVACY.md and
-// SECURITY.md before changing it.
+// Keys live in the desktop keyring when one answers on the session bus, and in
+// the config file when none does. `secrets` is injected, never constructed here:
+// a repository that reached for the real keyring on its own would make every test
+// that builds one write to the developer's own login keyring.
+//
+// The config-file path stores PLAINTEXT HEX, so AppSettings keeps that file 0600.
+// A key found there while a keyring IS available is migrated on first read and
+// then deleted from the file — see get().
 //
 // Co-tenants the cert-pin repo and remembered list in one QSettings file, kept
 // disjoint by key prefix, so all()/clear() must stay prefix-scoped: a shared key
@@ -16,6 +21,7 @@
 #pragma once
 
 #include "architecture/Repository.h"
+#include "source/system/SecretServiceStore.h"
 
 #include <QSettings>
 #include <QString>
@@ -28,7 +34,9 @@ namespace dish::repository {
 
 class SatelliteSharedKeyRepository : public arch::Repository<QString, QString> {
   public:
-    explicit SatelliteSharedKeyRepository(std::shared_ptr<QSettings> settings = nullptr);
+    explicit SatelliteSharedKeyRepository(
+        std::shared_ptr<QSettings> settings = nullptr,
+        std::shared_ptr<source::SecretServiceStore> secrets = nullptr);
 
     std::optional<QString> get(const QString& id) const override;
     std::vector<QString> all() const override;
@@ -37,7 +45,13 @@ class SatelliteSharedKeyRepository : public arch::Repository<QString, QString> {
     void clear() override;
 
   private:
+    // True only when a keyring answered AND opened a session. Everything below
+    // branches on this rather than on the pointer, so an unusable service behaves
+    // exactly like an absent one.
+    bool keyringUsable() const;
+
     std::shared_ptr<QSettings> settings_;
+    std::shared_ptr<source::SecretServiceStore> secrets_;
     mutable std::mutex mutex_;
 };
 

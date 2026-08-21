@@ -58,7 +58,7 @@ Ubuntu 24.04 LTS ships Qt 6.4, below this project's 6.7 floor, so there is no
 [`docs/PACKAGING.md`](docs/PACKAGING.md) has the full per-distro table and what
 each package lays down.
 
-Settings persist under `~/.config/TinkerNorth/Dish.conf`; a crash writes a
+Settings persist under `~/.config/com.tinkernorth.Dish/dish.conf`; a crash writes a
 backtrace to `$XDG_STATE_HOME/dish/crash.log`.
 
 ### USB-direct needs a udev rule
@@ -94,6 +94,9 @@ update-related network request when off. What the check sends is spelled out in
 - Qt 6.7+ (Core, Gui, Network, DBus, Svg, Quick, Qml, QuickControls2; Linguist
   tools for the translation catalogues)
 - libsodium, SDL2, Catch2 v3
+- Optional: `rsvg-convert`, which renders the rest of the launcher-icon ladder
+  from the SVG. Without it the build says so and installs only the scalable and
+  512x512 icons, which is enough for a working menu entry.
 
 On Debian and Ubuntu:
 
@@ -101,7 +104,8 @@ On Debian and Ubuntu:
 sudo apt install build-essential cmake ninja-build pkg-config \
   qt6-base-dev qt6-base-dev-tools qt6-declarative-dev qt6-svg-dev \
   qt6-tools-dev qt6-l10n-tools \
-  libsodium-dev libsdl2-dev libdbus-1-dev catch2
+  libsodium-dev libsdl2-dev libdbus-1-dev catch2 \
+  librsvg2-bin
 ```
 
 Then:

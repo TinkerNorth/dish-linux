@@ -118,6 +118,12 @@ Needs a pad and a satellite. Nothing here can be faked in CI.
 
 ## Transients and guards
 
+- [ ] **Overflow menus open with a visible width.** On Connections, click the
+      `⋯` on a host card: the Forget menu appears, sized to its text. On Home,
+      open a slot row's context menu the same way. A Menu takes its width from
+      its background, so a restyled background with no `implicitWidth` opens the
+      menu at zero width — it takes focus and draws nothing, which looks exactly
+      like a dead button. Check this after any change to a Menu background.
 - [ ] **One toast host.** Trigger a failure (unplug the network mid-connect).
       Exactly one toast appears, bottom-centre, and it does not block the
       controls under it.
@@ -127,7 +133,7 @@ Needs a pad and a satellite. Nothing here can be faked in CI.
       close the window while a pad is streaming. The quit confirm appears;
       Cancel keeps the app running and streaming.
 - [ ] **First run.** With a fresh profile (remove
-      `~/.config/TinkerNorth/Dish.conf`) the onboarding flow opens full-screen
+      `~/.config/com.tinkernorth.Dish/dish.conf`) the onboarding flow opens full-screen
       over the shell. Both Skip and finishing the flow mark it done, and it
       does not reappear on the next launch.
 

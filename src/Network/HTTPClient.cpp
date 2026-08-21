@@ -23,6 +23,38 @@ namespace {
 
 constexpr int kTimeoutMs = 5000;
 
+// QNetworkReply::NetworkError is a flat list mixing transport, TLS and HTTP
+// causes; this keeps only the distinctions a user or a log reader can act on.
+// The satellite path deliberately does NOT branch its retry on the result — see
+// TransportFailure in core/reducer/RestOutcome.h.
+reducer::TransportFailure classifyTransport(QNetworkReply::NetworkError error, bool pinMismatch) {
+    // Our own abort. The TOFU gate hangs up before any status exists, so the
+    // generic OperationCanceled below would otherwise bury an identity change.
+    if (pinMismatch) { return reducer::TransportFailure::Aborted; }
+    switch (error) {
+    case QNetworkReply::NoError:
+        // Reached with an empty body and no status: the peer closed the
+        // connection cleanly without answering.
+        return reducer::TransportFailure::Unreachable;
+    case QNetworkReply::ConnectionRefusedError:
+        return reducer::TransportFailure::Refused;
+    case QNetworkReply::HostNotFoundError:
+    case QNetworkReply::NetworkSessionFailedError:
+    case QNetworkReply::TemporaryNetworkFailureError:
+    case QNetworkReply::UnknownNetworkError:
+        return reducer::TransportFailure::Unreachable;
+    case QNetworkReply::TimeoutError:
+    case QNetworkReply::OperationCanceledError:
+        // setTransferTimeout expires a stalled request by cancelling it, so a
+        // bare cancel here is a timeout in every path we originate.
+        return reducer::TransportFailure::TimedOut;
+    case QNetworkReply::SslHandshakeFailedError:
+        return reducer::TransportFailure::Tls;
+    default:
+        return reducer::TransportFailure::Other;
+    }
+}
+
 QJsonObject parseObject(const QByteArray& body) {
     if (body.isEmpty()) { return {}; }
     QJsonParseError err{};
@@ -79,12 +111,18 @@ void HTTPClient::perform(const QString& url, const QByteArray& method, const QBy
             RawReply out;
             const auto statusVar = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute);
             out.status = statusVar.isValid() ? statusVar.toInt() : 0;
-            out.body = reply->readAll();
+            // An aborted or never-connected reply is CLOSED, and reading a closed
+            // QIODevice warns to the log without returning anything. There is
+            // nothing to read in that case anyway: the guard is the whole fix for
+            // the "QIODevice::read ... device not open" line a remembered-but-
+            // absent satellite used to print on every backoff tick.
+            if (reply->isOpen()) { out.body = reply->readAll(); }
             // A 4xx/5xx body still means the server answered; only a missing
             // status AND an empty body is a transport failure.
             out.reachable = out.status != 0 || !out.body.isEmpty();
             out.etag = QString::fromUtf8(reply->rawHeader("ETag"));
             out.pinMismatch = *pinMismatch;
+            if (!out.reachable) { out.failure = classifyTransport(reply->error(), *pinMismatch); }
             done(out);
         });
 }
@@ -108,6 +146,7 @@ void HTTPClient::putSession(const QString& ip, int port, const QString& deviceId
         if (r.reachable) { resp = models::SessionResponse::fromJson(parseObject(r.body)); }
         resp.httpStatus = r.status;
         resp.reachable = r.reachable;
+        resp.failure = r.failure;
         cb(resp, r.pinMismatch);
     });
 }

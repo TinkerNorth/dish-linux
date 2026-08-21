@@ -33,7 +33,11 @@ class ConnectionStore {
   public:
     // nullptr backs all three repos on the shared HKCU store; tests pass one
     // shared QSettings so namespace isolation and migration stay observable.
-    explicit ConnectionStore(std::shared_ptr<QSettings> settings = nullptr);
+    // `secrets` is forwarded to the shared-key repository. Null (the default)
+    // keeps keys in the config file, which is what every test wants; the
+    // production wiring in net::ConnectionStore passes a real one.
+    explicit ConnectionStore(std::shared_ptr<QSettings> settings = nullptr,
+                             std::shared_ptr<source::SecretServiceStore> secrets = nullptr);
 
     // The stable per-install device id (the X-Device-Id machineId). One owner.
     QString getOrCreateDeviceId();

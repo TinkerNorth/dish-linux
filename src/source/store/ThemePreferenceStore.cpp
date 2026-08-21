@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 // Copyright (C) 2026 Dish contributors.
 
+#include "repository/AppSettings.h"
 #include "source/store/ThemePreferenceStore.h"
 
 #include <QCoreApplication>
@@ -55,9 +56,7 @@ ThemeMode ThemePreferenceStore::readInitial(QSettings& settings) {
     return themeModeFromStorage(settings.value(QLatin1String(kKeyThemeMode)).toString());
 }
 
-ThemePreferenceStore::ThemePreferenceStore()
-    : ThemePreferenceStore(
-          std::make_unique<QSettings>(QStringLiteral("Dish"), QStringLiteral("Dish"))) {}
+ThemePreferenceStore::ThemePreferenceStore() : ThemePreferenceStore(repository::makeSettings()) {}
 
 ThemePreferenceStore::ThemePreferenceStore(std::unique_ptr<QSettings> settings)
     : arch::StateSource<ThemeMode>(readInitial(*settings)), settings_(std::move(settings)) {}

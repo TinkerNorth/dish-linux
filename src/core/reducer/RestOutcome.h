@@ -11,6 +11,28 @@
 
 namespace dish::reducer {
 
+// Why the transport failed, when it failed before any HTTP status existed.
+// `classifyRest` still folds every one of these into RestVerdict::Unreachable —
+// the retry decision is deliberately unchanged — but the cause survives so the
+// UI can say which of "that machine is off" and "Dish is not running on it" it
+// is looking at, and so the log stops being a wall of identical lines.
+enum class TransportFailure : std::uint8_t {
+    None,        // the transport produced a response, whatever its status
+    Unreachable, // no route, DNS failure, host down
+    Refused,     // the host answered and closed the port: nothing listening
+    TimedOut,    // the host swallowed the SYN, or stalled mid-request
+    Tls,         // handshake failed for a reason that is NOT the TOFU pin
+    Aborted,     // we hung up: pin mismatch, shutdown, or a superseded attempt
+    Other,       // classified so the switch stays total; treated as Unreachable
+};
+
+// A cause worth telling the user about once, rather than every backoff tick.
+// Refused and Unreachable are the ordinary "satellite is off" pair and repeat
+// forever; the rest are unusual enough that each occurrence is worth a line.
+inline bool transportFailureIsRoutine(TransportFailure f) {
+    return f == TransportFailure::Unreachable || f == TransportFailure::Refused;
+}
+
 enum class RestVerdict : std::uint8_t {
     Ok,              // 2xx with the fields we need
     Unauthorized,    // 401 NOT_PAIRED|BAD_PROOF; terminal, drop key and re-pair
@@ -40,6 +62,9 @@ struct RestReply {
     // The TOFU gate aborted the handshake over a CHANGED cert, so the reply also
     // arrives statusless. Carried separately because retrying cannot fix it.
     bool pinMismatch = false;
+    // Only meaningful when status == 0. Diagnostic: never an input to the
+    // verdict, so adding a cause can never change a retry decision.
+    TransportFailure failure = TransportFailure::None;
 };
 
 inline RestVerdict classifyRest(const RestReply& r) {
