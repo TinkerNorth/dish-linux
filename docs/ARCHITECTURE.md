@@ -474,7 +474,9 @@ CI), so each needs a device-in-the-loop test pass.
 - **Translations are tested.** `test_translations` pins locale fallback, the
   per-language `numerusform` order, and placeholder integrity across every
   catalogue. `scripts/check-translations.sh` re-runs `lupdate` in CI and fails
-  on any diff, so a new string cannot land without its catalogue entry.
+  on any diff, so a new string cannot land without its catalogue entry — and
+  fails again if any catalogue still has an unfinished entry, so it cannot land
+  without its words either.
 - **The update checker is tested the same way.** Test names are prefixed so
   `ctest -R update` selects them: the exhaustive reducer table for
   `UpdateMachine`, the manifest grammar, the preference schema, and
