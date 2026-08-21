@@ -83,6 +83,13 @@ class WifiConnectionManager : public QObject {
     void forget(const QString& id);
     void autoReconnectAll();
 
+    // Suspend/resume. Tearing down first matters: a session the machine slept
+    // through comes back Faltering, which slips past both autoReconnectAll's
+    // not-Live test and connectTo's Live-or-Linking guard, so a bare reconnect
+    // would open a second socket beside the frozen one and strand it.
+    void prepareForSleep();
+    void resumeFromSleep();
+
     QList<models::RememberedWifi> remembered() const { return store_->remembered(); }
 
   signals:

@@ -123,12 +123,51 @@ Needs a pad and a satellite. Nothing here can be faked in CI.
       controls under it.
 - [ ] **Streaming pill.** With a pad streaming, the header shows the streaming
       pill on every destination, and it clears when streaming stops.
-- [ ] **Close while streaming.** Close the window while a pad is streaming. The
-      quit confirm appears; Cancel keeps the app running and streaming.
+- [ ] **Close while streaming.** With *Keep running in the background* OFF,
+      close the window while a pad is streaming. The quit confirm appears;
+      Cancel keeps the app running and streaming.
 - [ ] **First run.** With a fresh profile (remove
       `~/.config/TinkerNorth/Dish.conf`) the onboarding flow opens full-screen
       over the shell. Both Skip and finishing the flow mark it done, and it
       does not reappear on the next launch.
+
+## Running in the background
+
+None of this is reachable from CI: the suite runs offscreen with no session bus
+and no panel.
+
+- [ ] **Tray item appears.** Launch on a desktop with a StatusNotifier host
+      (KDE, XFCE, Cinnamon, sway/Waybar, or GNOME with the AppIndicator
+      extension). The item shows with the Dish icon, and its tooltip names the
+      streaming controller count while a pad streams.
+- [ ] **Close hides, and says so once.** With the preference on, close the
+      window. The window disappears, the pad keeps streaming, and a desktop
+      notification says Dish is still running. Re-open and close again: no
+      second notification, ever.
+- [ ] **Show comes back.** From the tray menu, Show Dish restores the window,
+      raises it above other windows and focuses it. On GNOME check the menu
+      item specifically — the extension does not deliver a single left click.
+- [ ] **Quit really quits.** Quit from the tray menu ends the process (`pgrep
+      dish` is empty) and the item disappears from the panel.
+- [ ] **No tray, no trap.** On bare GNOME with no AppIndicator extension, the
+      Settings row is disabled and explains why, and closing the window quits
+      rather than hiding it.
+- [ ] **Panel restart.** With the window hidden, restart the shell (KDE:
+      `systemctl --user restart plasma-plasmashell`). The item comes back by
+      itself and Show still works.
+
+## Suspend and resume
+
+- [ ] **Suspend closes the sessions.** With a pad streaming, `systemctl
+      suspend`. On resume the connection rows go Connecting and return to
+      Connected within a couple of seconds, not the ~10 s heartbeat timeout,
+      and the pad streams again with no manual reconnect.
+- [ ] **Resume on another network.** Suspend on one LAN, resume on another,
+      then return. The rescan relearns the satellite rather than retrying a
+      stale address.
+- [ ] **No stuck delay lock.** After a suspend/resume cycle,
+      `systemd-inhibit --list` shows exactly one Dish `sleep`/`delay` lock, not
+      several, and none after the app quits.
 
 ## Accessibility
 

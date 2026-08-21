@@ -124,6 +124,8 @@ project it so the type picker can tell loading from empty from failed.
 |---|---|---|---|
 | `themeMode` | `int` (RW) | `themeModeChanged` | `0` Light, `1` Dark, `2` System. |
 | `crashReportingEnabled` | `bool` (RW) | `crashReportingChanged` | Crash-reporting opt-out. Default on. |
+| `runInBackground` | `bool` (RW) | `runInBackgroundChanged` | Closing the window keeps Dish streaming behind the tray item. Default on, but inert without `trayAvailable`. |
+| `trayAvailable` | `bool` | `trayAvailableChanged` | A StatusNotifier host owns the watcher name. False disables the `runInBackground` row and forces a close to quit. Can flip at runtime when a panel restarts. |
 | `railCollapsed` | `bool` (RW) | `railCollapsedChanged` | The nav rail's persisted collapse state. The rail-head toggle writes it. |
 | `lightbarFollowGame` | `bool` (RW) | `lightbarChanged` | Light-bar forwarding: true is "Follow game", false is "Off". |
 | `onboardingNeeded` | `bool` | `onboardingNeededChanged` | The first-run welcome has not completed. Flips false after `markOnboardingComplete()`. |
@@ -172,6 +174,10 @@ and how long it has been running.
 | `emulateStateChanged` | | The catalog fetch moved. |
 | `themeModeChanged` | | `themeMode` moved. |
 | `crashReportingChanged` | | `crashReportingEnabled` moved. |
+| `runInBackgroundChanged` | | `runInBackground` flipped. |
+| `trayAvailableChanged` | | A StatusNotifier host appeared or went away. |
+| `showWindowRequested` | | The tray menu's Show item, or an activation on the item. The window must `show()`, `raise()` and `requestActivate()`. |
+| `quitRequested` | | The tray menu's Quit item. The window runs its normal approved-close path; this is the only quit that bypasses no guard. |
 | `onboardingNeededChanged` | | `onboardingNeeded` flipped. |
 | `railCollapsedChanged` | | `railCollapsed` flipped. |
 | `lightbarChanged` | | `lightbarFollowGame` flipped. |
@@ -390,6 +396,9 @@ connection that never existed is worse than showing none.
 | `openExternalUrl(url)` | Open a URL through the shared `ExternalLink` path; a failure raises `errorMessage`. Not a raw `Qt.openUrlExternally`. |
 | `setThemeMode(mode)` | Apply an appearance mode. Also available as the `themeMode` property write. |
 | `setCrashReportingEnabled(on)` | Also available as the property write. |
+| `setRunInBackground(on)` | Also available as the property write. |
+| `requestWindowClose()` | Returns true when the shell should `hide()` the window instead of quitting. **Not a query** — the first call that answers true spends the one-time "Dish is still running" desktop notification. Call it exactly once per close intent. |
+| `setWindowVisible(visible)` | Report the window's visibility; the tray item is derived from it. |
 | `setRailCollapsed(collapsed)` | Also available as the property write. |
 | `setLightbarFollowGame(on)` | Also available as the property write. |
 

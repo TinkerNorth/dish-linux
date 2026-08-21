@@ -56,11 +56,19 @@ AppModel::AppModel(std::unique_ptr<util::DisplaySleepInhibitor> inhibitor, QObje
       inhibitor_(std::move(inhibitor)), wakeComposer_(streamingSlotCount_, shouldKeepScreenOn_),
       wakeController_(wakeComposer_.state(), inhibitor_.get()),
       themeController_(themeStore_.state()), crashController_(crashStore_.state(), &crashBackend_),
-      updateChecker_(&updatePrefs_, this), catalogHttp_(new net::HTTPClient(this)),
-      catalogRepo_(catalogHttp_), motionEnabledStore_(&motionPrefRepo_),
-      joystickRemapStore_(&joystickRemapRepo_), catalogSnapshot_(composer::CatalogSnapshot{}),
-      catalogComposer_(catalogSnapshot_), usbPathStore_(&usbPathRepo_), usbObserver_(this),
-      usbScanTimer_(new QTimer(this)), inputRateTimer_(new QTimer(this)) {
+      tray_(source::makeSystemTrayIcon()),
+      notifier_(std::make_unique<source::FreedesktopNotifier>()),
+      sleepMonitor_(std::make_unique<source::LogindSleepMonitor>()),
+      backgroundCoordinator_(new composer::BackgroundCoordinator(&backgroundStore_, tray_.get(),
+                                                                 notifier_.get(), this)),
+      sleepCoordinator_(new composer::SleepCoordinator(sleepMonitor_.get(), connections_, this)),
+      trayComposer_(backgroundCoordinator_->windowVisible(), streamingSlotCount_),
+      trayController_(trayComposer_.state(), tray_.get()), updateChecker_(&updatePrefs_, this),
+      catalogHttp_(new net::HTTPClient(this)), catalogRepo_(catalogHttp_),
+      motionEnabledStore_(&motionPrefRepo_), joystickRemapStore_(&joystickRemapRepo_),
+      catalogSnapshot_(composer::CatalogSnapshot{}), catalogComposer_(catalogSnapshot_),
+      usbPathStore_(&usbPathRepo_), usbObserver_(this), usbScanTimer_(new QTimer(this)),
+      inputRateTimer_(new QTimer(this)) {
     QObject::connect(hub_, &net::ConnectionHub::changed, this, &AppModel::onHubChanged);
     QObject::connect(bridge_, &input::SDLGamepadBridge::devicesChanged, this,
                      &AppModel::onBridgeDevicesChanged);
@@ -265,6 +273,11 @@ AppModel::~AppModel() {
     bridge_->stop();
     usbScanTimer_->stop();
     inputRateTimer_->stop();
+    // Unregister the tray item and drop the suspend delay lock explicitly: a
+    // panel that outlives us must not keep drawing a dead item, and a leaked
+    // delay lock makes the next suspend wait out logind's timeout.
+    trayController_.stop();
+    sleepMonitor_->stop();
     // Drop each subscription before its store, so no late emission races
     // teardown and pushes into a half-gone bridge.
     inputRatesSub_ = arch::Observable<source::SlotInputRatesMap>::Subscription{};
@@ -338,6 +351,10 @@ void AppModel::start() {
     // The first tick only baselines each tracker, so numbers appear from the
     // second tick on.
     inputRateTimer_->start();
+    // Both touch D-Bus, so they belong here and not in the constructor: a test
+    // that builds an AppModel must not register a tray item on the panel.
+    sleepMonitor_->start();
+    trayController_.start();
     // Last: the janitor pass and the staged-update scan are disk IO, and the
     // first check is 15 s out, so nothing here delays the first frame.
     updateChecker_.start();

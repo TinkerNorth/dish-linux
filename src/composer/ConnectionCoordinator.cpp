@@ -190,4 +190,8 @@ void ConnectionCoordinator::disconnectConnection(const QString& connectionId) {
     wifi_->disconnect(connectionId);
 }
 
+void ConnectionCoordinator::prepareForSleep() { wifi_->prepareForSleep(); }
+
+void ConnectionCoordinator::resumeFromSleep() { wifi_->resumeFromSleep(); }
+
 } // namespace dish::composer
