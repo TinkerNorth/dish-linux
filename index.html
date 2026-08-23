@@ -83,8 +83,8 @@
   <a href="https://github.com/TinkerNorth/dish-linux">Dish</a> gamepad streamer.</p>
 
   <p>Once you've added the repository, the package manager you already use
-  pulls updates automatically. Dish never installs its own updates — it only
-  tells you one exists; <code>apt upgrade</code> and <code>dnf upgrade</code>
+  pulls updates automatically. Dish never installs its own updates; it only
+  tells you one exists, and <code>apt upgrade</code> and <code>dnf upgrade</code>
   do the installing.</p>
 
   <h2>Debian 13+ and derivatives</h2>
@@ -109,7 +109,7 @@ sudo dnf install dish</code></pre>
 
   <h2>Arch Linux</h2>
   <p>Add the signed pacman repository once and <code>pacman -Syu</code> owns
-  updates from then on — no AUR helper needed:</p>
+  updates from then on; no AUR helper needed:</p>
   <pre><code>curl -fsSL https://tinkernorth.github.io/dish-linux/gpg.key | sudo pacman-key --add -
 sudo pacman-key --lsign-key 96FFAACB78FE75D18CEEE332C398179512D6BDF3
 
