@@ -132,6 +132,12 @@ class GamepadInputProcessor {
     // and takes the existing mtx_, so the send path gains no new lock.
     InputRateCounters inputCounters(const DeviceId& id) const;
 
+    // Reports that actually moved something, across every device. Unlike the
+    // per-device rate counters this excludes an untouched pad's idle stream, so
+    // it answers "is anyone playing" rather than "is anything arriving".
+    // Process-monotonic: a device leaving does not roll it back.
+    std::uint64_t actuationCount() const { return actuations_.load(std::memory_order_relaxed); }
+
     void setReportSender(ReportSender sender);
     void setMotionSender(MotionSender sender);
     void setBatterySender(BatterySender sender);
@@ -156,6 +162,10 @@ class GamepadInputProcessor {
   private:
     mutable std::mutex mtx_;
     std::unordered_map<DeviceId, DeviceState> states_;
+    // The baseline actuation is measured against. Distinct from states_, which
+    // follows every report: a stick drifting under the epsilon never moves this,
+    // so a slow deliberate push still accumulates against it and trips.
+    std::unordered_map<DeviceId, DeviceState> activityRef_;
     std::unordered_map<DeviceId, Deadzones> deadzones_;
     ReportSender sender_;
     MotionSender motionSender_;
@@ -182,6 +192,8 @@ class GamepadInputProcessor {
     };
     std::unordered_map<DeviceId, AtomicInputCounters> rateCounters_;
 
+    std::atomic<std::uint64_t> actuations_{0};
+
     int telEvents_ = 0;
     int telSends_ = 0;
     std::uint64_t telTotalSent_ = 0;
@@ -193,5 +205,16 @@ std::uint8_t scaleTrigger(float v);
 // Free function so tests can pin the arithmetic without the lock plumbing.
 GamepadInputProcessor::DeviceState applyDeadzones(const GamepadInputProcessor::DeviceState& state,
                                                   const GamepadInputProcessor::Deadzones& dz);
+
+// Deadzones are only installed for SDL-enumerated devices, so a USB-direct slot
+// arrives unfiltered and its resting sticks dither by a wire LSB (257 counts)
+// every report. Equality alone would read that pad as played-with forever, so
+// the axes need a threshold; buttons are exact.
+inline constexpr std::int16_t kActuationStickEpsilon = 1536;
+inline constexpr std::uint8_t kActuationTriggerEpsilon = 16;
+
+// Free function for the same reason as applyDeadzones.
+bool isActuation(const GamepadInputProcessor::DeviceState& ref,
+                 const GamepadInputProcessor::DeviceState& next);
 
 } // namespace dish::input

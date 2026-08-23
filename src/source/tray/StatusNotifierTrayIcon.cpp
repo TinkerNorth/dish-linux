@@ -156,6 +156,12 @@ SniIconPixmapList buildIconPixmaps() {
 
 } // namespace
 
+// Returning the const reference parameter is the signature QtDBus REQUIRES of a
+// demarshalling operator — qDBusRegisterMetaType accepts no other shape. The
+// lifetime concern the check raises cannot arise here: every caller is QtDBus
+// itself, streaming from an argument it owns for the duration of the call, and
+// none binds the result to anything longer-lived.
+// NOLINTBEGIN(bugprone-return-const-ref-from-parameter)
 QDBusArgument& operator<<(QDBusArgument& argument, const SniIconPixmap& pixmap) {
     argument.beginStructure();
     argument << pixmap.width << pixmap.height << pixmap.data;
@@ -226,6 +232,7 @@ const QDBusArgument& operator>>(const QDBusArgument& argument, DbusMenuItemPrope
     argument.endStructure();
     return argument;
 }
+// NOLINTEND(bugprone-return-const-ref-from-parameter)
 
 class StatusNotifierItemAdaptor final : public QDBusAbstractAdaptor {
     Q_OBJECT

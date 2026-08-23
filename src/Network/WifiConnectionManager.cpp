@@ -33,8 +33,13 @@ namespace dish::net {
 
 namespace {
 
+// QtInfoMsg floor: the per-tick "still <cause>" line is qCDebug and stays off
+// unless someone asks for it with QT_LOGGING_RULES="dish.net.debug=true".
+// Without the floor, Q_LOGGING_CATEGORY enables debug by default and a
+// switched-off satellite is right back to one line per backoff tick.
+Q_LOGGING_CATEGORY(lcNet, "dish.net", QtInfoMsg)
+
 // Pins every user-facing string in this file to one .ts <context> entry.
-constexpr const char* kTrContext = "dish::net::WifiConnectionManager";
 
 ConnectionEvent makeError(const QString& msg) { return {ConnectionEventKind::Error, {}, msg}; }
 
@@ -55,37 +60,94 @@ descriptorsToDesired(const QList<models::ControllerDescriptor>& descriptors) {
 
 QString unreachableMsg() {
     return QCoreApplication::translate(
-        kTrContext, "Server unreachable — check it's powered on and on the same Wi-Fi.");
+        "dish::net::WifiConnectionManager",
+        "Server unreachable — check it's powered on and on the same Wi-Fi.");
 }
+// One sentence per cause the user can act on. Everything else falls back to the
+// generic line: a wrong-but-specific diagnosis is worse than an honest vague one.
+const char* failureName(reducer::TransportFailure failure) {
+    switch (failure) {
+    case reducer::TransportFailure::None:
+        return "none";
+    case reducer::TransportFailure::Unreachable:
+        return "unreachable";
+    case reducer::TransportFailure::Refused:
+        return "connection refused";
+    case reducer::TransportFailure::TimedOut:
+        return "timed out";
+    case reducer::TransportFailure::Tls:
+        return "TLS failure";
+    case reducer::TransportFailure::Aborted:
+        return "aborted";
+    case reducer::TransportFailure::Other:
+        return "other";
+    }
+    return "other";
+}
+
+QString unreachableMsgFor(reducer::TransportFailure failure) {
+    switch (failure) {
+    case reducer::TransportFailure::Refused:
+        // The host is up and answering — it just has nothing on that port. Almost
+        // always the satellite not being started, which the generic "check it's
+        // powered on" line actively misdirects away from.
+        return QCoreApplication::translate(
+            "dish::net::WifiConnectionManager",
+            "That machine is reachable, but no satellite is listening on it. Start "
+            "Satellite there, then try again.");
+    case reducer::TransportFailure::TimedOut:
+        return QCoreApplication::translate(
+            "dish::net::WifiConnectionManager",
+            "The satellite stopped responding. It may have gone to sleep or left the "
+            "network.");
+    case reducer::TransportFailure::Tls:
+        return QCoreApplication::translate(
+            "dish::net::WifiConnectionManager",
+            "Could not set up a secure connection to the satellite.");
+    case reducer::TransportFailure::None:
+    case reducer::TransportFailure::Unreachable:
+    case reducer::TransportFailure::Aborted:
+    case reducer::TransportFailure::Other:
+        break;
+    }
+    return unreachableMsg();
+}
+
 QString rePairMsg() {
     return QCoreApplication::translate(
-        kTrContext, "This satellite no longer recognizes this device. Re-pair needed.");
+        "dish::net::WifiConnectionManager",
+        "This satellite no longer recognizes this device. Re-pair needed.");
 }
 QString versionMsg() {
     return QCoreApplication::translate(
-        kTrContext, "This app and the satellite speak different protocol versions.");
+        "dish::net::WifiConnectionManager",
+        "This app and the satellite speak different protocol versions.");
 }
 QString identityChangedMsg() {
     return QCoreApplication::translate(
-        kTrContext,
+        "dish::net::WifiConnectionManager",
         "This satellite's security identity changed. If it was reinstalled, forget it here and "
         "pair again.");
 }
 QString wrongPinMsg() {
     return QCoreApplication::translate(
-        kTrContext, "That PIN wasn't accepted. Check the code on the satellite and try again.");
+        "dish::net::WifiConnectionManager",
+        "That PIN wasn't accepted. Check the code on the satellite and try again.");
 }
 QString pairPendingMsg() {
     return QCoreApplication::translate(
-        kTrContext, "The satellite hasn't confirmed pairing yet. Try again in a moment.");
+        "dish::net::WifiConnectionManager",
+        "The satellite hasn't confirmed pairing yet. Try again in a moment.");
 }
 QString reverseDeclinedMsg() {
     return QCoreApplication::translate(
-        kTrContext, "The satellite declined this device. Pairing was not approved.");
+        "dish::net::WifiConnectionManager",
+        "The satellite declined this device. Pairing was not approved.");
 }
 QString reverseTimedOutMsg() {
     return QCoreApplication::translate(
-        kTrContext, "Timed out waiting for approval on the satellite. Try again.");
+        "dish::net::WifiConnectionManager",
+        "Timed out waiting for approval on the satellite. Try again.");
 }
 
 // The window an operator needs to read the PIN and approve on the satellite. The
@@ -235,7 +297,10 @@ void WifiConnectionManager::connectTo(const models::DiscoveredServer& server,
         return;
     }
     auto* conn = ensureConnection(server);
-    if (intent == ConnectIntent::UserInitiated) { retryAttempts_.remove(conn->id()); }
+    if (intent == ConnectIntent::UserInitiated) {
+        retryAttempts_.remove(conn->id());
+        lastFailure_.remove(conn->id());
+    }
     if (conn->state() == SessionState::Live || conn->state() == SessionState::Linking) {
         conn->updateServer(server);
         return;
@@ -256,6 +321,7 @@ void WifiConnectionManager::pairWithPin(const models::DiscoveredServer& server,
                                         const QString& pin) {
     auto* conn = ensureConnection(server);
     retryAttempts_.remove(conn->id());
+    lastFailure_.remove(conn->id());
     if (conn->state() == SessionState::Live) { return; }
     conn->updateServer(server);
     conn->markConnecting();
@@ -319,6 +385,7 @@ void WifiConnectionManager::requestReversePairing(const models::DiscoveredServer
 
     auto* conn = ensureConnection(server);
     retryAttempts_.remove(conn->id());
+    lastFailure_.remove(conn->id());
     conn->updateServer(server);
 
     // The value is random but the shape is fixed by the pure formatter, so the
@@ -561,6 +628,7 @@ void WifiConnectionManager::openSession(WifiConnection* conn,
             rr.bodyParsed = resp.reachable;
             rr.code = resp.code.value_or(QString()).toStdString();
             rr.pinMismatch = pinMismatch;
+            rr.failure = resp.failure;
             const RestVerdict verdict = classifyRest(rr);
             if (verdict == RestVerdict::Unauthorized) {
                 onTerminalAuthFailure(conn, id, intent);
@@ -577,6 +645,7 @@ void WifiConnectionManager::openSession(WifiConnection* conn,
                 // backoff curve as if the box were merely offline.
                 conn->markDisconnected();
                 retryAttempts_.remove(id);
+                lastFailure_.remove(id);
                 emitErrorIfUserInitiated(intent, identityChangedMsg());
                 return;
             }
@@ -585,11 +654,11 @@ void WifiConnectionManager::openSession(WifiConnection* conn,
                 // Unreachable, 503 or malformed: park and back off.
                 if (intent == ConnectIntent::UserInitiated) {
                     conn->markDisconnected();
-                    emit connectionEvent(makeError(unreachableMsg()));
+                    emit connectionEvent(makeError(unreachableMsgFor(resp.failure)));
                 } else {
                     conn->markStale();
                 }
-                scheduleRetry(server, intent);
+                scheduleRetry(server, intent, resp.failure);
                 return;
             }
             // Malformed material degrades like a refused connect, never a crash.
@@ -620,6 +689,7 @@ void WifiConnectionManager::openSession(WifiConnection* conn,
             client->setConnectionParams(token, sessionKey);
             store_->remember(server);
             retryAttempts_.remove(id);
+            lastFailure_.remove(id);
 
             conn->markConnected(
                 client, *resp.connectionId, resp.epoch, resp.mouseControl.granted,
@@ -829,12 +899,27 @@ void WifiConnectionManager::handleServerClose(WifiConnection* conn,
 }
 
 void WifiConnectionManager::scheduleRetry(const models::DiscoveredServer& server,
-                                          ConnectIntent intent) {
+                                          ConnectIntent intent, reducer::TransportFailure failure) {
     if (intent == ConnectIntent::UserInitiated) { return; }
     const QString id = server.id();
     const int attempt = retryAttempts_.value(id, 0) + 1;
     retryAttempts_.insert(id, attempt);
     const auto delay = reducer::backoffDelayMs(attempt);
+    // A remembered satellite that is simply switched off retries forever, so the
+    // cause is logged when it CHANGES and not on every tick. Without the guard a
+    // machine left running overnight writes one line a minute for the same fact;
+    // with it, an off satellite costs exactly one line, and a satellite that goes
+    // from refused to unreachable — the tell for a box leaving the network — still
+    // announces itself.
+    const auto previous = lastFailure_.value(id, reducer::TransportFailure::None);
+    if (failure != previous) {
+        lastFailure_.insert(id, failure);
+        qCInfo(lcNet, "satellite %s: %s; retrying in %llds", qUtf8Printable(id),
+               failureName(failure), static_cast<long long>(delay / 1000));
+    } else {
+        qCDebug(lcNet, "satellite %s: still %s; retry %d in %llds", qUtf8Printable(id),
+                failureName(failure), attempt, static_cast<long long>(delay / 1000));
+    }
     QTimer::singleShot(static_cast<int>(delay), this, [this, id, server] {
         auto* c = connections_.value(id, nullptr);
         if (c == nullptr) { return; }
@@ -866,6 +951,7 @@ void WifiConnectionManager::onTerminalAuthFailure(WifiConnection* conn, const QS
     conn->markStale();
     store_->forgetKey(id);
     retryAttempts_.remove(id);
+    lastFailure_.remove(id);
     emitErrorIfUserInitiated(intent, rePairMsg());
 }
 
@@ -906,6 +992,7 @@ void WifiConnectionManager::forget(const QString& id) {
     disconnect(id);
     store_->forget(id);
     retryAttempts_.remove(id);
+    lastFailure_.remove(id);
     reconcileInFlight_.remove(id);
     if (auto* taken = connections_.take(id)) {
         taken->deleteLater();
@@ -924,6 +1011,7 @@ void WifiConnectionManager::resumeFromSleep() {
     // A backoff curve armed before the suspend is measuring wall clock the
     // machine spent asleep, so the first attempt after a resume starts over.
     retryAttempts_.clear();
+    lastFailure_.clear();
     // Rescan before reconnecting: a laptop that resumes on another network has
     // a stale remembered IP, and only discovery can relearn it.
     startDiscovery();

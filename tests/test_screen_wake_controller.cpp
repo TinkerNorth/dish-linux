@@ -1,15 +1,17 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 // Copyright (C) 2026 Dish contributors.
 //
-// End-to-end over the wake split: streamingSlotCount -> WakeStateComposer ->
-// WakeStateController -> inhibitor, with a fake inhibitor standing in for the
-// session-bus one.
+// End-to-end over the whole wake split: streamingSlotCount -> WakeStateComposer
+// -> WakeStateController -> inhibitor, wired the way AppModel wires it, with a
+// fake inhibitor standing in for the session-bus one. The unit files pin each
+// stage; this one pins that the stages are actually connected — a mode the user
+// picked in Settings has to reach the OS, and a stream ending has to let go.
 
-#include "Util/DisplaySleepInhibitor.h"
 #include "architecture/Observable.h"
 #include "composer/StreamingSlotCount.h"
 #include "composer/WakeStateComposer.h"
 #include "composer/WakeStateController.h"
+#include "source/system/WakeInhibitor.h"
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -18,39 +20,38 @@
 
 using dish::arch::Observable;
 using dish::composer::streamingSlotCount;
-using dish::composer::WakeState;
 using dish::composer::WakeStateComposer;
 using dish::composer::WakeStateController;
 using dish::models::LinkState;
-using dish::util::DisplaySleepInhibitor;
+using dish::reducer::KeepAwakeMode;
+using dish::reducer::KeepAwakePreferences;
+using dish::reducer::KeepAwakeReach;
+using dish::source::WakeInhibitor;
 
 namespace {
 
-class FakeInhibitor : public DisplaySleepInhibitor {
+// Absolute and idempotent, like the production inhibitor; `changes()` counts
+// only the applies that actually moved the OS.
+class FakeInhibitor : public WakeInhibitor {
   public:
-    void acquire(const QString& reason) override {
-        if (!held_) {
-            ++acquires_;
-            held_ = true;
-            lastReason_ = reason;
-        }
+    void apply(KeepAwakeReach reach, const QString& reason) override {
+        ++applies_;
+        lastReason_ = reason;
+        if (reach == held_) { return; }
+        held_ = reach;
+        ++changes_;
     }
-    void release() override {
-        if (held_) {
-            ++releases_;
-            held_ = false;
-        }
-    }
-    bool isHeld() const override { return held_; }
+    KeepAwakeReach held() const override { return held_; }
 
-    int acquires() const { return acquires_; }
-    int releases() const { return releases_; }
+    int applies() const { return applies_; }
+    int changes() const { return changes_; }
     QString lastReason() const { return lastReason_; }
+    bool isHeld() const { return held_ != KeepAwakeReach::None; }
 
   private:
-    int acquires_ = 0;
-    int releases_ = 0;
-    bool held_ = false;
+    int applies_ = 0;
+    int changes_ = 0;
+    KeepAwakeReach held_ = KeepAwakeReach::None;
     QString lastReason_;
 };
 
@@ -94,49 +95,59 @@ TEST_CASE("streamingSlotCount: unknown connection counts as not-streaming", "[wa
 
 namespace {
 
+KeepAwakePreferences prefs(KeepAwakeMode mode, bool display = false) {
+    KeepAwakePreferences p;
+    p.mode = mode;
+    p.keepDisplayAwake = display;
+    return p;
+}
+
 // Mirrors how AppModel wires the wake subsystem.
 struct WakeHarness {
     Observable<int> count{0};
-    Observable<int> keepOn{0};
-    WakeStateComposer composer{count, keepOn};
+    Observable<bool> active{false};
+    Observable<KeepAwakePreferences> preferences;
+    WakeStateComposer composer{count, active, preferences};
     FakeInhibitor fake;
     WakeStateController controller{composer.state(), &fake, QStringLiteral("test reason")};
 
-    WakeHarness() { controller.start(); }
+    explicit WakeHarness(KeepAwakePreferences initial = KeepAwakePreferences{},
+                         bool controllerActive = true)
+        : preferences(initial) {
+        active.set(controllerActive);
+        controller.start();
+    }
 };
 
 } // namespace
 
-TEST_CASE("wake: first stream acquires inhibitor", "[wake]") {
+TEST_CASE("wake: first stream holds the machine", "[wake]") {
     WakeHarness h;
     h.count.set(1);
-    REQUIRE(h.fake.acquires() == 1);
-    REQUIRE(h.fake.releases() == 0);
-    REQUIRE(h.fake.isHeld());
+    REQUIRE(h.fake.changes() == 1);
+    REQUIRE(h.fake.held() == KeepAwakeReach::System);
     REQUIRE(h.fake.lastReason() == "test reason");
 }
 
-TEST_CASE("wake: 1 -> 2 slots does not re-acquire", "[wake]") {
+TEST_CASE("wake: 1 -> 2 slots does not move the OS", "[wake]") {
     WakeHarness h;
     h.count.set(1);
     h.count.set(2);
-    REQUIRE(h.fake.acquires() == 1);
+    REQUIRE(h.fake.changes() == 1);
 }
 
 TEST_CASE("wake: positive -> 0 releases", "[wake]") {
     WakeHarness h;
     h.count.set(2);
     h.count.set(0);
-    REQUIRE(h.fake.acquires() == 1);
-    REQUIRE(h.fake.releases() == 1);
+    REQUIRE(h.fake.changes() == 2);
     REQUIRE_FALSE(h.fake.isHeld());
 }
 
 TEST_CASE("wake: staying at 0 is idempotent", "[wake]") {
     WakeHarness h;
     h.count.set(0); // no change from the initial 0
-    REQUIRE(h.fake.acquires() == 0);
-    REQUIRE(h.fake.releases() == 0);
+    REQUIRE(h.fake.changes() == 0);
 }
 
 TEST_CASE("wake: re-acquires after a drop", "[wake]") {
@@ -144,25 +155,78 @@ TEST_CASE("wake: re-acquires after a drop", "[wake]") {
     h.count.set(1);
     h.count.set(0);
     h.count.set(1);
-    REQUIRE(h.fake.acquires() == 2);
-    REQUIRE(h.fake.releases() == 1);
+    REQUIRE(h.fake.changes() == 3);
     REQUIRE(h.fake.isHeld());
+}
+
+TEST_CASE("wake: mode Off never holds, however many slots stream", "[wake]") {
+    WakeHarness h(prefs(KeepAwakeMode::Off, true));
+    h.count.set(3);
+    REQUIRE(h.fake.changes() == 0);
+    REQUIRE_FALSE(h.fake.isHeld());
+}
+
+TEST_CASE("wake: the timed mode holds only while the pad is being played", "[wake]") {
+    WakeHarness h(prefs(KeepAwakeMode::WhileControllerActive), /*controllerActive=*/false);
+    h.count.set(1);
+    REQUIRE_FALSE(h.fake.isHeld()); // streaming, but nobody has touched it
+
+    h.active.set(true);
+    REQUIRE(h.fake.held() == KeepAwakeReach::System);
+
+    // The idle window expiring must let the machine sleep again.
+    h.active.set(false);
+    REQUIRE_FALSE(h.fake.isHeld());
+}
+
+TEST_CASE("wake: WhileConnected ignores the idle window entirely", "[wake]") {
+    WakeHarness h(prefs(KeepAwakeMode::WhileConnected), /*controllerActive=*/false);
+    h.count.set(1);
+    REQUIRE(h.fake.held() == KeepAwakeReach::System);
+
+    h.active.set(true);
+    h.active.set(false);
+    REQUIRE(h.fake.held() == KeepAwakeReach::System);
+    REQUIRE(h.fake.changes() == 1); // activity never moved the reach in this mode
+}
+
+TEST_CASE("wake: the display opt-in reaches the OS", "[wake]") {
+    WakeHarness h(prefs(KeepAwakeMode::WhileConnected, true), /*controllerActive=*/false);
+    h.count.set(1);
+    REQUIRE(h.fake.held() == KeepAwakeReach::SystemAndDisplay);
+
+    // Toggled off mid-stream, the panel is released without dropping the
+    // system hold the stream still needs.
+    h.preferences.set(prefs(KeepAwakeMode::WhileConnected, false));
+    REQUIRE(h.fake.held() == KeepAwakeReach::System);
+}
+
+TEST_CASE("wake: switching modes mid-stream re-derives the hold", "[wake]") {
+    WakeHarness h(prefs(KeepAwakeMode::WhileControllerActive), /*controllerActive=*/false);
+    h.count.set(1);
+    REQUIRE_FALSE(h.fake.isHeld());
+
+    h.preferences.set(prefs(KeepAwakeMode::WhileConnected));
+    REQUIRE(h.fake.held() == KeepAwakeReach::System);
+
+    h.preferences.set(prefs(KeepAwakeMode::Off));
+    REQUIRE_FALSE(h.fake.isHeld());
 }
 
 TEST_CASE("wake: stop releases the inhibitor (deliberate teardown)", "[wake]") {
     WakeHarness h;
     h.count.set(3);
     h.controller.stop();
-    REQUIRE(h.fake.releases() == 1);
-    REQUIRE_FALSE(h.fake.isHeld());
+    REQUIRE(h.fake.held() == KeepAwakeReach::None);
 }
 
 TEST_CASE("wake: tolerates a null inhibitor", "[wake]") {
     // A headless or stripped-down build can pass nullptr; the controller must
     // still bookkeep without crashing.
     Observable<int> count{0};
-    Observable<int> keepOn{0};
-    WakeStateComposer composer{count, keepOn};
+    Observable<bool> active{true};
+    Observable<KeepAwakePreferences> preferences{KeepAwakePreferences{}};
+    WakeStateComposer composer{count, active, preferences};
     WakeStateController controller{composer.state(), nullptr};
     controller.start();
     count.set(1);

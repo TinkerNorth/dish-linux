@@ -78,10 +78,18 @@ back out as `WifiConnectionManager`, which is not the context `moc` hands
 `tr()` at run time, so the entry it writes could never be looked up. The script
 refuses to run on an older one rather than let that land.
 
-Coverage is reported, never enforced: translating a string is a separate act
-from extracting it. English is a real catalogue rather than the untranslated
-fallback, because a `%n` message carries one source string but needs one plural
-form per category and Bosnian has three.
+Coverage is **enforced**. `check-translations.sh` fails when any catalogue has
+an unfinished entry, because a missing translation is not a blank — it is
+English shown to someone who does not read English, and nothing else in the
+suite can see that. Extracting a string and translating it are one commit, not
+two.
+
+English is a real catalogue rather than the untranslated fallback, because a
+`%n` message carries one source string but needs one plural form per category
+and Bosnian has three. Its non-plural entries are filled from their own source
+text by `scripts/seed-source-language.py`, which the gate runs for you — so the
+count means the same thing in all six catalogues, and the only English entries
+a person writes are the plural forms that genuinely need a decision.
 
 ## License headers
 

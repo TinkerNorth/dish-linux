@@ -19,7 +19,12 @@ ColumnLayout {
 
     property string label: ""
     property int value: 0
+    property int minValue: 0
     property int maxValue: 30
+    // The readout follows the HANDLE, so a caller that wants its own wording
+    // formats `displayValue` rather than its own `value`.
+    readonly property int displayValue: Math.round(slider.value)
+    property string valueText: control.displayValue + "%"
 
     // Live, per-step. Never persist from here.
     signal moved(int value)
@@ -46,7 +51,7 @@ ColumnLayout {
             Layout.alignment: Qt.AlignBaseline
             // The slider's own value, not `control.value`: a drag breaks the
             // inbound binding, and the readout must follow the handle.
-            text: Math.round(slider.value) + "%"
+            text: control.valueText
             font.family: Tokens.monoFamily
             font.pixelSize: Tokens.textMeta
             color: Theme.muted
@@ -56,7 +61,7 @@ ColumnLayout {
     Slider {
         id: slider
         Layout.fillWidth: true
-        from: 0
+        from: control.minValue
         to: control.maxValue
         stepSize: 1
         value: control.value

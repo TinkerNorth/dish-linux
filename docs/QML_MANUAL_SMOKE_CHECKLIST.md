@@ -118,6 +118,12 @@ Needs a pad and a satellite. Nothing here can be faked in CI.
 
 ## Transients and guards
 
+- [ ] **Overflow menus open with a visible width.** On Connections, click the
+      `⋯` on a host card: the Forget menu appears, sized to its text. On Home,
+      open a slot row's context menu the same way. A Menu takes its width from
+      its background, so a restyled background with no `implicitWidth` opens the
+      menu at zero width — it takes focus and draws nothing, which looks exactly
+      like a dead button. Check this after any change to a Menu background.
 - [ ] **One toast host.** Trigger a failure (unplug the network mid-connect).
       Exactly one toast appears, bottom-centre, and it does not block the
       controls under it.
@@ -127,7 +133,7 @@ Needs a pad and a satellite. Nothing here can be faked in CI.
       close the window while a pad is streaming. The quit confirm appears;
       Cancel keeps the app running and streaming.
 - [ ] **First run.** With a fresh profile (remove
-      `~/.config/TinkerNorth/Dish.conf`) the onboarding flow opens full-screen
+      `~/.config/com.tinkernorth.Dish/dish.conf`) the onboarding flow opens full-screen
       over the shell. Both Skip and finishing the flow mark it done, and it
       does not reappear on the next launch.
 
@@ -155,6 +161,36 @@ and no panel.
 - [ ] **Panel restart.** With the window hidden, restart the shell (KDE:
       `systemctl --user restart plasma-plasmashell`). The item comes back by
       itself and Show still works.
+
+## Keep awake
+
+`systemd-inhibit --list` is the oracle: Dish's `idle`/`block` lock is the
+machine hold, and `qdbus org.freedesktop.ScreenSaver /ScreenSaver` reports the
+display one. Neither is visible to CI.
+
+- [ ] **Default reach is the machine, not the screen.** With a pad streaming on
+      a fresh config, `systemd-inhibit --list` shows a Dish `idle`/`block` lock
+      and the screen still blanks on its normal schedule. The pill reads
+      "Streaming · computer kept awake".
+- [ ] **Configure lands on the setting.** Click **Configure** on the pill from
+      any destination. Settings opens at the rail root, not as a pushed detail
+      with a back chevron.
+- [ ] **Never means never.** Set *Keep the computer awake* to Never. The lock
+      disappears immediately, the pill drops to "Streaming", and the quit
+      confirm still appears when closing with a pad streaming.
+- [ ] **The idle window lets go and takes back.** Set While playing with a
+      1-minute window. Leave the pad untouched: within ~1 minute the lock
+      disappears and the pill drops to "Streaming". Move a stick: the lock and
+      the suffix come back within a second.
+- [ ] **A resting pad does not hold it.** With a USB-direct DualSense or DS4
+      claimed (which gets no deadzone), leave it on the desk under While
+      playing. The lock must still expire — a drifting stick must not read as
+      activity.
+- [ ] **While connected ignores stillness.** Set While connected and leave the
+      pad untouched well past the window. The lock stays.
+- [ ] **The display opt-in widens, never creates.** Turn *Keep the display
+      awake too* on: the screen stops blanking and the pill reads "display kept
+      awake". Turn the mode to Never with the switch still on: no lock at all.
 
 ## Suspend and resume
 

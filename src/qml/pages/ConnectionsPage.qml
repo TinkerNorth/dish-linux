@@ -410,6 +410,16 @@ Kit.Page {
         id: hostMenu
 
         background: Rectangle {
+            // A Menu takes its width from its BACKGROUND, not from its items:
+            // the style's default background carries implicitWidth 200, and
+            // replacing it with a bare Rectangle drops that to 0. The menu then
+            // opens, takes focus and draws nothing — indistinguishable from a
+            // dead button. Sized to the widest item so a longer translation is
+            // not clipped, with a floor so a one-word menu is not a sliver.
+            // Same fix ComboButton already carries.
+            implicitWidth: Math.max(Tokens.menuMinWidth,
+                                    forgetItem.implicitWidth
+                                    + hostMenu.leftPadding + hostMenu.rightPadding)
             color: Theme.surface
             border.width: 1
             border.color: Theme.outline

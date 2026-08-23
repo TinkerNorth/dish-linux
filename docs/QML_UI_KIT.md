@@ -93,7 +93,7 @@ meaning anything.
 | `SegmentedControl` | `Control` | `options`, `value`, `small`, `busy`, `picked(string)`. Disabled drops the accent thumb for a neutral `Theme.surface` chip with a hairline: `disabledFg` on a saturated accent at `disabledOpacity` is unreadable, and a dead control still has to report which segment is selected. |
 | `LabeledSwitch` | `RowLayout` | `label`, `description`, `checked`, `toggled(bool)`. |
 | `RadioMark` | `Rectangle` | `selected`. The selection mark inside `SelectRow` and `OptionCard`. |
-| `SliderRow` | `ColumnLayout` | `label`, `value`, `maxValue`, `moved(int)` **and** `committed(int)`. Push live on `moved`, persist on `committed`. |
+| `SliderRow` | `ColumnLayout` | `label`, `value`, `minValue`, `maxValue`, `valueText`, read-only `displayValue`, `moved(int)` **and** `committed(int)`. Push live on `moved`, persist on `committed`. The readout defaults to a percentage; format `displayValue` into `valueText` for any other unit, because a drag breaks the inbound `value` binding. |
 | `KitTextField` | `TextField` | Plus `hasError` and `errorText`: an error message beneath the field, and an `Accessible.description`. |
 | `StatusDot` | `Rectangle` | `token` → `"success"` / `"warning"` / `"primary"` / `"error"` / `"muted"`. 10 px with a 1 px darker ring: at 8 px flat, success and warning are a coin flip for a low-vision user, and the ring gives the dot an edge independent of its fill. Never drawn without its chip. |
 | `CapabilityChip` | `Rectangle` | `text`, `tone ∈ Present \| Absent \| Low \| Ok \| Warn \| Neutral`. Always renders: an absent capability is drawn, never hidden. |

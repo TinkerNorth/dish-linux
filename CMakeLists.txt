@@ -34,8 +34,25 @@ set(DISH_SANITIZER "" CACHE STRING
 # lands in /usr/etc/udev/rules.d under the usual -DCMAKE_INSTALL_PREFIX=/usr.
 # Not CMAKE_INSTALL_LIBDIR either — Debian multiarch turns that into
 # lib/x86_64-linux-gnu, which udev does not scan.
-set(DISH_UDEV_RULES_DIR "lib/udev/rules.d" CACHE STRING
-    "Directory the hidraw udev rule is installed into, relative to the prefix")
+#
+# The default has to depend on the prefix, because a RELATIVE path is only
+# correct under the packaging prefix. "lib/udev/rules.d" resolves to
+# /usr/lib/udev/rules.d under -DCMAKE_INSTALL_PREFIX=/usr, which is what the .deb
+# and .rpm build with and what udev scans. Under CMake's DEFAULT prefix it
+# resolves to /usr/local/lib/udev/rules.d, which udev does not scan — so a plain
+# `sudo cmake --install` silently laid the rule down somewhere inert and every
+# USB-direct claim failed PermissionDenied afterwards.
+#
+# Off the packaging prefix, use the one directory that is correct from any
+# prefix: /etc/udev/rules.d, absolute so it is not joined onto the prefix again.
+# It is also the path README tells people to install the rule into by hand.
+if(CMAKE_INSTALL_PREFIX STREQUAL "/usr")
+    set(_dish_udev_rules_default "lib/udev/rules.d")
+else()
+    set(_dish_udev_rules_default "/etc/udev/rules.d")
+endif()
+set(DISH_UDEV_RULES_DIR "${_dish_udev_rules_default}" CACHE STRING
+    "Directory the hidraw udev rule is installed into; a relative path is joined onto the prefix")
 # A Flatpak cannot own a host rules directory and an AppImage installs nothing
 # outside itself; both turn this off and degrade to the SDL path.
 option(DISH_INSTALL_UDEV_RULES "Install the hidraw udev rule" ON)
@@ -143,6 +160,7 @@ set(DISH_CORE_SOURCES
     src/core/reducer/RestOutcome.h
     src/core/reducer/Backoff.h
     src/core/reducer/BackgroundMode.h
+    src/core/reducer/KeepAwake.h
     src/core/reducer/Reconcile.h
     src/core/reducer/CloseNotify.h
     src/core/reducer/PathChoice.h
@@ -202,8 +220,6 @@ set(DISH_CORE_SOURCES
     src/Util/Endian.h
     src/Util/HostBattery.h
     src/Util/HostBattery.cpp
-    src/Util/DisplaySleepInhibitor.h
-    src/Util/DisplaySleepInhibitor.cpp
     src/Util/UnixSignalWatcher.h
     src/Util/UnixSignalWatcher.cpp
     # In dish_core so test_translations exercises the real locale-fallback path
@@ -259,6 +275,7 @@ set(DISH_CORE_SOURCES
     src/source/store/TouchpadModeStore.h
     src/source/store/UiPreferenceStore.h
     src/source/store/BackgroundPreferenceStore.h
+    src/source/store/KeepAwakePreferenceStore.h
     src/source/store/UpdatePreferenceStore.h
     # xpad publishes no hidraw node for Xbox pads, so this path serves
     # DualSense/DS4/Switch Pro/8BitDo and Xbox pads stay on SDL.
@@ -273,12 +290,17 @@ set(DISH_CORE_SOURCES
     src/source/notification/DesktopNotifier.h
     src/source/notification/DesktopNotifier.cpp
     src/source/inputrate/SlotInputRates.h
+    src/source/input/ControllerActivitySource.h
     src/source/inputrate/InputRateStore.h
     src/source/inputrate/InputRateStore.cpp
     src/source/system/BluetoothRadioProbe.h
     src/source/system/BluetoothRadioProbe.cpp
+    src/source/system/SecretServiceStore.h
     src/source/system/SleepMonitor.h
+    src/source/system/WakeInhibitor.h
+    src/source/system/SecretServiceStore.cpp
     src/source/system/SleepMonitor.cpp
+    src/source/system/WakeInhibitor.cpp
     src/source/tray/TrayIcon.h
     src/source/tray/StatusNotifierTrayIcon.h
     src/source/tray/StatusNotifierTrayIcon.cpp
@@ -289,6 +311,8 @@ set(DISH_CORE_SOURCES
     src/update/HttpGateways.cpp
     src/update/UpdateChecker.h
     src/update/UpdateChecker.cpp
+    src/UI/CrashReport.h
+    src/repository/AppSettings.h
     src/repository/SettingsKeys.h
     src/repository/RememberedWifiEq.h
     src/repository/SatellitePinRepository.h
@@ -298,6 +322,8 @@ set(DISH_CORE_SOURCES
     src/repository/RememberedSatelliteRepository.h
     src/repository/RememberedSatelliteRepository.cpp
     src/repository/ConnectionStore.h
+    src/UI/CrashReport.cpp
+    src/repository/AppSettings.cpp
     src/repository/ConnectionStore.cpp
     src/repository/DeadzoneRepository.h
     src/repository/DeadzoneRepository.cpp
@@ -426,13 +452,25 @@ if(QT_KNOWN_POLICY_QTP0004)
     qt_policy(SET QTP0004 NEW)
 endif()
 
-# Configuring prints ~13 "qml plugin X is a dependency but the link target does
-# not exist" warnings. They come from qt6_import_qml_plugins, which Qt runs at
-# finalization to STATICALLY link QML plugins; against a shared Qt there is
-# nothing to link and the modules load from the import path at run time. Adding
-# the plugins' packages does not create the targets and neither does remapping
-# the imported config — the warning is Qt's, not this project's, and the app
-# runs clean. Do not chase it; do read any warning that is NOT one of these.
+# Qt runs qt6_import_qml_plugins at finalization to STATICALLY link the QML
+# plugins an import scan turns up. It links a plugin only when that plugin's
+# target is a STATIC_LIBRARY, so against a SHARED Qt the scan can never produce
+# anything linkable — the modules load from the import path at run time instead.
+#
+# The scan is not merely useless there, it is noisy: Debian and Ubuntu default
+# QT_SKIP_AUTO_QML_PLUGIN_INCLUSION to ON (see Qt6QmlPlugins.cmake, "Distributions
+# should probably change this default"), so the Qt6::<plugin> targets are never
+# created and every scanned plugin prints "the link target it defines does not
+# exist in the current scope" — ~13 warnings on every configure.
+#
+# Turning that default back OFF is NOT the fix: Ubuntu ships no QmlAssetDownloader
+# module, so auto-including every QML plugin config makes Qt6Quick_FOUND false and
+# the configure fails outright.
+#
+# So skip the scan exactly where it cannot do anything: a shared Qt. A static Qt
+# still scans and still links, which is the only configuration that needs it.
+# QT_QML_MODULE_NO_IMPORT_SCAN is Qt's own early-out, read at the top of
+# qt6_import_qml_plugins.
 qt_add_qml_module(Dish
     URI Dish.Chrome
     VERSION 1.0
@@ -467,6 +505,12 @@ qt_add_qml_module(Dish
         src/qml/wizard/WizardTypePage.qml
         src/qml/wizard/WizardFeelPage.qml
         src/qml/wizard/WizardReviewPage.qml)
+
+# Set AFTER qt_add_qml_module, which writes this property from its own
+# NO_IMPORT_SCAN argument and would otherwise clobber the value.
+if(QT6_IS_SHARED_LIBS_BUILD)
+    set_target_properties(Dish PROPERTIES QT_QML_MODULE_NO_IMPORT_SCAN ON)
+endif()
 
 # qmltyperegistrar's generated .cpp #includes the bridge headers by BASENAME,
 # so their directory has to be on the include path for it to compile.

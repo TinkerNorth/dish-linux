@@ -95,6 +95,10 @@ class TokensBridge : public QObject {
     Q_PROPERTY(int s10 READ s10 CONSTANT)
     Q_PROPERTY(int s11 READ s11 CONSTANT)
     Q_PROPERTY(int pagePadding READ pagePadding CONSTANT)
+    // Floor for a popup menu's width. A Menu sizes to its BACKGROUND, so any
+    // menu that restyles the background has to restate a width or it opens at
+    // zero and draws nothing; this is the shared floor those menus widen from.
+    Q_PROPERTY(int menuMinWidth READ menuMinWidth CONSTANT)
 
     // ── Radii (px) ───────────────────────────────────────────────────────────
     Q_PROPERTY(int radiusChip READ radiusChip CONSTANT)
@@ -168,6 +172,7 @@ class TokensBridge : public QObject {
     int s10() const { return 24; }
     int s11() const { return 32; }
     int pagePadding() const { return 24; }
+    int menuMinWidth() const { return 180; }
 
     int radiusChip() const { return 5; }
     int radiusButton() const { return 6; }
