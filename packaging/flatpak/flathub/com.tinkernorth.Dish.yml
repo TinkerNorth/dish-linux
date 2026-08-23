@@ -67,6 +67,9 @@ modules:
 
   - name: sdl2
     buildsystem: cmake-ninja
+    # SDL2's CMakeLists refuses an in-tree configure, which is the
+    # cmake-ninja default; build out of tree.
+    builddir: true
     config-opts:
       - -DCMAKE_BUILD_TYPE=Release
       - -DSDL_STATIC=OFF
@@ -93,6 +96,7 @@ modules:
 
   - name: dish
     buildsystem: cmake-ninja
+    builddir: true
     config-opts:
       - -DCMAKE_BUILD_TYPE=Release
       - -DDISH_BUILD_TESTS=OFF
