@@ -96,7 +96,8 @@ modules:
 
   - name: dish
     buildsystem: cmake-ninja
-    builddir: true
+    # No builddir here: post-install copies the udev rule by a
+    # source-relative path, and dish's CMake accepts an in-tree configure.
     config-opts:
       - -DCMAKE_BUILD_TYPE=Release
       - -DDISH_BUILD_TESTS=OFF

@@ -439,9 +439,15 @@ jobs:
           Acquire::Retries "2";
           CONF
           sudo apt-get update
+          # The xcb block is what libqxcb.so links: linuxdeploy's qt plugin
+          # refuses to deploy a platform plugin whose dependencies it cannot
+          # resolve on the build host.
           sudo apt-get install -y --no-install-recommends \
             build-essential cmake ninja-build pkg-config \
             libsodium-dev libudev-dev libusb-1.0-0-dev \
+            libxkbcommon-x11-0 libxcb-cursor0 libxcb-icccm4 libxcb-image0 \
+            libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 libxcb-shape0 \
+            libxcb-xinerama0 libxcb-xkb1 \
             file fakeroot rsync wget curl librsvg2-bin gzip
 
       # Not apt: jammy ships Qt 6.2 and this project's floor is 6.7. The action
