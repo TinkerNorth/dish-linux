@@ -480,7 +480,9 @@ jobs:
         run: |
           set -eux
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends flatpak flatpak-builder ca-certificates
+          # elfutils: flatpak-builder shells out to eu-strip while finishing
+          # a module, and the runner image does not carry it.
+          sudo apt-get install -y --no-install-recommends flatpak flatpak-builder elfutils ca-certificates
           sudo flatpak remote-add --if-not-exists flathub \
             https://dl.flathub.org/repo/flathub.flatpakrepo
           sudo flatpak install -y --noninteractive flathub \
