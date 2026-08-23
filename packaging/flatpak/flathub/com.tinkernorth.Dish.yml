@@ -5,8 +5,8 @@
 # working tree, because Flathub only accepts reproducible sources. Keep the two
 # manifests in step; docs/FLATHUB.md is the submission runbook.
 #
-# Before submitting: replace the commit placeholder with the tag's commit SHA
-#   git rev-list -n 1 0.1.0
+# The commit pins the tag; on a new release, update both (x-checker-data
+# automates this once the app is on Flathub).
 app-id: com.tinkernorth.Dish
 runtime: org.kde.Platform
 runtime-version: '6.9'
@@ -107,7 +107,7 @@ modules:
       - type: git
         url: https://github.com/TinkerNorth/dish-linux.git
         tag: '0.1.0'
-        commit: FILL_WITH_TAG_COMMIT_SHA_BEFORE_SUBMITTING
+        commit: c34aee019009c93cb852d64eb6ee05d96b04e326
         # Lets Flathub's external-data-checker open the version-bump PR for
         # every new tag automatically once the app is in.
         x-checker-data:
