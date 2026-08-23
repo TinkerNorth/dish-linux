@@ -5,12 +5,12 @@ and `.rpm` releases as proper APT and DNF/YUM repositories on
 `https://tinkernorth.github.io/dish-linux/`.
 
 Ported from `TinkerNorth/satellite` `packaging/repo/`; the two directories
-share their layout and scripts — keep them in step.
+share their layout and scripts; keep them in step.
 
 ## End-user install (Debian 13+ and derivatives)
 
 The `.deb` targets distros whose Qt meets the 6.7 floor (Debian 13 ships
-6.8). Ubuntu 24.04 LTS ships Qt 6.4.2 — its answer is the AppImage or the
+6.8). Ubuntu 24.04 LTS ships Qt 6.4.2; its answer is the AppImage or the
 Flatpak, not this repo; see `docs/PACKAGING.md`.
 
 ```bash
@@ -57,7 +57,7 @@ sudo pacman -Syu dish-bin
 The `arch-publish` job builds `dish-bin` from `packaging/aur/PKGBUILD`
 against the just-published release assets, signs the package and the repo
 database with the same key, and pushes `arch/x86_64/` alongside the APT and
-DNF trees. (`repo-add`'s `.db`/`.files` symlinks are replaced with copies —
+DNF trees. (`repo-add`'s `.db`/`.files` symlinks are replaced with copies;
 GitHub Pages does not serve symlinks.)
 
 ## Signing key
@@ -73,13 +73,13 @@ uid   Dish Releases <releases@tinkernorth.invalid>
 The private key lives only in the `GPG_PRIVATE_KEY` / `GPG_KEY_ID`
 repository secrets (and the maintainer's password manager); the public half
 is committed here as `gpg.key` and published at the repo root of the Pages
-site. This fingerprint is the pin — a Pages compromise cannot silently swap
+site. This fingerprint is the pin: a Pages compromise cannot silently swap
 the key without this README (in git history) disagreeing.
 
 Rotation: generate a new key, add its public half here alongside the old
 one, sign one release with both (`gpg.key` may contain multiple public
 keys), then retire the old key in a follow-up release. Removing a key users
-have pinned breaks `apt update` for them — announce first.
+have pinned breaks `apt update` for them; announce first.
 
 ## How publishing works in CI
 

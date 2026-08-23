@@ -96,7 +96,7 @@ rm -f "${out}" "${out}.zsync"
 # Embed AppImageUpdate metadata so AppImageUpdate / Gear Lever can delta-update
 # straight off the newest GitHub release instead of a full manual re-download.
 # appimagetool also emits the matching .zsync index, which release.yml uploads
-# beside the AppImage; the draft→flip publish keeps `releases/latest` atomic,
+# beside the AppImage; the draft-then-flip publish keeps `releases/latest` atomic,
 # so the pattern never resolves to a half-uploaded release.
 export LDAI_UPDATE_INFORMATION="${DISH_APPIMAGE_UPDATE_INFO:-gh-releases-zsync|TinkerNorth|dish-linux|latest|Dish-*-${arch}.AppImage.zsync}"
 OUTPUT="${out}" "${tools_dir}/linuxdeploy" --appdir "${appdir}" --output appimage

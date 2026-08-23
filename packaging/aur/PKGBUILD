@@ -40,7 +40,7 @@ optdepends=(
 # co-install cleanly if anyone ever hits it.
 
 # Single x86_64 AppImage. Bump the URL and checksums in lockstep with pkgver.
-# Release tags are bare MAJOR.MINOR.PATCH (org convention — dish-android's
+# Release tags are bare MAJOR.MINOR.PATCH (org convention: dish-android's
 # pipeline requires bare tags).
 source_x86_64=(
     "Dish-${pkgver}-x86_64.AppImage::https://github.com/TinkerNorth/dish-linux/releases/download/${pkgver}/Dish-${pkgver}-x86_64.AppImage"
@@ -49,12 +49,12 @@ source_x86_64=(
     "com.tinkernorth.Dish.metainfo.xml::https://raw.githubusercontent.com/TinkerNorth/dish-linux/${pkgver}/packaging/com.tinkernorth.Dish.metainfo.xml"
     "70-dish-hidraw.rules::https://raw.githubusercontent.com/TinkerNorth/dish-linux/${pkgver}/packaging/udev/70-dish-hidraw.rules"
 )
-# PLACEHOLDERS — the 0.1.0 release is not published yet. Before the first
+# PLACEHOLDERS: the 0.1.0 release is not published yet. Before the first
 # AUR push, run `updpkgsums` against the real release and cross-check the
 # AppImage line against the release's SHA256SUMS asset. SKIP is not
 # acceptable here: the whole premise of a -bin package is redistributing an
 # upstream binary, and the release ships cosign signatures and SLSA
-# provenance — verifying nothing on the way in would throw that away.
+# provenance; verifying nothing on the way in would throw that away.
 sha256sums_x86_64=(
     '0000000000000000000000000000000000000000000000000000000000000000'
     '0000000000000000000000000000000000000000000000000000000000000000'

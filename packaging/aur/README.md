@@ -1,4 +1,4 @@
-# dish-bin — Arch packaging
+# dish-bin
 
 `PKGBUILD` re-bundles the release AppImage for Arch users, with the udev
 rule, desktop entry, icon and AppStream metadata the bare AppImage cannot
@@ -45,5 +45,5 @@ personal, not a repo secret.)
 ## Name note
 
 The bare AUR name `dish` is owned by an unrelated package (an interactive
-shell), so this package neither provides nor conflicts with it — see the
+shell), so this package neither provides nor conflicts with it; see the
 comment in `PKGBUILD`.

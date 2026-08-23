@@ -71,20 +71,27 @@
     <keyword>streaming</keyword>
   </keywords>
 
-  <!-- Required before the Flathub submission (docs/FLATHUB.md): capture 2-3
-       16:9 PNGs, host them at stable HTTPS URLs (e.g. docs/screenshots/ via
-       raw.githubusercontent.com at a tag), then uncomment and validate.
+  <!-- Sources live in docs/screenshots/. The URLs pin the release tag so a
+       published listing cannot have its images change under it; point them at
+       the new tag when retaking. -->
   <screenshots>
     <screenshot type="default">
-      <caption>Controllers page with a pad streaming</caption>
-      <image>https://raw.githubusercontent.com/TinkerNorth/dish-linux/X.Y.Z/docs/screenshots/controllers.png</image>
+      <caption>A connected pad, ready to bind to a satellite</caption>
+      <image>https://raw.githubusercontent.com/TinkerNorth/dish-linux/0.1.0/docs/screenshots/home.png</image>
     </screenshot>
     <screenshot>
-      <caption>Remapping buttons on the binding page</caption>
-      <image>https://raw.githubusercontent.com/TinkerNorth/dish-linux/X.Y.Z/docs/screenshots/binding.png</image>
+      <caption>Connected controllers and what each one supports</caption>
+      <image>https://raw.githubusercontent.com/TinkerNorth/dish-linux/0.1.0/docs/screenshots/controllers.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Finding satellites on the LAN</caption>
+      <image>https://raw.githubusercontent.com/TinkerNorth/dish-linux/0.1.0/docs/screenshots/connections.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Theme, forwarded features and controller tuning</caption>
+      <image>https://raw.githubusercontent.com/TinkerNorth/dish-linux/0.1.0/docs/screenshots/settings.png</image>
     </screenshot>
   </screenshots>
-  -->
 
   <url type="homepage">https://github.com/TinkerNorth/dish-linux</url>
   <url type="bugtracker">https://github.com/TinkerNorth/dish-linux/issues</url>

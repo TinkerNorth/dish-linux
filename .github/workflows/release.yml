@@ -2,7 +2,7 @@ name: Release
 
 on:
   push:
-    # Bare MAJOR.MINOR.PATCH tags, no v prefix — org convention for the
+    # Bare MAJOR.MINOR.PATCH tags, no v prefix: org convention for the
     # product repos, because dish-android's pipeline requires bare tags.
     # (Releases were previously v-prefixed; every version consumer below
     # tolerates a legacy v by stripping it.)
@@ -37,7 +37,7 @@ on:
 # previous release until every asset of the new one is in place.
 #
 # Prerelease tags (1.2.3-rc.1) publish marked as prerelease, skip
-# latest.json, and skip the APT/DNF repos — stable clients and repos never
+# latest.json, and skip the APT/DNF repos; stable clients and repos never
 # see them.
 #
 # Linux binaries are not signed with a platform key by default; the
@@ -95,7 +95,7 @@ jobs:
         run: |
           set -euo pipefail
           if [ "${{ github.ref_type }}" != "tag" ] || ! [[ "$GITHUB_REF_NAME" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+ ]]; then
-            echo "::notice::Non-release-tag run — cosign keyless gate is advisory."
+            echo "::notice::Non-release-tag run; cosign keyless gate is advisory."
             exit 0
           fi
           if [ -z "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ] && [ -z "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" ]; then
@@ -111,7 +111,7 @@ jobs:
         shell: bash
         run: |
           if [ -z "${GPG_PRIVATE_KEY:-}" ] || [ -z "${GPG_KEY_ID:-}" ]; then
-            echo "::warning::GPG_PRIVATE_KEY / GPG_KEY_ID not set — the apt-publish and rpm-publish jobs will skip, and package-manager users will not see this release."
+            echo "::warning::GPG_PRIVATE_KEY / GPG_KEY_ID not set; the apt-publish and rpm-publish jobs will skip, and package-manager users will not see this release."
           else
             echo "GPG repo-signing secrets present; APT/DNF repos will be regenerated."
           fi
@@ -592,7 +592,7 @@ jobs:
           if-no-files-found: error
 
   # =========================================================================
-  # harden — the shared reusable (scan, SBOMs, SHA256SUMS, cosign keyless).
+  # harden: the shared reusable (scan, SBOMs, SHA256SUMS, cosign keyless).
   # Canonical copy: TinkerNorth/satellite/.github/workflows/_release_harden.yml
   # =========================================================================
   harden:
@@ -671,7 +671,7 @@ jobs:
   # =========================================================================
   # apt-publish: regenerate the APT repository at
   # https://tinkernorth.github.io/dish-linux/debian and commit to gh-pages.
-  # Stable tags only — a prerelease must never reach package managers.
+  # Stable tags only; a prerelease must never reach package managers.
   # Skipped entirely if the GPG signing secret isn't set: unsigned repo
   # metadata is worse than no repo at all.
   # Ported from TinkerNorth/satellite release.yml; keep the two in step.

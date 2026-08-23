@@ -82,17 +82,17 @@ Publishing is a channel, not a format. Every release tag feeds:
 
 | Channel | Who it serves | How it updates |
 |---|---|---|
-| APT repo — `https://tinkernorth.github.io/dish-linux/debian` | Debian 13+ | `apt upgrade` |
-| DNF repo — `https://tinkernorth.github.io/dish-linux/rpm` | Fedora/RHEL/openSUSE | `dnf upgrade` |
-| pacman repo — `https://tinkernorth.github.io/dish-linux/arch/$arch` | Arch | `pacman -Syu` (`arch-publish` builds `dish-bin` from [`packaging/aur/`](../packaging/aur/) each release; an AUR listing waits on registration reopening) |
+| APT repo (`https://tinkernorth.github.io/dish-linux/debian`) | Debian 13+ | `apt upgrade` |
+| DNF repo (`https://tinkernorth.github.io/dish-linux/rpm`) | Fedora/RHEL/openSUSE | `dnf upgrade` |
+| pacman repo (`https://tinkernorth.github.io/dish-linux/arch/$arch`) | Arch | `pacman -Syu` (`arch-publish` builds `dish-bin` from [`packaging/aur/`](../packaging/aur/) each release; an AUR listing waits on registration reopening) |
 | Flathub | Ubuntu LTS, Steam Deck, software-center users | store-automatic ([submission runbook](FLATHUB.md)) |
 | GitHub Releases | everyone else | AppImage self-updates via zsync (AppImageUpdate/Gear Lever); manual otherwise |
 
 The APT and DNF trees live on the `gh-pages` branch, regenerated and
 GPG-signed by the `apt-publish` / `rpm-publish` jobs in `release.yml` using
 [`packaging/repo/`](../packaging/repo/) (key fingerprint and rotation story in
-its README). The AppImage embeds `gh-releases-zsync` update information, and
-the release uploads the matching `.zsync` beside it; the draft→flip publish
+its README). The AppImage embeds gh-releases-zsync update information, and
+the release uploads the matching `.zsync` beside it; the draft-then-flip publish
 keeps `releases/latest` atomic so neither the updater manifest nor the zsync
 pattern ever sees a half-uploaded release.
 
