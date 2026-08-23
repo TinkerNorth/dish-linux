@@ -13,6 +13,13 @@ runtime-version: '6.9'
 sdk: org.kde.Sdk
 command: dish
 
+# The finish-stage sandbox has no network, and compose fetches the remote
+# screenshot URLs the metainfo carries (remote is Flathub's own convention).
+# A sideloaded bundle needs no composed catalog; Flathub's builder runs its
+# own compose, with network, for the store listing. The flathub-variant
+# manifest therefore leaves this on.
+appstream-compose: false
+
 finish-args:
   # --share=ipc is what makes the X11 fallback usable (MIT-SHM) rather than glacial.
   - --share=ipc
