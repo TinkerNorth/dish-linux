@@ -660,6 +660,10 @@ jobs:
       base64-subjects: ${{ needs.harden.outputs.hashes }}
       provenance-name: dish-linux.intoto.jsonl
       upload-assets: false
+      # A SHA-pinned call cannot resolve the prebuilt builder's release, so
+      # the binary never downloads and the generator dies at exit 127; build
+      # it from source instead.
+      compile-generator: true
 
   publish:
     name: Publish to GitHub Releases
