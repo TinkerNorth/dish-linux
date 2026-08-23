@@ -41,7 +41,14 @@ Physical controllers only. There is no on-screen touch gamepad; that belongs to
 ## Install and run
 
 You need a 64-bit Linux desktop, a gamepad, and a reachable Satellite server.
-Every release publishes four packages; pick the one that matches your distro.
+
+The comfortable path is a package repository: add it once and your package
+manager owns updates from then on. Debian 13+, Fedora-family, and Arch
+(pacman repo) instructions all live at
+[tinkernorth.github.io/dish-linux](https://tinkernorth.github.io/dish-linux/).
+
+Alternatively, every release publishes four standalone packages; pick the one
+that matches your distro.
 
 | You run | Take | Then |
 |---|---|---|
@@ -86,8 +93,10 @@ updater checks and stops: about 15 seconds after launch and every four hours
 after that it asks GitHub for `latest.json`, and if there is a newer release it
 shows a pill linking to the release page. Nothing is downloaded and nothing is
 applied. *Check for updates automatically* in Settings stops every
-update-related network request when off. What the check sends is spelled out in
-[`PRIVACY.md`](PRIVACY.md).
+update-related network request when off; inside a Flatpak it starts off, since
+the store that installed Dish also updates it. The AppImage additionally
+carries zsync update metadata, so AppImageUpdate or Gear Lever can delta-update
+it in place. What the check sends is spelled out in [`PRIVACY.md`](PRIVACY.md).
 
 ## Build from source
 

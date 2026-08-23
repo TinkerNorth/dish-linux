@@ -71,6 +71,28 @@
     <keyword>streaming</keyword>
   </keywords>
 
+  <!-- Sources live in docs/screenshots/. The URLs pin the release tag so a
+       published listing cannot have its images change under it; point them at
+       the new tag when retaking. -->
+  <screenshots>
+    <screenshot type="default">
+      <caption>A connected pad, ready to bind to a satellite</caption>
+      <image>https://raw.githubusercontent.com/TinkerNorth/dish-linux/0.1.0/docs/screenshots/home.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Connected controllers and what each one supports</caption>
+      <image>https://raw.githubusercontent.com/TinkerNorth/dish-linux/0.1.0/docs/screenshots/controllers.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Finding satellites on the LAN</caption>
+      <image>https://raw.githubusercontent.com/TinkerNorth/dish-linux/0.1.0/docs/screenshots/connections.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Theme, forwarded features and controller tuning</caption>
+      <image>https://raw.githubusercontent.com/TinkerNorth/dish-linux/0.1.0/docs/screenshots/settings.png</image>
+    </screenshot>
+  </screenshots>
+
   <url type="homepage">https://github.com/TinkerNorth/dish-linux</url>
   <url type="bugtracker">https://github.com/TinkerNorth/dish-linux/issues</url>
   <url type="help">https://github.com/TinkerNorth/dish-linux/blob/main/README.md</url>
@@ -81,7 +103,7 @@
        fails the PR that moves one without the other. -->
   <releases>
     <release version="0.1.0" date="2026-08-20" type="stable">
-      <url type="details">https://github.com/TinkerNorth/dish-linux/releases/tag/v0.1.0</url>
+      <url type="details">https://github.com/TinkerNorth/dish-linux/releases/tag/0.1.0</url>
       <description>
         <p>First Linux release: Qt Quick UI, LAN and mDNS discovery, TOFU pairing, SDL and USB-direct input paths, and six UI languages.</p>
       </description>
