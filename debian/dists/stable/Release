@@ -1,0 +1,20 @@
+Architectures: amd64
+Codename: stable
+Components: main
+Date: Sun, 23 Aug 2026 16:18:47 +0000
+Description: Dish Linux package repository
+Label: Dish
+Origin: TinkerNorth
+Suite: stable
+MD5Sum:
+ 83227c036414e65e3834fa5390d9482c             1858 main/binary-amd64/Packages
+ bd5b00a3b0bb74ca8ee8f963af887c62             1069 main/binary-amd64/Packages.gz
+SHA1:
+ a3c8a97dbd56ba947997536fc16d323c72d8369d             1858 main/binary-amd64/Packages
+ 9229607d5c605cc19641601da9987e36095bf7f6             1069 main/binary-amd64/Packages.gz
+SHA256:
+ d73ad1d4aa399c975ac1b443ee2f6e68cb2b72a2b84741fc0d0cfb596a66509c             1858 main/binary-amd64/Packages
+ 921384302d7061040f7810d767545d49a75938fc37ec5c24521cfdf7b51ffdf0             1069 main/binary-amd64/Packages.gz
+SHA512:
+ 26bf51692f17c852f02bec9946dec7a1b2dff7c7b804aadab8b4b01a4ea9c34a17617d73822bc78761722e797c9da12ddee067291882ac7e3dccdc99a753db43             1858 main/binary-amd64/Packages
+ 2f566e8f4f5756a192b0961cbe19db5facaba90a133684d07c6b7a3493a82bb7c18541f87f07386e8bda43f5d22654e0af223dd03757677ad4f88f7cf6a6f983             1069 main/binary-amd64/Packages.gz

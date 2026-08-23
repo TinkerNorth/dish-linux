@@ -1,0 +1,28 @@
+Package: dish
+Architecture: amd64
+Version: 0.1.0
+Priority: optional
+Section: utils
+Maintainer: TinkerNorth <security@tinkernorth.com>
+Installed-Size: 8191
+Depends: qml6-module-qtqml, qml6-module-qtqml-workerscript, qml6-module-qtquick, qml6-module-qtquick-window, qml6-module-qtquick-controls, qml6-module-qtquick-templates, qml6-module-qtquick-layouts, qml6-module-qtquick-effects, libqt6svg6, qt6-svg-plugins, qt6-qpa-plugins, hicolor-icon-theme, libc6 (>= 2.38), libgcc-s1 (>= 3.3.1), libqt6core6t64 (>= 6.8.2), libqt6dbus6 (>= 6.8.2), libqt6gui6 (>= 6.6.0), libqt6network6 (>= 6.7.2), libqt6qml6 (>= 6.6.0), libqt6quick6 (>= 6.6.0), libqt6quickcontrols2-6 (>= 6.6.0), libsdl2-2.0-0 (>= 2.24.0), libsodium23 (>= 1.0.8), libstdc++6 (>= 14), qt6-declarative-private-abi (= 6.8.2)
+Recommends: udev, qt6-wayland
+Suggests: bluez, gnome-shell-extension-appindicator
+Filename: pool/main/d/dish/dish_0.1.0_amd64.deb
+Size: 3061092
+MD5sum: 38888e01029edbd042614485a1952bd0
+SHA1: 1e84734fe21ad448b6150be3e4ffd86fce6d154b
+SHA256: a05f74684f95d5509fe78366eee8c754a0f06c764d1f6beaa922427b9ff117f8
+SHA512: 097ea6df748865dd7eeb92891731d3731b30e4c51ac3e6983484f48f1e5f9ad0ac17fecbedce222ef0fe95361f07e2a523796601c53e303642778a82dd516679
+Homepage: https://github.com/TinkerNorth/dish-linux
+Description: Wireless gamepad client for the Satellite server
+ Dish streams a local gamepad to a Satellite server over the LAN on an
+ encrypted UDP channel: sticks, buttons, motion and touchpad out, rumble and
+ battery back. It discovers servers over broadcast and mDNS, pairs with
+ trust-on-first-use key pinning, and can drive up to four pads at once.
+ .
+ Supported pads may also be claimed directly over USB for a higher polling
+ rate; that path needs the hidraw udev rule this package installs.
+ .
+ Dish never installs its own updates - it checks, and links out to the release.
+
