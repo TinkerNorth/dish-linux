@@ -102,6 +102,12 @@
   <!-- Kept in step with project(Dish VERSION ...); version-consistency.yml
        fails the PR that moves one without the other. -->
   <releases>
+    <release version="0.1.1" date="2026-08-23" type="stable">
+      <url type="details">https://github.com/TinkerNorth/dish-linux/releases/tag/0.1.1</url>
+      <description>
+        <p>Fixes the AppImage on Wayland desktops: the bundle now carries Qt's client buffer integrations, without which 0.1.1's predecessor aborted at startup outside X11.</p>
+      </description>
+    </release>
     <release version="0.1.0" date="2026-08-20" type="stable">
       <url type="details">https://github.com/TinkerNorth/dish-linux/releases/tag/0.1.0</url>
       <description>
