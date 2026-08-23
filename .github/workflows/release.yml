@@ -441,7 +441,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             build-essential cmake ninja-build pkg-config \
-            libsodium-dev libsdl2-dev \
+            libsodium-dev libudev-dev libusb-1.0-0-dev \
             file fakeroot rsync wget curl librsvg2-bin gzip
 
       # Not apt: jammy ships Qt 6.2 and this project's floor is 6.7. The action
@@ -449,6 +449,36 @@ jobs:
       # on PATH where linuxdeploy-plugin-qt looks for it.
       - name: Set up Qt
         uses: ./.github/actions/setup-qt
+
+      # Not apt for the same reason as Qt: jammy ships SDL 2.0.20 and the code
+      # uses SDL_GameControllerPath, which needs 2.24. Same version, checksum
+      # and gamepad-only feature set as the Flatpak manifest's sdl2 module;
+      # linuxdeploy bundles the resulting library into the AppImage. Runs
+      # after setup-qt because that action overwrites CMAKE_PREFIX_PATH and
+      # this step prepends to it.
+      - name: Build SDL2 (jammy's predates SDL_GameControllerPath)
+        env:
+          SDL_VERSION: "2.30.9"
+          SDL_SHA256: "24b574f71c87a763f50704bbb630cbe38298d544a1f890f099a4696b1d6beba4" # SDL2-2.30.9.tar.gz
+        run: |
+          set -euo pipefail
+          curl -fsSL -o sdl2.tar.gz \
+            "https://github.com/libsdl-org/SDL/releases/download/release-${SDL_VERSION}/SDL2-${SDL_VERSION}.tar.gz"
+          echo "${SDL_SHA256}  sdl2.tar.gz" | sha256sum -c -
+          tar xzf sdl2.tar.gz
+          cmake -S "SDL2-${SDL_VERSION}" -B "${RUNNER_TEMP}/sdl-build" -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX="${RUNNER_TEMP}/sdl-prefix" \
+            -DSDL_STATIC=OFF -DSDL_SHARED=ON -DSDL_TEST=OFF \
+            -DSDL_RENDER=OFF -DSDL_AUDIO=OFF \
+            -DSDL_HIDAPI=ON -DSDL_JOYSTICK=ON -DSDL_HAPTIC=ON
+          cmake --build "${RUNNER_TEMP}/sdl-build" --parallel
+          cmake --install "${RUNNER_TEMP}/sdl-build"
+          {
+            echo "CMAKE_PREFIX_PATH=${RUNNER_TEMP}/sdl-prefix:${CMAKE_PREFIX_PATH:-}"
+            echo "PKG_CONFIG_PATH=${RUNNER_TEMP}/sdl-prefix/lib/pkgconfig:${PKG_CONFIG_PATH:-}"
+            echo "LD_LIBRARY_PATH=${RUNNER_TEMP}/sdl-prefix/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+          } >> "$GITHUB_ENV"
 
       # Everything fiddly — QML_SOURCES_PATHS, the icon basename, the offscreen
       # smoke test, the zsync update metadata — lives in the script so a local
