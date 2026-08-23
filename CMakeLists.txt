@@ -112,6 +112,10 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
         -fstack-protector-strong
         # _FORTIFY_SOURCE needs an optimising build; at -O0 it is a warning,
         # and a sanitizer run interposes the checked libc calls itself.
+        # Undefined before defined: Ubuntu's specs bake in =2, and redefining
+        # to a different value is a warning -Werror turns fatal on any
+        # toolchain whose built-in has not moved to =3 (jammy's gcc-11).
+        $<$<AND:$<NOT:$<CONFIG:Debug>>,$<STREQUAL:${DISH_SANITIZER},>>:-U_FORTIFY_SOURCE>
         $<$<AND:$<NOT:$<CONFIG:Debug>>,$<STREQUAL:${DISH_SANITIZER},>>:-D_FORTIFY_SOURCE=3>)
     target_link_options(dish_hardened INTERFACE
         -Wl,-z,relro -Wl,-z,now -Wl,-z,noexecstack)
