@@ -1,8 +1,16 @@
-# dish-bin — AUR packaging
+# dish-bin — Arch packaging
 
 `PKGBUILD` re-bundles the release AppImage for Arch users, with the udev
 rule, desktop entry, icon and AppStream metadata the bare AppImage cannot
 install. Mirrors `TinkerNorth/satellite` `packaging/aur/`.
+
+> **Status:** AUR account registration is currently closed, so this is not
+> on the AUR yet. The live Arch channel is the **self-hosted pacman repo**:
+> the `arch-publish` job in `release.yml` builds `dish-bin` from this
+> PKGBUILD on every stable release and publishes it (GPG-signed) at
+> `https://tinkernorth.github.io/dish-linux/arch/$arch`. The steps below
+> are for the eventual AUR listing, if/when registration reopens; local
+> `makepkg -si` works today regardless.
 
 ## First publish (one-time)
 

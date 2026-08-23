@@ -84,7 +84,7 @@ Publishing is a channel, not a format. Every release tag feeds:
 |---|---|---|
 | APT repo — `https://tinkernorth.github.io/dish-linux/debian` | Debian 13+ | `apt upgrade` |
 | DNF repo — `https://tinkernorth.github.io/dish-linux/rpm` | Fedora/RHEL/openSUSE | `dnf upgrade` |
-| [AUR `dish-bin`](../packaging/aur/) | Arch | AUR helper (manual `pkgver` bump per release — see `packaging/aur/README.md`) |
+| pacman repo — `https://tinkernorth.github.io/dish-linux/arch/$arch` | Arch | `pacman -Syu` (`arch-publish` builds `dish-bin` from [`packaging/aur/`](../packaging/aur/) each release; an AUR listing waits on registration reopening) |
 | Flathub | Ubuntu LTS, Steam Deck, software-center users | store-automatic ([submission runbook](FLATHUB.md)) |
 | GitHub Releases | everyone else | AppImage self-updates via zsync (AppImageUpdate/Gear Lever); manual otherwise |
 

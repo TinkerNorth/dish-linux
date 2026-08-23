@@ -39,6 +39,27 @@ sudo curl -fsSL -o /etc/yum.repos.d/dish.repo \
 sudo dnf install dish
 ```
 
+## End-user install (Arch)
+
+```bash
+# Trust the signing key (one-time):
+curl -fsSL https://tinkernorth.github.io/dish-linux/gpg.key | sudo pacman-key --add -
+sudo pacman-key --lsign-key 96FFAACB78FE75D18CEEE332C398179512D6BDF3
+
+# Add the repo (one-time):
+printf '\n[dish]\nSigLevel = Required DatabaseOptional\nServer = https://tinkernorth.github.io/dish-linux/arch/$arch\n' \
+  | sudo tee -a /etc/pacman.conf
+
+# Install + future upgrades via pacman:
+sudo pacman -Syu dish-bin
+```
+
+The `arch-publish` job builds `dish-bin` from `packaging/aur/PKGBUILD`
+against the just-published release assets, signs the package and the repo
+database with the same key, and pushes `arch/x86_64/` alongside the APT and
+DNF trees. (`repo-add`'s `.db`/`.files` symlinks are replaced with copies —
+GitHub Pages does not serve symlinks.)
+
 ## Signing key
 
 The repository signing key is:

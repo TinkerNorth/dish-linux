@@ -43,10 +43,9 @@ Physical controllers only. There is no on-screen touch gamepad; that belongs to
 You need a 64-bit Linux desktop, a gamepad, and a reachable Satellite server.
 
 The comfortable path is a package repository — add it once and your package
-manager owns updates from then on. Debian 13+ and Fedora-family instructions
-live at [tinkernorth.github.io/dish-linux](https://tinkernorth.github.io/dish-linux/);
-Arch users have [`dish-bin`](https://aur.archlinux.org/packages/dish-bin) on
-the AUR.
+manager owns updates from then on. Debian 13+, Fedora-family, and Arch
+(pacman repo) instructions all live at
+[tinkernorth.github.io/dish-linux](https://tinkernorth.github.io/dish-linux/).
 
 Alternatively, every release publishes four standalone packages; pick the one
 that matches your distro.
