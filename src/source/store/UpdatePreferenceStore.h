@@ -13,6 +13,7 @@
 
 #include "architecture/StateSource.h"
 
+#include <QFile>
 #include <QSettings>
 #include <QString>
 
@@ -73,9 +74,21 @@ class UpdatePreferenceStore : public arch::StateSource<UpdatePreferences> {
     }
 
   private:
+    // A Flatpak install updates through the store that delivered it (Flathub
+    // rebuilds every release), so the notify-only pill would announce a version
+    // the store is about to hand over anyway. Inside the sandbox the check
+    // therefore defaults OFF; the Settings toggle still works, and a flip
+    // persists like any other preference (the sandbox has its own config under
+    // ~/.var/app/, so this default never leaks into a host install).
+    static bool runningInFlatpak() {
+        return qEnvironmentVariableIsSet("FLATPAK_ID") ||
+               QFile::exists(QStringLiteral("/.flatpak-info"));
+    }
+
     static UpdatePreferences readInitial(QSettings& settings) {
         UpdatePreferences initial;
-        initial.checksEnabled = settings.value(QLatin1String(kKeyChecksEnabled), true).toBool();
+        initial.checksEnabled =
+            settings.value(QLatin1String(kKeyChecksEnabled), !runningInFlatpak()).toBool();
         initial.skippedVersion =
             settings.value(QLatin1String(kKeySkippedVersion), QString()).toString();
         return initial;

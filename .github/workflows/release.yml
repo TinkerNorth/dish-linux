@@ -2,7 +2,11 @@ name: Release
 
 on:
   push:
-    tags: ["v*"]
+    # Bare MAJOR.MINOR.PATCH tags, no v prefix: org convention for the
+    # product repos, because dish-android's pipeline requires bare tags.
+    # (Releases were previously v-prefixed; every version consumer below
+    # tolerates a legacy v by stripping it.)
+    tags: ["[0-9]*"]
   workflow_dispatch:
     inputs:
       tag:
@@ -12,7 +16,9 @@ on:
 # Packages a tagged commit four ways — .deb (Debian 13+), .rpm (Fedora/RHEL/
 # openSUSE), AppImage (everything else, including an LTS whose Qt is below the
 # floor) and a Flatpak bundle — emits the latest.json the in-app update check
-# reads, and uploads the lot to the GitHub Releases page for the tag.
+# reads, and uploads the lot to the GitHub Releases page for the tag. Stable
+# tags then regenerate the GPG-signed APT and DNF repositories on gh-pages
+# (tinkernorth.github.io/dish-linux) so package managers pull the update.
 #
 # The .deb and .rpm jobs install their own package and launch it before
 # uploading. That is the only gate that can catch a missing runtime dependency:
@@ -21,23 +27,31 @@ on:
 #
 # Before any artifact is uploaded the `gates` job re-runs every PR-time
 # check (action-pin lint, allowlist expiry, OSV-Scanner, gitleaks)
-# against the tagged commit. The `harden` job then scans, signs (cosign
-# keyless), generates SBOMs, and produces SHA256SUMS.
+# against the tagged commit. The `harden` job (the shared
+# _release_harden.yml) then scans, signs (cosign keyless), generates SBOMs,
+# and produces SHA256SUMS.
+#
+# The release is uploaded as a DRAFT and flipped to published afterwards:
+# GitHub never points releases/latest at a draft, so the update permalink
+# (latest.json) and the AppImage's zsync pattern both keep resolving to the
+# previous release until every asset of the new one is in place.
+#
+# Prerelease tags (1.2.3-rc.1) publish marked as prerelease, skip
+# latest.json, and skip the APT/DNF repos; stable clients and repos never
+# see them.
 #
 # Linux binaries are not signed with a platform key by default; the
 # `required-secrets` gate therefore enforces only that the cosign keyless
 # flow is reachable (id-token: write).
 #
 # Pin map (verify with `gh api repos/<owner>/<repo>/git/ref/tags/<tag>`):
-#   actions/checkout                @ v6.0.2  → de0fac2e4500dabe0009e67214ff5f5447ce83dd
+#   actions/checkout                @ v7.0.0  → 9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
 #   actions/upload-artifact         @ v7.0.1  → 043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
 #   actions/download-artifact       @ v8.0.1  → 3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
-#   anchore/sbom-action             @ v0.24.0 → e22c389904149dbc22b58101806040fa8d37a610
-#   anchore/scan-action             @ v7.4.0  → e1165082ffb1fe366ebaf02d8526e7c4989ea9d2
-#   github/codeql-action/upload-sarif @ v4.35.4 → 68bde559dea0fdcac2102bfdf6230c5f70eb485e
-#   softprops/action-gh-release     @ v3.0.0  → b4309332981a82ec1c5618f44dd2e27cc8bfbfda
+#   softprops/action-gh-release     @ v3.0.2  → 3d0d9888cb7fd7b750713d6e236d1fcb99157228
 #   slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml
 #                                   @ v2.1.0  → f7dd8c54c2067bafc12ca7a55595d5ee9b75204a
+#   (scan/SBOM/cosign pins live in _release_harden.yml)
 
 # Least privilege at the top; each job widens only what it needs. A workflow
 # grant is a ceiling for the jobs AND for any reusable workflow they call, so
@@ -80,8 +94,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [ "${{ github.ref_type }}" != "tag" ] || [ "${{ startsWith(github.ref, 'refs/tags/v') }}" != "true" ]; then
-            echo "::notice::Non-tag release run — cosign keyless gate is advisory."
+          if [ "${{ github.ref_type }}" != "tag" ] || ! [[ "$GITHUB_REF_NAME" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+ ]]; then
+            echo "::notice::Non-release-tag run; cosign keyless gate is advisory."
             exit 0
           fi
           if [ -z "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ] && [ -z "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" ]; then
@@ -89,6 +103,18 @@ jobs:
             exit 1
           fi
           echo "id-token write permission present; cosign keyless flow can authenticate."
+
+      - name: Report APT/DNF repo signing readiness (advisory)
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+          GPG_KEY_ID: ${{ secrets.GPG_KEY_ID }}
+        shell: bash
+        run: |
+          if [ -z "${GPG_PRIVATE_KEY:-}" ] || [ -z "${GPG_KEY_ID:-}" ]; then
+            echo "::warning::GPG_PRIVATE_KEY / GPG_KEY_ID not set; the apt-publish and rpm-publish jobs will skip, and package-manager users will not see this release."
+          else
+            echo "GPG repo-signing secrets present; APT/DNF repos will be regenerated."
+          fi
 
   # =========================================================================
   # .deb — Debian 13 and derivatives.
@@ -131,7 +157,7 @@ jobs:
             librsvg2-bin desktop-file-utils appstream lintian
 
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           ref: ${{ inputs.tag || github.ref }}
 
@@ -283,7 +309,7 @@ jobs:
             librsvg2-tools desktop-file-utils libappstream-glib gzip
 
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           ref: ${{ inputs.tag || github.ref }}
 
@@ -400,7 +426,7 @@ jobs:
     timeout-minutes: 45
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           ref: ${{ inputs.tag || github.ref }}
 
@@ -425,7 +451,8 @@ jobs:
         uses: ./.github/actions/setup-qt
 
       # Everything fiddly — QML_SOURCES_PATHS, the icon basename, the offscreen
-      # smoke test — lives in the script so a local build and CI agree.
+      # smoke test, the zsync update metadata — lives in the script so a local
+      # build and CI agree.
       - name: Build AppImage
         run: scripts/build-appimage.sh
 
@@ -435,12 +462,13 @@ jobs:
           path: |
             dist/*.AppImage
             dist/*.AppImage.sha256
+            dist/*.AppImage.zsync
           if-no-files-found: error
 
   # =========================================================================
   # Flatpak — the sandboxed build, and the artifact a Flathub PR is validated
-  # against. flatpak-builder is driven directly so there is one fewer
-  # third-party action to pin and audit.
+  # against (docs/FLATHUB.md is the submission runbook). flatpak-builder is
+  # driven directly so there is one fewer third-party action to pin and audit.
   # =========================================================================
   flatpak:
     name: Build Flatpak bundle
@@ -459,7 +487,7 @@ jobs:
             org.kde.Platform//6.9 org.kde.Sdk//6.9
 
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           ref: ${{ inputs.tag || github.ref }}
 
@@ -495,6 +523,9 @@ jobs:
   # not "stable", or whose minimumSupportedVersion is malformed or newer than
   # its version. This job is the only producer; the asset name never changes.
   # Without it the in-app update check 404s forever.
+  #
+  # Prerelease tags emit nothing: the permalink must keep serving stable
+  # clients the last stable release's manifest.
   # =========================================================================
   manifest:
     name: Emit update manifest
@@ -503,11 +534,12 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           ref: ${{ inputs.tag || github.ref }}
 
-      - name: Write latest.json
+      - name: Write latest.json (stable tags only)
+        id: emit
         env:
           TAG: ${{ inputs.tag || github.ref_name }}
           REPO: ${{ github.repository }}
@@ -515,8 +547,13 @@ jobs:
           set -euo pipefail
           version="${TAG#v}"
           case "${version}" in
+            *-*)
+              echo "::notice::Prerelease tag ${TAG}: skipping latest.json so the stable permalink keeps serving the last stable release."
+              echo "stable=false" >> "$GITHUB_OUTPUT"
+              exit 0
+              ;;
             [0-9]*.[0-9]*.[0-9]*) ;;
-            *) echo "::error::tag '${TAG}' is not vMAJOR.MINOR.PATCH"; exit 1 ;;
+            *) echo "::error::tag '${TAG}' is not MAJOR.MINOR.PATCH[-prerelease]"; exit 1 ;;
           esac
 
           # The drift that breaks every client at once: a manifest naming a
@@ -545,136 +582,30 @@ jobs:
           }, indent=2))
           PY
           cat dist/latest.json
+          echo "stable=true" >> "$GITHUB_OUTPUT"
 
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - if: ${{ steps.emit.outputs.stable == 'true' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: linux-manifest
           path: dist/latest.json
           if-no-files-found: error
 
+  # =========================================================================
+  # harden: the shared reusable (scan, SBOMs, SHA256SUMS, cosign keyless).
+  # Canonical copy: TinkerNorth/satellite/.github/workflows/_release_harden.yml
+  # =========================================================================
   harden:
-    name: Harden artifacts (scan, SBOM, sign)
+    name: Harden artifacts
     needs: [deb, rpm, appimage, flatpak, manifest]
-    runs-on: ubuntu-24.04
-    timeout-minutes: 30
     permissions:
       contents: read
       id-token: write
       security-events: write
-    outputs:
-      hashes: ${{ steps.hashes.outputs.hashes }}
-    steps:
-      - name: Download release artifacts
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          pattern: linux-*
-          merge-multiple: true
-          path: release
-
-      - name: Vulnerability scan (Grype)
-        uses: anchore/scan-action@e1165082ffb1fe366ebaf02d8526e7c4989ea9d2 # v7.4.0
-        id: grype
-        with:
-          path: release/
-          severity-cutoff: high
-          fail-build: true
-          only-fixed: false
-          add-cpes-if-none: true
-          output-format: sarif
-
-      - name: Upload Grype SARIF to code scanning
-        if: ${{ always() && steps.grype.outputs.sarif != '' }}
-        continue-on-error: true
-        uses: github/codeql-action/upload-sarif@68bde559dea0fdcac2102bfdf6230c5f70eb485e # v4.35.4
-        with:
-          sarif_file: ${{ steps.grype.outputs.sarif }}
-          category: release-grype
-
-      - name: Generate SBOM (SPDX)
-        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
-        with:
-          path: release/
-          format: spdx-json
-          output-file: release/dish.sbom.spdx.json
-          upload-artifact: false
-          upload-release-assets: false
-
-      - name: Generate SBOM (CycloneDX)
-        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
-        with:
-          path: release/
-          format: cyclonedx-json
-          output-file: release/dish.sbom.cdx.json
-          upload-artifact: false
-          upload-release-assets: false
-
-      - name: Install cosign (upstream binary)
-        shell: bash
-        env:
-          COSIGN_VERSION: "2.4.1"
-          # Pin upstream SHA-256 of cosign-linux-amd64. Verify with:
-          #   gh release view v${COSIGN_VERSION} -R sigstore/cosign --json assets
-          COSIGN_SHA256: "8b24b946dd5809c6bd93de08033bcf6bc0ed7d336b7785787c080f574b89249b" # cosign-linux-amd64 v2.4.1
-        run: |
-          set -euo pipefail
-          curl -fsSL -o /tmp/cosign \
-            "https://github.com/sigstore/cosign/releases/download/v${COSIGN_VERSION}/cosign-linux-amd64"
-          if [ "${COSIGN_SHA256}" != "TODO_REPLACE_WITH_UPSTREAM_SHA256" ]; then
-            echo "${COSIGN_SHA256}  /tmp/cosign" | sha256sum -c -
-          else
-            echo "::warning::COSIGN_SHA256 is unset — replace with the upstream SHA-256 to enforce binary integrity."
-          fi
-          chmod +x /tmp/cosign
-          sudo mv /tmp/cosign /usr/local/bin/cosign
-          cosign version
-
-      - name: Generate SHA256SUMS
-        shell: bash
-        run: |
-          set -euo pipefail
-          cd release
-          find . -maxdepth 1 -type f ! -name 'SHA256SUMS*' -printf '%f\n' \
-            | LC_ALL=C sort \
-            | xargs -d '\n' sha256sum --binary > SHA256SUMS
-          cat SHA256SUMS
-
-      - name: Cosign-sign each artifact + SHA256SUMS (keyless)
-        shell: bash
-        env:
-          COSIGN_EXPERIMENTAL: "1"
-        run: |
-          set -euo pipefail
-          cd release
-          for f in *; do
-            case "$f" in
-              *.sig|*.crt|SHA256SUMS.sig|SHA256SUMS.crt) continue ;;
-            esac
-            cosign sign-blob --yes \
-              --output-signature "${f}.sig" \
-              --output-certificate "${f}.crt" \
-              "$f"
-          done
-          ls -l
-
-      - name: Compute base64 SHA256 hashes for SLSA provenance
-        id: hashes
-        shell: bash
-        run: |
-          set -euo pipefail
-          cd release
-          h=$(find . -maxdepth 1 -type f ! -name '*.sig' ! -name '*.crt' \
-                  -printf '%f\n' \
-                | LC_ALL=C sort \
-                | xargs -d '\n' sha256sum \
-                | base64 -w0)
-          echo "hashes=${h}" >> "$GITHUB_OUTPUT"
-
-      - name: Upload hardened bundle
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: release-bundle
-          path: release/
-          retention-days: 14
+    uses: ./.github/workflows/_release_harden.yml
+    with:
+      artifact-pattern: linux-*
+      product: dish
 
   provenance:
     name: SLSA L3 provenance
@@ -712,9 +643,365 @@ jobs:
       - name: Show what we're about to publish
         run: find release -type f -printf '%p\n'
 
-      - name: Upload to GitHub Releases
-        uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3.0.0
+      # draft: true is load-bearing. GitHub never points releases/latest at a
+      # draft, so the assets upload while the update permalink (latest.json)
+      # and the AppImage zsync pattern still resolve to the previous release;
+      # the flip below is what makes publication atomic for every client.
+      - name: Upload to GitHub Releases (as draft)
+        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
         with:
           tag_name: ${{ inputs.tag || github.ref_name }}
+          prerelease: ${{ contains(inputs.tag || github.ref_name, '-') }}
           generate_release_notes: true
+          draft: true
           files: release/**/*
+          fail_on_unmatched_files: true
+
+      - name: Flip release from draft to published
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          gh release edit "$TAG" --draft=false
+          draft="$(gh release view "$TAG" --json isDraft --jq .isDraft)"
+          [ "$draft" = "false" ] || { echo "::error::release is still a draft"; exit 1; }
+
+  # =========================================================================
+  # apt-publish: regenerate the APT repository at
+  # https://tinkernorth.github.io/dish-linux/debian and commit to gh-pages.
+  # Stable tags only; a prerelease must never reach package managers.
+  # Skipped entirely if the GPG signing secret isn't set: unsigned repo
+  # metadata is worse than no repo at all.
+  # Ported from TinkerNorth/satellite release.yml; keep the two in step.
+  # =========================================================================
+  apt-publish:
+    name: Publish APT repository (gh-pages)
+    needs: [publish]
+    timeout-minutes: 15
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    if: ${{ github.ref_type == 'tag' && !contains(github.ref_name, '-') }}
+    steps:
+      - name: Checkout main (for build scripts)
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+          path: main
+
+      - name: Gate on GPG signing secret
+        id: gate
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+          GPG_KEY_ID: ${{ secrets.GPG_KEY_ID }}
+        shell: bash
+        run: |
+          if [ -z "${GPG_PRIVATE_KEY:-}" ] || [ -z "${GPG_KEY_ID:-}" ]; then
+            echo "::warning::GPG_PRIVATE_KEY / GPG_KEY_ID not set; skipping APT repo publish."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install apt-utils + GPG
+        if: steps.gate.outputs.skip != 'true'
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends apt-utils gnupg
+
+      - name: Import signing key
+        if: steps.gate.outputs.skip != 'true'
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+        shell: bash
+        run: |
+          printf '%s' "$GPG_PRIVATE_KEY" | gpg --batch --import
+          gpg --list-secret-keys --keyid-format=long
+
+      - name: Download release bundle
+        if: steps.gate.outputs.skip != 'true'
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-bundle
+          path: release
+
+      - name: Check out gh-pages branch
+        if: steps.gate.outputs.skip != 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if git -C main ls-remote --exit-code --heads origin gh-pages >/dev/null 2>&1; then
+            git clone --branch gh-pages --depth 1 \
+              "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git" pages
+          else
+            # First publish: initialize the orphan gh-pages branch with the
+            # landing page and gpg.key already in place.
+            git clone --depth 1 \
+              "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git" pages
+            git -C pages checkout --orphan gh-pages
+            git -C pages rm -rf . || true
+            cp main/packaging/repo/index.html pages/index.html
+          fi
+          # Always refresh the landing page from main so README edits propagate.
+          cp main/packaging/repo/index.html pages/index.html
+
+      - name: Export public key as gpg.key
+        if: steps.gate.outputs.skip != 'true'
+        env:
+          GPG_KEY_ID: ${{ secrets.GPG_KEY_ID }}
+        run: |
+          gpg --batch --yes --armor --export "$GPG_KEY_ID" > pages/gpg.key
+
+      - name: Build APT repo
+        if: steps.gate.outputs.skip != 'true'
+        env:
+          GPG_KEY_ID: ${{ secrets.GPG_KEY_ID }}
+        run: |
+          chmod +x main/packaging/repo/build-apt-repo.sh
+          main/packaging/repo/build-apt-repo.sh "$(pwd)/pages" "$(pwd)/release"
+
+      - name: Commit + push
+        if: steps.gate.outputs.skip != 'true'
+        shell: bash
+        env:
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          cd pages
+          git config user.name  'dish-release-bot'
+          git config user.email 'releases@tinkernorth.invalid'
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No APT-repo changes to commit"
+          else
+            git commit -m "Publish APT repo: ${TAG}"
+            git push origin gh-pages
+          fi
+
+  # =========================================================================
+  # rpm-publish: same idea as apt-publish, but for the DNF/YUM tree
+  # under https://tinkernorth.github.io/dish-linux/rpm.
+  # =========================================================================
+  rpm-publish:
+    name: Publish DNF repository (gh-pages)
+    needs: [publish, apt-publish]
+    timeout-minutes: 15
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    if: ${{ github.ref_type == 'tag' && !contains(github.ref_name, '-') }}
+    steps:
+      - name: Checkout main (for build scripts)
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+          path: main
+
+      - name: Gate on GPG signing secret
+        id: gate
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+          GPG_KEY_ID: ${{ secrets.GPG_KEY_ID }}
+        shell: bash
+        run: |
+          if [ -z "${GPG_PRIVATE_KEY:-}" ] || [ -z "${GPG_KEY_ID:-}" ]; then
+            echo "::warning::GPG_PRIVATE_KEY / GPG_KEY_ID not set; skipping DNF repo publish."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install createrepo_c + GPG
+        if: steps.gate.outputs.skip != 'true'
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends createrepo-c gnupg
+
+      - name: Import signing key
+        if: steps.gate.outputs.skip != 'true'
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+        shell: bash
+        run: |
+          printf '%s' "$GPG_PRIVATE_KEY" | gpg --batch --import
+
+      - name: Download release bundle
+        if: steps.gate.outputs.skip != 'true'
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-bundle
+          path: release
+
+      - name: Check out gh-pages branch (apt-publish has already touched it)
+        if: steps.gate.outputs.skip != 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          git clone --branch gh-pages --depth 1 \
+            "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git" pages
+
+      - name: Build DNF repo
+        if: steps.gate.outputs.skip != 'true'
+        env:
+          GPG_KEY_ID: ${{ secrets.GPG_KEY_ID }}
+          REPO_BASE_URL: "https://${{ github.repository_owner }}.github.io/dish-linux"
+        run: |
+          chmod +x main/packaging/repo/build-dnf-repo.sh
+          main/packaging/repo/build-dnf-repo.sh "$(pwd)/pages" "$(pwd)/release"
+
+      - name: Commit + push
+        if: steps.gate.outputs.skip != 'true'
+        shell: bash
+        env:
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          cd pages
+          git config user.name  'dish-release-bot'
+          git config user.email 'releases@tinkernorth.invalid'
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No DNF-repo changes to commit"
+          else
+            git commit -m "Publish DNF repo: ${TAG}"
+            git push origin gh-pages
+          fi
+
+  # =========================================================================
+  # arch-publish: build the dish-bin pacman package from the in-tree
+  # PKGBUILD (against the assets the publish job just made public) and
+  # regenerate the signed pacman repository under
+  # https://tinkernorth.github.io/dish-linux/arch/x86_64.
+  #
+  # A self-hosted pacman repo, not the AUR: AUR registration is closed, and
+  # a binary repo is CI-automatable where AUR pushes need a personal SSH
+  # key. packaging/aur/ stays AUR-ready for if/when registration reopens.
+  # Chained after rpm-publish because both jobs push gh-pages.
+  # =========================================================================
+  arch-publish:
+    name: Publish pacman repository (gh-pages)
+    needs: [publish, rpm-publish]
+    timeout-minutes: 20
+    runs-on: ubuntu-24.04
+    container: archlinux:base-devel
+    permissions:
+      contents: write
+    if: ${{ github.ref_type == 'tag' && !contains(github.ref_name, '-') }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Gate on GPG signing secret
+        id: gate
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+          GPG_KEY_ID: ${{ secrets.GPG_KEY_ID }}
+        run: |
+          if [ -z "${GPG_PRIVATE_KEY:-}" ] || [ -z "${GPG_KEY_ID:-}" ]; then
+            echo "::warning::GPG_PRIVATE_KEY / GPG_KEY_ID not set; skipping pacman repo publish."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install tooling
+        if: steps.gate.outputs.skip != 'true'
+        run: pacman -Syu --noconfirm git pacman-contrib
+
+      - name: Checkout main (for the PKGBUILD)
+        if: steps.gate.outputs.skip != 'true'
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+          path: main
+
+      - name: Import signing key
+        if: steps.gate.outputs.skip != 'true'
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+        run: |
+          printf '%s' "$GPG_PRIVATE_KEY" | gpg --batch --import
+          gpg --list-secret-keys --keyid-format=long
+
+      # makepkg refuses to run as root, and the container runs as root:
+      # build as a throwaway user. updpkgsums re-downloads the sources from
+      # the release the publish job just flipped live, so the repo package
+      # is built from (and checksummed against) the published bytes, not a
+      # parallel local copy. -d skips dependency checks: a -bin package()
+      # only copies files, and fuse2/hicolor are runtime deps.
+      - name: Build dish-bin package
+        if: steps.gate.outputs.skip != 'true'
+        env:
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          version="${TAG#v}"
+          useradd -m builder
+          builddir=/home/builder/dish-bin
+          mkdir -p "$builddir"
+          cp main/packaging/aur/PKGBUILD main/packaging/aur/dish-bin.install "$builddir/"
+          sed -i "s/^pkgver=.*/pkgver=${version}/; s/^pkgrel=.*/pkgrel=1/" "$builddir/PKGBUILD"
+          chown -R builder:builder "$builddir"
+          su builder -c "cd '$builddir' && updpkgsums && PACKAGER='dish-release-bot <releases@tinkernorth.invalid>' makepkg -d --noconfirm"
+          ls -l "$builddir"/*.pkg.tar.zst
+
+      - name: Sign package
+        if: steps.gate.outputs.skip != 'true'
+        env:
+          GPG_KEY_ID: ${{ secrets.GPG_KEY_ID }}
+        run: |
+          set -euo pipefail
+          for pkg in /home/builder/dish-bin/*.pkg.tar.zst; do
+            gpg --batch --yes --default-key "$GPG_KEY_ID" --detach-sign "$pkg"
+          done
+
+      - name: Check out gh-pages branch (rpm-publish has already touched it)
+        if: steps.gate.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          git clone --branch gh-pages --depth 1 \
+            "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git" pages
+
+      # repo-add emits dish.db / dish.files as symlinks to the .tar.gz
+      # files; GitHub Pages does not serve symlinks, so replace each with a
+      # real copy before committing.
+      - name: Build pacman repo
+        if: steps.gate.outputs.skip != 'true'
+        env:
+          GPG_KEY_ID: ${{ secrets.GPG_KEY_ID }}
+        run: |
+          set -euo pipefail
+          repo_dir=pages/arch/x86_64
+          mkdir -p "$repo_dir"
+          cp /home/builder/dish-bin/*.pkg.tar.zst /home/builder/dish-bin/*.pkg.tar.zst.sig "$repo_dir/"
+          (
+            cd "$repo_dir"
+            repo-add --sign --key "$GPG_KEY_ID" dish.db.tar.gz ./*.pkg.tar.zst
+            for link in $(find . -maxdepth 1 -type l); do
+              target="$(readlink -f "$link")"
+              rm "$link"
+              cp "$target" "$link"
+            done
+          )
+          ls -l "$repo_dir"
+
+      - name: Commit + push
+        if: steps.gate.outputs.skip != 'true'
+        env:
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          cd pages
+          git config user.name  'dish-release-bot'
+          git config user.email 'releases@tinkernorth.invalid'
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No pacman-repo changes to commit"
+          else
+            git commit -m "Publish pacman repo: ${TAG}"
+            git push origin gh-pages
+          fi
