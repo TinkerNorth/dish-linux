@@ -90,9 +90,16 @@ Item {
     readonly property string headerSub: _cur && _cur.headerSub !== undefined ? _cur.headerSub : ""
     readonly property string headerDot: _cur && _cur.headerDot !== undefined ? _cur.headerDot : ""
     // The ONE streaming surface: the shell's, not a page's, so it reads the
-    // same on every destination and can never disagree with itself.
-    readonly property string headerPill: App.keepAwakeActive
-                                         ? qsTr("Streaming · display kept awake") : ""
+    // same on every destination and can never disagree with itself. The suffix
+    // follows the reach, so a pill can never claim a hold the preferences
+    // stopped asking for.
+    readonly property string headerPill: App.streamingSlotCount <= 0
+                                         ? ""
+                                         : App.keepAwakeReach === "display"
+                                           ? qsTr("Streaming · display kept awake")
+                                           : App.keepAwakeReach === "system"
+                                             ? qsTr("Streaming · computer kept awake")
+                                             : qsTr("Streaming")
     // A page may suppress the chevron; the wizard does, because it draws its
     // own footer Back and two controls named Back 500px apart is a defect.
     readonly property bool backVisible: contentStack.depth > 1
@@ -558,6 +565,16 @@ Item {
                             font.capitalization: Font.AllUppercase
                             color: Theme.primary
                         }
+                    }
+                    Kit.OutlineButton {
+                        Layout.alignment: Qt.AlignVCenter
+                        visible: shell.headerPill.length > 0
+                        size: Kit.DishButton.Small
+                        text: qsTr("Configure")
+                        Accessible.name: qsTr("Configure keep-awake")
+                        onClicked: shell.requestNavigation(function () {
+                            shell.selectDestination(4);
+                        })
                     }
                     Item { Layout.fillWidth: true }
 

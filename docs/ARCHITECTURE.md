@@ -76,7 +76,7 @@ layer together.
 | `src/composer/` | Composers (pure derive), Controllers (side effects), Coordinators (command services) | `core/`, `source/`, `repository/` | yes (QObject) |
 | `src/qml/` | QML bridge: the `AppViewModel` facade, role models, chrome singletons, and the `.qml` tree | everything | yes (Quick) |
 | `src/Models/` | Shared value types (`models::ControllerSlot`, `DiscoveredServer`, notifications) | `core/` | yes (QString) |
-| `src/Util/` | Leaf helpers with no domain state: endian, hex, host battery, display-sleep inhibitor, locale install | nothing | mixed |
+| `src/Util/` | Leaf helpers with no domain state: endian, hex, host battery, locale install | nothing | mixed |
 | `src/UI/` | The design-token palette (`Theme`), the font-family probes (`FontStacks`), crash handling, the `SlotLiveStats` mapper, `common/ExternalLink`, `licenses/LicenseManifest` | `core/` | yes (Gui) |
 | `src/Input/` | The SDL bridge, the input processor, joystick mapping, the output command queue | `core/` | yes |
 | `src/Network/` | Sockets and the REST control plane: `SatelliteClient`, `ConnectionHub`, `WifiConnectionManager`, `HTTPClient`, `PairingClient` | `core/` | yes |
@@ -474,7 +474,9 @@ CI), so each needs a device-in-the-loop test pass.
 - **Translations are tested.** `test_translations` pins locale fallback, the
   per-language `numerusform` order, and placeholder integrity across every
   catalogue. `scripts/check-translations.sh` re-runs `lupdate` in CI and fails
-  on any diff, so a new string cannot land without its catalogue entry.
+  on any diff, so a new string cannot land without its catalogue entry — and
+  fails again if any catalogue still has an unfinished entry, so it cannot land
+  without its words either.
 - **The update checker is tested the same way.** Test names are prefixed so
   `ctest -R update` selects them: the exhaustive reducer table for
   `UpdateMachine`, the manifest grammar, the preference schema, and

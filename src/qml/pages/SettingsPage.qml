@@ -24,6 +24,8 @@ Kit.Page {
     readonly property var themeOptions: [qsTr("Light"), qsTr("Dark"), qsTr("System")]
     readonly property string lightbarOn: qsTr("Follow game")
     readonly property string lightbarOff: qsTr("Off")
+    // Order is load-bearing: an option's index IS its App.keepAwakeMode value.
+    readonly property var keepAwakeOptions: [qsTr("Never"), qsTr("While playing"), qsTr("While connected")]
 
     // ── Updates ──────────────────────────────────────────────────────────────
     // One sentence per phase, assembled here rather than in C++ so every word
@@ -247,15 +249,130 @@ Kit.Page {
                 Layout.fillWidth: true
                 spacing: Tokens.s4
 
+                Kit.SectionHeader { label: qsTr("Power") }
+
+                Kit.Card {
+                    Layout.fillWidth: true
+                    contentItem: RowLayout {
+                        spacing: Tokens.s6
+
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: Tokens.s1
+
+                            Label {
+                                text: qsTr("Keep the computer awake")
+                                color: Theme.onSurface
+                                font.pixelSize: Tokens.textBase
+                                font.weight: Font.DemiBold
+                            }
+                            Label {
+                                Layout.fillWidth: true
+                                text: qsTr("While playing: hold only while a bound controller is being used. While connected: hold for as long as a controller is streaming, however long it sits still.")
+                                color: Theme.muted
+                                font.pixelSize: Tokens.textMeta
+                                wrapMode: Text.WordWrap
+                            }
+                        }
+                        Kit.ComboButton {
+                            Layout.alignment: Qt.AlignVCenter
+                            options: settingsPage.keepAwakeOptions
+                            value: settingsPage.keepAwakeOptions[App.keepAwakeMode]
+                            onPicked: (option) => App.setKeepAwakeMode(
+                                          settingsPage.keepAwakeOptions.indexOf(option))
+                        }
+                    }
+                }
+
+                Kit.Card {
+                    Layout.fillWidth: true
+                    visible: App.keepAwakeMode === 1
+                    contentItem: Kit.SliderRow {
+                        id: keepAwakeTimeout
+                        label: qsTr("Let go after this much stillness")
+                        minValue: 1
+                        maxValue: 180
+                        value: App.keepAwakeTimeoutMinutes
+                        valueText: qsTr("%1 min").arg(keepAwakeTimeout.displayValue)
+                        onCommitted: (minutes) => App.setKeepAwakeTimeoutMinutes(minutes)
+                    }
+                }
+
+                Kit.Card {
+                    Layout.fillWidth: true
+                    contentItem: Kit.LabeledSwitch {
+                        label: qsTr("Keep the display awake too")
+                        description: qsTr("Forwarding a controller needs the machine, not the screen, so this is off unless a game is being watched on this display.")
+                        enabled: App.keepAwakeMode !== 0
+                        checked: App.keepDisplayAwake
+                        onToggled: (checked) => App.setKeepDisplayAwake(checked)
+                    }
+                }
+            }
+
+            ColumnLayout {
+                Layout.fillWidth: true
+                spacing: Tokens.s4
+
                 Kit.SectionHeader { label: qsTr("Diagnostics") }
 
                 Kit.Card {
                     Layout.fillWidth: true
                     contentItem: Kit.LabeledSwitch {
-                        label: qsTr("Share crash reports")
-                        description: qsTr("Anonymous crash reports help fix bugs. Opt out any time.")
+                        // Nothing is transmitted, so the copy must not imply it is.
+                        // This switch controls whether a crash is RECORDED locally.
+                        label: qsTr("Save crash reports")
+                        description: qsTr("Writes a crash report to this machine so you can read it and send it yourself. Nothing is uploaded.")
                         checked: App.crashReportingEnabled
                         onToggled: (checked) => App.setCrashReportingEnabled(checked)
+                    }
+                }
+
+                // Only after a crash. In the ordinary case this card does not exist.
+                Kit.Card {
+                    Layout.fillWidth: true
+                    visible: App.hasCrashReport
+                    contentItem: ColumnLayout {
+                        spacing: Tokens.s4
+
+                        Label {
+                            Layout.fillWidth: true
+                            wrapMode: Text.WordWrap
+                            text: qsTr("Dish closed unexpectedly last time. The report below has had your home folder, network addresses and any key-like values removed.")
+                            color: Tokens.textMeta
+                        }
+
+                        ScrollView {
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: 160
+                            clip: true
+
+                            TextArea {
+                                readOnly: true
+                                wrapMode: TextEdit.NoWrap
+                                font.family: Tokens.monoFamily
+                                text: App.crashReportText()
+                            }
+                        }
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: Tokens.s4
+
+                            Kit.OutlineButton {
+                                text: qsTr("Copy")
+                                onClicked: App.copyCrashReport()
+                            }
+                            Kit.OutlineButton {
+                                text: qsTr("Report on GitHub")
+                                onClicked: App.openCrashIssue()
+                            }
+                            Item { Layout.fillWidth: true }
+                            Kit.OutlineButton {
+                                text: qsTr("Dismiss")
+                                onClicked: App.discardCrashReport()
+                            }
+                        }
                     }
                 }
             }

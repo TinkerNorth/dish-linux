@@ -12,6 +12,7 @@
 #include "composer/CatalogComposer.h"
 #include "composer/ConnectionCoordinator.h"
 #include "composer/StreamingSlotCount.h"
+#include "UI/CrashReport.h"
 #include "core/catalog/BundledCatalog.h"
 #include "core/input/Deadzones.h"
 #include "core/reducer/CapabilitySolver.h"
@@ -35,6 +36,7 @@
 #include "UI/licenses/LicenseManifest.h"
 
 #include <QDateTime>
+#include <QClipboard>
 #include <QDesktopServices>
 #include <QGuiApplication>
 #include <QSet>
@@ -340,17 +342,19 @@ AppViewModel::AppViewModel(dish::AppModel* model, QObject* parent)
                          emit updateNotice(updateNoticeToken(notice), version);
                      });
 
-    // Follow the composer's derived intent, not keepAwakeCount(): that observable
-    // is the keep-screen-on override input, which nothing sets, so binding to it
-    // leaves the pill dark while a pad streams.
+    // The composer's derived intent, so the pill cannot claim a reach the
+    // preferences no longer ask for.
     keepAwakeSub_ = model_->wakeState().subscribe(
         [this](const composer::WakeState& wake) {
-            if (wake.shouldInhibit != keepAwakeActive_) {
-                keepAwakeActive_ = wake.shouldInhibit;
+            if (const QString token = keepAwakeReachToken(wake.reach); token != keepAwakeReach_) {
+                keepAwakeReach_ = token;
                 emit stateChanged();
             }
         },
         true);
+
+    keepAwakePrefsSub_ = model_->keepAwakeStore()->state().subscribe(
+        [this](const reducer::KeepAwakePreferences&) { emit keepAwakePrefsChanged(); }, false);
 
     QObject::connect(model_->featureSettings(), &FeatureSettings::changed, this,
                      [this] { emit lightbarChanged(); });
@@ -817,6 +821,26 @@ void AppViewModel::setThemeMode(int mode) {
 
 bool AppViewModel::crashReportingEnabled() const { return model_->crashStore()->enabled(); }
 
+bool AppViewModel::hasCrashReport() const { return crash::hasCrashLog(); }
+
+QString AppViewModel::crashReportText() const {
+    return crash::buildReport(crash::readCrashLog(), QString::fromLocal8Bit(qgetenv("HOME")));
+}
+
+void AppViewModel::copyCrashReport() const {
+    if (auto* clipboard = QGuiApplication::clipboard()) { clipboard->setText(crashReportText()); }
+}
+
+void AppViewModel::openCrashIssue() const {
+    // openUrl, not a network call: Dish never speaks to GitHub on this path, and
+    // the user submits the issue themselves from a page they can still edit.
+    QDesktopServices::openUrl(crash::issueUrl(crashReportText()));
+}
+
+void AppViewModel::discardCrashReport() {
+    if (crash::discardCrashLog()) { emit crashReportChanged(); }
+}
+
 void AppViewModel::setCrashReportingEnabled(bool enabled) {
     model_->crashStore()->setEnabled(enabled);
 }
@@ -825,6 +849,28 @@ bool AppViewModel::runInBackground() const { return model_->backgroundStore()->r
 
 void AppViewModel::setRunInBackground(bool enabled) {
     model_->backgroundStore()->setRunInBackground(enabled);
+}
+
+int AppViewModel::keepAwakeMode() const {
+    return keepAwakeModeToInt(model_->keepAwakeStore()->mode());
+}
+
+void AppViewModel::setKeepAwakeMode(int mode) {
+    model_->keepAwakeStore()->setMode(keepAwakeModeFromInt(mode));
+}
+
+int AppViewModel::keepAwakeTimeoutMinutes() const {
+    return model_->keepAwakeStore()->idleTimeoutMinutes();
+}
+
+void AppViewModel::setKeepAwakeTimeoutMinutes(int minutes) {
+    model_->keepAwakeStore()->setIdleTimeoutMinutes(minutes);
+}
+
+bool AppViewModel::keepDisplayAwake() const { return model_->keepAwakeStore()->keepDisplayAwake(); }
+
+void AppViewModel::setKeepDisplayAwake(bool enabled) {
+    model_->keepAwakeStore()->setKeepDisplayAwake(enabled);
 }
 
 bool AppViewModel::trayAvailable() const { return model_->background()->trayAvailable(); }

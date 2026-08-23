@@ -38,6 +38,44 @@ source::ThemeMode themeModeFromInt(int value) {
     }
 }
 
+int keepAwakeModeToInt(reducer::KeepAwakeMode mode) {
+    switch (mode) {
+    case reducer::KeepAwakeMode::Off:
+        return 0;
+    case reducer::KeepAwakeMode::WhileControllerActive:
+        return 1;
+    case reducer::KeepAwakeMode::WhileConnected:
+        return 2;
+    }
+    return 1;
+}
+
+reducer::KeepAwakeMode keepAwakeModeFromInt(int value) {
+    switch (value) {
+    case 0:
+        return reducer::KeepAwakeMode::Off;
+    case 2:
+        return reducer::KeepAwakeMode::WhileConnected;
+    case 1:
+    default:
+        // Out-of-range lands on the timed mode, matching keepAwakeModeFromKey:
+        // a bad value must never pin the machine awake.
+        return reducer::KeepAwakeMode::WhileControllerActive;
+    }
+}
+
+QString keepAwakeReachToken(reducer::KeepAwakeReach reach) {
+    switch (reach) {
+    case reducer::KeepAwakeReach::System:
+        return QStringLiteral("system");
+    case reducer::KeepAwakeReach::SystemAndDisplay:
+        return QStringLiteral("display");
+    case reducer::KeepAwakeReach::None:
+        break;
+    }
+    return QStringLiteral("off");
+}
+
 QVariantMap deadzoneRowFor(const QString& deviceId, const QString& name, bool hasGyro,
                            const dish::repository::DeadzoneRepository* deadzoneRepo,
                            const dish::source::MotionEnabledStore* motionStore) {

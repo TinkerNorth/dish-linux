@@ -59,10 +59,10 @@ It adds no behaviour of its own.
 | `connectionCount` | `int` | `stateChanged` | Total remembered plus live connections. |
 | `slotCount` | `int` | `stateChanged` | Rows in `slotModel`, mirrored so a binding never pokes the model for a count. |
 | `boundSlotCount` | `int` | `stateChanged` | Slots currently bound to a connection. |
-| `streamingSlotCount` | `int` | `stateChanged` | Slots bound **and** whose link is `Connected`. The same pure `composer::streamingSlotCount` rule the wake controller inhibits the display on, so the header and the keep-awake pill cannot disagree. |
+| `streamingSlotCount` | `int` | `stateChanged` | Slots bound **and** whose link is `Connected`. The same pure `composer::streamingSlotCount` rule the wake controller keys its hold on, so the header, the streaming pill and the quit confirm cannot disagree. |
 | `firstOnlineName` | `string` | `stateChanged` | Label of the first `Connected` connection; empty when none. |
 | `foundCount` | `int` | `discoveredChanged` | Size of the FOUND list, after the one-spot exclusion below. |
-| `keepAwakeActive` | `bool` | `stateChanged` | The display-sleep inhibitor is held. Drives the shell's streaming pill and the quit confirm. |
+| `keepAwakeReach` | `string` | `stateChanged` | How far the hold currently reaches: `off`, `system` (the machine only), `display` (machine and screen). Derived by `composer::WakeStateComposer` from the preferences, the streaming count and controller activity, so it reports what is actually being asked for. Drives the streaming pill's suffix and the quit confirm's body. |
 | `busy` | `bool` | `stateChanged` | A controller is registering. |
 
 Header sub-lines are assembled in QML from these primitives, so the wording
@@ -128,6 +128,9 @@ project it so the type picker can tell loading from empty from failed.
 | `trayAvailable` | `bool` | `trayAvailableChanged` | A StatusNotifier host owns the watcher name. False disables the `runInBackground` row and forces a close to quit. Can flip at runtime when a panel restarts. |
 | `railCollapsed` | `bool` (RW) | `railCollapsedChanged` | The nav rail's persisted collapse state. The rail-head toggle writes it. |
 | `lightbarFollowGame` | `bool` (RW) | `lightbarChanged` | Light-bar forwarding: true is "Follow game", false is "Off". |
+| `keepAwakeMode` | `int` (RW) | `keepAwakePrefsChanged` | `0` Never, `1` While playing (streaming **and** a controller actuated inside the idle window), `2` While connected (streaming, however long the pad sits still). Out-of-range reads back as `1`: a bad value must never pin the machine awake. |
+| `keepAwakeTimeoutMinutes` | `int` (RW) | `keepAwakePrefsChanged` | Minutes of stillness before mode `1` lets go. Clamped to 1..180 on both read and write, so a hand-edited config cannot produce a zero-minute or unbounded window. Inert in modes `0` and `2`. |
+| `keepDisplayAwake` | `bool` (RW) | `keepAwakePrefsChanged` | Whether the hold covers the screen as well as the machine. Default off — forwarding a pad needs the machine, not the panel. Widens a hold; never creates one. |
 | `onboardingNeeded` | `bool` | `onboardingNeededChanged` | The first-run welcome has not completed. Flips false after `markOnboardingComplete()`. |
 | `appVersion` | `string` | CONSTANT | The CMake project version. |
 | `donateSponsorsUrl` | `string` | CONSTANT | GitHub Sponsors URL. |
@@ -181,6 +184,7 @@ and how long it has been running.
 | `onboardingNeededChanged` | | `onboardingNeeded` flipped. |
 | `railCollapsedChanged` | | `railCollapsed` flipped. |
 | `lightbarChanged` | | `lightbarFollowGame` flipped. |
+| `keepAwakePrefsChanged` | | Any of the three keep-awake preferences moved. One signal for the group, like the update pair. |
 | `deadzonesChanged` | | Deadzone device rows or their values moved. Re-pull `deadzoneDevices()`. |
 | `bluetoothChanged` | | The radio presence/enabled pair moved. |
 | `pairingSucceeded` | | One-shot: a connection reached `Connected` after a pair. The pairing sheet may close on it. Best effort. |
@@ -554,7 +558,9 @@ readonly property string headerDot     // a StatusDot token; empty draws no dot
 ```
 
 The streaming pill is the shell's own and is present on every page whenever
-`App.keepAwakeActive`. Do not add a second one.
+`App.streamingSlotCount > 0`, with a suffix taken from `App.keepAwakeReach`. Do
+not add a second one. The **Configure** button beside it is the shell's too; it
+routes through `requestNavigation` to the Settings destination.
 
 ### Leave guard
 

@@ -7,6 +7,7 @@
 #include "HTTPClient.h"
 #include "Models/Models.h"
 #include "WifiConnection.h"
+#include "core/reducer/RestOutcome.h"
 
 #include <QHash>
 #include <QObject>
@@ -131,7 +132,10 @@ class WifiConnectionManager : public QObject {
     void handleServerClose(WifiConnection* conn, const models::DiscoveredServer& server,
                            std::uint8_t reason);
     // Never runs for UserInitiated; a user tap resets the curve.
-    void scheduleRetry(const models::DiscoveredServer& server, ConnectIntent intent);
+    // `failure` is diagnostic only: it selects what gets logged, never whether
+    // or how long we retry. The curve stays a pure function of the attempt.
+    void scheduleRetry(const models::DiscoveredServer& server, ConnectIntent intent,
+                       reducer::TransportFailure failure = reducer::TransportFailure::None);
 
     void emitErrorIfUserInitiated(ConnectIntent intent, const QString& message);
     void markStale(const QString& id);
@@ -164,6 +168,9 @@ class WifiConnectionManager : public QObject {
     QSet<QString> pairingInFlight_;
     // Drives the backoff. Reset on a successful session or any user action.
     QHash<QString, int> retryAttempts_;
+    // Last logged cause per satellite, so a box that stays off does not write
+    // one identical line per backoff tick. Cleared whenever the id settles.
+    QHash<QString, reducer::TransportFailure> lastFailure_;
     // Single-flight guard: the ack ticks every second but the GET can take longer.
     QSet<QString> reconcileInFlight_;
 

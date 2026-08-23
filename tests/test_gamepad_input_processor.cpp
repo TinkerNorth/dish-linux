@@ -12,6 +12,9 @@
 
 using dish::input::applyDeadzones;
 using dish::input::GamepadInputProcessor;
+using dish::input::isActuation;
+using dish::input::kActuationStickEpsilon;
+using dish::input::kActuationTriggerEpsilon;
 using dish::input::scaleAxis;
 using dish::input::scaleTrigger;
 
@@ -577,4 +580,176 @@ TEST_CASE("remove resets a device's input counters so a re-attach re-baselines",
 
     p.publish("pad", s);
     REQUIRE(p.inputCounters("pad").gamepadEvents == 1);
+}
+
+// --- Actuation: "is anyone playing", as opposed to "is anything arriving". ---
+// The rate counters above tally every report; these tally only reports that
+// moved something, because a resting pad streams at 250 Hz forever and would
+// otherwise hold the machine awake all night.
+
+TEST_CASE("isActuation: a button change is always an actuation", "[input][activity]") {
+    GamepadInputProcessor::DeviceState ref;
+    GamepadInputProcessor::DeviceState next;
+    next.wButtons = GamepadInputProcessor::Buttons::kA;
+    REQUIRE(isActuation(ref, next));
+    REQUIRE(isActuation(next, ref)); // and so is the release
+    REQUIRE_FALSE(isActuation(next, next));
+}
+
+TEST_CASE("isActuation: sticks trip at the epsilon, not below it", "[input][activity]") {
+    GamepadInputProcessor::DeviceState ref;
+    GamepadInputProcessor::DeviceState at;
+    at.lx = kActuationStickEpsilon;
+    REQUIRE(isActuation(ref, at));
+
+    GamepadInputProcessor::DeviceState under;
+    under.lx = static_cast<std::int16_t>(kActuationStickEpsilon - 1);
+    REQUIRE_FALSE(isActuation(ref, under));
+
+    // The threshold is a magnitude, so it holds in both directions.
+    GamepadInputProcessor::DeviceState negative;
+    negative.ry = static_cast<std::int16_t>(-kActuationStickEpsilon);
+    REQUIRE(isActuation(ref, negative));
+}
+
+TEST_CASE("isActuation: triggers trip at their own, smaller epsilon", "[input][activity]") {
+    GamepadInputProcessor::DeviceState ref;
+    GamepadInputProcessor::DeviceState at;
+    at.rt = kActuationTriggerEpsilon;
+    REQUIRE(isActuation(ref, at));
+
+    GamepadInputProcessor::DeviceState under;
+    under.lt = static_cast<std::uint8_t>(kActuationTriggerEpsilon - 1);
+    REQUIRE_FALSE(isActuation(ref, under));
+}
+
+TEST_CASE("actuationCount: a fresh processor has seen nothing", "[input][activity]") {
+    const GamepadInputProcessor p;
+    REQUIRE(p.actuationCount() == 0);
+}
+
+TEST_CASE("actuationCount: a button press counts once, a repeat does not", "[input][activity]") {
+    GamepadInputProcessor p;
+    GamepadInputProcessor::DeviceState s;
+    p.publish("pad", s); // neutral against a neutral reference
+    REQUIRE(p.actuationCount() == 0);
+
+    s.wButtons = GamepadInputProcessor::Buttons::kA;
+    p.publish("pad", s);
+    REQUIRE(p.actuationCount() == 1);
+    p.publish("pad", s); // held down: the same state, over and over
+    p.publish("pad", s);
+    REQUIRE(p.actuationCount() == 1);
+
+    s.wButtons = 0;
+    p.publish("pad", s);
+    REQUIRE(p.actuationCount() == 2); // the release is a deliberate act too
+}
+
+TEST_CASE("actuationCount: an axis move at the epsilon counts, under it does not",
+          "[input][activity]") {
+    GamepadInputProcessor p;
+    GamepadInputProcessor::DeviceState s;
+    s.lx = static_cast<std::int16_t>(kActuationStickEpsilon - 1);
+    p.publish("pad", s);
+    REQUIRE(p.actuationCount() == 0);
+
+    GamepadInputProcessor p2;
+    GamepadInputProcessor::DeviceState big;
+    big.lx = kActuationStickEpsilon;
+    p2.publish("pad", big);
+    REQUIRE(p2.actuationCount() == 1);
+}
+
+TEST_CASE("actuationCount: a slow drift against the fixed reference eventually trips",
+          "[input][activity]") {
+    // The point of the separate reference: it only advances when it trips, so
+    // a stick pushed gently over many reports still accumulates and counts.
+    GamepadInputProcessor p;
+    GamepadInputProcessor::DeviceState s;
+    for (std::int16_t v = 400; v < kActuationStickEpsilon; v = static_cast<std::int16_t>(v + 400)) {
+        s.lx = v;
+        p.publish("pad", s);
+        REQUIRE(p.actuationCount() == 0);
+    }
+    s.lx = kActuationStickEpsilon;
+    p.publish("pad", s);
+    REQUIRE(p.actuationCount() == 1);
+
+    // The reference has now moved to where the stick is, so the next trip needs
+    // another full epsilon of travel rather than repeating immediately.
+    s.lx = static_cast<std::int16_t>(kActuationStickEpsilon + 400);
+    p.publish("pad", s);
+    REQUIRE(p.actuationCount() == 1);
+    s.lx = static_cast<std::int16_t>(2 * kActuationStickEpsilon);
+    p.publish("pad", s);
+    REQUIRE(p.actuationCount() == 2);
+}
+
+TEST_CASE("actuationCount: a resting jittery axis never trips, however long it dithers",
+          "[input][activity]") {
+    // A USB-direct pad gets no deadzone profile, so its resting sticks dither
+    // by a wire LSB every single report. This is the case that decides whether
+    // an untouched pad can keep the machine awake indefinitely.
+    GamepadInputProcessor p;
+    GamepadInputProcessor::DeviceState s;
+    for (int i = 0; i < 1000; ++i) {
+        const auto swing = static_cast<std::int16_t>(i % 2 == 0 ? 1024 : -1024);
+        s.lx = swing;
+        s.ry = static_cast<std::int16_t>(-swing);
+        s.lt = static_cast<std::uint8_t>(i % 2 == 0 ? kActuationTriggerEpsilon - 1 : 0);
+        p.publish("pad", s);
+    }
+    REQUIRE(p.actuationCount() == 0);
+}
+
+TEST_CASE("actuationCount: publishTouchpad always counts", "[input][activity]") {
+    GamepadInputProcessor p;
+    const GamepadInputProcessor::TouchpadSample sample{}; // no threshold, no sender needed
+    p.publishTouchpad("pad", sample);
+    p.publishTouchpad("pad", sample);
+    REQUIRE(p.actuationCount() == 2);
+}
+
+TEST_CASE("actuationCount: remove re-baselines the device's reference", "[input][activity]") {
+    GamepadInputProcessor p;
+    GamepadInputProcessor::DeviceState s;
+    s.lx = kActuationStickEpsilon;
+    p.publish("pad", s);
+    p.publish("pad", s);
+    REQUIRE(p.actuationCount() == 1);
+
+    p.remove("pad");
+    // Re-attached at the same deflection: measured against a fresh neutral
+    // reference, that reads as a real move again.
+    p.publish("pad", s);
+    REQUIRE(p.actuationCount() == 2);
+}
+
+TEST_CASE("actuationCount: is process-wide, not per device", "[input][activity]") {
+    GamepadInputProcessor p;
+    GamepadInputProcessor::DeviceState s;
+    s.wButtons = GamepadInputProcessor::Buttons::kB;
+    p.publish("pad-a", s);
+    p.publish("pad-b", s);
+    REQUIRE(p.actuationCount() == 2);
+    // But the references are per device, so a repeat on either is still quiet.
+    p.publish("pad-a", s);
+    p.publish("pad-b", s);
+    REQUIRE(p.actuationCount() == 2);
+}
+
+TEST_CASE("actuationCount: the deadzone filter runs before the threshold", "[input][activity]") {
+    // Actuation is measured on the filtered report, so a stick inside the
+    // configured flat is zeroed and cannot trip anything.
+    GamepadInputProcessor p;
+    p.setDeadzones("pad", GamepadInputProcessor::Deadzones{8000, 20});
+    GamepadInputProcessor::DeviceState s;
+    s.lx = 7000; // well over the epsilon, but inside the flat
+    p.publish("pad", s);
+    REQUIRE(p.actuationCount() == 0);
+
+    s.lx = 20000;
+    p.publish("pad", s);
+    REQUIRE(p.actuationCount() == 1);
 }

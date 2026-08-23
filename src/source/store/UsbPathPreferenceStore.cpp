@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 // Copyright (C) 2026 Dish contributors.
 
+#include "repository/AppSettings.h"
 #include "source/store/UsbPathPreferenceStore.h"
 
 #include <QJsonDocument>
@@ -17,10 +18,7 @@ QString usbPathKeyFor(int vendorId, int productId) {
 // ── Repository ──────────────────────────────────────────────────────────────
 
 UsbPathPreferenceRepository::UsbPathPreferenceRepository(std::shared_ptr<QSettings> settings)
-    : settings_(settings
-                    ? std::move(settings)
-                    : std::make_shared<QSettings>(QStringLiteral("Dish"), QStringLiteral("Dish"))) {
-}
+    : settings_(settings ? std::move(settings) : repository::makeSettings()) {}
 
 namespace {
 

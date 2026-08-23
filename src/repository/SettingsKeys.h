@@ -2,7 +2,8 @@
 // Copyright (C) 2026 Dish contributors.
 //
 // SettingsKeys — the QSettings key namespaces the trust/identity repositories
-// co-tenant in one connection-store file (HKCU\Software\Dish\Dish).
+// co-tenant in one connection-store file. See repository/AppSettings.h for where
+// that file lives and how the two pre-XDG locations were folded into it.
 //
 // Namespace isolation is a hard invariant: a cert pin must never read back as a
 // shared key, and clear() on one repo must not touch another's keys. These

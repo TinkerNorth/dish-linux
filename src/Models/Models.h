@@ -11,6 +11,7 @@
 #include "core/model/Protocol.h"
 #include "core/reducer/DirectClaimFailure.h"
 #include "core/reducer/PathChoice.h"
+#include "core/reducer/RestOutcome.h"
 #include "core/reducer/UsbPathMachine.h"
 
 #include <QCoreApplication>
@@ -153,6 +154,9 @@ struct SessionResponse {
     std::optional<QString> code;
     int httpStatus = 0;
     bool reachable = false;
+    // Set by the gateway when `reachable` is false, so the session FSM can name
+    // the cause instead of showing one sentence for every kind of silence.
+    reducer::TransportFailure failure = reducer::TransportFailure::None;
 
     bool unauthorized() const { return code.has_value() && isAuthFailureCode(*code); }
 

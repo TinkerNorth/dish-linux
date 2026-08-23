@@ -20,6 +20,16 @@ the repos share a version number.
 
 ### Added
 
+- Configurable keep-awake, under *Power* in Settings. **Never**, **While
+  playing** (the default: hold only while a bound controller has actually been
+  actuated inside a 1–180 minute idle window, 5 by default) or **While
+  connected** (hold for as long as a slot streams, however long the pad sits
+  still). The hold now covers the **machine** by default and the display only on
+  request, because forwarding a pad needs the computer, not the panel. Activity
+  is measured post-deadzone against a reference that only advances when it
+  moves, so a drifting stick cannot pin the machine awake and a slow deliberate
+  push still registers. The streaming pill names the reach it actually holds and
+  carries a **Configure** button through to the setting.
 - Running in the background. Closing the window leaves Dish streaming behind a
   StatusNotifierItem tray icon whose menu is the way back and the way out, and a
   one-time desktop notification says so the first time it happens. The hide is
@@ -106,6 +116,25 @@ the repos share a version number.
 
 ### Changed
 
+- Settings live in one XDG-shaped file, `$XDG_CONFIG_HOME/com.tinkernorth.Dish/dish.conf`,
+  keyed by the same reverse-DNS app id as the desktop entry, the AppStream
+  metainfo and the Flatpak. Every store used to default-construct
+  `QSettings("Dish","Dish")` — a Windows registry path carried over from the
+  dish-windows port — so the app wrote both `~/.config/Dish/Dish.conf` and
+  `~/.config/TinkerNorth/Dish.conf`, and the documented one held a single UI flag
+  while the other held the device id, the remembered satellites and the pairing
+  keys. Both are folded into the new file on first launch, key by key and never
+  over one already present, then renamed `.migrated`.
+- Crash reporting is described as what it is. Collection has always been local
+  and nothing has ever been transmitted, so the Settings toggle no longer says
+  reports are shared, and a crash now surfaces a report the user reads and sends
+  themselves. The text has the home directory, IPv4 literals, `.local` hostnames
+  and any hex run of 32 characters or more removed before it is shown, so a
+  pairing key on the stack cannot be pasted into a public issue.
+- A satellite that cannot be reached says why. Refused, timed out and a TLS
+  failure were all one sentence about checking the power; a refused connection
+  now points at the satellite not running instead. The cause is diagnostic only
+  — the retry verdict is unchanged for every one of them.
 - The Qt floor moved from 6.2 to 6.7, which the Qt Quick UI requires. Ubuntu
   24.04 LTS ships 6.4 and now needs a backport or a Flatpak build; see
   [`docs/PACKAGING.md`](docs/PACKAGING.md).
@@ -124,6 +153,42 @@ the repos share a version number.
 
 ### Fixed
 
+- Pairing keys are stored in the desktop keyring over `org.freedesktop.secrets`
+  rather than as plaintext hex in a world-readable config file. gnome-keyring
+  and KWallet both implement it and QtDBus was already linked, so this adds no
+  dependency; where no Secret Service answers the config file is still used, now
+  0600. Two paths that would have left a plaintext copy behind are closed: the
+  legacy `wifi_shared_key/` entries are removed once migrated, and a key still in
+  the file while the keyring already holds one is swept rather than skipped.
+- A remembered satellite that is switched off no longer floods the log. The REST
+  gateway read replies that were never opened, printing
+  `QIODevice::read (QNetworkReplyHttpImpl): device not open` on every backoff
+  tick; it now writes one line per cause change, with per-tick detail behind
+  `QT_LOGGING_RULES="dish.net.debug=true"`.
+- `sudo cmake --install` puts the hidraw rule somewhere udev reads.
+  `DISH_UDEV_RULES_DIR` was relative, so off the packaging prefix it resolved to
+  `/usr/local/lib/udev/rules.d`, which udev does not scan — the rule installed
+  silently and every USB-direct claim failed `PermissionDenied` afterwards. The
+  default now depends on the prefix; the packaged path is unchanged.
+- Error messages in `WifiConnectionManager` and `PairingClient` can be
+  translated. `QCoreApplication::translate` was called with a variable context,
+  which lupdate cannot resolve, so none of those strings were ever extracted and
+  all of them shipped in English regardless of locale. Twelve strings are
+  recovered, nine of which predate this change.
+- The `⋯` overflow menus open. A Menu takes its width from its background, and
+  both the Connections host menu and the Home row menu restyled that background
+  without restating a width, so the menu opened at zero width — it took focus
+  and drew nothing, which is indistinguishable from a dead button. Both are now
+  sized to their widest item over a shared `Tokens.menuMinWidth` floor, the same
+  way `ComboButton` already did it.
+- A skipped test no longer reads as a failed one. Catch2 exits 4 from `SKIP()`
+  and CTest was never told what that means, so the keyring round-trip — which
+  skips wherever no Secret Service answers, including every CI runner — turned
+  the whole suite red on any machine without a desktop keyring.
+- Configuring is warning-free. Qt's QML import scanner links plugins only for a
+  static Qt, and Debian and Ubuntu ship the plugin targets undefined, so a shared
+  build printed thirteen "link target does not exist" warnings that no
+  configuration could satisfy; the scan is now skipped where it cannot act.
 - The installed `.deb` renders its brand glyphs. Every SVG failed to decode
   because Debian splits `imageformats/libqsvg.so` out of `libqt6svg6` into
   `qt6-svg-plugins`, which nothing depended on; the plugin is opened by name at

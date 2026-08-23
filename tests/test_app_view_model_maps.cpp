@@ -33,9 +33,14 @@
 using dish::qml::deadzoneRowFor;
 using dish::qml::kDefaultDeadzoneStickFlat;
 using dish::qml::kDefaultDeadzoneTriggerFlat;
+using dish::qml::keepAwakeModeFromInt;
+using dish::qml::keepAwakeModeToInt;
+using dish::qml::keepAwakeReachToken;
 using dish::qml::licenseRows;
 using dish::qml::themeModeFromInt;
 using dish::qml::themeModeToInt;
+using dish::reducer::KeepAwakeMode;
+using dish::reducer::KeepAwakeReach;
 using dish::repository::DeadzoneRepository;
 using dish::repository::MotionPreferenceRepository;
 using dish::source::CrashReportingStore;
@@ -88,6 +93,39 @@ TEST_CASE("themeMode get/set round-trips through the store via the int maps", "[
 
     store.setMode(themeModeFromInt(0)); // "Light"
     REQUIRE(themeModeToInt(store.mode()) == 0);
+}
+
+TEST_CASE("keepAwakeMode int contract is Off=0 Active=1 Connected=2", "[appvm][keepawake]") {
+    // The SettingsPage option order. It happens to match the enum here, but the
+    // QML contract is the int, so it is pinned rather than assumed.
+    REQUIRE(keepAwakeModeToInt(KeepAwakeMode::Off) == 0);
+    REQUIRE(keepAwakeModeToInt(KeepAwakeMode::WhileControllerActive) == 1);
+    REQUIRE(keepAwakeModeToInt(KeepAwakeMode::WhileConnected) == 2);
+    REQUIRE(keepAwakeModeFromInt(0) == KeepAwakeMode::Off);
+    REQUIRE(keepAwakeModeFromInt(1) == KeepAwakeMode::WhileControllerActive);
+    REQUIRE(keepAwakeModeFromInt(2) == KeepAwakeMode::WhileConnected);
+}
+
+TEST_CASE("keepAwakeMode int round-trips for all three modes", "[appvm][keepawake]") {
+    for (auto m : {KeepAwakeMode::Off, KeepAwakeMode::WhileControllerActive,
+                   KeepAwakeMode::WhileConnected}) {
+        REQUIRE(keepAwakeModeFromInt(keepAwakeModeToInt(m)) == m);
+    }
+}
+
+TEST_CASE("keepAwakeModeFromInt is lenient -- out-of-range falls back to the timed mode",
+          "[appvm][keepawake]") {
+    // Matches keepAwakeModeFromKey: a bad value must never pin the machine
+    // awake, so it lands on the timed mode rather than WhileConnected.
+    REQUIRE(keepAwakeModeFromInt(-1) == KeepAwakeMode::WhileControllerActive);
+    REQUIRE(keepAwakeModeFromInt(3) == KeepAwakeMode::WhileControllerActive);
+    REQUIRE(keepAwakeModeFromInt(99) == KeepAwakeMode::WhileControllerActive);
+}
+
+TEST_CASE("keepAwakeReachToken names the three reaches for QML", "[appvm][keepawake]") {
+    REQUIRE(keepAwakeReachToken(KeepAwakeReach::None) == QStringLiteral("off"));
+    REQUIRE(keepAwakeReachToken(KeepAwakeReach::System) == QStringLiteral("system"));
+    REQUIRE(keepAwakeReachToken(KeepAwakeReach::SystemAndDisplay) == QStringLiteral("display"));
 }
 
 TEST_CASE("crash-reporting toggle forwards through the store", "[appvm][crash]") {

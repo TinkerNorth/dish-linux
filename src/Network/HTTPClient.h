@@ -4,6 +4,7 @@
 #pragma once
 
 #include "Models/Models.h"
+#include "core/reducer/RestOutcome.h"
 
 #include <QByteArray>
 #include <QObject>
@@ -94,6 +95,10 @@ class HTTPClient : public QObject {
         QByteArray body;
         QString etag;
         bool pinMismatch = false;
+        // Why the transport failed, when it did. None whenever `reachable`.
+        // Diagnostic only: no retry or verdict reads it, so it cannot change a
+        // decision that the status and body did not already make.
+        reducer::TransportFailure failure = reducer::TransportFailure::None;
     };
 
     void perform(const QString& url, const QByteArray& method, const QByteArray& body,

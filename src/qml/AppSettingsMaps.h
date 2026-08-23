@@ -7,6 +7,7 @@
 
 #pragma once
 
+#include "core/reducer/KeepAwake.h"
 #include "source/store/ThemePreferenceStore.h"
 
 #include <QString>
@@ -37,6 +38,14 @@ namespace dish::qml {
 // enum's declaration order, so this is a real mapping and not a static_cast.
 int themeModeToInt(source::ThemeMode mode);
 source::ThemeMode themeModeFromInt(int value);
+
+// The contract order 0=Off, 1=WhileControllerActive, 2=WhileConnected — the
+// SettingsPage option order, and again a real mapping, not a static_cast.
+int keepAwakeModeToInt(reducer::KeepAwakeMode mode);
+reducer::KeepAwakeMode keepAwakeModeFromInt(int value);
+
+// "off" | "system" | "display": how far the hold currently reaches.
+QString keepAwakeReachToken(reducer::KeepAwakeReach reach);
 
 // The profile the SDL bridge installs at attach; a row with no stored override
 // seeds from it, so the two must not drift.

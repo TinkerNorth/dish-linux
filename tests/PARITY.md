@@ -309,7 +309,7 @@ them.
 | # | Behavior | Test file | Status | Notes |
 |--:|---|---|---|---|
 | 1 | Hidraw bus classification (Bluetooth vs USB, fail-safe on an unresolvable node) | test_hid_transport.cpp | confirmed | the uevent `HID_ID` parse against temp fixtures, plus the fail-safe arm for paths that reach no sysfs entry. Replaces the Windows device-path string matching, which had no Linux meaning. |
-| 2 | ScreenSaver-inhibit display-sleep inhibitor | test_freedesktop_screensaver_inhibitor.cpp (real inhibitor, own bookkeeping only) + test_wake_state_controller.cpp / test_screen_wake_controller.cpp (fake inhibitor) | confirmed | acquire/release idempotency + dtor-releases via the real inhibitor asserting only its own state (a headless runner has no session bus, and the inhibitor degrades silently); the controller-side driving uses a **fake** inhibitor. |
+| 2 | logind-idle + ScreenSaver wake inhibitor, configurable reach | test_freedesktop_wake_inhibitor.cpp (real inhibitor, own bookkeeping only) + test_keep_awake.cpp (the pure policy) + test_keep_awake_preference_store.cpp + test_controller_activity_source.cpp + test_wake_state_controller.cpp / test_screen_wake_controller.cpp (fake inhibitor) | confirmed | `apply(reach)` idempotency + dtor-releases via the real inhibitor asserting only its own state (a headless runner has no session bus, and the inhibitor degrades silently); the controller-side driving uses a **fake** inhibitor. The mode/idle-window/display-reach decision is pure and pinned as a truth table. |
 | 3 | Host/laptop battery fallback (sysfs `power_supply` → level/status) | test_host_battery.cpp | confirmed | no batteries (a desktop) → 100% wired, capacity mean, status folded across packs (Charging > Discharging > Full). Distinct source from the pad-capacity mapping (§2.4 PhysicalBatteryMapping). |
 | 4 | Lightbar-LED **drive** (Off-suppressed / FollowGame full-RGB gate + decode→route) | test_lightbar_routing.cpp + test_satellite_client_lightbar.cpp | confirmed | the desktop clients *drive* the DualSense lightbar (android decodes-and-drops); decode (4-byte, short-reject, forward-compat trailing) + the routing gate. |
 | 5 | `QSettings` persistence round-trips in an isolated scope | test_feature_settings.cpp, test_theme_store.cpp, test_onboarding_store.cpp + every `*_repository`/`*_store` test | confirmed | all backed by `QSettingsFixture::makeSharedSettings()` — a unique temp `IniFormat` file unlinked on drop; **never** the user's real `~/.config`. Every concrete repo also runs the RepositoryContract. |
@@ -649,7 +649,8 @@ built app:
   per pad — pad card → wire (measured rate `·` one-way latency over the dish
   glyph; solid accent live, dashed outline dead/"idle") → satellite card (the
   the connection-row vocabulary) or the dashed "Bind…" ghost; the "+ Add a controller"
-  invitation row; the keep-awake floating pill ("Streaming — do not close").
+  invitation row; the streaming pill, whose suffix names the keep-awake reach
+  and which carries the Configure button through to Settings.
 - **Data**: the slot model gained the bound-satellite JOIN roles (`satIp`,
   `satLinkState`, `satChip`, `satDotColor`, `satGlyph`, `satLatencyText`,
   `satLatencySamples`) — joined in C++ by `boundConnectionId` against the

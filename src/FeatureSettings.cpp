@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 // Copyright (C) 2026 Dish contributors.
 
+#include "repository/AppSettings.h"
 #include "FeatureSettings.h"
 
 #include <QCoreApplication>
@@ -46,8 +47,7 @@ QString lightbarModeLabel(LightbarMode mode) {
 }
 
 FeatureSettings::FeatureSettings(QObject* parent)
-    : FeatureSettings(std::make_unique<QSettings>(QStringLiteral("Dish"), QStringLiteral("Dish")),
-                      parent) {}
+    : FeatureSettings(repository::makeSettings(), parent) {}
 
 FeatureSettings::FeatureSettings(std::unique_ptr<QSettings> settings, QObject* parent)
     : QObject(parent), settings_(std::move(settings)) {

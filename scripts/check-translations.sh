@@ -14,9 +14,14 @@
 # if they are already dirty, so nothing of yours is lost, but expect modified
 # files afterwards.
 #
-# Coverage is reported, never enforced: translating a string is a separate act
-# from extracting it, and a gate that waits for the words would just get routed
-# around.
+# Coverage is ENFORCED, not reported. An untranslated string does not fail a
+# build, it just silently ships in English to someone who does not read it, and
+# nothing else in the suite can see that. Every catalogue must be complete.
+#
+# The source catalogue (dish_en.ts) is seeded from its own source strings first
+# — see scripts/seed-source-language.py for why that is not busywork — so the
+# count means the same thing in all six and the gate is one rule, not five
+# languages plus an exception.
 
 set -euo pipefail
 
@@ -70,6 +75,13 @@ fi
     -ts translations/dish_en.ts translations/dish_bs.ts translations/dish_de.ts \
        translations/dish_es.ts translations/dish_fr.ts translations/dish_pt_BR.ts
 
+# The source catalogue answers for itself; every other language needs words.
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "python3 not found; scripts/seed-source-language.py needs it." >&2
+    exit 1
+fi
+python3 scripts/seed-source-language.py translations/dish_en.ts
+
 if ! git diff --quiet -- translations/; then
     echo
     echo "Translation catalogues are out of date. Run:"
@@ -79,13 +91,34 @@ if ! git diff --quiet -- translations/; then
     exit 1
 fi
 
-# Reported, never enforced.
 echo
+incomplete=0
 for ts in translations/dish_*.ts; do
     total=$(grep -c '<message' "$ts" || true)
     unfinished=$(grep -c 'type="unfinished"' "$ts" || true)
     printf '%-28s %s/%s translated\n' "$(basename "$ts")" "$((total - unfinished))" "$total"
+    [[ "$unfinished" -eq 0 ]] || incomplete=1
 done
 
+if [[ "$incomplete" -ne 0 ]]; then
+    echo
+    echo "Untranslated strings remain. Every catalogue must be complete before"
+    echo "merge: a missing translation is not a blank, it is English shown to"
+    echo "someone who does not read English."
+    echo
+    echo "Sources still needing words (the union across catalogues):"
+    # -B4 spans the <source> above each unfinished <translation>. Written to a
+    # variable rather than piped into head, so a short read cannot SIGPIPE the
+    # script out from under `set -o pipefail`.
+    missing="$(grep -h -B4 'type="unfinished"' translations/dish_*.ts |
+        sed -n 's,.*<source>\(.*\)</source>.*,\1,p' | sort -u || true)"
+    printf '%s\n' "$missing" | sed -n '1,30p' | sed 's,^,  ,'
+    total_missing="$(printf '%s\n' "$missing" | grep -c . || true)"
+    if [[ "$total_missing" -gt 30 ]]; then
+        echo "  … and $((total_missing - 30)) more"
+    fi
+    exit 1
+fi
+
 echo
-echo "Translation catalogues are in sync."
+echo "Translation catalogues are in sync, and every catalogue is complete."

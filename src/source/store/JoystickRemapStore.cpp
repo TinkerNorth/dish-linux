@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 // Copyright (C) 2026 Dish contributors.
 
+#include "repository/AppSettings.h"
 #include "source/store/JoystickRemapStore.h"
 
 #include <QJsonArray>
@@ -123,10 +124,7 @@ input::JoystickRemap joystickRemapFromJson(const QJsonValue& v) {
 // ── Repository ──────────────────────────────────────────────────────────────
 
 JoystickRemapRepository::JoystickRemapRepository(std::shared_ptr<QSettings> settings)
-    : settings_(settings
-                    ? std::move(settings)
-                    : std::make_shared<QSettings>(QStringLiteral("Dish"), QStringLiteral("Dish"))) {
-}
+    : settings_(settings ? std::move(settings) : repository::makeSettings()) {}
 
 namespace {
 

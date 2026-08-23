@@ -6,6 +6,7 @@
 #include "core/input/Deadzones.h"
 
 #include <chrono>
+#include <cstdlib>
 
 namespace dish::input {
 
@@ -38,6 +39,10 @@ void GamepadInputProcessor::publish(const DeviceId& id, const DeviceState& state
         if (auto it = deadzones_.find(id); it != deadzones_.end()) { dz = it->second; }
         filtered = applyDeadzones(state, dz);
         states_[id] = filtered;
+        if (DeviceState& ref = activityRef_[id]; isActuation(ref, filtered)) {
+            ref = filtered;
+            actuations_.fetch_add(1, std::memory_order_relaxed);
+        }
         ++telEvents_;
         ++telSends_;
         ++telTotalSent_;
@@ -69,6 +74,7 @@ void GamepadInputProcessor::zeroAndSendAll() {
 void GamepadInputProcessor::remove(const DeviceId& id) {
     std::lock_guard<std::mutex> lock(mtx_);
     states_.erase(id);
+    activityRef_.erase(id);
     deadzones_.erase(id);
     lastMotionUs_.erase(id);
     rateCounters_.erase(id);
@@ -141,6 +147,8 @@ void GamepadInputProcessor::publishTouchpad(const DeviceId& id, const TouchpadSa
     {
         std::lock_guard<std::mutex> lock(mtx_);
         snapshot = touchpadSender_;
+        // No threshold: a touchpad sample is a finger, not a poll.
+        actuations_.fetch_add(1, std::memory_order_relaxed);
     }
     if (snapshot) { snapshot(id, sample); }
 }
@@ -169,6 +177,22 @@ GamepadInputProcessor::DeviceState applyDeadzones(const GamepadInputProcessor::D
     out.lt = deadzone::applyTrigger(out.lt, dz.triggerFlat);
     out.rt = deadzone::applyTrigger(out.rt, dz.triggerFlat);
     return out;
+}
+
+bool isActuation(const GamepadInputProcessor::DeviceState& ref,
+                 const GamepadInputProcessor::DeviceState& next) {
+    if (ref.wButtons != next.wButtons) { return true; }
+    const auto axisMoved = [](std::int16_t a, std::int16_t b) {
+        return std::abs(static_cast<std::int32_t>(a) - static_cast<std::int32_t>(b)) >=
+               static_cast<std::int32_t>(kActuationStickEpsilon);
+    };
+    const auto triggerMoved = [](std::uint8_t a, std::uint8_t b) {
+        return std::abs(static_cast<int>(a) - static_cast<int>(b)) >=
+               static_cast<int>(kActuationTriggerEpsilon);
+    };
+    return axisMoved(ref.lx, next.lx) || axisMoved(ref.ly, next.ly) || axisMoved(ref.rx, next.rx) ||
+           axisMoved(ref.ry, next.ry) || triggerMoved(ref.lt, next.lt) ||
+           triggerMoved(ref.rt, next.rt);
 }
 
 } // namespace dish::input

@@ -11,9 +11,12 @@ namespace {
 Q_LOGGING_CATEGORY(lcCrash, "dish.crash")
 } // namespace
 
-void NoopCrashReportingBackend::setEnabled(bool enabled) {
-    // Logged only so a developer can confirm the opt-in plumbing fires.
-    qCInfo(lcCrash) << "crash-reporting collection set to" << enabled << "(no backend wired)";
+void LocalCrashReportingBackend::setEnabled(bool enabled) {
+    // Logged only so a developer can confirm the opt-in plumbing fires. The
+    // wording matters: the old "no backend wired" read as "this feature is
+    // unfinished", when local-only collection IS the finished design.
+    qCInfo(lcCrash) << "local crash logging" << (enabled ? "enabled" : "disabled")
+                    << "- reports stay on this machine";
 }
 
 } // namespace dish::composer

@@ -29,6 +29,13 @@ namespace dish {
 
 namespace {
 
+// The activity window's basis. Monotonic, so a wall-clock step cannot expire it.
+std::int64_t steadyNowMs() {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(
+               std::chrono::steady_clock::now().time_since_epoch())
+        .count();
+}
+
 // Shared so both the SDL-slot and synthetic-slot rebuild arms thread through
 // the same cross-reference.
 void stampSlotPath(models::ControllerSlot& s, int vendorId, int productId, bool bluetooth,
@@ -44,16 +51,18 @@ void stampSlotPath(models::ControllerSlot& s, int vendorId, int productId, bool 
 } // namespace
 
 AppModel::AppModel(QObject* parent)
-    : AppModel(std::make_unique<util::FreedesktopScreenSaverInhibitor>(), parent) {}
+    : AppModel(std::make_unique<source::FreedesktopWakeInhibitor>(), parent) {}
 
-AppModel::AppModel(std::unique_ptr<util::DisplaySleepInhibitor> inhibitor, QObject* parent)
+AppModel::AppModel(std::unique_ptr<source::WakeInhibitor> inhibitor, QObject* parent)
     : QObject(parent), store_(std::make_unique<net::ConnectionStore>()),
       wifi_(new net::WifiConnectionManager(store_.get(), this)),
       hub_(new net::ConnectionHub(wifi_, store_.get(), this)),
       connections_(new composer::ConnectionCoordinator(wifi_, hub_, this)),
       bridge_(new input::SDLGamepadBridge(&processor_, this)),
       featureSettings_(new FeatureSettings(this)), autoReconnectTimer_(new QTimer(this)),
-      inhibitor_(std::move(inhibitor)), wakeComposer_(streamingSlotCount_, shouldKeepScreenOn_),
+      inhibitor_(std::move(inhibitor)),
+      controllerActivity_([this] { return processor_.actuationCount(); }),
+      wakeComposer_(streamingSlotCount_, controllerActivity_.state(), keepAwakeStore_.state()),
       wakeController_(wakeComposer_.state(), inhibitor_.get()),
       themeController_(themeStore_.state()), crashController_(crashStore_.state(), &crashBackend_),
       tray_(source::makeSystemTrayIcon()),
@@ -232,6 +241,13 @@ AppModel::AppModel(std::unique_ptr<util::DisplaySleepInhibitor> inhibitor, QObje
         /*emitCurrent=*/false);
     pushJoystickRemapsToBridge();
 
+    controllerActivity_.setIdleTimeoutMinutes(keepAwakeStore_.idleTimeoutMinutes());
+    keepAwakePrefsSub_ = keepAwakeStore_.state().subscribe(
+        [this](const reducer::KeepAwakePreferences& prefs) {
+            controllerActivity_.setIdleTimeoutMinutes(prefs.idleTimeoutMinutes);
+        },
+        /*emitCurrent=*/false);
+
     // Each start() applies its current value immediately, so the persisted wake
     // intent, palette and crash opt-in all take effect without waiting for a
     // first change.
@@ -260,6 +276,7 @@ AppModel::AppModel(std::unique_ptr<util::DisplaySleepInhibitor> inhibitor, QObje
                                            std::chrono::steady_clock::now().time_since_epoch())
                                            .count());
         inputRateStore_->sampleAt(nowUs);
+        controllerActivity_.sampleAt(steadyNowMs());
     });
 
     rebuild();
@@ -280,6 +297,7 @@ AppModel::~AppModel() {
     sleepMonitor_->stop();
     // Drop each subscription before its store, so no late emission races
     // teardown and pushes into a half-gone bridge.
+    keepAwakePrefsSub_ = arch::Observable<reducer::KeepAwakePreferences>::Subscription{};
     inputRatesSub_ = arch::Observable<source::SlotInputRatesMap>::Subscription{};
     inputRateStore_.reset();
     joystickRemapSub_ = arch::Observable<source::JoystickRemapMap>::Subscription{};
@@ -784,7 +802,13 @@ void AppModel::rebuild() {
     for (const auto& summary : state_.connections) {
         connectionStates.insert(summary.id, summary.live);
     }
-    streamingSlotCount_.set(composer::streamingSlotCount(bindings, connectionStates));
+    const int nextStreaming = composer::streamingSlotCount(bindings, connectionStates);
+    // A session opening is activity: the pad the user is about to pick up has
+    // not reported yet, so the idle window must not already be running down.
+    if (nextStreaming > streamingSlotCount_.value()) {
+        controllerActivity_.noteActivityAt(steadyNowMs());
+    }
+    streamingSlotCount_.set(nextStreaming);
 
     emit stateChanged();
 

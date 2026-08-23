@@ -49,7 +49,7 @@ Persisted with `QSettings`, which on Linux writes INI files under
 `$XDG_CONFIG_HOME` (`~/.config` by default). The cross-client settings schema
 lands in `~/.config/Dish/Dish.conf`. Preferences that only exist on the desktop
 clients are written through the app's default organisation name and land in
-`~/.config/TinkerNorth/Dish.conf` instead: the navigation preference
+`~/.config/com.tinkernorth.Dish/dish.conf` instead: the navigation preference
 `ui_rail_collapsed` and the update settings listed after the table.
 
 | Setting | Holds | Used for |
@@ -71,7 +71,7 @@ clients are written through the app's default organisation name and land in
 Legacy values `wifi_list` and `wifi_shared_key/<id>` from older builds are
 migrated in place on first run so you do not have to re-pair.
 
-These three values live in `~/.config/TinkerNorth/Dish.conf` and cover the
+These three values live in `~/.config/com.tinkernorth.Dish/dish.conf` and cover the
 update check described in section 2.4. They record your choice and the app's
 own bookkeeping. None of them is transmitted anywhere.
 
@@ -276,7 +276,7 @@ SDL.
   pairings and crash log are deliberately left behind so that reinstalling
   restores your setup; the *Wipe everything* step below removes those too.
 - **Wipe everything.** Delete `~/.config/Dish/Dish.conf`,
-  `~/.config/TinkerNorth/Dish.conf` and `~/.local/state/dish/`. That removes
+  `~/.config/com.tinkernorth.Dish/dish.conf` and `~/.local/state/dish/`. That removes
   every remembered server, pairing key, certificate pin, preference, update
   setting, and crash artifact. There is no server-side record to delete,
   because there is no TinkerNorth server.
