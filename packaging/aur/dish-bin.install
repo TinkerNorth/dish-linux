@@ -1,0 +1,41 @@
+# Arch parity with the .deb postinst and the .rpm scriptlets: udev reads a new
+# rule file only after a reload, and applies it only to devices that (re)appear
+# afterwards — so reload AND retrigger, or a pad plugged in before the install
+# keeps its root-only node until the next replug and every USB-direct claim
+# fails PermissionDenied.
+
+_dish_wire_hidraw() {
+    if command -v udevadm >/dev/null 2>&1; then
+        udevadm control --reload-rules || true
+        udevadm trigger --subsystem-match=hidraw || true
+    fi
+}
+
+post_install() {
+    _dish_wire_hidraw
+    cat <<'EOF'
+
+Dish: the shipped udev rule tags supported pads with `uaccess`, which grants
+the active seat user access automatically -- on most desktops nothing further
+is needed. Replug the controller once so the rule applies.
+
+For a headless or non-logind session, the rule's fallback grants the `input`
+group instead; add yourself and re-log:
+
+    sudo gpasswd -a "$USER" input
+
+Without the rule (or before the replug) Dish keeps the pad streaming on the
+SDL path -- it still works, just rate-capped.
+
+EOF
+}
+
+post_upgrade() {
+    _dish_wire_hidraw
+}
+
+post_remove() {
+    if command -v udevadm >/dev/null 2>&1; then
+        udevadm control --reload-rules || true
+    fi
+}

@@ -1,0 +1,94 @@
+# Maintainer: TinkerNorth <https://github.com/TinkerNorth/dish-linux>
+#
+# dish-bin: Arch User Repository package that re-bundles the upstream
+# AppImage. Build it locally with `makepkg -si`, or install via an AUR
+# helper:
+#
+#   yay -S dish-bin
+#   paru -S dish-bin
+#
+# Updating: bump pkgver, refresh `sha256sums` from the release's
+# SHA256SUMS asset (`updpkgsums` does it), then regenerate .SRCINFO with
+# `makepkg --printsrcinfo > .SRCINFO`.
+#
+# Why -bin? A from-source Arch package would drag in Qt 6 / SDL2 /
+# libsodium headers at build time, and the AppImage is already a bundled
+# artifact covered by the release's cosign signature and SLSA provenance.
+# Arch users who want from-source builds can use the upstream cmake flow.
+
+pkgname=dish-bin
+pkgver=0.1.0
+pkgrel=1
+pkgdesc="Stream a gamepad to a Satellite server over your LAN"
+arch=('x86_64')
+install='dish-bin.install'
+url="https://github.com/TinkerNorth/dish-linux"
+license=('LGPL-3.0-or-later')
+# The AppImage bundles Qt, SDL2 and libsodium; what remains is the AppImage
+# runtime itself and the desktop plumbing the entry/icon rely on.
+depends=(
+    'fuse2'
+    'hicolor-icon-theme'
+)
+optdepends=(
+    'xdg-utils: open the release page from the update pill'
+)
+# NOTE: deliberately no provides=/conflicts= on the bare name `dish`. An
+# unrelated AUR package already owns it (an interactive shell), so claiming
+# the name would misrepresent this package. The /usr/bin/dish launcher shim
+# below can still file-conflict with that package; pacman refuses the
+# co-install cleanly if anyone ever hits it.
+
+# Single x86_64 AppImage. Bump the URL and checksums in lockstep with pkgver.
+# Release tags are bare MAJOR.MINOR.PATCH (org convention — dish-android's
+# pipeline requires bare tags).
+source_x86_64=(
+    "Dish-${pkgver}-x86_64.AppImage::https://github.com/TinkerNorth/dish-linux/releases/download/${pkgver}/Dish-${pkgver}-x86_64.AppImage"
+    "com.tinkernorth.Dish.desktop::https://raw.githubusercontent.com/TinkerNorth/dish-linux/${pkgver}/packaging/dish.desktop"
+    "com.tinkernorth.Dish.svg::https://raw.githubusercontent.com/TinkerNorth/dish-linux/${pkgver}/packaging/dish.svg"
+    "com.tinkernorth.Dish.metainfo.xml::https://raw.githubusercontent.com/TinkerNorth/dish-linux/${pkgver}/packaging/com.tinkernorth.Dish.metainfo.xml"
+    "70-dish-hidraw.rules::https://raw.githubusercontent.com/TinkerNorth/dish-linux/${pkgver}/packaging/udev/70-dish-hidraw.rules"
+)
+# PLACEHOLDERS — the 0.1.0 release is not published yet. Before the first
+# AUR push, run `updpkgsums` against the real release and cross-check the
+# AppImage line against the release's SHA256SUMS asset. SKIP is not
+# acceptable here: the whole premise of a -bin package is redistributing an
+# upstream binary, and the release ships cosign signatures and SLSA
+# provenance — verifying nothing on the way in would throw that away.
+sha256sums_x86_64=(
+    '0000000000000000000000000000000000000000000000000000000000000000'
+    '0000000000000000000000000000000000000000000000000000000000000000'
+    '0000000000000000000000000000000000000000000000000000000000000000'
+    '0000000000000000000000000000000000000000000000000000000000000000'
+    '0000000000000000000000000000000000000000000000000000000000000000'
+)
+
+package() {
+    # Drop the AppImage in /opt and shim a launcher into /usr/bin so users
+    # type `dish` like they would for any other package (and so the desktop
+    # entry's Exec=dish resolves).
+    install -Dm755 "${srcdir}/Dish-${pkgver}-x86_64.AppImage" \
+        "${pkgdir}/opt/dish/Dish.AppImage"
+
+    install -dm755 "${pkgdir}/usr/bin"
+    cat > "${pkgdir}/usr/bin/dish" <<'SHIM'
+#!/bin/sh
+# Shim added by the dish-bin AUR package; forwards to the AppImage bundled
+# under /opt/dish.
+exec /opt/dish/Dish.AppImage "$@"
+SHIM
+    chmod 755 "${pkgdir}/usr/bin/dish"
+
+    install -Dm644 "${srcdir}/com.tinkernorth.Dish.desktop" \
+        "${pkgdir}/usr/share/applications/com.tinkernorth.Dish.desktop"
+    install -Dm644 "${srcdir}/com.tinkernorth.Dish.svg" \
+        "${pkgdir}/usr/share/icons/hicolor/scalable/apps/com.tinkernorth.Dish.svg"
+    install -Dm644 "${srcdir}/com.tinkernorth.Dish.metainfo.xml" \
+        "${pkgdir}/usr/share/metainfo/com.tinkernorth.Dish.metainfo.xml"
+    # The rule the AppImage cannot install itself; this is the whole reason
+    # to prefer dish-bin over the bare AppImage on Arch.
+    install -Dm644 "${srcdir}/70-dish-hidraw.rules" \
+        "${pkgdir}/usr/lib/udev/rules.d/70-dish-hidraw.rules"
+}
+
+# vim:set ts=4 sw=4 et:

@@ -70,6 +70,32 @@ grant before a fresh install worked at all, which is a poor fit for an app whose
 headline feature is claiming gamepads, and the four formats above already reach
 every desktop it would.
 
+aarch64 is deliberately deferred, not refused: public repos get GitHub's
+`ubuntu-24.04-arm` runners free, so adding it is a build-matrix change plus a
+QA question (nothing in CI can smoke-test a pad on arm hardware). Revisit when
+someone actually asks; until then every artifact is x86_64 and the README says
+so.
+
+## Where users get the packages
+
+Publishing is a channel, not a format. Every release tag feeds:
+
+| Channel | Who it serves | How it updates |
+|---|---|---|
+| APT repo — `https://tinkernorth.github.io/dish-linux/debian` | Debian 13+ | `apt upgrade` |
+| DNF repo — `https://tinkernorth.github.io/dish-linux/rpm` | Fedora/RHEL/openSUSE | `dnf upgrade` |
+| [AUR `dish-bin`](../packaging/aur/) | Arch | AUR helper (manual `pkgver` bump per release — see `packaging/aur/README.md`) |
+| Flathub | Ubuntu LTS, Steam Deck, software-center users | store-automatic ([submission runbook](FLATHUB.md)) |
+| GitHub Releases | everyone else | AppImage self-updates via zsync (AppImageUpdate/Gear Lever); manual otherwise |
+
+The APT and DNF trees live on the `gh-pages` branch, regenerated and
+GPG-signed by the `apt-publish` / `rpm-publish` jobs in `release.yml` using
+[`packaging/repo/`](../packaging/repo/) (key fingerprint and rotation story in
+its README). The AppImage embeds `gh-releases-zsync` update information, and
+the release uploads the matching `.zsync` beside it; the draft→flip publish
+keeps `releases/latest` atomic so neither the updater manifest nor the zsync
+pattern ever sees a half-uploaded release.
+
 ## The udev rule is not optional
 
 `/dev/hidraw*` is root-only by default. Dish's USB-direct path opens the node
@@ -115,7 +141,10 @@ reviewed input rather than something the job derives.
 
 A packager who does not want the check at all can ship with
 `updates_check_enabled=false` seeded in the default config; the store reads it
-at construction and the checker arms no timer.
+at construction and the checker arms no timer. Inside a Flatpak the default is
+already `false` (`UpdatePreferenceStore::runningInFlatpak`), because the store
+that delivered the sandbox also delivers its updates; the Settings toggle still
+overrides.
 
 ## Qt version floor
 

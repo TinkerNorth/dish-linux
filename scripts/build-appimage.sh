@@ -91,8 +91,25 @@ install -Dm644 packaging/com.tinkernorth.Dish.metainfo.xml \
     "${appdir}/usr/share/metainfo/com.tinkernorth.Dish.metainfo.xml"
 
 out="${dist_dir}/Dish-${version}-${arch}.AppImage"
-rm -f "${out}"
+rm -f "${out}" "${out}.zsync"
+
+# Embed AppImageUpdate metadata so AppImageUpdate / Gear Lever can delta-update
+# straight off the newest GitHub release instead of a full manual re-download.
+# appimagetool also emits the matching .zsync index, which release.yml uploads
+# beside the AppImage; the draft→flip publish keeps `releases/latest` atomic,
+# so the pattern never resolves to a half-uploaded release.
+export LDAI_UPDATE_INFORMATION="${DISH_APPIMAGE_UPDATE_INFO:-gh-releases-zsync|TinkerNorth|dish-linux|latest|Dish-*-${arch}.AppImage.zsync}"
 OUTPUT="${out}" "${tools_dir}/linuxdeploy" --appdir "${appdir}" --output appimage
+
+# appimagetool drops the .zsync next to the AppImage or in the CWD depending
+# on version; normalise into dist/ and fail soft (the AppImage itself is fine
+# without it, the delta channel just stays dark).
+if [ ! -f "${out}.zsync" ] && [ -f "$(basename "${out}").zsync" ]; then
+    mv "$(basename "${out}").zsync" "${out}.zsync"
+fi
+if [ ! -f "${out}.zsync" ]; then
+    echo "::warning::appimagetool emitted no .zsync; AppImageUpdate delta updates unavailable for this build"
+fi
 
 # A Qt Quick bundle missing one QML module builds perfectly and fails on the
 # user's machine. Offscreen catches that here instead.
