@@ -517,8 +517,11 @@ jobs:
           set -eux
           sudo apt-get update
           # elfutils: flatpak-builder shells out to eu-strip while finishing
-          # a module, and the runner image does not carry it.
-          sudo apt-get install -y --no-install-recommends flatpak flatpak-builder elfutils ca-certificates
+          # a module, and the runner image does not carry it. librsvg2-common:
+          # export validates the app icon with the host's gdk-pixbuf, and
+          # without the SVG loader the scalable icon is "Format not
+          # recognized".
+          sudo apt-get install -y --no-install-recommends flatpak flatpak-builder elfutils librsvg2-common ca-certificates
           sudo flatpak remote-add --if-not-exists flathub \
             https://dl.flathub.org/repo/flathub.flatpakrepo
           sudo flatpak install -y --noninteractive flathub \
