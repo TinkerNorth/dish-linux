@@ -87,6 +87,27 @@ export QMAKE="${QMAKE:-$(command -v qmake6 || command -v qmake)}"
     --icon-file "${appdir}/usr/share/icons/hicolor/512x512/apps/com.tinkernorth.Dish.png" \
     --plugin qt
 
+# The qt plugin deploys wayland-shell-integration and the decoration plugin
+# but not the client buffer integrations, and a Wayland session with zero
+# buffer integrations aborts at the first expose ("Available client buffer
+# integrations: QList()", then QRhi fails and Qt Quick qFatals). Copy the
+# directory it forgets; the packaging pass below pulls its libraries.
+qt_plugin_dir="$("${QMAKE}" -query QT_INSTALL_PLUGINS)"
+if [ -d "${qt_plugin_dir}/wayland-graphics-integration-client" ]; then
+    cp -r "${qt_plugin_dir}/wayland-graphics-integration-client" \
+        "${appdir}/usr/plugins/"
+fi
+for must in \
+    "platforms/libqwayland-egl.so" \
+    "platforms/libqxcb.so" \
+    "wayland-graphics-integration-client" \
+    "wayland-shell-integration"; do
+    if [ ! -e "${appdir}/usr/plugins/${must}" ]; then
+        echo "::error::AppImage is missing usr/plugins/${must}; a Wayland desktop crashes at startup without it" >&2
+        exit 1
+    fi
+done
+
 install -Dm644 packaging/com.tinkernorth.Dish.metainfo.xml \
     "${appdir}/usr/share/metainfo/com.tinkernorth.Dish.metainfo.xml"
 

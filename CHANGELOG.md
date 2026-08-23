@@ -18,6 +18,19 @@ the repos share a version number.
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-08-23
+
+### Fixed
+
+- The AppImage bundles Qt's Wayland client buffer integrations
+  (`wayland-graphics-integration-client`). linuxdeploy's qt plugin deploys the
+  shell-integration and decoration plugins but not this directory, and a
+  Wayland session with zero buffer integrations aborts on the first expose;
+  0.1.0's AppImage only started under `QT_QPA_PLATFORM=xcb`. The build now
+  fails if any Wayland or xcb platform piece is missing from the bundle.
+
+## [0.1.0] - 2026-08-23
+
 ### Added
 
 - Configurable keep-awake, under *Power* in Settings. **Never**, **While
