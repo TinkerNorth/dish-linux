@@ -82,3 +82,31 @@ Description: Wireless gamepad client for the Satellite server
  .
  Dish never installs its own updates - it checks, and links out to the release.
 
+Package: dish
+Architecture: amd64
+Version: 0.2.0
+Priority: optional
+Section: utils
+Maintainer: TinkerNorth <security@tinkernorth.com>
+Installed-Size: 8192
+Depends: qml6-module-qtqml, qml6-module-qtqml-workerscript, qml6-module-qtquick, qml6-module-qtquick-window, qml6-module-qtquick-controls, qml6-module-qtquick-templates, qml6-module-qtquick-layouts, qml6-module-qtquick-effects, libqt6svg6, qt6-svg-plugins, qt6-qpa-plugins, hicolor-icon-theme, libc6 (>= 2.38), libgcc-s1 (>= 3.3.1), libqt6core6t64 (>= 6.8.2), libqt6dbus6 (>= 6.8.2), libqt6gui6 (>= 6.6.0), libqt6network6 (>= 6.7.2), libqt6qml6 (>= 6.6.0), libqt6quick6 (>= 6.6.0), libqt6quickcontrols2-6 (>= 6.6.0), libsdl2-2.0-0 (>= 2.24.0), libsodium23 (>= 1.0.8), libstdc++6 (>= 14), qt6-declarative-private-abi (= 6.8.2)
+Recommends: udev, qt6-wayland
+Suggests: bluez, gnome-shell-extension-appindicator
+Filename: pool/main/d/dish/dish_0.2.0_amd64.deb
+Size: 3067356
+MD5sum: 674cb458dddd25350c68c159c68f5508
+SHA1: 757cf20769fa20f325730709db1fcd5886a9b0bb
+SHA256: d4d1e9e3d362d79c091634b3777fd361bfbaa6d7ecc952ebd555c6191d34a121
+SHA512: b4b5a8344fd9decfe41ca99d6304e7afb69db0a18c2073cfeed563553c73367844209a29184bc0e0ec89f86951ca177449ceadf05688d803ab0bfee82473f298
+Homepage: https://github.com/TinkerNorth/dish-linux
+Description: Wireless gamepad client for the Satellite server
+ Dish streams a local gamepad to a Satellite server over the LAN on an
+ encrypted UDP channel: sticks, buttons, motion and touchpad out, rumble and
+ battery back. It discovers servers over broadcast and mDNS, pairs with
+ trust-on-first-use key pinning, and can drive up to four pads at once.
+ .
+ Supported pads may also be claimed directly over USB for a higher polling
+ rate; that path needs the hidraw udev rule this package installs.
+ .
+ Dish never installs its own updates - it checks, and links out to the release.
+
