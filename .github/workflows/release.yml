@@ -40,6 +40,18 @@ on:
 # latest.json, and skip the APT/DNF repos; stable clients and repos never
 # see them.
 #
+# Alongside each versioned artifact, every package job stages a second copy
+# under a version-less STABLE NAME:
+#
+#   dish-amd64.deb   dish-x86_64.rpm   Dish-x86_64.AppImage   Dish-x86_64.flatpak
+#
+# Those names are a permanent API, like dish-windows' dish-setup.exe and
+# latest.json: releases/latest/download/<name> always resolves to the newest
+# published build, so download pages can link "the latest build" without
+# being rebuilt per release. Renaming or dropping one silently breaks every
+# consumer of that permalink. The stable copies flow through the same harden
+# job, so SHA256SUMS and the cosign signatures cover them too.
+#
 # Linux binaries are not signed with a platform key by default; the
 # `required-secrets` gate therefore enforces only that the cosign keyless
 # flow is reachable (id-token: write).
@@ -276,6 +288,12 @@ jobs:
           fi
           echo "::notice::dish came up, shut down on SIGTERM and exited 0"
 
+      # Stable-name copy for the /releases/latest/download/ permalink; the
+      # dash (vs the versioned name's underscores) keeps it clear of the
+      # dish_*_amd64.deb glob.
+      - name: Stage stable-name alias
+        run: cp dist/dish_*_amd64.deb dist/dish-amd64.deb
+
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: linux-deb
@@ -408,6 +426,10 @@ jobs:
           fi
           echo "::notice::dish came up, shut down on SIGTERM and exited 0"
 
+      # Stable-name copy for the /releases/latest/download/ permalink.
+      - name: Stage stable-name alias
+        run: cp dist/dish-*.x86_64.rpm dist/dish-x86_64.rpm
+
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: linux-rpm
@@ -492,6 +514,12 @@ jobs:
       - name: Build AppImage
         run: scripts/build-appimage.sh
 
+      # Stable-name copy for the /releases/latest/download/ permalink.
+      # No .zsync/.sha256 alias: AppImageUpdate matches the versioned
+      # pattern, and SHA256SUMS covers the alias.
+      - name: Stage stable-name alias
+        run: cp dist/Dish-*-x86_64.AppImage dist/Dish-x86_64.AppImage
+
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: linux-appimage
@@ -549,6 +577,9 @@ jobs:
           flatpak build-bundle build-flatpak/repo \
             "dist/Dish-${{ steps.ver.outputs.version }}-x86_64.flatpak" \
             com.tinkernorth.Dish
+          # Stable-name copy for the /releases/latest/download/ permalink.
+          cp "dist/Dish-${{ steps.ver.outputs.version }}-x86_64.flatpak" \
+            dist/Dish-x86_64.flatpak
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:

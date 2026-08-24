@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.21)
 project(Dish
-    VERSION 0.1.2
+    VERSION 0.2.0
     DESCRIPTION "Dish Linux client for the Satellite gamepad-over-LAN protocol"
     LANGUAGES CXX)
 

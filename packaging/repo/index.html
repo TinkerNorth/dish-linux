@@ -125,9 +125,10 @@ sudo pacman -Syu dish-bin</code></pre>
   <h2>Ubuntu LTS, older distros, no package manager</h2>
   <p>Every <a href="https://github.com/TinkerNorth/dish-linux/releases/latest">release</a> ships a
   portable AppImage (self-updating via AppImageUpdate/zsync) and a Flatpak
-  bundle:</p>
-  <pre><code>chmod +x Dish-X.Y.Z-x86_64.AppImage
-./Dish-X.Y.Z-x86_64.AppImage</code></pre>
+  bundle. The newest build is always at the same link:</p>
+  <pre><code>curl -fLO https://github.com/TinkerNorth/dish-linux/releases/latest/download/Dish-x86_64.AppImage
+chmod +x Dish-x86_64.AppImage
+./Dish-x86_64.AppImage</code></pre>
   <p>USB-direct claiming needs a udev rule no AppImage or Flatpak can install;
   without it Dish keeps the pad streaming on the SDL path, just rate-capped.
   The app shows the one-time fix when it applies, and

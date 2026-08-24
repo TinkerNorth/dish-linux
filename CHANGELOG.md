@@ -18,6 +18,18 @@ the repos share a version number.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-08-24
+
+### Added
+
+- Every release now also uploads its packages under version-less stable
+  names: `dish-amd64.deb`, `dish-x86_64.rpm`, `Dish-x86_64.AppImage` and
+  `Dish-x86_64.flatpak`. `releases/latest/download/<name>` is therefore a
+  permanent link to the newest build, alongside `latest.json` which already
+  worked that way. The stable names are covered by SHA256SUMS and the cosign
+  signatures, and they are a public API: download pages link them, so they
+  must not be renamed or dropped.
+
 ## [0.1.2] - 2026-08-24
 
 ### Fixed
