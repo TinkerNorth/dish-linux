@@ -3,9 +3,8 @@
 
 #include "source/tray/StatusNotifierTrayIcon.h"
 
-#include "Util/Endian.h"
+#include "source/tray/SniIcon.h"
 
-#include <QColor>
 #include <QCoreApplication>
 #include <QDBusAbstractAdaptor>
 #include <QDBusConnectionInterface>
@@ -18,16 +17,8 @@
 #include <QDBusVariant>
 #include <QGuiApplication>
 #include <QIcon>
-#include <QImage>
 #include <QLoggingCategory>
-#include <QPainter>
-#include <QPen>
-#include <QPointF>
-#include <QRectF>
-#include <QSize>
 #include <QStringLiteral>
-
-#include <cstdint>
 
 namespace dish::source {
 
@@ -40,7 +31,6 @@ constexpr auto kWatcherPath = "/StatusNotifierWatcher";
 constexpr auto kItemInterface = "org.kde.StatusNotifierItem";
 constexpr auto kItemPath = "/StatusNotifierItem";
 constexpr auto kMenuPath = "/MenuBar";
-constexpr auto kIconName = "com.tinkernorth.Dish";
 constexpr auto kNewIconSignal = "NewIcon";
 constexpr auto kNewToolTipSignal = "NewToolTip";
 
@@ -85,73 +75,6 @@ QVariantMap filterProperties(const QVariantMap& properties, const QStringList& n
         if (found != properties.constEnd()) { filtered.insert(name, found.value()); }
     }
     return filtered;
-}
-
-// a(iiay) carries raw 32-bit ARGB in network byte order, so the source has to
-// be unpremultiplied ARGB32 and every pixel goes out through putU32Be —
-// casting the scan line to a uint32_t* would raise alignment and trip
-// -Wcast-align.
-SniIconPixmap toSniPixmap(const QImage& source) {
-    const QImage image = source.convertToFormat(QImage::Format_ARGB32);
-    SniIconPixmap pixmap;
-    pixmap.width = image.width();
-    pixmap.height = image.height();
-    const qsizetype byteCount =
-        static_cast<qsizetype>(pixmap.width) * static_cast<qsizetype>(pixmap.height) * 4;
-    pixmap.data = QByteArray(byteCount, '\0');
-    auto* out = reinterpret_cast<std::uint8_t*>(pixmap.data.data());
-    qsizetype offset = 0;
-    for (int y = 0; y < pixmap.height; ++y) {
-        for (int x = 0; x < pixmap.width; ++x) {
-            util::putU32Be(out + offset, static_cast<std::uint32_t>(image.pixel(x, y)));
-            offset += 4;
-        }
-    }
-    return pixmap;
-}
-
-// :/icons/dish.svg belongs to the exe's resource bundle, not to dish_core, so
-// the fallback is drawn rather than loaded.
-QImage renderFallbackIcon(int size) {
-    QImage image(size, size, QImage::Format_ARGB32);
-    image.fill(Qt::transparent);
-    const auto extent = static_cast<qreal>(size);
-    const QPointF origin(extent * 0.24, extent * 0.78);
-    const QColor ink(0xF5, 0xF6, 0xF8);
-
-    QPainter painter(&image);
-    painter.setRenderHint(QPainter::Antialiasing, true);
-    QPen pen(ink);
-    pen.setWidthF(qMax(1.0, extent * 0.11));
-    pen.setCapStyle(Qt::RoundCap);
-    painter.setPen(pen);
-    painter.setBrush(Qt::NoBrush);
-    for (int ring = 1; ring <= 3; ++ring) {
-        const qreal radius = extent * 0.18 * static_cast<qreal>(ring);
-        painter.drawArc(
-            QRectF(origin.x() - radius, origin.y() - radius, radius * 2.0, radius * 2.0), 5 * 16,
-            80 * 16);
-    }
-    painter.setPen(Qt::NoPen);
-    painter.setBrush(ink);
-    painter.drawEllipse(origin, extent * 0.09, extent * 0.09);
-    painter.end();
-    return image;
-}
-
-// Theme lookup misses entirely under Flatpak, Snap and AppImage, so IconPixmap
-// always ships alongside IconName instead of only when the theme fails.
-SniIconPixmapList buildIconPixmaps() {
-    const QIcon themed = QIcon::fromTheme(QLatin1String(kIconName));
-    SniIconPixmapList pixmaps;
-    for (const int size : {22, 48}) {
-        QImage image;
-        if (!themed.isNull()) { image = themed.pixmap(QSize(size, size)).toImage(); }
-        if (image.isNull()) { image = renderFallbackIcon(size); }
-        if (image.isNull()) { continue; }
-        pixmaps.append(toSniPixmap(image));
-    }
-    return pixmaps;
 }
 
 } // namespace
@@ -258,7 +181,7 @@ class StatusNotifierItemAdaptor final : public QDBusAbstractAdaptor {
         : QDBusAbstractAdaptor(host), owner_(owner) {}
 
     QString category() const { return QStringLiteral("ApplicationStatus"); }
-    QString id() const { return QLatin1String(kIconName); }
+    QString id() const { return QLatin1String(kSniIconName); }
     QString title() const { return QStringLiteral("Dish"); }
     // Pinned Active: a Passive item may be hidden by the host, and a hidden
     // item is a running Dish the user can neither reach nor quit.
@@ -350,7 +273,7 @@ StatusNotifierTrayIcon::~StatusNotifierTrayIcon() { teardown(); }
 
 bool StatusNotifierTrayIcon::isAvailable() const { return available_; }
 
-QString StatusNotifierTrayIcon::iconName() const { return QLatin1String(kIconName); }
+QString StatusNotifierTrayIcon::iconName() const { return sniIconName(themeHasIcon_); }
 
 SniIconPixmapList StatusNotifierTrayIcon::iconPixmap() const { return iconPixmap_; }
 
@@ -360,7 +283,8 @@ uint StatusNotifierTrayIcon::menuRevision() const { return 1; }
 
 SniToolTip StatusNotifierTrayIcon::toolTip() const {
     SniToolTip tip;
-    tip.iconName = QLatin1String(kIconName);
+    tip.iconName = sniIconName(themeHasIcon_);
+    tip.iconPixmap = iconPixmap_;
     tip.title = QStringLiteral("Dish");
     switch (presentation_.activity) {
     case reducer::TrayActivity::Idle:
@@ -547,8 +471,11 @@ void StatusNotifierTrayIcon::refreshAvailability() {
     emit availabilityChanged(available_);
 }
 
+// Theme lookup misses entirely under Flatpak, Snap and AppImage, so IconPixmap
+// always ships alongside IconName instead of only when the theme fails.
 void StatusNotifierTrayIcon::updateIcon() {
-    SniIconPixmapList pixmaps = buildIconPixmaps();
+    themeHasIcon_ = QIcon::hasThemeIcon(QLatin1String(kSniIconName));
+    SniIconPixmapList pixmaps = sniTrayPixmaps();
     if (pixmaps == iconPixmap_) { return; }
     iconPixmap_ = pixmaps;
     if (exported_) { emitItemSignal(kNewIconSignal); }

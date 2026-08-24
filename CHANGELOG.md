@@ -18,6 +18,19 @@ the repos share a version number.
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-08-24
+
+### Fixed
+
+- The tray item no longer advertises the `com.tinkernorth.Dish` icon name when
+  the icon theme cannot resolve it. StatusNotifier hosts prefer `IconName` over
+  `IconPixmap`, so a run without the hicolor icons installed (a source build,
+  the AppImage) rendered GNOME's "..." missing-icon placeholder in the top bar
+  even though pixmaps were shipped. The name is now advertised only when the
+  theme lookup succeeds, `IconPixmap` carries the brand mark pre-rasterised at
+  22 and 48 px and compiled into the client (replacing the hand-drawn
+  stand-in glyph), and the tooltip carries the same icon fields.
+
 ## [0.1.1] - 2026-08-23
 
 ### Fixed

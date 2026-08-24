@@ -119,6 +119,7 @@ class StatusNotifierTrayIcon final : public TrayIcon {
     QObject* menuHost_ = nullptr;
     reducer::TrayPresentation presentation_;
     SniIconPixmapList iconPixmap_;
+    bool themeHasIcon_ = false;
     bool shown_ = false;
     bool exported_ = false;
     bool registered_ = false;

@@ -102,6 +102,12 @@
   <!-- Kept in step with project(Dish VERSION ...); version-consistency.yml
        fails the PR that moves one without the other. -->
   <releases>
+    <release version="0.1.2" date="2026-08-24" type="stable">
+      <url type="details">https://github.com/TinkerNorth/dish-linux/releases/tag/0.1.2</url>
+      <description>
+        <p>Fixes the tray icon showing as a missing-icon placeholder when Dish's launcher icons are not installed in the icon theme, as with the AppImage or a source build: the tray now ships the brand mark inside the client and advertises a theme icon name only where the theme can resolve it.</p>
+      </description>
+    </release>
     <release version="0.1.1" date="2026-08-23" type="stable">
       <url type="details">https://github.com/TinkerNorth/dish-linux/releases/tag/0.1.1</url>
       <description>
