@@ -102,6 +102,12 @@
   <!-- Kept in step with project(Dish VERSION ...); version-consistency.yml
        fails the PR that moves one without the other. -->
   <releases>
+    <release version="0.2.0" date="2026-08-24" type="stable">
+      <url type="details">https://github.com/TinkerNorth/dish-linux/releases/tag/0.2.0</url>
+      <description>
+        <p>Adds version-less stable download names for every package, so the newest build is always available at the same link. No changes to the client itself.</p>
+      </description>
+    </release>
     <release version="0.1.2" date="2026-08-24" type="stable">
       <url type="details">https://github.com/TinkerNorth/dish-linux/releases/tag/0.1.2</url>
       <description>
