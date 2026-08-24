@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.21)
 project(Dish
-    VERSION 0.1.1
+    VERSION 0.1.2
     DESCRIPTION "Dish Linux client for the Satellite gamepad-over-LAN protocol"
     LANGUAGES CXX)
 
@@ -306,8 +306,13 @@ set(DISH_CORE_SOURCES
     src/source/system/SleepMonitor.cpp
     src/source/system/WakeInhibitor.cpp
     src/source/tray/TrayIcon.h
+    src/source/tray/SniIcon.h
+    src/source/tray/SniIcon.cpp
     src/source/tray/StatusNotifierTrayIcon.h
     src/source/tray/StatusNotifierTrayIcon.cpp
+    # The tray's IconPixmap PNGs ride dish_core so DishTests and the exe both
+    # carry them; SniIcon.cpp's Q_INIT_RESOURCE keeps the archive member alive.
+    resources/tray.qrc
     # Update checking. In dish_core (not the exe) because the tests link this
     # library, not the exe.
     src/update/UpdatePorts.h

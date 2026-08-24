@@ -93,6 +93,7 @@ set(DISH_TEST_SOURCES
     test_tray_presentation.cpp
     test_tray_composer.cpp
     test_tray_controller.cpp
+    test_tray_icon_fallback.cpp
     test_sleep_cycle.cpp
     test_sleep_coordinator.cpp
     test_dish_notifications.cpp

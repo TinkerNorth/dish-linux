@@ -1,0 +1,13 @@
+<!--
+  The StatusNotifier tray icon, pre-rasterised from packaging/dish.svg at the
+  two sizes the item publishes over IconPixmap. Compiled into dish_core (not
+  the exe) so the tray never depends on an installed icon theme, the Qt SVG
+  plugin, or runtime painting; regenerate with Qt's QSvgRenderer if the brand
+  mark changes.
+-->
+<RCC>
+  <qresource prefix="/tray">
+    <file alias="dish-22.png">tray/dish-22.png</file>
+    <file alias="dish-48.png">tray/dish-48.png</file>
+  </qresource>
+</RCC>
