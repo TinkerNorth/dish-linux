@@ -4,27 +4,31 @@ Hash: SHA512
 Architectures: amd64
 Codename: stable
 Components: main
-Date: Sun, 23 Aug 2026 16:18:47 +0000
+Date: Mon, 24 Aug 2026 00:07:06 +0000
 Description: Dish Linux package repository
 Label: Dish
 Origin: TinkerNorth
 Suite: stable
 MD5Sum:
- 83227c036414e65e3834fa5390d9482c             1858 main/binary-amd64/Packages
- bd5b00a3b0bb74ca8ee8f963af887c62             1069 main/binary-amd64/Packages.gz
+ a72d2f67c7d3878a927c2513bc2a48d6             1120 Release
+ f3c8605f700d340def643249bddf9958             3716 main/binary-amd64/Packages
+ bc2f2f2ee112142289eb1553086f98ce             1291 main/binary-amd64/Packages.gz
 SHA1:
- a3c8a97dbd56ba947997536fc16d323c72d8369d             1858 main/binary-amd64/Packages
- 9229607d5c605cc19641601da9987e36095bf7f6             1069 main/binary-amd64/Packages.gz
+ eb3d9a5d300d1dfb674d6593e0c73b2364c21f6b             1120 Release
+ 33f41211a140f8607228c3c7645a514f8f3a7a6b             3716 main/binary-amd64/Packages
+ 8a7e21c8dbf3ac6f17f1d67ab0db445c1afbd34e             1291 main/binary-amd64/Packages.gz
 SHA256:
- d73ad1d4aa399c975ac1b443ee2f6e68cb2b72a2b84741fc0d0cfb596a66509c             1858 main/binary-amd64/Packages
- 921384302d7061040f7810d767545d49a75938fc37ec5c24521cfdf7b51ffdf0             1069 main/binary-amd64/Packages.gz
+ 10baccf1be5c1da7391ebb34a31dac2bfe12d11dd0249b9e6a416bf250328ce5             1120 Release
+ b2bdabd4d458fb395501594b9b391943607d70b9e0a3209e6ab2ef828c1fe59d             3716 main/binary-amd64/Packages
+ 00f217ae22f3f1bf2f5a7f5a09542f6350c425cebabe5bfc286c047191be6319             1291 main/binary-amd64/Packages.gz
 SHA512:
- 26bf51692f17c852f02bec9946dec7a1b2dff7c7b804aadab8b4b01a4ea9c34a17617d73822bc78761722e797c9da12ddee067291882ac7e3dccdc99a753db43             1858 main/binary-amd64/Packages
- 2f566e8f4f5756a192b0961cbe19db5facaba90a133684d07c6b7a3493a82bb7c18541f87f07386e8bda43f5d22654e0af223dd03757677ad4f88f7cf6a6f983             1069 main/binary-amd64/Packages.gz
+ 285867070c7e8bf5f9c85fb3d1f324ba759ce757bf32281d905a33da4303dc93b24942064fb20f2d448d9172ce9fef3e23e83e5076e206e5d53fcc2abfbdfb93             1120 Release
+ af99c1dc3e257dd4f8eee2a004b2a66a8364eb524d7adf617992b1dacdd18899337ca982252805d3e40f20d7c17325961a5a12bc492165d2603bed5f43be0848             3716 main/binary-amd64/Packages
+ d352884059d9abf6a3ebe02073725586851933c007cb4ae6e58ea3f5d77ac4f27a28196982eb85eb13732a56ae45a91e8174348183453e4b1bba633e5b30a340             1291 main/binary-amd64/Packages.gz
 -----BEGIN PGP SIGNATURE-----
 
-iHUEARYKAB0WIQSW/6rLeP510Yzu4zLDmBeVEta98wUCaosdZwAKCRDDmBeVEta9
-8/qQAQDYVF2G53u7SIUJ8M2VJOLJqoSghvUSbMgjZSv80jV8gwEAiHBIorGx6mGW
-4ozaZ5ddpQ4rSVfuyTRB8gfiebRgvgE=
-=Nh1N
+iHUEARYKAB0WIQSW/6rLeP510Yzu4zLDmBeVEta98wUCaouLKgAKCRDDmBeVEta9
+8woGAP4ju10f/iKY+TD3QESTjmzFDCSCBnmyDBxEqfQralT4cgEAwEJ+jqMYIRMr
+L7P6eK2iAOeWF8BW2t5BTJ3rwwjZqQA=
+=Ewzr
 -----END PGP SIGNATURE-----
