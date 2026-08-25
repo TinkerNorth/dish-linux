@@ -879,6 +879,38 @@
         <translation>Weitere Aktionen für %1</translation>
     </message>
     <message>
+        <source>Moonlight host (Sunshine/Apollo)</source>
+        <translation>Moonlight-Host (Sunshine/Apollo)</translation>
+    </message>
+    <message>
+        <source>Host IP or name</source>
+        <translation>Host-IP oder -Name</translation>
+    </message>
+    <message>
+        <source>Add host</source>
+        <translation>Host hinzufügen</translation>
+    </message>
+    <message>
+        <source>Enter PIN %1 in the host&apos;s Moonlight/Sunshine page to finish pairing.</source>
+        <translation>Gib PIN %1 auf der Moonlight-/Sunshine-Seite des Hosts ein, um die Kopplung abzuschließen.</translation>
+    </message>
+    <message>
+        <source>No Moonlight hosts</source>
+        <translation>Keine Moonlight-Hosts</translation>
+    </message>
+    <message>
+        <source>Run Sunshine, Apollo, or Wolf on a PC on this network, then Scan or add it by address.</source>
+        <translation>Starte Sunshine, Apollo oder Wolf auf einem PC in diesem Netzwerk und suche dann oder füge ihn per Adresse hinzu.</translation>
+    </message>
+    <message>
+        <source>%1, Moonlight host</source>
+        <translation>%1, Moonlight-Host</translation>
+    </message>
+    <message>
+        <source>Not paired</source>
+        <translation>Nicht gekoppelt</translation>
+    </message>
+    <message>
         <source>Forget %1?</source>
         <translation>%1 entfernen?</translation>
     </message>
@@ -3760,6 +3792,10 @@
         <translation>Der Satellit hat diesen Controller nicht akzeptiert — Zuordnung rückgängig gemacht.</translation>
     </message>
     <message>
+        <source>The Moonlight session ended.</source>
+        <translation>Die Moonlight-Sitzung wurde beendet.</translation>
+    </message>
+    <message>
         <source>Couldn’t switch %1 to Direct mode — keeping it on Standard.</source>
         <translation>%1 konnte nicht in den Direktmodus wechseln — bleibt im Standardmodus.</translation>
     </message>
@@ -3873,6 +3909,10 @@
             <numerusform>%n gekoppelt</numerusform>
             <numerusform>%n gekoppelt</numerusform>
         </translation>
+    </message>
+    <message>
+        <source>Pairing failed (%1).</source>
+        <translation>Kopplung fehlgeschlagen (%1).</translation>
     </message>
     <message numerus="yes">
         <source>%n online</source>

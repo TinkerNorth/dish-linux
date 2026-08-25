@@ -885,6 +885,38 @@
         <translation>Više radnji za %1</translation>
     </message>
     <message>
+        <source>Moonlight host (Sunshine/Apollo)</source>
+        <translation>Moonlight host (Sunshine/Apollo)</translation>
+    </message>
+    <message>
+        <source>Host IP or name</source>
+        <translation>IP ili naziv hosta</translation>
+    </message>
+    <message>
+        <source>Add host</source>
+        <translation>Dodaj host</translation>
+    </message>
+    <message>
+        <source>Enter PIN %1 in the host&apos;s Moonlight/Sunshine page to finish pairing.</source>
+        <translation>Unesite PIN %1 na Moonlight/Sunshine stranici hosta da dovršite uparivanje.</translation>
+    </message>
+    <message>
+        <source>No Moonlight hosts</source>
+        <translation>Nema Moonlight hostova</translation>
+    </message>
+    <message>
+        <source>Run Sunshine, Apollo, or Wolf on a PC on this network, then Scan or add it by address.</source>
+        <translation>Pokrenite Sunshine, Apollo ili Wolf na računaru u ovoj mreži, zatim skenirajte ili dodajte po adresi.</translation>
+    </message>
+    <message>
+        <source>%1, Moonlight host</source>
+        <translation>%1, Moonlight host</translation>
+    </message>
+    <message>
+        <source>Not paired</source>
+        <translation>Nije upareno</translation>
+    </message>
+    <message>
         <source>Forget %1?</source>
         <translation>Zaboraviti %1?</translation>
     </message>
@@ -3776,6 +3808,10 @@
         <translation>Satelit nije prihvatio taj kontroler — povezivanje poništeno.</translation>
     </message>
     <message>
+        <source>The Moonlight session ended.</source>
+        <translation>Moonlight sesija je završena.</translation>
+    </message>
+    <message>
         <source>Couldn’t switch %1 to Direct mode — keeping it on Standard.</source>
         <translation>Nije moguće prebaciti %1 na Brzi način — ostaje na Standardnom.</translation>
     </message>
@@ -3890,6 +3926,10 @@
             <numerusform>%n uparena</numerusform>
             <numerusform>%n uparenih</numerusform>
         </translation>
+    </message>
+    <message>
+        <source>Pairing failed (%1).</source>
+        <translation>Uparivanje nije uspjelo (%1).</translation>
     </message>
     <message numerus="yes">
         <source>%n online</source>

@@ -879,6 +879,38 @@
         <translation>Plus d&apos;actions pour %1</translation>
     </message>
     <message>
+        <source>Moonlight host (Sunshine/Apollo)</source>
+        <translation>Hôte Moonlight (Sunshine/Apollo)</translation>
+    </message>
+    <message>
+        <source>Host IP or name</source>
+        <translation>IP ou nom de l’hôte</translation>
+    </message>
+    <message>
+        <source>Add host</source>
+        <translation>Ajouter un hôte</translation>
+    </message>
+    <message>
+        <source>Enter PIN %1 in the host&apos;s Moonlight/Sunshine page to finish pairing.</source>
+        <translation>Saisissez le code PIN %1 sur la page Moonlight/Sunshine de l’hôte pour terminer l’association.</translation>
+    </message>
+    <message>
+        <source>No Moonlight hosts</source>
+        <translation>Aucun hôte Moonlight</translation>
+    </message>
+    <message>
+        <source>Run Sunshine, Apollo, or Wolf on a PC on this network, then Scan or add it by address.</source>
+        <translation>Lancez Sunshine, Apollo ou Wolf sur un PC de ce réseau, puis lancez la recherche ou ajoutez-le par adresse.</translation>
+    </message>
+    <message>
+        <source>%1, Moonlight host</source>
+        <translation>%1, hôte Moonlight</translation>
+    </message>
+    <message>
+        <source>Not paired</source>
+        <translation>Non associé</translation>
+    </message>
+    <message>
         <source>Forget %1?</source>
         <translation>Oublier %1 ?</translation>
     </message>
@@ -3760,6 +3792,10 @@
         <translation>Le satellite n&apos;a pas accepté cette manette — liaison annulée.</translation>
     </message>
     <message>
+        <source>The Moonlight session ended.</source>
+        <translation>La session Moonlight s’est terminée.</translation>
+    </message>
+    <message>
         <source>Couldn’t switch %1 to Direct mode — keeping it on Standard.</source>
         <translation>Impossible de passer %1 en Mode direct — maintenue en Standard.</translation>
     </message>
@@ -3873,6 +3909,10 @@
             <numerusform>%n appairée</numerusform>
             <numerusform>%n appairées</numerusform>
         </translation>
+    </message>
+    <message>
+        <source>Pairing failed (%1).</source>
+        <translation>Échec de l’association (%1).</translation>
     </message>
     <message numerus="yes">
         <source>%n online</source>

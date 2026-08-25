@@ -91,6 +91,16 @@ class AppViewModel : public QObject {
     Q_PROPERTY(QVariantList discoveredServers READ discoveredServers NOTIFY discoveredChanged)
     Q_PROPERTY(bool scanning READ isScanning NOTIFY scanningChanged)
 
+    // ── Moonlight hosts (Sunshine / Apollo / Wolf) ───────────────────────────
+    // A sibling of the satellite pool: each entry has uuid, name, address,
+    // paired, discovered, link ("idle"|"linking"|"live"|"failed"), lastAppName.
+    Q_PROPERTY(QVariantList moonlightHosts READ moonlightHosts NOTIFY moonlightChanged)
+    Q_PROPERTY(bool moonlightScanning READ moonlightScanning NOTIFY moonlightChanged)
+    Q_PROPERTY(bool moonlightPairingActive READ moonlightPairingActive NOTIFY moonlightChanged)
+    // The 4-digit PIN the user must type into the host's UI while pairing.
+    Q_PROPERTY(QString moonlightPairingPin READ moonlightPairingPin NOTIFY moonlightChanged)
+    Q_PROPERTY(QString moonlightPairingHost READ moonlightPairingHost NOTIFY moonlightChanged)
+
     // ── Reverse (host-initiated) pairing ─────────────────────────────────────
     // Phase is "idle" | "awaiting" | "approved" | "declined" | "timedout".
     Q_PROPERTY(QString reversePairingPhase READ reversePairingPhase NOTIFY reversePairingChanged)
@@ -317,6 +327,12 @@ class AppViewModel : public QObject {
     Q_INVOKABLE void startDiscovery();
     Q_INVOKABLE bool isScanning() const;
     Q_INVOKABLE QVariantList discoveredServers() const;
+
+    QVariantList moonlightHosts() const;
+    bool moonlightScanning() const;
+    bool moonlightPairingActive() const;
+    QString moonlightPairingPin() const;
+    QString moonlightPairingHost() const;
     Q_INVOKABLE void forgetConnection(const QString& connectionId);
 
     // Keyed on the stable id, never a list index: the discovered list can reorder
@@ -337,6 +353,25 @@ class AppViewModel : public QObject {
 
     Q_INVOKABLE void requestReversePairing(const QString& serverId);
     Q_INVOKABLE void cancelReversePairing();
+
+    // ── Moonlight host commands ──────────────────────────────────────────────
+    Q_INVOKABLE void scanMoonlight();
+    // Adds a host by IP/hostname the user typed, ports optional (defaults
+    // 47989/47984).
+    Q_INVOKABLE void addMoonlightHost(const QString& address);
+    // Shows moonlightPairingPin; the user types it into the host UI.
+    Q_INVOKABLE void pairMoonlight(const QString& uuid);
+    Q_INVOKABLE void cancelMoonlightPairing();
+    // Launches the host's last app (or "Desktop", app id 1, by default) and
+    // brings the control link up.
+    Q_INVOKABLE void connectMoonlight(const QString& uuid);
+    Q_INVOKABLE void disconnectMoonlight(const QString& uuid);
+    Q_INVOKABLE void forgetMoonlight(const QString& uuid);
+    // Emulated device pick: 0 Auto, 1 Xbox, 2 PlayStation, 3 Nintendo.
+    Q_INVOKABLE void setMoonlightControllerType(const QString& uuid, int type);
+    // Routes a controller slot's live input to a Moonlight host.
+    Q_INVOKABLE void bindMoonlight(const QString& slotId, const QString& uuid);
+    Q_INVOKABLE void unbindMoonlight(const QString& slotId);
 
     // ── Deadzone settings page ───────────────────────────────────────────────
     // Rows of {id,name,hasGyro,stickFlat,triggerFlat,forwardMotion}, re-pulled on
@@ -469,6 +504,7 @@ class AppViewModel : public QObject {
     // the FOUND list excludes ids that already have a row (the one-spot rule),
     // so a pair landing or a forget has to re-read too.
     void discoveredChanged();
+    void moonlightChanged();
 
     void scanningChanged();
     void reversePairingChanged();

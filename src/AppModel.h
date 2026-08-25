@@ -46,6 +46,7 @@
 #include "source/system/WakeInhibitor.h"
 #include "source/tray/StatusNotifierTrayIcon.h"
 #include "source/tray/TrayIcon.h"
+#include "source/moonlight/MoonlightManager.h"
 #include "source/usb/UsbGamepadManager.h"
 #include "source/usb/HidrawGateway.h"
 #include "update/UpdateChecker.h"
@@ -196,6 +197,17 @@ class AppModel : public QObject {
     // Null only if the gateway failed to construct, which never happens on
     // Linux. The lifecycle is owned here.
     source::usb::UsbGamepadManager* usbManager() { return usbManager_.get(); }
+
+    // The Moonlight-host subsystem: discovery, pairing, sessions. Sits beside
+    // the satellite wifi() pool as a sibling; the UI drives it through here.
+    source::moon::MoonlightManager* moonlight() { return moonlight_; }
+
+    // Routes a controller slot's hot-path reports to a live Moonlight session
+    // instead of a satellite. The reverse of unbindMoonlightSlot; both mutate
+    // the same routing table the SDL thread reads. Passing an empty uuid, or a
+    // uuid with no live session, clears the route.
+    void bindMoonlightSlot(const QString& slotId, const QString& hostUuid);
+    void unbindMoonlightSlot(const QString& slotId);
 
   signals:
     // Emitted after any field of state() changes.
@@ -432,6 +444,9 @@ class AppModel : public QObject {
     // from usbPollRateHz_ at rebuild(). Main-thread-only.
     QHash<QString, models::SlotLiveRates> liveRatesBySlot_;
 
+    // The Moonlight-host subsystem, parented to this.
+    source::moon::MoonlightManager* moonlight_;
+
     // slotId -> active sender. Read on the SDL gamepad thread, written on the Qt
     // main thread; routingMtx_ guards both directions.
     mutable std::mutex routingMtx_;
@@ -441,6 +456,15 @@ class AppModel : public QObject {
     QHash<QString, net::ConnectionHub::MotionSender> motionRouting_;
     QHash<QString, net::ConnectionHub::BatterySender> batteryRouting_;
     QHash<QString, net::ConnectionHub::TouchpadSender> touchpadRouting_;
+    // deviceId (slotId) -> Moonlight hot-path sender, read on the SDL gamepad
+    // thread under routingMtx_ alongside routing_ above. A slot is routed to a
+    // satellite OR a Moonlight host, never both, so the report sender checks
+    // this table only when routing_ has no entry.
+    QHash<QString, net::ConnectionHub::ReportSender> moonlightRouting_;
+    QHash<QString, net::ConnectionHub::MotionSender> moonlightMotionRouting_;
+    // host uuid -> bound device id, the reverse of the routing tables, so an
+    // inbound rumble/LED for a session resolves to the pad to actuate.
+    QHash<QString, QString> moonlightBoundDevice_;
 };
 
 } // namespace dish

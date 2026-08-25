@@ -879,6 +879,38 @@
         <translation>Mais ações para %1</translation>
     </message>
     <message>
+        <source>Moonlight host (Sunshine/Apollo)</source>
+        <translation>Host Moonlight (Sunshine/Apollo)</translation>
+    </message>
+    <message>
+        <source>Host IP or name</source>
+        <translation>IP ou nome do host</translation>
+    </message>
+    <message>
+        <source>Add host</source>
+        <translation>Adicionar host</translation>
+    </message>
+    <message>
+        <source>Enter PIN %1 in the host&apos;s Moonlight/Sunshine page to finish pairing.</source>
+        <translation>Digite o PIN %1 na página Moonlight/Sunshine do host para concluir o emparelhamento.</translation>
+    </message>
+    <message>
+        <source>No Moonlight hosts</source>
+        <translation>Nenhum host Moonlight</translation>
+    </message>
+    <message>
+        <source>Run Sunshine, Apollo, or Wolf on a PC on this network, then Scan or add it by address.</source>
+        <translation>Execute Sunshine, Apollo ou Wolf em um PC nesta rede e depois busque ou adicione-o pelo endereço.</translation>
+    </message>
+    <message>
+        <source>%1, Moonlight host</source>
+        <translation>%1, host Moonlight</translation>
+    </message>
+    <message>
+        <source>Not paired</source>
+        <translation>Não emparelhado</translation>
+    </message>
+    <message>
         <source>Forget %1?</source>
         <translation>Esquecer %1?</translation>
     </message>
@@ -3760,6 +3792,10 @@
         <translation>O satélite não aceitou esse controle — vínculo desfeito.</translation>
     </message>
     <message>
+        <source>The Moonlight session ended.</source>
+        <translation>A sessão do Moonlight terminou.</translation>
+    </message>
+    <message>
         <source>Couldn’t switch %1 to Direct mode — keeping it on Standard.</source>
         <translation>Não foi possível mudar %1 para o Modo direto — mantendo no Padrão.</translation>
     </message>
@@ -3873,6 +3909,10 @@
             <numerusform>%n pareado</numerusform>
             <numerusform>%n pareados</numerusform>
         </translation>
+    </message>
+    <message>
+        <source>Pairing failed (%1).</source>
+        <translation>Falha no emparelhamento (%1).</translation>
     </message>
     <message numerus="yes">
         <source>%n online</source>

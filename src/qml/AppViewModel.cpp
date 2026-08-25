@@ -15,6 +15,9 @@
 #include "UI/CrashReport.h"
 #include "core/catalog/BundledCatalog.h"
 #include "core/input/Deadzones.h"
+#include "core/moonlight/MoonlightProtocol.h"
+#include "repository/MoonlightHostRepository.h"
+#include "source/moonlight/MoonlightManager.h"
 #include "core/reducer/CapabilitySolver.h"
 #include "core/reducer/CatalogFeatureGate.h"
 #include "core/reducer/CarriedPads.h"
@@ -293,6 +296,22 @@ AppViewModel::AppViewModel(dish::AppModel* model, QObject* parent)
                      [this] { emit discoveredChanged(); });
     QObject::connect(model_->wifi(), &net::WifiConnectionManager::scanningChanged, this,
                      [this] { emit scanningChanged(); });
+
+    // The Moonlight subsystem folds all of its changes (rows, scan state,
+    // pairing PIN/phase) into one moonlightChanged() the QML binds against.
+    QObject::connect(model_->moonlight(), &source::moon::MoonlightManager::rowsChanged, this,
+                     [this] { emit moonlightChanged(); });
+    QObject::connect(model_->moonlight(), &source::moon::MoonlightManager::scanningChanged, this,
+                     [this] { emit moonlightChanged(); });
+    QObject::connect(model_->moonlight(), &source::moon::MoonlightManager::pairingChanged, this,
+                     [this] { emit moonlightChanged(); });
+    QObject::connect(model_->moonlight(), &source::moon::MoonlightManager::pairingFinished, this,
+                     [this](const QString&, bool ok, const QString& reasonToken) {
+                         if (!ok) {
+                             emit errorMessage(tr("Pairing failed (%1).").arg(reasonToken));
+                         }
+                         emit moonlightChanged();
+                     });
     QObject::connect(model_->wifi(), &net::WifiConnectionManager::reversePairingChanged, this,
                      [this] { emit reversePairingChanged(); });
     QObject::connect(model_, &dish::AppModel::catalogStateChanged, this,
@@ -700,6 +719,100 @@ void AppViewModel::setControllerType(const QString& slotId, int type) {
 void AppViewModel::startDiscovery() { model_->wifi()->startDiscovery(); }
 
 bool AppViewModel::isScanning() const { return model_->wifi()->isScanning(); }
+
+namespace {
+
+QString moonlightLinkToken(source::moon::MoonlightLinkState link) {
+    switch (link) {
+    case source::moon::MoonlightLinkState::Linking:
+        return QStringLiteral("linking");
+    case source::moon::MoonlightLinkState::Live:
+        return QStringLiteral("live");
+    case source::moon::MoonlightLinkState::Failed:
+        return QStringLiteral("failed");
+    case source::moon::MoonlightLinkState::Idle:
+    default:
+        return QStringLiteral("idle");
+    }
+}
+
+} // namespace
+
+QVariantList AppViewModel::moonlightHosts() const {
+    QVariantList out;
+    for (const auto& row : model_->moonlight()->rows()) {
+        QVariantMap m;
+        m[QStringLiteral("uuid")] = row.uuid;
+        m[QStringLiteral("name")] = row.name;
+        m[QStringLiteral("address")] = row.address;
+        m[QStringLiteral("paired")] = row.paired;
+        m[QStringLiteral("discovered")] = row.discovered;
+        m[QStringLiteral("link")] = moonlightLinkToken(row.link);
+        m[QStringLiteral("lastAppName")] = row.lastAppName;
+        m[QStringLiteral("controllerType")] = row.controllerType;
+        out.append(m);
+    }
+    return out;
+}
+
+bool AppViewModel::moonlightScanning() const { return model_->moonlight()->isScanning(); }
+
+bool AppViewModel::moonlightPairingActive() const { return model_->moonlight()->pairingActive(); }
+
+QString AppViewModel::moonlightPairingPin() const { return model_->moonlight()->pairingPin(); }
+
+QString AppViewModel::moonlightPairingHost() const {
+    return model_->moonlight()->pairingHostUuid();
+}
+
+void AppViewModel::scanMoonlight() { model_->moonlight()->startDiscovery(); }
+
+void AppViewModel::addMoonlightHost(const QString& address) {
+    if (!address.trimmed().isEmpty()) { model_->moonlight()->addManualHost(address.trimmed()); }
+}
+
+void AppViewModel::pairMoonlight(const QString& uuid) { model_->moonlight()->pair(uuid); }
+
+void AppViewModel::cancelMoonlightPairing() { model_->moonlight()->cancelPairing(); }
+
+void AppViewModel::connectMoonlight(const QString& uuid) {
+    // The remembered app, or "Desktop" (Sunshine's default app id 1). The
+    // emulated type is the host's saved pick; Auto and capabilities are
+    // resolved against the bound pad inside the session's CONTROLLER_ARRIVAL,
+    // so a full-featured default is passed here.
+    QString appId = QStringLiteral("1");
+    int controllerType = repository::kMoonlightControllerTypeAuto;
+    for (const auto& row : model_->moonlight()->rows()) {
+        if (row.uuid == uuid) {
+            if (!row.lastAppId.isEmpty()) { appId = row.lastAppId; }
+            controllerType = row.controllerType;
+            break;
+        }
+    }
+    const std::uint8_t emulated = controllerType == repository::kMoonlightControllerTypeAuto
+                                      ? static_cast<std::uint8_t>(moonproto::kControllerTypeXbox)
+                                      : static_cast<std::uint8_t>(controllerType);
+    // Advertise the full standard capability set; the host down-selects.
+    const std::uint8_t caps = static_cast<std::uint8_t>(
+        moonproto::kCapAnalogTriggers | moonproto::kCapRumble | moonproto::kCapRgbLed);
+    model_->moonlight()->connectHost(uuid, appId, emulated, caps);
+}
+
+void AppViewModel::disconnectMoonlight(const QString& uuid) {
+    model_->moonlight()->disconnect(uuid);
+}
+
+void AppViewModel::forgetMoonlight(const QString& uuid) { model_->moonlight()->forget(uuid); }
+
+void AppViewModel::setMoonlightControllerType(const QString& uuid, int type) {
+    model_->moonlight()->setControllerType(uuid, type);
+}
+
+void AppViewModel::bindMoonlight(const QString& slotId, const QString& uuid) {
+    model_->bindMoonlightSlot(slotId, uuid);
+}
+
+void AppViewModel::unbindMoonlight(const QString& slotId) { model_->unbindMoonlightSlot(slotId); }
 
 QVariantList AppViewModel::discoveredServers() const {
     // The one-spot rule: a satellite that already has a connections row renders

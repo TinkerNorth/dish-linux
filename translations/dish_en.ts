@@ -855,6 +855,38 @@
         <translation>More actions for %1</translation>
     </message>
     <message>
+        <source>Moonlight host (Sunshine/Apollo)</source>
+        <translation>Moonlight host (Sunshine/Apollo)</translation>
+    </message>
+    <message>
+        <source>Host IP or name</source>
+        <translation>Host IP or name</translation>
+    </message>
+    <message>
+        <source>Add host</source>
+        <translation>Add host</translation>
+    </message>
+    <message>
+        <source>Enter PIN %1 in the host&apos;s Moonlight/Sunshine page to finish pairing.</source>
+        <translation>Enter PIN %1 in the host&apos;s Moonlight/Sunshine page to finish pairing.</translation>
+    </message>
+    <message>
+        <source>No Moonlight hosts</source>
+        <translation>No Moonlight hosts</translation>
+    </message>
+    <message>
+        <source>Run Sunshine, Apollo, or Wolf on a PC on this network, then Scan or add it by address.</source>
+        <translation>Run Sunshine, Apollo, or Wolf on a PC on this network, then Scan or add it by address.</translation>
+    </message>
+    <message>
+        <source>%1, Moonlight host</source>
+        <translation>%1, Moonlight host</translation>
+    </message>
+    <message>
+        <source>Not paired</source>
+        <translation>Not paired</translation>
+    </message>
+    <message>
         <source>Forget</source>
         <translation>Forget</translation>
     </message>
@@ -3748,6 +3780,10 @@
         <translation>The satellite wouldn’t accept that controller — binding undone.</translation>
     </message>
     <message>
+        <source>The Moonlight session ended.</source>
+        <translation>The Moonlight session ended.</translation>
+    </message>
+    <message>
         <source>Controller</source>
         <translation>Controller</translation>
     </message>
@@ -3847,6 +3883,10 @@
 </context>
 <context>
     <name>dish::qml::AppViewModel</name>
+    <message>
+        <source>Pairing failed (%1).</source>
+        <translation>Pairing failed (%1).</translation>
+    </message>
     <message>
         <source>No connections yet</source>
         <translation>No connections yet</translation>
