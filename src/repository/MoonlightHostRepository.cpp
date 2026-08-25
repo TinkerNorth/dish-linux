@@ -57,13 +57,18 @@ QHash<QString, MoonlightHost> MoonlightHostRepository::load() const {
         const QJsonObject obj = doc.object();
         for (auto it = obj.constBegin(); it != obj.constEnd(); ++it) {
             if (auto host = MoonlightHost::fromJson(it.value().toObject())) {
-                hosts.insert(it.key(), std::move(*host));
+                // operator[], not insert: QHash::insert takes the value by
+                // const reference, so a std::move into it would copy.
+                hosts[it.key()] = std::move(*host);
             }
         }
     } else if (doc.isArray()) {
         for (const auto& entry : doc.array()) {
             if (auto host = MoonlightHost::fromJson(entry.toObject())) {
-                hosts.insert(host->uuid, std::move(*host));
+                // As above; the key is copied out first so that it cannot be
+                // read out of the host the same statement moves from.
+                const QString uuid = host->uuid;
+                hosts[uuid] = std::move(*host);
             }
         }
     }

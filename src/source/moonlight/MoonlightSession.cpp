@@ -29,7 +29,7 @@ QString stepStreamId(moonlight::RtspStep step) {
     case moonlight::RtspStep::SetupControl:
         return QStringLiteral("control");
     default:
-        return QString();
+        return {};
     }
 }
 

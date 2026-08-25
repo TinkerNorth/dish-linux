@@ -30,7 +30,10 @@ std::optional<Bytes> fromHex(const std::string& hex) { return util::fromHex(hex)
 
 std::string pinFromRandom(std::uint32_t random) {
     char buf[5];
-    std::snprintf(buf, sizeof(buf), "%04u", random % 10000U);
+    // Discarded deliberately: "%04u" of a value below 10000 always writes
+    // exactly four digits into this five-byte buffer, so the length it returns
+    // is a constant and truncation cannot occur.
+    (void)std::snprintf(buf, sizeof(buf), "%04u", random % 10000U);
     return buf;
 }
 

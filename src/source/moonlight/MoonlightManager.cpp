@@ -21,7 +21,7 @@ QString synthUuidForAddress(const QString& address) {
 
 } // namespace
 
-MoonlightManager::MoonlightManager(std::shared_ptr<QSettings> settings, QObject* parent)
+MoonlightManager::MoonlightManager(const std::shared_ptr<QSettings>& settings, QObject* parent)
     : QObject(parent), settings_(settings), identityRepo_(settings), hostRepo_(settings),
       http_(new MoonlightHttp(this)), pairingFlow_(std::make_unique<MoonlightPairingFlow>(http_)) {
     deviceName_ = QStringLiteral("Dish (%1)").arg(QHostInfo::localHostName());

@@ -45,7 +45,9 @@ class MoonlightManager : public QObject {
     Q_OBJECT
   public:
     // `settings` co-tenants the shared connection-store file; nullptr → default.
-    explicit MoonlightManager(std::shared_ptr<QSettings> settings = nullptr,
+    // Taken by const reference, not by value as the repositories take it: this
+    // shares the pointer with three collaborators rather than sinking it.
+    explicit MoonlightManager(const std::shared_ptr<QSettings>& settings = nullptr,
                               QObject* parent = nullptr);
     ~MoonlightManager() override;
 
