@@ -124,6 +124,42 @@ TEST_CASE("TERMINATION carries the graceful reason big-endian", "[moonlight][wir
     CHECK(hexOf(buf.data(), len) == "090104008003" + std::string("0023"));
 }
 
+TEST_CASE("RTP ping falls back to the legacy 4-byte PING without a payload", "[moonlight][wire]") {
+    std::array<std::uint8_t, kRtpPingSize> buf{};
+    CHECK(encodeRtpPing(buf.data(), nullptr, 0, 7) == kRtpPingLegacySize);
+    CHECK(hexOf(buf.data(), kRtpPingLegacySize) == "50494e47"); // "PING"
+
+    const char empty[] = "";
+    CHECK(encodeRtpPing(buf.data(), empty, 0, 7) == kRtpPingLegacySize);
+    CHECK(hexOf(buf.data(), kRtpPingLegacySize) == "50494e47");
+}
+
+TEST_CASE("RTP ping echoes the SETUP payload as SS_PING", "[moonlight][wire]") {
+    // The 16-char X-SS-Ping-Payload verbatim, then the sequence little-endian.
+    std::array<std::uint8_t, kRtpPingSize> buf{};
+    const std::string payload = "AbCd0123EfGh4567";
+    const std::size_t len = encodeRtpPing(buf.data(), payload.data(), payload.size(), 0x01020304);
+    CHECK(len == kRtpPingSize);
+    CHECK(std::string(reinterpret_cast<const char*>(buf.data()), 16) == payload);
+    CHECK(hexOf(buf.data() + 16, 4) == "04030201");
+}
+
+TEST_CASE("RTP ping pads a short payload and truncates a long one", "[moonlight][wire]") {
+    std::array<std::uint8_t, kRtpPingSize> buf{};
+
+    const std::string shortPayload = "abc";
+    REQUIRE(encodeRtpPing(buf.data(), shortPayload.data(), shortPayload.size(), 1) == kRtpPingSize);
+    CHECK(std::string(reinterpret_cast<const char*>(buf.data()), 3) == "abc");
+    // Zero-padded through the fixed 16-byte field.
+    CHECK(hexOf(buf.data() + 3, 13) == "00000000000000000000000000");
+    CHECK(hexOf(buf.data() + 16, 4) == "01000000");
+
+    const std::string longPayload = "0123456789abcdefEXTRA";
+    REQUIRE(encodeRtpPing(buf.data(), longPayload.data(), longPayload.size(), 2) == kRtpPingSize);
+    CHECK(std::string(reinterpret_cast<const char*>(buf.data()), 16) == "0123456789abcdef");
+    CHECK(hexOf(buf.data() + 16, 4) == "02000000");
+}
+
 // ── Host -> client decoding ──────────────────────────────────────────────────
 
 TEST_CASE("decodes RUMBLE_DATA", "[moonlight][wire]") {

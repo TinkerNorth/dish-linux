@@ -145,6 +145,25 @@ std::size_t encodeTermination(std::uint8_t* out) {
     return kTerminationSize;
 }
 
+std::size_t encodeRtpPing(std::uint8_t* out, const char* payload, std::size_t payloadLen,
+                          std::uint32_t sequence) {
+    if (payload == nullptr || payloadLen == 0) {
+        // Legacy 4-byte ping, for hosts that never advertised a payload.
+        out[0] = 'P';
+        out[1] = 'I';
+        out[2] = 'N';
+        out[3] = 'G';
+        return kRtpPingLegacySize;
+    }
+    // SS_PING: the payload field is a fixed 16 bytes on the wire, so a short
+    // header value is zero-padded and an overlong one truncated.
+    constexpr std::size_t kPayloadField = 16;
+    std::memset(out, 0, kPayloadField);
+    std::memcpy(out, payload, payloadLen < kPayloadField ? payloadLen : kPayloadField);
+    putU32Le(out + kPayloadField, sequence);
+    return kRtpPingSize;
+}
+
 std::optional<HostEvent> decodeHostEvent(const std::uint8_t* data, std::size_t len) {
     if (data == nullptr || len < 4) { return std::nullopt; }
     const std::uint16_t type = readU16Le(data);

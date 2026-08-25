@@ -21,6 +21,7 @@
 #include "source/moonlight/MoonlightHttp.h"
 #include "source/moonlight/MoonlightRtspClient.h"
 
+#include <QByteArray>
 #include <QObject>
 #include <QString>
 
@@ -28,6 +29,9 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+
+class QTimer;
+class QUdpSocket;
 
 namespace dish::source::moon {
 
@@ -85,6 +89,9 @@ class MoonlightSession : public QObject {
     void connectControl();
     void startStreaming();
     void teardown();
+    // One ping per media port. Repeated every tick until teardown so a lost
+    // datagram cannot leave the host blind to our media address.
+    void sendRtpPings();
 
     // Marshals a host event from the control thread onto the Qt main thread.
     void onHostEvent(const moonwire::HostEvent& event);
@@ -113,7 +120,19 @@ class MoonlightSession : public QObject {
     std::uint32_t controlConnectData_ = 0;
     int audioPort_ = 0;
     int videoPort_ = 0;
+    // The SETUP-provided X-SS-Ping-Payload per stream; empty falls back to the
+    // legacy 4-byte "PING".
+    QByteArray audioPingPayload_;
+    QByteArray videoPingPayload_;
     int rtspCseq_ = 1;
+
+    // The RTP hole-punch senders, alive only while Streaming. Payloads are
+    // discarded on readyRead; the timer re-pings so a lost datagram (or a NAT
+    // rebind) cannot strand the media ports.
+    QUdpSocket* rtpVideoSocket_ = nullptr;
+    QUdpSocket* rtpAudioSocket_ = nullptr;
+    QTimer* rtpPingTimer_ = nullptr;
+    std::uint32_t rtpPingSequence_ = 0;
 
     bool motionRequested_ = false;
 

@@ -30,6 +30,10 @@ inline constexpr std::size_t kTerminationSize = 8;
 // Large enough for any plaintext this client encodes.
 inline constexpr std::size_t kMaxPlaintextSize = 64;
 
+// RTP hole-punch ping datagrams (plaintext UDP, not control-stream sealed).
+inline constexpr std::size_t kRtpPingLegacySize = 4; // "PING"
+inline constexpr std::size_t kRtpPingSize = 20;      // SS_PING{payload[16], seq}
+
 // The hot-path report. `buttonFlags` is the effective 32-bit word; the encoder
 // splits it into the legacy 16-bit field plus the buttonFlags2 extension.
 // `activeMask` has a bit set per attached controller; dropping a bit tells the
@@ -66,6 +70,14 @@ std::size_t encodePeriodicPing(std::uint8_t* out);
 
 // Graceful-quit notice with the standard reason code.
 std::size_t encodeTermination(std::uint8_t* out);
+
+// The RTP hole-punch ping datagram for the video/audio ports. When the host
+// supplied an X-SS-Ping-Payload in RTSP SETUP (`payloadLen` > 0), the ping is
+// the 20-byte SS_PING the host matches sessions by: the payload zero-padded or
+// truncated to its fixed 16 bytes, then the sequence number little-endian.
+// Without one it is the 4-byte legacy "PING". `out` needs kRtpPingSize bytes.
+std::size_t encodeRtpPing(std::uint8_t* out, const char* payload, std::size_t payloadLen,
+                          std::uint32_t sequence);
 
 // ── Host -> client events ────────────────────────────────────────────────────
 

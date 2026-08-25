@@ -11,6 +11,7 @@
 
 #include <QMetaObject>
 #include <QTcpSocket>
+#include <QTimer>
 #include <QUdpSocket>
 #include <QUrlQuery>
 
@@ -36,6 +37,11 @@ QString stepStreamId(moonlight::RtspStep step) {
 // up, and the video is discarded anyway.
 constexpr const char* kLaunchMode = "1280x720x30";
 
+// Cadence of the RTP hole-punch pings, matching what real clients send. One
+// datagram per port would be fragile: lose it and the host never learns our
+// media address.
+constexpr int kRtpPingIntervalMs = 500;
+
 } // namespace
 
 MoonlightSession::MoonlightSession(MoonlightHttp* http, repository::MoonlightHost host,
@@ -60,6 +66,10 @@ MoonlightSession::MoonlightSession(MoonlightHttp* http, repository::MoonlightHos
                      [this] { dispatch(moonlight::moon_event::RtspReady{}); });
     QObject::connect(rtsp_.get(), &MoonlightRtspClient::transportError, this,
                      [this] { dispatch(moonlight::moon_event::RtspFailed{}); });
+
+    rtpPingTimer_ = new QTimer(this);
+    rtpPingTimer_->setInterval(kRtpPingIntervalMs);
+    QObject::connect(rtpPingTimer_, &QTimer::timeout, this, &MoonlightSession::sendRtpPings);
 }
 
 MoonlightSession::~MoonlightSession() { teardown(); }
@@ -260,8 +270,12 @@ void MoonlightSession::sendRtspStep(moonlight::RtspStep step) {
         }
         if (step == moonlight::RtspStep::SetupAudio) {
             audioPort_ = moonrtsp::transportPort(*response).value_or(0);
+            audioPingPayload_ =
+                QByteArray::fromStdString(moonrtsp::pingPayload(*response).value_or(""));
         } else if (step == moonlight::RtspStep::SetupVideo) {
             videoPort_ = moonrtsp::transportPort(*response).value_or(0);
+            videoPingPayload_ =
+                QByteArray::fromStdString(moonrtsp::pingPayload(*response).value_or(""));
         } else if (step == moonlight::RtspStep::SetupControl) {
             controlPort_ = moonrtsp::transportPort(*response).value_or(0);
             controlConnectData_ = moonrtsp::connectData(*response).value_or(0);
@@ -284,27 +298,56 @@ void MoonlightSession::connectControl() {
 
 void MoonlightSession::startStreaming() {
     // Announce the pad so the host plugs a virtual controller, then open the
-    // media ports with a hole-punch ping so the host sees them (payloads are
-    // discarded; we never decode a frame).
+    // media ports with hole-punch pings so the host sees them (their inbound
+    // payloads are discarded; we never decode a frame).
     control_->sendControllerArrival(0, emulatedType_, capabilities_, moonproto::kStandardButtons);
 
-    const auto punch = [this](int port) {
-        if (port <= 0) { return; }
+    const auto makeSocket = [this](int port) -> QUdpSocket* {
+        if (port <= 0) { return nullptr; }
         auto* udp = new QUdpSocket(this);
-        // The 4-byte legacy PING the host accepts to learn our source port.
-        const char ping[4] = {'P', 'I', 'N', 'G'};
-        udp->writeDatagram(ping, sizeof(ping), QHostAddress(host_.address),
-                           static_cast<quint16>(port));
-        // Kept open so the host keeps seeing the port; freed on teardown via
-        // the QObject parent.
+        // Whatever the host streams back is drained and dropped, so the OS
+        // buffer never fills and no frame is ever decoded.
+        QObject::connect(udp, &QUdpSocket::readyRead, udp, [udp] {
+            while (udp->hasPendingDatagrams()) {
+                udp->readDatagram(nullptr, 0); // discard without copying
+            }
+        });
+        return udp;
     };
-    punch(videoPort_);
-    punch(audioPort_);
+    rtpVideoSocket_ = makeSocket(videoPort_);
+    rtpAudioSocket_ = makeSocket(audioPort_);
+    rtpPingSequence_ = 0;
+    sendRtpPings();
+    rtpPingTimer_->start();
+}
+
+void MoonlightSession::sendRtpPings() {
+    std::uint8_t ping[moonwire::kRtpPingSize];
+    const auto punch = [this, &ping](QUdpSocket* udp, int port, const QByteArray& payload) {
+        if (udp == nullptr || port <= 0) { return; }
+        // The SETUP-provided payload identifies our session to the host; the
+        // legacy 4-byte "PING" is the fallback when none was supplied.
+        const std::size_t len = moonwire::encodeRtpPing(
+            ping, payload.constData(), static_cast<std::size_t>(payload.size()), rtpPingSequence_);
+        udp->writeDatagram(reinterpret_cast<const char*>(ping), static_cast<qint64>(len),
+                           QHostAddress(host_.address), static_cast<quint16>(port));
+    };
+    punch(rtpVideoSocket_, videoPort_, videoPingPayload_);
+    punch(rtpAudioSocket_, audioPort_, audioPingPayload_);
+    ++rtpPingSequence_;
 }
 
 void MoonlightSession::teardown() {
     if (control_) { control_->stop(false); }
     if (rtsp_) { rtsp_->close(); }
+    if (rtpPingTimer_ != nullptr) { rtpPingTimer_->stop(); }
+    delete rtpVideoSocket_;
+    rtpVideoSocket_ = nullptr;
+    delete rtpAudioSocket_;
+    rtpAudioSocket_ = nullptr;
+    audioPingPayload_.clear();
+    videoPingPayload_.clear();
+    rtpPingSequence_ = 0;
     motionRequested_ = false;
 }
 
