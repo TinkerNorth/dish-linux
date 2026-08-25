@@ -34,7 +34,7 @@ runs:
         # shellcheck disable=SC2086
         sudo apt-get install -y --no-install-recommends \
           build-essential cmake ninja-build pkg-config ccache \
-          libsodium-dev libsdl2-dev \
+          libsodium-dev libsdl2-dev libssl-dev \
           catch2 clang-tidy ${EXTRA_PACKAGES}
 
     - name: Restore compiler cache

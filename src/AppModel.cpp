@@ -431,8 +431,11 @@ void AppModel::bindMoonlightSlot(const QString& slotId, const QString& hostUuid)
         routing_.remove(slotId);
         motionRouting_.remove(slotId);
         if (reportSender) {
-            moonlightRouting_.insert(slotId, std::move(reportSender));
-            moonlightMotionRouting_.insert(slotId, std::move(motionSender));
+            // operator[], not insert: QHash::insert takes the value by const
+            // reference, so a std::move into it would silently copy the
+            // std::function (and its captured state) instead of moving.
+            moonlightRouting_[slotId] = std::move(reportSender);
+            moonlightMotionRouting_[slotId] = std::move(motionSender);
             moonlightBoundDevice_.insert(hostUuid, slotId);
         } else {
             moonlightRouting_.remove(slotId);
