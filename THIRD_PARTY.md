@@ -27,11 +27,21 @@ today.
 | [libsodium](#libsodium) | >= 1.0.18 | `ISC` | Dynamically linked against the system libsodium. | Keep the copyright and permission notice |
 | [Inter](#4-inter) | 4.001 | `OFL-1.1` | Four `.ttf` faces embedded in `dish` as Qt resources under `:/fonts/`. | Ship the license text with every copy. See section 4. |
 | [Catch2](#5-catch2) | 3.x | `BSL-1.0` | Test binary only. Not linked into `dish`. | None for redistributors of the app |
+| [ENet (cgutman fork)](#9-enet) | commit `4cde9cc` | `MIT` | Vendored C sources under `third_party/enet/`, compiled into `dish`. | Ship the copyright + permission notice |
+| [OpenSSL libcrypto](#10-openssl-libcrypto) | system | `Apache-2.0` | Dynamically linked against the system libcrypto for the Moonlight-host crypto. | Keep the notice; nothing bundled |
 
 Two further items are reuse of published facts rather than of code, and are
 covered in [section 6](#6-reused-facts-not-reused-code): SDL's default Switch Pro
 motion scaling constants, and the HID input-report byte layouts documented in the
 Linux kernel's PlayStation and Nintendo HID drivers.
+
+The Moonlight (GameStream) host protocol support under `src/core/moonlight/` and
+`src/source/moonlight/` is an original implementation. Its wire framing, crypto
+construction and pairing algorithm were learned from the documentation and the
+MIT-licensed host implementation of Wolf (games-on-whales/wolf); that reuse of
+adapted logic is recorded in [section 11](#11-wolf-moonlight-protocol-reference).
+No GPL-licensed Moonlight code (moonlight-common-c, moonlight-qt, Sunshine,
+Apollo) was consulted or copied.
 
 Everything under `resources/brand/` and `packaging/dish.svg` is original
 TinkerNorth artwork, covered by this repository's own license. See
@@ -271,6 +281,71 @@ gear, pad and rail glyph families and their state variants),
 `packaging/dish.svg` and `packaging/dish.png` are original TinkerNorth work,
 shared with the sibling Dish clients. They are covered by this repository's
 license and carry no third-party attribution.
+
+---
+
+## 9. ENet
+
+The cgutman fork of ENet, SPDX `MIT`. Upstream:
+<https://github.com/cgutman/enet>, vendored at commit
+`4cde9cc3dcc5c30775a80da1de87f39f98672a31` (the commit Wolf and the Moonlight
+ecosystem pin). Original ENet by Lee Salzman: <https://github.com/lsalzman/enet>.
+
+The Moonlight control stream runs over this reliable-UDP library. The unmodified
+upstream C sources live under [`third_party/enet/`](third_party/enet/) and are
+compiled into `dish` as the static `dish_enet` library. Because the sources are
+bundled and redistributed inside the binary, the MIT copyright and permission
+notice ([`third_party/enet/LICENSE`](third_party/enet/LICENSE)) must travel with
+any copy.
+
+```
+Copyright (c) 2002-2020 Lee Salzman
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of
+this software and associated documentation files (the "Software"), to deal in
+the Software without restriction ... THE SOFTWARE IS PROVIDED "AS IS".
+```
+
+The fork adds IPv4/IPv6 dual-stack support over upstream ENet; no local
+modifications were made to the vendored sources.
+
+---
+
+## 10. OpenSSL libcrypto
+
+OpenSSL, SPDX `Apache-2.0`. Upstream: <https://www.openssl.org/>.
+
+The Moonlight-host support needs AES-128 (ECB and GCM), RSA sign/verify and
+self-signed X.509 generation — primitives libsodium deliberately does not
+provide — so `dish` links the system OpenSSL's `libcrypto` for them (only
+`libcrypto`; the TLS client itself remains Qt Network's). Nothing is bundled:
+this is your distribution's OpenSSL, and its notice travels with that package,
+as it already does for the Qt build `Qt6::Network` runs against.
+
+---
+
+## 11. Wolf (Moonlight protocol reference)
+
+Wolf, SPDX `MIT`. Upstream: <https://github.com/games-on-whales/wolf>.
+
+**No Wolf source is compiled into `dish`.** Wolf is an MIT-licensed Moonlight
+*host*; its protocol documentation and source were the reference for this
+project's own Moonlight *client* implementation under `src/core/moonlight/` and
+`src/source/moonlight/`. Adapted logic includes the control-packet AES-GCM IV
+construction, the 5-phase PIN pairing algorithm, the CONTROLLER_* wire struct
+layouts and the RTSP request/response shapes. These were re-implemented against
+Dish's own architecture; the byte-exact test fixtures are derived from Wolf's
+protocol docs and its published test vectors.
+
+```
+Copyright (c) 2021-2024 Games on Whales
+
+Permission is hereby granted, free of charge ... THE SOFTWARE IS PROVIDED "AS IS".
+```
+
+Deliberately NOT consulted, to keep this LGPL-3.0 project clear of GPL-3.0
+Moonlight code: moonlight-common-c, moonlight-qt, moonlight-android, Sunshine,
+Apollo. Wolf's documentation and MIT source were sufficient.
 
 ---
 

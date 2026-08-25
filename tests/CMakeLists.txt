@@ -21,6 +21,15 @@ set(DISH_TEST_SOURCES
     test_kernel.cpp
     test_async_state.cpp
     test_session_crypto.cpp
+    test_moonlight_wire.cpp
+    test_moonlight_control_cipher.cpp
+    test_moonlight_crypto.cpp
+    test_moonlight_pairing.cpp
+    test_moonlight_xml.cpp
+    test_moonlight_rtsp.cpp
+    test_moonlight_session_machine.cpp
+    test_moonlight_button_map.cpp
+    test_moonlight_host_repository.cpp
     test_atomic_counter.cpp
     test_hex.cpp
     test_endian.cpp
