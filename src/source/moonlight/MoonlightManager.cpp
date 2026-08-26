@@ -712,11 +712,19 @@ void MoonlightManager::forget(const QString& uuid) {
     }
     const QStringList dropped = boundSlots(uuid);
     for (const auto& slotId : dropped) { bindings_.remove(slotId); }
-    if (auto* session = sessions_.take(uuid)) {
-        session->stop(/*handBackApp=*/true);
-        session->deleteLater();
-    }
+    auto* session = sessions_.take(uuid);
+
+    // EVERY RECORD GOES BEFORE THE SESSION IS MADE TO SPEAK. stop() dispatches
+    // through the session machine and raises linkStateChanged, which reaches
+    // rowsChanged and every surface bound to it while this function would
+    // otherwise still be half done: a handler on the far side of that emit
+    // would resolve a host that is on its way out, and a probe asked for there
+    // would re-insert probes_[uuid] under the epoch this call already bumped,
+    // so its own reply would match and write the record back.
+    //
     // The pairing anchor lives IN the row, so removing the row removes the pin.
+    // The session can be torn down after, because it carries its own COPY of
+    // the host record: the /cancel its teardown sends does not read the store.
     hostRepo_.remove(uuid);
     discovered_.remove(uuid);
     probes_.remove(uuid);
@@ -724,6 +732,11 @@ void MoonlightManager::forget(const QString& uuid) {
     if (pairingRefusedUuid_ == uuid) {
         pairingRefusedUuid_.clear();
         pairingRefusedReason_.clear();
+    }
+
+    if (session != nullptr) {
+        session->stop(/*handBackApp=*/true);
+        session->deleteLater();
     }
     qCInfo(lcMoon) << "forgot" << uuid << "and the" << dropped.size() << "bindings it carried";
     emit rowsChanged();
