@@ -73,13 +73,6 @@ ColumnLayout {
                                       ? page.session.appName : ""
     readonly property int controllerNumber: page.session.controllerNumber !== undefined
                                             ? page.session.controllerNumber : 0
-    readonly property int maxControllers: page.session.maxControllers !== undefined
-                                          ? page.session.maxControllers : 0
-
-    // The two shapes of section 6: we create the session, or we join one.
-    readonly property bool creating: page.phase === "newSession" || page.phase === "noApps"
-                                     || page.phase === "appsFailed"
-    readonly property bool joining: page.phase === "joining"
 
     function refresh() {
         if (!page.draft.hasDestination || !page.draft.hostIsMoonlight) {
@@ -138,6 +131,9 @@ ColumnLayout {
     }
 
     Label {
+        // The banner and the empty state carry their own title, so the heading
+        // stands down rather than saying the same sentence twice on one screen.
+        visible: !page.selfTitled()
         text: page.headingText()
         color: Theme.onSurface
         font.pixelSize: Tokens.textStatus
@@ -340,6 +336,12 @@ ColumnLayout {
     }
 
     // ── Copy: one English string per state, and the C++ names the state ─────
+
+    // States whose own component already draws a title.
+    function selfTitled() {
+        return page.phase === "noApps" || page.phase === "appsFailed"
+               || page.phase === "refused" || page.phase === "setupFailed";
+    }
 
     function headingText() {
         switch (page.phase) {

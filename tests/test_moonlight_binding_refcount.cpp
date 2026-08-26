@@ -19,12 +19,22 @@
 
 #include <catch2/catch_test_macros.hpp>
 
-#include <QSignalSpy>
+#include <QStringList>
 
 using namespace dish;
 using namespace dish::source::moon;
 
 namespace {
+
+// QSignalSpy stand-in: DishTests links Catch2, not Qt6::Test.
+struct AppsSpy {
+    QStringList hosts;
+
+    explicit AppsSpy(MoonlightManager* manager) {
+        QObject::connect(manager, &MoonlightManager::appsChanged,
+                         [this](const QString& uuid) { hosts.append(uuid); });
+    }
+};
 
 // A host the manager treats as paired. The certificate is never presented here
 // (nothing dials), only the "we remember pairing this" flag it stands for.
@@ -274,10 +284,10 @@ TEST_CASE("the app list is per host and a refusal is not an empty list", "[moonl
     MoonlightManager manager(settings);
     const QString uuid = QStringLiteral("cold-host");
 
-    QSignalSpy apps(&manager, &MoonlightManager::appsChanged);
+    AppsSpy apps(&manager);
     manager.refreshApps(uuid);
-    REQUIRE(apps.count() == 1);
-    CHECK(apps.at(0).at(0).toString() == uuid);
+    REQUIRE(apps.hosts.size() == 1);
+    CHECK(apps.hosts.at(0) == uuid);
     CHECK(manager.apps(uuid).isEmpty());
 
     const auto inputs = manager.uiInputs(uuid, QString());
