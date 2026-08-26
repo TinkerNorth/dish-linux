@@ -448,6 +448,17 @@ Kit.Page {
 
         onRejected: App.cancelMoonlightPairing()
 
+        // Escape closes a ContentDialog through closePolicy, which does NOT
+        // emit rejected(): only the Cancel button does. Without this, dismissing
+        // the sheet that way leaves the attempt walking its phases with nothing
+        // on screen, and a phase 1 that later succeeds writes back a pairing the
+        // user walked away from. Idempotent: a sheet closed by Cancel or by
+        // success has no attempt left to cancel.
+        onClosed: {
+            if (App.moonlightPairingActive && App.moonlightPairingHost === pairSheet.hostId)
+                App.cancelMoonlightPairing();
+        }
+
         body: [
             Label {
                 text: qsTr("Type %1 into the Moonlight or Sunshine page on %2.")
