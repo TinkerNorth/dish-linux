@@ -46,10 +46,14 @@ enum class RtspStep : std::uint8_t {
 enum class SessionFailure : std::uint8_t {
     Unreachable,       // serverinfo never answered
     NotPaired,         // host answered but this client is not paired
+    TrustLost,         // the host answered unpaired, and we remember pairing it
+    HostReplaced,      // the host answered with a uniqueid we do not remember
     LaunchRejected,    // launch/resume did not return a session
     AppAlreadyRunning, // the host holds an app and would not hand it over
+    ResumeFailed,      // resume was offered, then would not hand the app back
     RtspRejected,      // an RTSP step failed or the TCP transport dropped
-    ControlLost,       // ENet connect failed or the live link died
+    ControlLost,       // ENet connect failed before the link was ever up
+    Dropped,           // the LIVE link died; the host will usually resume it
     HostEnded,         // the host sent TERMINATION
 };
 
@@ -77,12 +81,18 @@ struct StartRequested {
 
 // GET /serverinfo answered. `paired` is PairStatus for THIS client;
 // `currentGame` non-zero means an app is already running, so the launch phase
-// resumes instead.
+// resumes instead. `remembered` is "a server certificate is stored for this
+// host", which is what separates a host we never paired with from one that has
+// forgotten us; `identityChanged` is a uniqueid that is not the one we
+// remember, so the stored pairing anchors nothing any more.
 struct ServerInfoOk {
     bool paired = false;
     int currentGame = 0;
+    bool remembered = false;
+    bool identityChanged = false;
     bool operator==(const ServerInfoOk& o) const {
-        return paired == o.paired && currentGame == o.currentGame;
+        return paired == o.paired && currentGame == o.currentGame && remembered == o.remembered &&
+               identityChanged == o.identityChanged;
     }
 };
 
@@ -170,6 +180,24 @@ enum class SessionEffect : std::uint8_t {
     NotifyFailure,   // surface state.failure to the UI
 };
 
+// A session is started only from a resting phase. THE SESSION IS PER HOST AND
+// REFERENCE COUNTED: a second binding on a host that is already checking,
+// launching or live JOINS it and sends only its own CONTROLLER_ARRIVAL, and
+// must never launch a second one beside it.
+inline bool sessionNeedsStart(SessionPhase phase) {
+    return phase == SessionPhase::Idle || phase == SessionPhase::Failed;
+}
+
+// Whether a teardown owes the host a /cancel. A launch that never went live
+// left the host holding an app on our behalf, and leaving it there gets every
+// later attempt refused by our own leftovers. One that DID go live is left
+// alone while somebody is still riding it, because closing a running game out
+// from under them is worse than the tidying is worth; once the LAST controller
+// unbinds there is nobody left to be rude to and the app is handed back.
+inline bool shouldHandBackApp(bool launched, bool wentLive, bool lastControllerLeft) {
+    return launched && (!wentLive || lastControllerLeft);
+}
+
 struct Reduction {
     // nullopt = the event does not apply in this phase; state is unchanged.
     std::optional<SessionState> next;
@@ -237,7 +265,15 @@ inline Reduction reduce(const SessionState& state, const SessionEvent& event) {
 
     case SessionPhase::CheckingInfo: {
         if (const auto* info = std::get_if<ServerInfoOk>(&event)) {
-            if (!info->paired) { return detail::fail(state, SessionFailure::NotPaired); }
+            // A host that came back with a different identity is not the host
+            // the stored certificate anchors, so it is named before pairing is
+            // judged at all: re-pairing is the only way back either way, and
+            // "no longer recognises this device" would be the wrong reason.
+            if (info->identityChanged) { return detail::fail(state, SessionFailure::HostReplaced); }
+            if (!info->paired) {
+                return detail::fail(state, info->remembered ? SessionFailure::TrustLost
+                                                            : SessionFailure::NotPaired);
+            }
             SessionState next = state;
             next.phase = SessionPhase::Launching;
             next.resuming = info->currentGame != 0 && info->currentGame != -1;
@@ -265,7 +301,11 @@ inline Reduction reduce(const SessionState& state, const SessionEvent& event) {
             return detail::fail(state, SessionFailure::AppAlreadyRunning);
         }
         if (std::holds_alternative<LaunchFailed>(event)) {
-            return detail::fail(state, SessionFailure::LaunchRejected);
+            // A /resume that fails is not a refused /launch: the host HAS the
+            // session and would not hand it back, which the user fixes by
+            // closing the app rather than by trying again.
+            return detail::fail(state, state.resuming ? SessionFailure::ResumeFailed
+                                                      : SessionFailure::LaunchRejected);
         }
         return {std::nullopt, {}};
     }
@@ -308,8 +348,11 @@ inline Reduction reduce(const SessionState& state, const SessionEvent& event) {
 
     case SessionPhase::Streaming:
     default: {
+        // A link that dies after going live is a DROP, not a setup failure: the
+        // host keeps the app and will usually let us resume it, so the two must
+        // not be merged.
         if (std::holds_alternative<ControlLost>(event)) {
-            return detail::fail(state, SessionFailure::ControlLost);
+            return detail::fail(state, SessionFailure::Dropped);
         }
         if (std::holds_alternative<HostTerminated>(event)) {
             return detail::fail(state, SessionFailure::HostEnded);

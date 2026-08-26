@@ -13,6 +13,7 @@
 
 #pragma once
 
+#include "core/moonlight/MoonlightPadSlots.h"
 #include "core/moonlight/MoonlightRtsp.h"
 #include "core/moonlight/MoonlightSessionMachine.h"
 #include "core/moonlight/MoonlightWire.h"
@@ -25,10 +26,14 @@
 #include <QObject>
 #include <QString>
 
+#include <QHash>
+
 #include <array>
+#include <atomic>
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <optional>
 
 class QTimer;
 class QUdpSocket;
@@ -51,22 +56,51 @@ class MoonlightSession : public QObject {
     const QString& hostUuid() const { return host_.uuid; }
     MoonlightLinkState linkState() const { return linkState_; }
     const repository::MoonlightHost& host() const { return host_; }
+    const moonlight::SessionState& machineState() const { return machine_; }
+    // The app this session settled on, set by whoever created it. Every later
+    // binding joins that app; it is never asked again.
+    const QString& appId() const { return appId_; }
+    const QString& appName() const { return appName_; }
+    // A session has been attempted at least once since this object existed, so
+    // an Idle phase means closed rather than never started.
+    bool everStarted() const { return everStarted_; }
 
-    // `emulatedType` is a moonproto::kControllerType* (Xbox/PS/Nintendo) or the
-    // repo's Auto sentinel; `capabilities` the local pad's real feature bits.
-    void start(const QString& appId, std::uint8_t emulatedType, std::uint8_t capabilities);
-    void stop();
+    void start(const QString& appId, const QString& appName);
+    // `handBackApp` forces the /cancel a normal teardown only sends for an app
+    // that never went live: the LAST unbind must not strand a running app.
+    void stop(bool handBackApp = false);
 
-    // Hot path (SDL input thread): forward the current controller state.
-    void sendControllerState(std::uint16_t internalButtons, std::uint8_t lt, std::uint8_t rt,
-                             std::int16_t lx, std::int16_t ly, std::int16_t rx, std::int16_t ry);
+    // ── Controllers riding this session (reference counting lives here) ──────
+    // Assigns the lowest free controller number and announces the pad, either
+    // now (the stream is already up) or when it comes up. nullopt means the
+    // session already carries four pads, or this slot already holds one.
+    std::optional<std::uint8_t> attachController(const QString& slotId, int storedType,
+                                                 const moonlight::SourceCapabilities& source);
+    // Clears the pad's bit and sends the unplug, then reports how many
+    // controllers are left. Zero is the caller's cue to tear the session down.
+    std::size_t detachController(const QString& slotId);
+    std::size_t controllerCount() const { return pads_.size(); }
+    std::optional<std::uint8_t> controllerNumber(const QString& slotId) const;
+    QString slotForController(std::uint8_t number) const;
+
+    // Hot path (SDL input thread): forward one controller's state. The number
+    // is resolved once at bind time and passed in; the active mask is read from
+    // an atomic, so neither costs a lookup here.
+    void sendControllerState(std::uint8_t controllerNumber, std::uint16_t internalButtons,
+                             std::uint8_t lt, std::uint8_t rt, std::int16_t lx, std::int16_t ly,
+                             std::int16_t rx, std::int16_t ry);
     // Motion, on the SDL sensor thread. Gated by a host MOTION_EVENT request.
-    void sendMotion(std::uint8_t motionType, float x, float y, float z);
+    void sendMotion(std::uint8_t controllerNumber, std::uint8_t motionType, float x, float y,
+                    float z);
     bool motionRequested() const { return motionRequested_; }
 
-    // Host->client actuation, delivered on the Qt main thread.
-    using RumbleHandler = std::function<void(std::uint16_t low, std::uint16_t high)>;
-    using LedHandler = std::function<void(std::uint8_t r, std::uint8_t g, std::uint8_t b)>;
+    // Host->client actuation, delivered on the Qt main thread. The controller
+    // number is carried through: a session drives up to four pads, so an event
+    // that named none of them could only be applied to the wrong one.
+    using RumbleHandler =
+        std::function<void(std::uint8_t controllerNumber, std::uint16_t low, std::uint16_t high)>;
+    using LedHandler = std::function<void(std::uint8_t controllerNumber, std::uint8_t r,
+                                          std::uint8_t g, std::uint8_t b)>;
     void setRumbleHandler(RumbleHandler handler) { rumbleHandler_ = std::move(handler); }
     void setLedHandler(LedHandler handler) { ledHandler_ = std::move(handler); }
 
@@ -80,6 +114,9 @@ class MoonlightSession : public QObject {
     void run(const moonlight::Reduction& reduction);
     void runEffect(moonlight::SessionEffect effect);
     void setLinkState(MoonlightLinkState state);
+    // Announces one attached pad to the host. No-op unless the control link is
+    // up; startStreaming() re-announces every pad when it comes up.
+    void announcePad(const QString& slotId);
 
     // Effect handlers.
     void fetchServerInfo();
@@ -112,10 +149,29 @@ class MoonlightSession : public QObject {
     moonlight::SessionState machine_;
     MoonlightLinkState linkState_ = MoonlightLinkState::Idle;
 
-    // Per-attempt parameters.
+    // Per-attempt parameters. The app is per SESSION: only the binding that
+    // creates it picks one, and every later binding joins whatever is running.
     QString appId_;
-    std::uint8_t emulatedType_ = moonproto::kControllerTypeXbox;
-    std::uint8_t capabilities_ = 0;
+    QString appName_;
+
+    // What one attached pad declares. Resolved once at attach time so the
+    // announce is a lookup and never a decision.
+    struct PadDeclaration {
+        std::uint8_t number = 0;
+        std::uint8_t type = moonproto::kControllerTypeXbox;
+        std::uint8_t capabilities = 0;
+        std::uint32_t buttons = moonproto::kStandardButtons;
+    };
+    moonlight::PadSlots slots_;
+    QHash<QString, PadDeclaration> pads_;
+    // The CONTROLLER_MULTI active mask, published for the hot path. Written on
+    // the Qt thread by attach/detach, read on the SDL input thread.
+    std::atomic<std::uint16_t> activeMask_{0};
+
+    bool everStarted_ = false;
+    // The teardown must hand the app back even though it went live: the last
+    // controller has left, so nothing is riding it any more.
+    bool handBackOnTeardown_ = false;
 
     // What the launch mode and the ANNOUNCE SDP ask for: the host's own
     // display, so a virtual-display host does not resize the user's desktop.

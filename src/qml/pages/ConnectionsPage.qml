@@ -40,6 +40,10 @@ Kit.Page {
     property string currentConnectionId: ""
     property string currentLabel: ""
 
+    // The shell owns the detail stack the Moonlight inventory is pushed onto.
+    readonly property var shellView: StackView.view
+    readonly property var shellApi: page.shellView ? page.shellView.shellApi : null
+
     // Scan on open: entering the destination surfaces reachable satellites
     // without an extra tap; startDiscovery() is guarded manager-side so an
     // in-flight sweep is never double-triggered.
@@ -405,144 +409,18 @@ Kit.Page {
         }
 
         // ---- MOONLIGHT HOSTS ------------------------------------------------
-        // A second connection path, beside Satellite: Sunshine / Apollo / Wolf
-        // GameStream hosts. Discovered over mDNS (_nvstream._tcp) or added by
-        // address, paired with a PIN typed into the host's own UI.
-        RowLayout {
+        // The second connection path lives on its own page rather than as more
+        // rows here: a Moonlight host pairs differently, carries different
+        // capabilities, and never reports liveness, so one merged list would
+        // make "Pair" and the status column each mean two things.
+        Kit.RowButton {
             Layout.fillWidth: true
             Layout.topMargin: Tokens.s5
-            spacing: Tokens.s4
-
-            Kit.SectionHeader { glyph: "satellite"; label: qsTr("Moonlight host (Sunshine/Apollo)") }
-            Item { Layout.fillWidth: true }
-            Kit.DishButton {
-                text: App.moonlightScanning ? qsTr("Scanning…") : qsTr("Scan")
-                variant: Kit.DishButton.Outline
-                enabled: !App.moonlightScanning
-                onClicked: App.scanMoonlight()
-            }
-        }
-
-        // Manual host entry: the fallback when mDNS is dropped by the network.
-        RowLayout {
-            Layout.fillWidth: true
-            spacing: Tokens.s4
-
-            Kit.KitTextField {
-                id: moonlightAddressField
-                Layout.fillWidth: true
-                placeholderText: qsTr("Host IP or name")
-            }
-            Kit.DishButton {
-                text: qsTr("Add host")
-                variant: Kit.DishButton.Outline
-                enabled: moonlightAddressField.text.trim().length > 0
-                onClicked: {
-                    App.addMoonlightHost(moonlightAddressField.text);
-                    moonlightAddressField.text = "";
-                }
-            }
-        }
-
-        // The PIN to type into the host while a pairing attempt is live.
-        Kit.Callout {
-            visible: App.moonlightPairingActive
-            Layout.fillWidth: true
-            tone: Kit.Callout.Info
-            glyph: "satellite"
-            text: qsTr("Enter PIN %1 in the host's Moonlight/Sunshine page to finish pairing.")
-                     .arg(App.moonlightPairingPin)
-
-            Kit.DishButton {
-                text: qsTr("Cancel")
-                variant: Kit.DishButton.Outline
-                onClicked: App.cancelMoonlightPairing()
-            }
-        }
-
-        Kit.EmptyState {
-            visible: App.moonlightHosts.length === 0 && !App.moonlightScanning
-            glyph: "satellite-off"
-            title: qsTr("No Moonlight hosts")
-            body: qsTr("Run Sunshine, Apollo, or Wolf on a PC on this network, then Scan or add it by address.")
-            showAction: false
-            Layout.fillWidth: true
-            Layout.topMargin: Tokens.s4
-            Layout.bottomMargin: Tokens.s4
-        }
-
-        Repeater {
-            model: App.moonlightHosts
-
-            delegate: Kit.Card {
-                id: moonRow
-                required property var modelData
-
-                filled: false
-                dense: true
-                Layout.fillWidth: true
-
-                Accessible.role: Accessible.ListItem
-                Accessible.name: qsTr("%1, Moonlight host").arg(moonRow.modelData.name)
-
-                contentItem: RowLayout {
-                    spacing: Tokens.s4
-
-                    Kit.BrandGlyph {
-                        glyph: "satellite"
-                        Layout.preferredWidth: Tokens.glyphSm
-                        Layout.preferredHeight: Tokens.glyphSm
-                        Layout.alignment: Qt.AlignVCenter
-                    }
-                    Kit.StatusDot {
-                        token: moonRow.modelData.link === "live" ? "success"
-                             : moonRow.modelData.link === "linking" ? "primary"
-                             : moonRow.modelData.link === "failed" ? "warning" : "muted"
-                        Layout.alignment: Qt.AlignVCenter
-                    }
-                    Label {
-                        text: moonRow.modelData.name
-                        color: Theme.onSurface
-                        font.pixelSize: Tokens.textBase
-                        elide: Text.ElideRight
-                        Layout.fillWidth: true
-                        Layout.alignment: Qt.AlignVCenter
-                    }
-                    Kit.LiveStat {
-                        text: moonRow.modelData.address
-                        elide: Text.ElideRight
-                        Layout.alignment: Qt.AlignVCenter
-                    }
-                    Kit.CapabilityChip {
-                        text: moonRow.modelData.paired ? qsTr("Paired") : qsTr("Not paired")
-                        tone: moonRow.modelData.paired ? Kit.CapabilityChip.Ok
-                                                       : Kit.CapabilityChip.Neutral
-                        Layout.alignment: Qt.AlignVCenter
-                    }
-                    Kit.DishButton {
-                        visible: !moonRow.modelData.paired
-                        text: qsTr("Pair…")
-                        variant: Kit.DishButton.Primary
-                        enabled: !App.moonlightPairingActive
-                        Layout.alignment: Qt.AlignVCenter
-                        onClicked: App.pairMoonlight(moonRow.modelData.uuid)
-                    }
-                    Kit.DishButton {
-                        visible: moonRow.modelData.paired && moonRow.modelData.link !== "live"
-                        text: qsTr("Connect")
-                        variant: Kit.DishButton.Primary
-                        Layout.alignment: Qt.AlignVCenter
-                        onClicked: App.connectMoonlight(moonRow.modelData.uuid)
-                    }
-                    Kit.DishButton {
-                        visible: moonRow.modelData.link === "live"
-                        text: qsTr("Disconnect")
-                        variant: Kit.DishButton.Outline
-                        Layout.alignment: Qt.AlignVCenter
-                        onClicked: App.disconnectMoonlight(moonRow.modelData.uuid)
-                    }
-                }
-            }
+            title: qsTr("Moonlight hosts")
+            subtitle: qsTr("Stream to a PC running Sunshine, Apollo or Wolf instead of a satellite.")
+            onClicked: if (page.shellApi) page.shellApi.pushDetail(
+                           Qt.resolvedUrl("MoonlightHostsPage.qml"),
+                           qsTr("Moonlight hosts"), {})
         }
     }
 

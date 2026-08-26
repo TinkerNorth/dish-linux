@@ -46,10 +46,18 @@ ColumnLayout {
     function activated() {
         if (!App.scanning)
             App.startDiscovery();
+        // The Moonlight sweep is a separate one-shot, and trust is re-asked on
+        // entering rather than watched: a Moonlight host reports no liveness.
+        if (!App.moonlightScanning)
+            App.scanMoonlight();
+        for (let i = 0; i < page.moonlightRows.length; ++i)
+            App.probeMoonlightHost(page.moonlightRows[i].uuid);
     }
 
     // ── Page state ──────────────────────────────────────────────────────────
+    readonly property var moonlightRows: App.moonlightHosts
     readonly property int hostCount: App.connectionModel.count + App.discoveredServers.length
+                                     + page.moonlightRows.length
     property bool selectedNeedsPairing: false
     // The host THIS page asked the user to pair. Compared on pairingSucceeded.
     property string pendingHostId: ""
@@ -116,6 +124,41 @@ ColumnLayout {
     function pick(id, name, needsPairing) {
         page.selectedNeedsPairing = needsPairing;
         page.draft.chooseDestination(id, name, "satellite");
+    }
+
+    // A Moonlight host is picked whatever its trust: pairing is remembered
+    // trust verified lazily, so an unpaired host is a state the session step
+    // renders and offers to fix, never a reason to refuse the destination.
+    function pickMoonlight(id, name) {
+        page.selectedNeedsPairing = false;
+        page.pendingHostId = "";
+        page.draft.chooseDestination(id, name, "moonlight");
+    }
+
+    function moonlightSubText(row) {
+        const parts = [];
+        if (row.address.length > 0)
+            parts.push(row.address);
+        // A Moonlight session refuses a fifth pad rather than pushing one off,
+        // so the zero case says what actually happens.
+        const free = App.hostSlotCapacity() - App.hostBoundSlotCount(row.uuid);
+        parts.push(free > 0 ? qsTr("%n slots free", "", free) : qsTr("full"));
+        return parts.join(" · ");
+    }
+
+    function trustText(token) {
+        switch (token) {
+        case "paired":     return qsTr("Paired");
+        case "remembered": return qsTr("Remembered");
+        default:           return qsTr("Not paired");
+        }
+    }
+    function trustTone(token) {
+        switch (token) {
+        case "paired":     return Kit.CapabilityChip.Ok;
+        case "remembered": return Kit.CapabilityChip.Neutral;
+        default:           return Kit.CapabilityChip.Absent;
+        }
     }
 
     Connections {
@@ -246,13 +289,68 @@ ColumnLayout {
         }
     }
 
+    // ── Moonlight hosts ─────────────────────────────────────────────────────
+    // Its own section, not more rows above: the two host kinds pair
+    // differently, and one merged column would make the trust word and the
+    // Pair verb each mean two things.
+    RowLayout {
+        visible: page.moonlightRows.length > 0
+        spacing: Tokens.s5
+        Layout.fillWidth: true
+        Layout.topMargin: Tokens.s5
+
+        Kit.Eyebrow {
+            mutedTone: true
+            text: qsTr("Moonlight hosts")
+            Layout.fillWidth: true
+        }
+        Label {
+            text: qsTr("%n found", "", page.moonlightRows.length)
+            color: Theme.mutedStrong
+            font.family: Tokens.monoFamily
+            font.pixelSize: Tokens.textChip
+
+            Accessible.role: Accessible.StaticText
+            Accessible.name: text
+        }
+    }
+
+    Repeater {
+        model: page.moonlightRows
+
+        delegate: Kit.SelectRow {
+            id: moonRow
+
+            required property var modelData
+
+            Layout.fillWidth: true
+            selected: page.draft.hostId === moonRow.modelData.uuid
+            title: moonRow.modelData.name
+            subtitle: qsTr("Moonlight host · %1").arg(page.moonlightSubText(moonRow.modelData))
+            chipText: page.trustText(moonRow.modelData.trust)
+            chipTone: page.trustTone(moonRow.modelData.trust)
+
+            onPicked: page.pickMoonlight(moonRow.modelData.uuid, moonRow.modelData.name)
+        }
+    }
+
+    Label {
+        visible: page.moonlightRows.length === 0 && page.hostCount > 0
+        text: qsTr("A PC appears here once Sunshine, Apollo or Wolf is running on it and both machines are on the same network. You can also add one by address.")
+        color: Theme.mutedStrong
+        font.pixelSize: Tokens.textMeta
+        wrapMode: Text.WordWrap
+        Layout.fillWidth: true
+        Layout.topMargin: Tokens.s2
+    }
+
     // Empty is a STATE, with the next step in it — never a bare spinner and
     // never a bare "none found".
     Kit.EmptyState {
         visible: page.hostCount === 0
         glyph: "satellite-off"
         title: qsTr("No PCs found yet")
-        body: qsTr("A PC shows up here once the free Satellite app is running on it and both machines are on the same network.")
+        body: qsTr("A PC shows up here once the free Satellite app is running on it, or once Sunshine, Apollo or Wolf is, and both machines are on the same network.")
         Layout.fillWidth: true
         Layout.topMargin: Tokens.s8
     }

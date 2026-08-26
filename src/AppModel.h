@@ -202,12 +202,20 @@ class AppModel : public QObject {
     // the satellite wifi() pool as a sibling; the UI drives it through here.
     source::moon::MoonlightManager* moonlight() { return moonlight_; }
 
-    // Routes a controller slot's hot-path reports to a live Moonlight session
-    // instead of a satellite. The reverse of unbindMoonlightSlot; both mutate
-    // the same routing table the SDL thread reads. Passing an empty uuid, or a
-    // uuid with no live session, clears the route.
+    // Routes a controller slot's hot-path reports to a Moonlight host instead
+    // of a satellite: records the binding, joins or starts that host's shared
+    // session, and points the SDL thread at the controller number it was given.
+    // The reverse is unbindMoonlightSlot, which drops the pad and tears the
+    // session down behind the last one. Passing an empty uuid clears the route.
+    //
+    // The binding is recorded even when the host is unpaired or unreachable: a
+    // binding is a durable intent, and the session is attempted when the pad is
+    // used rather than when the user saves.
     void bindMoonlightSlot(const QString& slotId, const QString& hostUuid);
     void unbindMoonlightSlot(const QString& slotId);
+    // The Moonlight host this slot drives, or empty. The satellite equivalent
+    // is ConnectionHub::bindings().
+    QString moonlightBoundHostFor(const QString& slotId) const;
 
   signals:
     // Emitted after any field of state() changes.
@@ -284,6 +292,11 @@ class AppModel : public QObject {
         bool hasRumble = false;
     };
     SlotHardware slotHardware(const QString& slotId) const;
+
+    // A Moonlight host as the flat ConnectionSummary the slot list carries, so
+    // one binding vocabulary covers both destination kinds. The link is the
+    // session's, never a pairing light: a Moonlight host reports no liveness.
+    std::optional<models::ConnectionSummary> moonlightSummary(const QString& uuid) const;
 
     // Warm the catalog cache once each time a satellite link goes Live, so the
     // type picker usually resolves instantly from cache. Silent by design: it
@@ -462,9 +475,6 @@ class AppModel : public QObject {
     // this table only when routing_ has no entry.
     QHash<QString, net::ConnectionHub::ReportSender> moonlightRouting_;
     QHash<QString, net::ConnectionHub::MotionSender> moonlightMotionRouting_;
-    // host uuid -> bound device id, the reverse of the routing tables, so an
-    // inbound rumble/LED for a session resolves to the pad to actuate.
-    QHash<QString, QString> moonlightBoundDevice_;
 };
 
 } // namespace dish

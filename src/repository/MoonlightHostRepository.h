@@ -11,6 +11,7 @@
 #pragma once
 
 #include "architecture/Repository.h"
+#include "core/moonlight/MoonlightPadSlots.h"
 #include "core/moonlight/MoonlightProtocol.h"
 
 #include <QHash>
@@ -37,8 +38,11 @@ struct MoonlightHost {
     // The user's last app pick; empty until the first launch.
     QString lastAppId;
     QString lastAppName;
+    // The host's last-used pick, kept so a fresh binding on this host starts
+    // where the previous one did. The BINDING owns the type it sends; this is
+    // the seed, not the authority.
     // moonproto::kControllerType*, or kControllerTypeAuto for "match the pad".
-    int controllerType = 0xFF;
+    int controllerType = moonproto::kControllerTypeAuto;
 
     bool paired() const { return !serverCertPem.isEmpty(); }
 
@@ -55,8 +59,11 @@ struct MoonlightHost {
 };
 
 // "Match the pad" sentinel for MoonlightHost::controllerType. Not a wire value:
-// the session resolves it against the bound pad before CONTROLLER_ARRIVAL.
-inline constexpr int kMoonlightControllerTypeAuto = 0xFF;
+// the session resolves it against the bound pad before CONTROLLER_ARRIVAL. One
+// value across all three Dish clients, and deliberately not 0 — 0 is the wire's
+// CONTROLLER_TYPE_UNKNOWN, which asks the HOST to pick and is a different
+// promise. A record written with 0 migrates on read.
+inline constexpr int kMoonlightControllerTypeAuto = moonproto::kControllerTypeAuto;
 
 class MoonlightHostRepository : public arch::Repository<QString, MoonlightHost> {
   public:

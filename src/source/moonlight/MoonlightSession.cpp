@@ -52,14 +52,22 @@ QString failureToken(moonlight::SessionFailure failure) {
         return QStringLiteral("unreachable");
     case moonlight::SessionFailure::NotPaired:
         return QStringLiteral("notPaired");
+    case moonlight::SessionFailure::TrustLost:
+        return QStringLiteral("trustLost");
+    case moonlight::SessionFailure::HostReplaced:
+        return QStringLiteral("hostReplaced");
     case moonlight::SessionFailure::LaunchRejected:
         return QStringLiteral("launchRejected");
     case moonlight::SessionFailure::AppAlreadyRunning:
         return QStringLiteral("appAlreadyRunning");
+    case moonlight::SessionFailure::ResumeFailed:
+        return QStringLiteral("resumeFailed");
     case moonlight::SessionFailure::RtspRejected:
         return QStringLiteral("rtspRejected");
     case moonlight::SessionFailure::ControlLost:
         return QStringLiteral("controlLost");
+    case moonlight::SessionFailure::Dropped:
+        return QStringLiteral("dropped");
     case moonlight::SessionFailure::HostEnded:
     default:
         return QStringLiteral("hostEnded");
@@ -105,24 +113,74 @@ MoonlightSession::~MoonlightSession() {
     teardown();
 }
 
-void MoonlightSession::start(const QString& appId, std::uint8_t emulatedType,
-                             std::uint8_t capabilities) {
+void MoonlightSession::start(const QString& appId, const QString& appName) {
     appId_ = appId;
-    emulatedType_ = emulatedType;
-    capabilities_ = capabilities;
+    appName_ = appName;
     rtspCseq_ = 1;
     rikeyReady_ = false;
     launched_ = false;
     wentLive_ = false;
+    everStarted_ = true;
     stream_ = moonrtsp::StreamConfig{};
-    qCInfo(lcMoon) << "session start on" << host_.address << "app" << appId_ << "type"
-                   << emulatedType_ << "caps" << capabilities_;
+    qCInfo(lcMoon) << "session start on" << host_.address << "app" << appId_ << "pads"
+                   << slots_.size();
     dispatch(moonlight::moon_event::StartRequested{});
 }
 
-void MoonlightSession::stop() {
-    qCInfo(lcMoon) << "session stop requested on" << host_.address;
+void MoonlightSession::stop(bool handBackApp) {
+    qCInfo(lcMoon) << "session stop requested on" << host_.address << "hand back" << handBackApp;
+    handBackOnTeardown_ = handBackApp;
     dispatch(moonlight::moon_event::StopRequested{});
+    handBackOnTeardown_ = false;
+}
+
+std::optional<std::uint8_t>
+MoonlightSession::attachController(const QString& slotId, int storedType,
+                                   const moonlight::SourceCapabilities& source) {
+    const auto number = slots_.assign(slotId.toStdString());
+    if (!number) { return std::nullopt; }
+    PadDeclaration pad;
+    pad.number = *number;
+    pad.type = moonlight::resolveControllerType(storedType, source.motion);
+    pad.capabilities = moonlight::declaredCapabilities(pad.type, source);
+    pad.buttons = moonlight::declaredButtons(pad.capabilities);
+    pads_.insert(slotId, pad);
+    activeMask_.store(slots_.activeMask(), std::memory_order_relaxed);
+    qCInfo(lcMoon) << "pad" << slotId << "takes controller" << pad.number << "on" << host_.address
+                   << "type" << pad.type << "caps" << pad.capabilities << "mask"
+                   << activeMask_.load(std::memory_order_relaxed);
+    announcePad(slotId);
+    return number;
+}
+
+std::size_t MoonlightSession::detachController(const QString& slotId) {
+    const auto released = slots_.release(slotId.toStdString());
+    pads_.remove(slotId);
+    const std::uint16_t mask = slots_.activeMask();
+    activeMask_.store(mask, std::memory_order_relaxed);
+    // The unplug IS the packet: the controller is still named, its bit is gone.
+    if (released && control_ && control_->isConnected()) {
+        control_->sendControllerMulti(*released, mask, 0, 0, 0, 0, 0, 0, 0);
+    }
+    qCInfo(lcMoon) << "pad" << slotId << "left" << host_.address << "mask" << mask << "remaining"
+                   << slots_.size();
+    return slots_.size();
+}
+
+std::optional<std::uint8_t> MoonlightSession::controllerNumber(const QString& slotId) const {
+    return slots_.numberFor(slotId.toStdString());
+}
+
+QString MoonlightSession::slotForController(std::uint8_t number) const {
+    const auto slot = slots_.slotFor(number);
+    return slot ? QString::fromStdString(*slot) : QString();
+}
+
+void MoonlightSession::announcePad(const QString& slotId) {
+    if (!control_ || !control_->isConnected()) { return; }
+    const auto it = pads_.constFind(slotId);
+    if (it == pads_.constEnd()) { return; }
+    control_->sendControllerArrival(it->number, it->type, it->capabilities, it->buttons);
 }
 
 void MoonlightSession::dispatch(const moonlight::SessionEvent& event) {
@@ -404,11 +462,13 @@ void MoonlightSession::connectControl() {
 }
 
 void MoonlightSession::startStreaming() {
-    // Announce the pad so the host plugs a virtual controller. The media ports
-    // have been pinged since SETUP named them.
+    // Announce EVERY attached pad so the host plugs one virtual controller per
+    // binding. The media ports have been pinged since SETUP named them.
     wentLive_ = true;
-    qCInfo(lcMoon) << "session live on" << host_.address << "announcing pad type" << emulatedType_;
-    control_->sendControllerArrival(0, emulatedType_, capabilities_, moonproto::kStandardButtons);
+    qCInfo(lcMoon) << "session live on" << host_.address << "announcing" << pads_.size() << "pads";
+    for (auto it = pads_.constBegin(); it != pads_.constEnd(); ++it) {
+        control_->sendControllerArrival(it->number, it->type, it->capabilities, it->buttons);
+    }
     ensureRtpPings();
 }
 
@@ -454,7 +514,9 @@ void MoonlightSession::teardown() {
     // leftovers. A link that drops after going live is left alone: the host
     // will let us resume it, and closing somebody's game out from under them is
     // worse than the tidying is worth.
-    if (launched_ && !wentLive_) { cancelStrandedApp(); }
+    if (moonlight::shouldHandBackApp(launched_, wentLive_, handBackOnTeardown_)) {
+        cancelStrandedApp();
+    }
     launched_ = false;
     wentLive_ = false;
     if (control_) { control_->stop(false); }
@@ -486,17 +548,19 @@ void MoonlightSession::cancelStrandedApp() {
                   });
 }
 
-void MoonlightSession::sendControllerState(std::uint16_t internalButtons, std::uint8_t lt,
+void MoonlightSession::sendControllerState(std::uint8_t controllerNumber,
+                                           std::uint16_t internalButtons, std::uint8_t lt,
                                            std::uint8_t rt, std::int16_t lx, std::int16_t ly,
                                            std::int16_t rx, std::int16_t ry) {
-    // Active mask has bit 0 set for our single controller.
-    control_->sendControllerMulti(0, 0x0001, moonmap::toMoonlightButtons(internalButtons), lt, rt,
-                                  lx, ly, rx, ry);
+    control_->sendControllerMulti(controllerNumber, activeMask_.load(std::memory_order_relaxed),
+                                  moonmap::toMoonlightButtons(internalButtons), lt, rt, lx, ly, rx,
+                                  ry);
 }
 
-void MoonlightSession::sendMotion(std::uint8_t motionType, float x, float y, float z) {
+void MoonlightSession::sendMotion(std::uint8_t controllerNumber, std::uint8_t motionType, float x,
+                                  float y, float z) {
     if (!motionRequested_) { return; }
-    control_->sendControllerMotion(0, motionType, x, y, z);
+    control_->sendControllerMotion(controllerNumber, motionType, x, y, z);
 }
 
 void MoonlightSession::onHostEvent(const moonwire::HostEvent& event) {
@@ -508,10 +572,16 @@ void MoonlightSession::onHostEvent(const moonwire::HostEvent& event) {
             switch (event.type) {
             case moonwire::HostEventType::Rumble:
             case moonwire::HostEventType::RumbleTriggers:
-                if (rumbleHandler_) { rumbleHandler_(event.rumbleLow, event.rumbleHigh); }
+                if (rumbleHandler_) {
+                    rumbleHandler_(static_cast<std::uint8_t>(event.controllerNumber),
+                                   event.rumbleLow, event.rumbleHigh);
+                }
                 break;
             case moonwire::HostEventType::RgbLed:
-                if (ledHandler_) { ledHandler_(event.red, event.green, event.blue); }
+                if (ledHandler_) {
+                    ledHandler_(static_cast<std::uint8_t>(event.controllerNumber), event.red,
+                                event.green, event.blue);
+                }
                 break;
             case moonwire::HostEventType::MotionRequest:
                 // rate 0 stops motion; any non-zero rate starts it.

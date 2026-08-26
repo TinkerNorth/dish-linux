@@ -84,7 +84,11 @@ TEST_CASE("CONTROLLER_ARRIVAL layout", "[moonlight][wire]") {
                                                     caps, moonproto::kStandardButtons);
     CHECK(len == kControllerArrivalSize);
     // [06 02][10 00][00 00 00 0C][04 00 00 55][ctrl][type][cap][pad][buttons u32 LE]
-    CHECK(hexOf(buf.data(), len) == "060210000000000c0400005502020300fff70000");
+    // The advertised word is the whole 16-bit legacy half: a live Sunshine host
+    // logs it back as supportedButtonFlags [0000FFFF], and all three Dish
+    // clients advertise the same value so one host cannot see three pads.
+    CHECK(hexOf(buf.data(), len) == "060210000000000c0400005502020300ffff0000");
+    CHECK(moonproto::kStandardButtons == 0x0000FFFFU);
 }
 
 TEST_CASE("CONTROLLER_ARRIVAL carries the struct's alignment pad", "[moonlight][wire]") {

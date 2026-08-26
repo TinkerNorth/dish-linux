@@ -19,12 +19,22 @@ QtObject {
 
     property string slotId: ""
     property string hostId: ""
-    property string hostKind: "satellite" // "satellite" | "bluetooth"
-    property int type: -1                 // -1 = unresolved; never guessed
+    // "satellite" | "bluetooth" | "moonlight"
+    property string hostKind: "satellite"
+    // -1 = unresolved; never guessed. 0xFF is a real answer for a Moonlight
+    // binding: it is the Auto sentinel, resolved against the pad before the
+    // wire, and deliberately not 0 (which the wire reads as "host, you pick").
+    property int type: -1
     property string desiredPath: "standard" // "standard" | "direct" — never "auto"
     property bool motionOn: true
     property bool rumbleOn: true
     property int touchpadMode: 0          // 0 off · 1 pad · 2 mouse
+
+    // The app this binding will start, or the one it will join. PER SESSION,
+    // not per binding: only the binding that creates a session picks one, and
+    // every later binding on the same host inherits whatever is running.
+    property string appId: ""
+    property string appName: ""
 
     // The solver vends tokens only, but every failure line names something.
     property string padName: ""
@@ -45,6 +55,10 @@ QtObject {
     // A Bluetooth destination is the system gamepad layer: there is no
     // catalog and so no type to resolve.
     readonly property bool hostIsBluetooth: draft.hostKind === "bluetooth"
+    // A Moonlight destination has a type, but no catalog to read it from: the
+    // four types are protocol constants, so the draft is answered the moment
+    // one is picked and Auto counts as picked.
+    readonly property bool hostIsMoonlight: draft.hostKind === "moonlight"
     readonly property bool hasType: draft.hostIsBluetooth || draft.type >= 0
     readonly property bool complete: draft.hasInput && draft.hasDestination && draft.hasType
 
@@ -144,6 +158,9 @@ QtObject {
         if (row.verdict === "pending") {
             if (draft.hostId.length === 0)
                 return qsTr("Waiting on a destination.");
+            // A Moonlight binding never waits: its type table is a protocol
+            // constant, so nothing here is ever pending on a fetch.
+
             if (draft.catalogFailed)
                 return qsTr("Couldn’t read the catalog from %1 — retry to resolve it.")
                           .arg(draft.hostName);
@@ -165,11 +182,17 @@ QtObject {
         case "link":
             return qsTr("Direct mode can’t drive it — switch the connection to Standard.");
         case "type":
+            if (draft.hostIsMoonlight)
+                return qsTr("A %1 controller does not carry %2 over Moonlight.")
+                          .arg(draft.typeName).arg(draft.featureNoun(row.feature));
             return qsTr("%1 doesn’t carry %2.").arg(draft.typeName)
                                                .arg(draft.featureNoun(row.feature));
         case "host":
             if (draft.hostIsBluetooth)
                 return qsTr("A Bluetooth host has no channel for it. Bind to a Satellite host.");
+            // A Moonlight host never refuses at the host layer: no host reports
+            // what it carries, so this branch cannot be reached for one.
+
             if (row.feature === "mouse")
                 return qsTr("%1 doesn’t advertise mouse control.").arg(draft.hostName);
             return qsTr("%1 doesn’t advertise %2.").arg(draft.hostName)
@@ -216,6 +239,18 @@ QtObject {
         // until the new catalog resolves it.
         draft.type = -1;
         draft.typeName = "";
+        // The app belongs to the destination, so it does not survive one.
+        draft.appId = "";
+        draft.appName = "";
+        draft.sanitize();
+    }
+
+    // The app the session will run. Only meaningful while this binding is the
+    // one that would CREATE the session; a binding that joins one shows what is
+    // already running and is never offered a picker.
+    function chooseApp(id, name) {
+        draft.appId = id;
+        draft.appName = name;
         draft.sanitize();
     }
 

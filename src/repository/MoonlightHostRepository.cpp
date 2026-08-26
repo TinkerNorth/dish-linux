@@ -38,8 +38,10 @@ std::optional<MoonlightHost> MoonlightHost::fromJson(const QJsonObject& obj) {
     host.serverCertPem = obj.value(QLatin1String("serverCertPem")).toString();
     host.lastAppId = obj.value(QLatin1String("lastAppId")).toString();
     host.lastAppName = obj.value(QLatin1String("lastAppName")).toString();
-    host.controllerType =
-        obj.value(QLatin1String("controllerType")).toInt(kMoonlightControllerTypeAuto);
+    // Migrated, not trusted: a record from before the sentinel converged holds
+    // 0 for Auto, and 0 on the wire is CONTROLLER_TYPE_UNKNOWN.
+    host.controllerType = moonlight::migrateControllerType(
+        obj.value(QLatin1String("controllerType")).toInt(kMoonlightControllerTypeAuto));
     return host;
 }
 

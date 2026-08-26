@@ -113,7 +113,7 @@ TEST_CASE("failure edges land in Failed with teardown + notify", "[moonlight][ma
          SessionFailure::RtspRejected},
         {at(SessionPhase::ControlConnecting), ControlLost{}, SessionFailure::ControlLost},
         {at(SessionPhase::ControlConnecting), HostTerminated{}, SessionFailure::HostEnded},
-        {at(SessionPhase::Streaming), ControlLost{}, SessionFailure::ControlLost},
+        {at(SessionPhase::Streaming), ControlLost{}, SessionFailure::Dropped},
         {at(SessionPhase::Streaming), HostTerminated{}, SessionFailure::HostEnded},
     };
     for (const auto& c : cases) {
@@ -245,4 +245,89 @@ TEST_CASE("RtspReady at Options re-sends OPTIONS without advancing", "[moonlight
     REQUIRE(r.next.has_value());
     CHECK(r.next->rtspStep == RtspStep::Options);
     CHECK(hasEffect(r, SessionEffect::SendRtspOptions));
+}
+
+TEST_CASE("a host that answers unpaired names what is remembered", "[moonlight][machine]") {
+    // NOT PAIRED and TRUST LOST are the same wire fact and two different
+    // sentences: one asks for a first pairing, the other says the host deleted
+    // one we still hold a certificate for.
+    ServerInfoOk fresh;
+    fresh.paired = false;
+    fresh.remembered = false;
+    auto r = reduce(at(SessionPhase::CheckingInfo), fresh);
+    REQUIRE(r.next.has_value());
+    CHECK(r.next->failure == SessionFailure::NotPaired);
+
+    ServerInfoOk forgotten;
+    forgotten.paired = false;
+    forgotten.remembered = true;
+    r = reduce(at(SessionPhase::CheckingInfo), forgotten);
+    REQUIRE(r.next.has_value());
+    CHECK(r.next->failure == SessionFailure::TrustLost);
+    CHECK(hasEffect(r, SessionEffect::NotifyFailure));
+}
+
+TEST_CASE("a host with a new identity is named before pairing is judged", "[moonlight][machine]") {
+    // The stored certificate anchors nothing on a machine that was reset, so
+    // "no longer recognises this device" would be the wrong reason.
+    ServerInfoOk replaced;
+    replaced.paired = true;
+    replaced.remembered = true;
+    replaced.identityChanged = true;
+    auto r = reduce(at(SessionPhase::CheckingInfo), replaced);
+    REQUIRE(r.next.has_value());
+    CHECK(r.next->failure == SessionFailure::HostReplaced);
+
+    // Even when the host also reports us unpaired.
+    replaced.paired = false;
+    r = reduce(at(SessionPhase::CheckingInfo), replaced);
+    REQUIRE(r.next.has_value());
+    CHECK(r.next->failure == SessionFailure::HostReplaced);
+}
+
+TEST_CASE("a failed resume is not a refused launch", "[moonlight][machine]") {
+    // The host HAS the session and would not hand it back, which the user fixes
+    // by closing the app rather than by trying the same thing again.
+    SessionState resuming = at(SessionPhase::Launching);
+    resuming.resuming = true;
+    auto r = reduce(resuming, LaunchFailed{});
+    REQUIRE(r.next.has_value());
+    CHECK(r.next->failure == SessionFailure::ResumeFailed);
+
+    // A first launch that fails is still a plain refusal.
+    r = reduce(at(SessionPhase::Launching), LaunchFailed{});
+    REQUIRE(r.next.has_value());
+    CHECK(r.next->failure == SessionFailure::LaunchRejected);
+}
+
+TEST_CASE("a link that dies after going live is a drop, not a setup failure",
+          "[moonlight][machine]") {
+    // The host keeps the app and will usually let us resume it. Merging the two
+    // would offer a Reconnect that cannot work, or a retry that closes a game.
+    auto r = reduce(at(SessionPhase::ControlConnecting), ControlLost{});
+    REQUIRE(r.next.has_value());
+    CHECK(r.next->failure == SessionFailure::ControlLost);
+
+    r = reduce(at(SessionPhase::Streaming), ControlLost{});
+    REQUIRE(r.next.has_value());
+    CHECK(r.next->failure == SessionFailure::Dropped);
+
+    // A host that ends the session says so itself, from either phase.
+    for (const SessionPhase phase : {SessionPhase::ControlConnecting, SessionPhase::Streaming}) {
+        const auto ended = reduce(at(phase), HostTerminated{});
+        REQUIRE(ended.next.has_value());
+        CHECK(ended.next->failure == SessionFailure::HostEnded);
+    }
+}
+
+TEST_CASE("a session starts only from a resting phase", "[moonlight][machine]") {
+    // The reference count: a second binding on a host that is already checking,
+    // launching or live joins that session and must not launch a second.
+    CHECK(sessionNeedsStart(SessionPhase::Idle));
+    CHECK(sessionNeedsStart(SessionPhase::Failed));
+    CHECK_FALSE(sessionNeedsStart(SessionPhase::CheckingInfo));
+    CHECK_FALSE(sessionNeedsStart(SessionPhase::Launching));
+    CHECK_FALSE(sessionNeedsStart(SessionPhase::Rtsp));
+    CHECK_FALSE(sessionNeedsStart(SessionPhase::ControlConnecting));
+    CHECK_FALSE(sessionNeedsStart(SessionPhase::Streaming));
 }

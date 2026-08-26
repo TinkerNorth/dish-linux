@@ -176,6 +176,8 @@ set(DISH_CORE_SOURCES
     src/core/moonlight/MoonlightRtsp.h
     src/core/moonlight/MoonlightRtsp.cpp
     src/core/moonlight/MoonlightSessionMachine.h
+    src/core/moonlight/MoonlightPadSlots.h
+    src/core/moonlight/MoonlightSessionUi.h
     src/core/moonlight/MoonlightButtonMap.h
     src/core/model/Protocol.h
     src/core/model/IdentityKey.h
@@ -559,6 +561,7 @@ qt_add_qml_module(Dish
         src/qml/pages/LicensesPage.qml
         src/qml/pages/ControlsRemapPage.qml
         src/qml/pages/ConfigureBindingPage.qml
+        src/qml/pages/MoonlightHostsPage.qml
         src/qml/pages/PairingDialog.qml
         src/qml/onboarding/OnboardingFlow.qml
         src/qml/onboarding/WelcomeScreen.qml
@@ -567,6 +570,7 @@ qt_add_qml_module(Dish
         src/qml/wizard/WizardInputPage.qml
         src/qml/wizard/WizardDestinationPage.qml
         src/qml/wizard/WizardTypePage.qml
+        src/qml/wizard/WizardSessionPage.qml
         src/qml/wizard/WizardFeelPage.qml
         src/qml/wizard/WizardReviewPage.qml)
 

@@ -50,6 +50,11 @@ inline constexpr std::uint8_t kControllerTypeXbox = 0x01;
 inline constexpr std::uint8_t kControllerTypePs = 0x02;
 inline constexpr std::uint8_t kControllerTypeNintendo = 0x03;
 
+// "Match the pad" — resolved against the bound input source before the wire, so
+// it never travels. 0xFF and not 0x00: 0x00 is CONTROLLER_TYPE_UNKNOWN, a real
+// wire value the host reads as "you decide", which is a different promise.
+inline constexpr std::uint8_t kControllerTypeAuto = 0xFF;
+
 // ── CONTROLLER_ARRIVAL capability bitfield ───────────────────────────────────
 inline constexpr std::uint8_t kCapAnalogTriggers = 0x01;
 inline constexpr std::uint8_t kCapRumble = 0x02;
@@ -83,12 +88,20 @@ inline constexpr std::uint32_t kBtnPaddle4 = 0x080000;
 inline constexpr std::uint32_t kBtnTouchpad = 0x100000;
 inline constexpr std::uint32_t kBtnMisc = 0x200000;
 
-// The support_button_flags a standard pad advertises in CONTROLLER_ARRIVAL:
-// dpad, Start/Back, sticks, shoulders, Home and ABXY.
+// Named in neither Wolf's table nor its control.hpp, and set in what every
+// shipping client advertises. Carried so the advertised word is the whole low
+// half rather than a hole a host might read as a missing button.
+inline constexpr std::uint32_t kBtnReservedLow = 0x0800;
+
+// The support_button_flags a standard pad advertises in CONTROLLER_ARRIVAL: the
+// whole 16-bit legacy word (dpad, Start/Back, sticks, shoulders, Home, ABXY and
+// the one reserved bit). A live Sunshine host logs it back as
+// supportedButtonFlags [0000FFFF]; the three Dish clients advertise this one
+// value so a host cannot see three different pads.
 inline constexpr std::uint32_t kStandardButtons =
     kBtnDpadUp | kBtnDpadDown | kBtnDpadLeft | kBtnDpadRight | kBtnStart | kBtnBack |
-    kBtnLeftStick | kBtnRightStick | kBtnLeftButton | kBtnRightButton | kBtnHome | kBtnA | kBtnB |
-    kBtnX | kBtnY;
+    kBtnLeftStick | kBtnRightStick | kBtnLeftButton | kBtnRightButton | kBtnHome | kBtnReservedLow |
+    kBtnA | kBtnB | kBtnX | kBtnY;
 
 // ── CONTROLLER_MOTION types (also carried by the host's MOTION_EVENT) ────────
 inline constexpr std::uint8_t kMotionAcceleration = 0x01;

@@ -9,6 +9,7 @@
 
 #include "QSettingsFixture.h"
 #include "RepositoryContract.h"
+#include "repository/SettingsKeys.h"
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -104,4 +105,48 @@ TEST_CASE("fromJson rejects rows without a uuid or address", "[moonlight][reposi
     QJsonObject noAddr;
     noAddr.insert(QStringLiteral("uuid"), QStringLiteral("u"));
     CHECK_FALSE(MoonlightHost::fromJson(noAddr).has_value());
+}
+
+TEST_CASE("a controllerType of 0 migrates to the Auto sentinel", "[moonlight][repository]") {
+    // 0 is CONTROLLER_TYPE_UNKNOWN on the wire, which asks the HOST to pick.
+    // That is a different promise from "match the pad", so a record written
+    // before the three clients converged on 0xFF is migrated on read rather
+    // than sent as it stands.
+    auto settings = makeSharedSettings();
+    settings->setValue(
+        QLatin1String(dish::repository::keys::kMoonlightHostListKey),
+        QByteArray(R"({"legacy":{"uuid":"legacy","address":"10.0.0.9","controllerType":0}})"));
+
+    MoonlightHostRepository repo(settings);
+    const auto loaded = repo.get(QStringLiteral("legacy"));
+    REQUIRE(loaded.has_value());
+    CHECK(loaded->controllerType == kMoonlightControllerTypeAuto);
+    CHECK(loaded->controllerType == 0xFF);
+}
+
+TEST_CASE("a controllerType outside the picker's range migrates too", "[moonlight][repository]") {
+    auto settings = makeSharedSettings();
+    settings->setValue(
+        QLatin1String(dish::repository::keys::kMoonlightHostListKey),
+        QByteArray(R"({"odd":{"uuid":"odd","address":"10.0.0.8","controllerType":42}})"));
+
+    MoonlightHostRepository repo(settings);
+    const auto loaded = repo.get(QStringLiteral("odd"));
+    REQUIRE(loaded.has_value());
+    CHECK(loaded->controllerType == kMoonlightControllerTypeAuto);
+}
+
+TEST_CASE("the three real picks survive a round trip untouched", "[moonlight][repository]") {
+    auto settings = makeSharedSettings();
+    MoonlightHostRepository repo(settings);
+    for (const int pick : {1, 2, 3}) {
+        MoonlightHost host;
+        host.uuid = QStringLiteral("pick-%1").arg(pick);
+        host.address = QStringLiteral("10.0.0.1");
+        host.controllerType = pick;
+        repo.upsert(host);
+        const auto loaded = repo.get(host.uuid);
+        REQUIRE(loaded.has_value());
+        CHECK(loaded->controllerType == pick);
+    }
 }
