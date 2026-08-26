@@ -95,12 +95,22 @@ struct SessionUiInputs {
 
 namespace detail {
 
+// Which of the two "you are not paired" states an input is in. TrustLost
+// requires something to have been LOST, which means our certificate is still on
+// file: a host we never paired with refuses exactly the way a host that dropped
+// us does, and telling a first-time user that a pairing they never made has
+// been removed is simply false. NotPaired is the truth and carries the same
+// recovery, so the split is on what we hold and on nothing else.
+inline SessionUiState unpairedState(bool remembered) {
+    return remembered ? SessionUiState::TrustLost : SessionUiState::NotPaired;
+}
+
 inline SessionUiState failureState(SessionFailure failure, bool remembered) {
     switch (failure) {
     case SessionFailure::Unreachable:
         return remembered ? SessionUiState::Remembered : SessionUiState::Unreachable;
     case SessionFailure::NotPaired:
-        return remembered ? SessionUiState::TrustLost : SessionUiState::NotPaired;
+        return unpairedState(remembered);
     case SessionFailure::TrustLost:
         return SessionUiState::TrustLost;
     case SessionFailure::HostReplaced:
@@ -122,6 +132,29 @@ inline SessionUiState failureState(SessionFailure failure, bool remembered) {
     }
 }
 
+// TRUST IS MUTUAL AND THIS CLIENT HOLDS ONE HALF OF IT. A host reports
+// PairStatus against the uniqueid on the request, and this install's uniqueid
+// outlives a Forget, so a box that still has us on file answers 1 to a client
+// that threw its half away. That is the host's word only: every paired-only
+// call is mutual TLS pinned against the certificate the pairing handshake
+// verified, and with no certificate there is nothing to pin, no app list and no
+// session. A host we cannot open a channel to is NOT PAIRED however warmly it
+// answers, and the way back in is the same PIN a stranger needs.
+//
+// A REJECTION SETTLES IT whatever else is known. A 401, or a session the host
+// refused as unknown, is the host saying so in as many words, and it outranks
+// the "nobody has answered yet" fallback: a host that just refused us must
+// never render Remembered, which promises a session it is not going to give.
+//
+// This is a FUNCTION and not two copies of an expression because the host row
+// and the session section answering the same question differently is exactly
+// what stranded the user: the row read the host's word alone, said Paired, and
+// hid the Pair button, while the section below it could not open a channel.
+// Two spellings of one rule drifted once and must not be able to again.
+inline bool notPaired(const SessionUiInputs& in) {
+    return in.trustRejected || (in.probeAnswered && !(in.paired && in.remembered));
+}
+
 } // namespace detail
 
 // Pure and total. Evaluated top to bottom in the declaration order above; the
@@ -140,25 +173,14 @@ inline SessionUiState sessionUiState(const SessionUiInputs& in) {
     const bool hasRoom = in.otherControllers < kMaxPads;
     if (!hasRoom) { return SessionUiState::HostFull; }
 
+    // Judged before the fallback below, because a rejection IS an answer and
+    // the two arms are disjoint on probeAnswered anyway. See detail::notPaired.
+    if (detail::notPaired(in)) { return detail::unpairedState(in.remembered); }
+
     if (!in.probeAnswered && !in.bindingLive && !in.sessionLive) {
         if (in.probeInFlight || !in.probeAttempted) { return SessionUiState::Checking; }
         if (in.failure) { return detail::failureState(*in.failure, in.remembered); }
         return in.remembered ? SessionUiState::Remembered : SessionUiState::Unreachable;
-    }
-
-    if (in.trustRejected) { return SessionUiState::TrustLost; }
-    // TRUST IS MUTUAL AND THIS CLIENT HOLDS ONE HALF OF IT. A host reports
-    // PairStatus against the uniqueid on the request, so a box that still has
-    // this install on file answers 1 even after the client forgot it. That is
-    // the host's half only: every paired-only call is mutual TLS pinned against
-    // the certificate the pairing handshake verified, and without that
-    // certificate there is nothing to pin, no app list, and no session. So a
-    // host we cannot open a channel to is NOT PAIRED however warmly it answers,
-    // and the way out is the same PIN a stranger needs. Reporting it paired
-    // would state a relationship that nothing in the client can use, and the
-    // surfaces would hide the one control that repairs it.
-    if (in.probeAnswered && !(in.paired && in.remembered)) {
-        return in.remembered ? SessionUiState::TrustLost : SessionUiState::NotPaired;
     }
 
     if (in.bindingLive) { return SessionUiState::Live; }
@@ -232,15 +254,15 @@ inline const char* sessionUiToken(SessionUiState state) {
 enum class HostTrust : std::uint8_t { Paired, Remembered, NotPaired };
 
 inline HostTrust hostTrust(const SessionUiInputs& in) {
-    if (in.identityChanged || in.trustRejected) { return HostTrust::NotPaired; }
-    // BOTH HALVES, for the reason sessionUiState gives above: the host's word
-    // that it knows us, and a certificate of its own that we can pin against.
-    // One without the other is a chip that promises what the next tap cannot
-    // deliver, and Paired is the one chip that hides the Pair button.
+    if (in.identityChanged) { return HostTrust::NotPaired; }
+    // THE SAME FUNCTION the session section reads, not a second spelling of it.
+    // This row has no TrustLost of its own: both unpaired states render here as
+    // the one word that offers the way back.
+    if (detail::notPaired(in)) { return HostTrust::NotPaired; }
+    // Both halves present, which is the only thing that earns the chip that
+    // hides the Pair button.
     if (in.paired && in.remembered) { return HostTrust::Paired; }
-    // Answered and unpaired is a fact about now, whatever is remembered; only a
-    // host that did not answer this visit falls back on the memory.
-    if (in.probeAnswered) { return HostTrust::NotPaired; }
+    // Nobody answered this visit, so the memory is all there is.
     return in.remembered ? HostTrust::Remembered : HostTrust::NotPaired;
 }
 

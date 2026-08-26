@@ -71,6 +71,95 @@ TEST_CASE("M2 again: the host's word alone is not a pairing", "[moonlight][ui]")
     CHECK(tokenOf(in) == "notPaired");
 }
 
+TEST_CASE("a rejection only takes away trust there was to lose", "[moonlight][ui]") {
+    // A 401 from a host nobody ever paired with refuses in exactly the way a
+    // host that dropped us does. Calling that "trust lost" tells a first-time
+    // user that a pairing they never made has been removed, which is false, and
+    // NotPaired carries the identical next step.
+    SessionUiInputs stranger;
+    stranger.probeAttempted = true;
+    stranger.trustRejected = true;
+    stranger.remembered = false;
+    CHECK(sessionUiState(stranger) == SessionUiState::NotPaired);
+    CHECK(hostTrust(stranger) == HostTrust::NotPaired);
+
+    // With our certificate still on file the rejection really did take
+    // something away, and that is the state that says so.
+    SessionUiInputs known = stranger;
+    known.remembered = true;
+    CHECK(sessionUiState(known) == SessionUiState::TrustLost);
+    CHECK(hostTrust(known) == HostTrust::NotPaired);
+
+    // And a rejection outranks the "nobody has answered yet" fallback: a host
+    // that just refused us must not promise a session when it comes back.
+    CHECK_FALSE(sessionUiState(known) == SessionUiState::Remembered);
+}
+
+TEST_CASE("a trust problem outranks the app list it caused", "[moonlight][ui]") {
+    // The app list is HTTPS and paired-only, so a host we cannot open a channel
+    // to fails it BY CONSTRUCTION. Rendering "could not read the app list" over
+    // that puts a transport complaint where the answer is Pair, and it is the
+    // one sentence the user has no way to act on.
+    SessionUiInputs noCert;
+    noCert.probeAttempted = true;
+    noCert.probeAnswered = true;
+    noCert.paired = true;      // the host's word
+    noCert.remembered = false; // and nothing of ours to pin against
+    noCert.appsFailed = true;
+    CHECK(sessionUiState(noCert) == SessionUiState::NotPaired);
+
+    // Same once the mutual-TLS call comes back 401, which is what that failure
+    // actually was.
+    SessionUiInputs rejected = noCert;
+    rejected.trustRejected = true;
+    CHECK(sessionUiState(rejected) == SessionUiState::NotPaired);
+
+    // And with our certificate on file the same 401 is the loss it looks like.
+    SessionUiInputs lost = rejected;
+    lost.remembered = true;
+    CHECK(sessionUiState(lost) == SessionUiState::TrustLost);
+}
+
+TEST_CASE("the chip and the sentence under it read one rule", "[moonlight][ui]") {
+    // Two functions answering the same question differently is the shape of the
+    // live dead end: the row read the host's word alone, said Paired, and hid
+    // the Pair button, while the section below it could not open a channel at
+    // all. Walked as a cross product so an edit to one has to move the other.
+    for (const bool probeAnswered : {false, true}) {
+        for (const bool paired : {false, true}) {
+            for (const bool remembered : {false, true}) {
+                for (const bool trustRejected : {false, true}) {
+                    SessionUiInputs in;
+                    in.probeAttempted = true;
+                    in.probeAnswered = probeAnswered;
+                    in.paired = paired;
+                    in.remembered = remembered;
+                    in.trustRejected = trustRejected;
+                    CAPTURE(probeAnswered, paired, remembered, trustRejected);
+
+                    const SessionUiState state = sessionUiState(in);
+                    const bool sectionUnpaired =
+                        state == SessionUiState::NotPaired || state == SessionUiState::TrustLost;
+
+                    // Where the section says the user is not paired, the row
+                    // offers the way back rather than a memory it cannot use.
+                    if (sectionUnpaired) { CHECK(hostTrust(in) == HostTrust::NotPaired); }
+                    // And the converse, which is the half that stranded the
+                    // user: Paired is the one chip that hides the Pair button,
+                    // so it may never sit above a section that disagrees.
+                    if (hostTrust(in) == HostTrust::Paired) { CHECK_FALSE(sectionUnpaired); }
+                    // The two unpaired states split on ONE thing, in both.
+                    if (trustRejected) {
+                        CHECK(state ==
+                              (remembered ? SessionUiState::TrustLost : SessionUiState::NotPaired));
+                        CHECK(hostTrust(in) == HostTrust::NotPaired);
+                    }
+                }
+            }
+        }
+    }
+}
+
 TEST_CASE("M3 pairing: the PIN is on screen", "[moonlight][ui]") {
     SessionUiInputs in;
     in.pairingActive = true;
