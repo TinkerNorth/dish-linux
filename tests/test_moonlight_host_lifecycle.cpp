@@ -664,11 +664,14 @@ TEST_CASE("forget cancels a pairing in flight so it cannot write the host back",
 
     manager.forget(uuid);
 
+    repository::MoonlightHostRepository repo(settings);
+    const Residue after = residueOf(manager, repo, uuid);
+    CHECK_FALSE(after.pairingInFlight);
+    CHECK_FALSE(after.persisted);
+    CHECK_FALSE(after.known);
+    // The PIN goes with the attempt, so nothing is left on screen to type in.
     CHECK_FALSE(manager.pairingActive());
     CHECK(manager.pairingPin().isEmpty());
-    repository::MoonlightHostRepository repo(settings);
-    CHECK_FALSE(repo.get(uuid).has_value());
-    CHECK_FALSE(manager.knows(uuid));
 }
 
 TEST_CASE("forgetting one host is not felt by its neighbour", "[moonlight][lifecycle]") {
