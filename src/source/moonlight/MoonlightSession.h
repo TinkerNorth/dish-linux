@@ -64,6 +64,10 @@ class MoonlightSession : public QObject {
     // A session has been attempted at least once since this object existed, so
     // an Idle phase means closed rather than never started.
     bool everStarted() const { return everStarted_; }
+    // What the host said in the BODY of the refusal that ended the last
+    // attempt, verbatim. A host refuses for reasons of its own and phrases them
+    // itself; paraphrasing them would drop the only detail the user can act on.
+    const QString& refusalMessage() const { return refusalMessage_; }
 
     void start(const QString& appId, const QString& appName);
     // `handBackApp` forces the /cancel a normal teardown only sends for an app
@@ -169,6 +173,7 @@ class MoonlightSession : public QObject {
     std::atomic<std::uint16_t> activeMask_{0};
 
     bool everStarted_ = false;
+    QString refusalMessage_;
     // The teardown must hand the app back even though it went live: the last
     // controller has left, so nothing is riding it any more.
     bool handBackOnTeardown_ = false;

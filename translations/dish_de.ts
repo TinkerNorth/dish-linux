@@ -4029,6 +4029,10 @@
         <translation>Die Sitzung auf %1 konnte nicht abgeschlossen werden</translation>
     </message>
     <message>
+        <source>%1 refused the session: %2</source>
+        <translation>%1 hat die Sitzung abgelehnt: %2</translation>
+    </message>
+    <message>
         <source>%1 refused the session</source>
         <translation>%1 hat die Sitzung abgelehnt</translation>
     </message>

@@ -4029,6 +4029,10 @@
         <translation>Não foi possível concluir a sessão em %1</translation>
     </message>
     <message>
+        <source>%1 refused the session: %2</source>
+        <translation>%1 recusou a sessão: %2</translation>
+    </message>
+    <message>
         <source>%1 refused the session</source>
         <translation>%1 recusou a sessão</translation>
     </message>

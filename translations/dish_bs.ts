@@ -4048,6 +4048,10 @@
         <translation>Nije moguće dovršiti sesiju na %1</translation>
     </message>
     <message>
+        <source>%1 refused the session: %2</source>
+        <translation>%1 je odbio sesiju: %2</translation>
+    </message>
+    <message>
         <source>%1 refused the session</source>
         <translation>%1 je odbio sesiju</translation>
     </message>

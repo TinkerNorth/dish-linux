@@ -121,6 +121,7 @@ void MoonlightSession::start(const QString& appId, const QString& appName) {
     launched_ = false;
     wentLive_ = false;
     everStarted_ = true;
+    refusalMessage_.clear();
     stream_ = moonrtsp::StreamConfig{};
     qCInfo(lcMoon) << "session start on" << host_.address << "app" << appId_ << "pads"
                    << slots_.size();
@@ -374,6 +375,11 @@ void MoonlightSession::sendLaunch() {
                       }
                       qCWarning(lcMoon) << path << "refused by" << host_.address << ":"
                                         << QString::fromUtf8(body.left(512));
+                      if (refusal && !refusal->message.empty()) {
+                          refusalMessage_ = QString::fromStdString(refusal->message);
+                      } else if (refusal) {
+                          refusalMessage_ = QString::number(refusal->code);
+                      }
                       dispatch(moonlight::moon_event::LaunchFailed{});
                   });
 }

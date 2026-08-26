@@ -853,12 +853,15 @@ QVariantMap AppViewModel::moonlightSession(const QString& uuid, const QString& s
     }
     // The RUNNING app wins over the remembered pick: a binding that joins a
     // session must name what is actually up, never what we would have started.
+    QString refusal;
     if (const auto* session = manager->session(uuid)) {
         if (!session->appId().isEmpty()) {
             appId = session->appId();
             appName = session->appName();
         }
+        refusal = session->refusalMessage();
     }
+    m[QStringLiteral("refusal")] = refusal;
     m[QStringLiteral("hostName")] = hostName;
     m[QStringLiteral("appId")] = appId;
     m[QStringLiteral("appName")] = appName;

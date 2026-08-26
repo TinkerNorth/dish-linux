@@ -73,6 +73,10 @@ ColumnLayout {
                                       ? page.session.appName : ""
     readonly property int controllerNumber: page.session.controllerNumber !== undefined
                                             ? page.session.controllerNumber : 0
+    // Verbatim from the host, because a host refuses for reasons of its own and
+    // phrases them itself.
+    readonly property string refusal: page.session.refusal !== undefined
+                                      ? page.session.refusal : ""
 
     function refresh() {
         if (!page.draft.hasDestination || !page.draft.hostIsMoonlight) {
@@ -155,13 +159,10 @@ ColumnLayout {
     // ── Working states: primary, never amber ────────────────────────────────
     Kit.LoadingSpinner {
         visible: page.phase === "checking" || page.phase === "appsLoading"
-                 || page.phase === "pairingPin"
         running: visible
         text: page.phase === "checking"
               ? qsTr("Checking %1…").arg(page.hostName)
-              : page.phase === "appsLoading"
-                ? qsTr("Reading the app list from %1…").arg(page.hostName)
-                : qsTr("Waiting for the host to accept the PIN…")
+              : qsTr("Reading the app list from %1…").arg(page.hostName)
         Layout.fillWidth: true
         Layout.topMargin: Tokens.s5
     }
@@ -193,7 +194,9 @@ ColumnLayout {
               ? qsTr("Could not read the app list from %1").arg(page.hostName)
               : page.phase === "setupFailed"
                 ? qsTr("Could not finish the session on %1").arg(page.hostName)
-                : qsTr("%1 refused the session").arg(page.hostName)
+                : page.refusal.length > 0
+                  ? qsTr("%1 refused the session: %2").arg(page.hostName).arg(page.refusal)
+                  : qsTr("%1 refused the session").arg(page.hostName)
         detail: page.phase === "appsFailed"
                 ? qsTr("Dish will start whatever the host lists first. Retry once %1 is reachable.")
                     .arg(page.hostName)
@@ -337,10 +340,12 @@ ColumnLayout {
 
     // ── Copy: one English string per state, and the C++ names the state ─────
 
-    // States whose own component already draws a title.
+    // States whose own component already draws the sentence, so the heading
+    // stands down rather than printing it a second time above.
     function selfTitled() {
         return page.phase === "noApps" || page.phase === "appsFailed"
-               || page.phase === "refused" || page.phase === "setupFailed";
+               || page.phase === "refused" || page.phase === "setupFailed"
+               || page.phase === "checking" || page.phase === "appsLoading";
     }
 
     function headingText() {
@@ -365,7 +370,10 @@ ColumnLayout {
         case "hostFull":       return qsTr("%1 is full").arg(page.hostName);
         case "busyOther":      return qsTr("Another device is using %1").arg(page.hostName);
         case "resumeFailed":   return qsTr("Could not rejoin the session on %1").arg(page.hostName);
-        case "refused":        return qsTr("%1 refused the session").arg(page.hostName);
+        case "refused":        return page.refusal.length > 0
+                                      ? qsTr("%1 refused the session: %2")
+                                          .arg(page.hostName).arg(page.refusal)
+                                      : qsTr("%1 refused the session").arg(page.hostName);
         case "setupFailed":    return qsTr("Could not finish the session on %1").arg(page.hostName);
         case "live":           return qsTr("Streaming to %1").arg(page.hostName);
         case "dropped":        return qsTr("Session on %1 ended").arg(page.hostName);
