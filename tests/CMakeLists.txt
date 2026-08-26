@@ -28,6 +28,7 @@ set(DISH_TEST_SOURCES
     test_moonlight_xml.cpp
     test_moonlight_rtsp.cpp
     test_moonlight_rtsp_framing.cpp
+    test_moonlight_tls_config.cpp
     test_moonlight_session_machine.cpp
     test_moonlight_button_map.cpp
     test_moonlight_host_repository.cpp

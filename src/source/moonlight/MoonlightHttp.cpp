@@ -63,6 +63,29 @@ void MoonlightHttp::getTls(const QString& address, int port, const QString& path
     perform(url, true, pinnedServerCertPem, std::move(cb), timeoutMs);
 }
 
+QSslConfiguration MoonlightHttp::tlsConfiguration(const QString& certPem,
+                                                  const QString& privateKeyPem) {
+    QSslConfiguration ssl = QSslConfiguration::defaultConfiguration();
+    // Self-signed on both ends; trust is the explicit pin check the reply
+    // handler applies.
+    ssl.setPeerVerifyMode(QSslSocket::VerifyNone);
+    // NEVER OFFER A SESSION TO RESUME. A resumed TLS session carries the peer
+    // identity forward instead of asking for the certificate again, so a
+    // Moonlight host's verify callback never runs and Sunshine kills the
+    // connection with a fatal internal_error alert (RFC 8446 alert 80) and logs
+    // nothing at all. Qt shares and persists sessions across the connections one
+    // QNetworkAccessManager makes, which is exactly the shape that triggers it,
+    // so all three switches go off together.
+    ssl.setSslOption(QSsl::SslOptionDisableSessionTickets, true);
+    ssl.setSslOption(QSsl::SslOptionDisableSessionSharing, true);
+    ssl.setSslOption(QSsl::SslOptionDisableSessionPersistence, true);
+    const auto certs = QSslCertificate::fromData(certPem.toUtf8(), QSsl::Pem);
+    if (!certs.isEmpty()) { ssl.setLocalCertificate(certs.first()); }
+    QSslKey key(privateKeyPem.toUtf8(), QSsl::Rsa, QSsl::Pem, QSsl::PrivateKey);
+    if (!key.isNull()) { ssl.setPrivateKey(key); }
+    return ssl;
+}
+
 void MoonlightHttp::perform(const QUrl& url, bool tls, const QString& pinnedServerCertPem,
                             BodyCb cb, int timeoutMs) {
     // Every GameStream request carries the client's uniqueid plus a per-call
@@ -79,26 +102,7 @@ void MoonlightHttp::perform(const QUrl& url, bool tls, const QString& pinnedServ
     // GameStream hosts speak bare HTTP/1.1 and choke on upgrade probing.
     request.setAttribute(QNetworkRequest::Http2AllowedAttribute, false);
 
-    if (tls) {
-        QSslConfiguration ssl = QSslConfiguration::defaultConfiguration();
-        // Self-signed on both ends; trust is the explicit pin check below.
-        ssl.setPeerVerifyMode(QSslSocket::VerifyNone);
-        // NEVER OFFER A SESSION TO RESUME. A resumed TLS session carries the
-        // peer identity forward instead of asking for the certificate again,
-        // so a Moonlight host's verify callback never runs and Sunshine kills
-        // the connection with a fatal internal_error alert (RFC 8446 alert 80)
-        // and logs nothing at all. Qt shares and persists sessions across the
-        // connections one QNetworkAccessManager makes, which is exactly the
-        // shape that triggers it, so all three switches go off together.
-        ssl.setSslOption(QSsl::SslOptionDisableSessionTickets, true);
-        ssl.setSslOption(QSsl::SslOptionDisableSessionSharing, true);
-        ssl.setSslOption(QSsl::SslOptionDisableSessionPersistence, true);
-        const auto certs = QSslCertificate::fromData(certPem_.toUtf8(), QSsl::Pem);
-        if (!certs.isEmpty()) { ssl.setLocalCertificate(certs.first()); }
-        QSslKey key(privateKeyPem_.toUtf8(), QSsl::Rsa, QSsl::Pem, QSsl::PrivateKey);
-        if (!key.isNull()) { ssl.setPrivateKey(key); }
-        request.setSslConfiguration(ssl);
-    }
+    if (tls) { request.setSslConfiguration(tlsConfiguration(certPem_, privateKeyPem_)); }
 
     const QString path = full.path();
     qCDebug(lcMoon) << "http ->" << (tls ? "https" : "http") << full.host() << path;

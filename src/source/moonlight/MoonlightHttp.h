@@ -15,6 +15,7 @@
 
 #include <QByteArray>
 #include <QObject>
+#include <QSslConfiguration>
 #include <QString>
 #include <QUrlQuery>
 
@@ -49,6 +50,12 @@ class MoonlightHttp : public QObject {
     // the presented server certificate matches `pinnedServerCertPem`.
     void getTls(const QString& address, int port, const QString& path, const QUrlQuery& query,
                 const QString& pinnedServerCertPem, BodyCb cb, int timeoutMs = kDefaultTimeoutMs);
+
+    // The TLS configuration every mutual-TLS call presents. Exposed because the
+    // one thing it must guarantee cannot be observed any other way: a resumed
+    // session skips a Moonlight host's verify callback, and the host answers
+    // that with a fatal alert and no log line at all.
+    static QSslConfiguration tlsConfiguration(const QString& certPem, const QString& privateKeyPem);
 
     static constexpr int kDefaultTimeoutMs = 10000;
     static constexpr int kPairingTimeoutMs = 120000;
