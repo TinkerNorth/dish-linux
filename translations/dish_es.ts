@@ -2723,10 +2723,6 @@
         <translation>¿Olvidar %1?</translation>
     </message>
     <message>
-        <source>Its pairing is deleted. You will need the PIN again.</source>
-        <translation>Se borra su emparejamiento. Necesitarás el PIN otra vez.</translation>
-    </message>
-    <message>
         <source>Cancel</source>
         <translation>Cancelar</translation>
     </message>
@@ -2779,8 +2775,38 @@
         <translation>Esperando a que el host acepte el PIN…</translation>
     </message>
     <message>
+        <source>Dish deletes its half of the pairing and will need the PIN again. %1 keeps its own record of this device until somebody removes it there.</source>
+        <translation>Dish elimina su mitad del emparejamiento y volverá a pedir el PIN. %1 conserva su propio registro de este dispositivo hasta que alguien lo elimine allí.</translation>
+    </message>
+    <message>
         <source>New code</source>
         <translation>Nuevo código</translation>
+    </message>
+    <message numerus="yes">
+        <source>%n bindings ride on it and will be dropped:</source>
+        <translation>
+            <numerusform>%n vínculo depende de este host y se perderá:</numerusform>
+            <numerusform>%n vínculos dependen de este host y se perderán:</numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <source>Its session ends for the %n controllers on it.</source>
+        <translation>
+            <numerusform>Su sesión termina para el %n mando que la usa.</numerusform>
+            <numerusform>Su sesión termina para los %n mandos que la usan.</numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>%1 did not answer. Check that it is switched on and on this network.</source>
+        <translation>%1 no respondió. Comprueba que esté encendido y en esta red.</translation>
+    </message>
+    <message>
+        <source>%1 turned the request down. Check that pairing is allowed on the host.</source>
+        <translation>%1 rechazó la solicitud. Comprueba que el emparejamiento esté permitido en el host.</translation>
+    </message>
+    <message>
+        <source>Dish could not prepare its own identity for pairing. Try again.</source>
+        <translation>Dish no pudo preparar su propia identidad para el emparejamiento. Vuelve a intentarlo.</translation>
     </message>
     <message>
         <source>Paired</source>
@@ -4167,6 +4193,18 @@
     <message>
         <source>Type %1 into the Moonlight or Sunshine page on %2.</source>
         <translation>Escribe %1 en la página de Moonlight o Sunshine de %2.</translation>
+    </message>
+    <message>
+        <source>%1 did not answer. Check that it is switched on and on this network.</source>
+        <translation>%1 no respondió. Comprueba que esté encendido y en esta red.</translation>
+    </message>
+    <message>
+        <source>%1 turned the request down. Check that pairing is allowed on the host.</source>
+        <translation>%1 rechazó la solicitud. Comprueba que el emparejamiento esté permitido en el host.</translation>
+    </message>
+    <message>
+        <source>Dish could not prepare its own identity for pairing. Try again.</source>
+        <translation>Dish no pudo preparar su propia identidad para el emparejamiento. Vuelve a intentarlo.</translation>
     </message>
     <message>
         <source>Check that the code went into the right host, then try again.</source>

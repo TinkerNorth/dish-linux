@@ -40,6 +40,7 @@ Kit.Page {
     property string currentHostId: ""
     property string currentLabel: ""
     property bool currentHasSession: false
+    property int currentControllers: 0
 
     readonly property int pairedCount: {
         let n = 0;
@@ -267,6 +268,7 @@ Kit.Page {
                                 page.currentHostId = host.hostId;
                                 page.currentLabel = host.label;
                                 page.currentHasSession = host.sessionUp;
+                                page.currentControllers = host.controllers;
                                 hostMenu.popup();
                             }
                         }
@@ -335,15 +337,30 @@ Kit.Page {
                 color: forgetItem.highlighted ? Theme.primaryHover : "transparent"
                 radius: Tokens.radiusChip
             }
-            onTriggered: forgetConfirm.open()
+            onTriggered: page.confirmForget()
         }
     }
 
+    // A Forget takes the pairing AND every binding that rode it, so it names
+    // them first. Same manifest the satellite Forget shows, off the same join.
     Kit.ConfirmDialog {
         id: forgetConfirm
+
+        property var pads: []
+
         eyebrow: qsTr("Forget")
         heading: qsTr("Forget %1?").arg(page.currentLabel)
-        bodyText: qsTr("Its pairing is deleted. You will need the PIN again.")
+        // A Forget is UNILATERAL, and saying only "the pairing is deleted"
+        // implies otherwise. The host keeps its own record until a human
+        // removes this device there, which is a different screen on a
+        // different machine.
+        bodyText: qsTr("Dish deletes its half of the pairing and will need the PIN again. %1 keeps its own record of this device until somebody removes it there.")
+                      .arg(page.currentLabel)
+                  + (page.currentControllers > 0
+                     ? "\n" + page.sessionEndsText(page.currentControllers) : "")
+                  + (forgetConfirm.pads.length > 0
+                     ? "\n" + page.bindingsDroppedText(forgetConfirm.pads.length) : "")
+        bulletLines: forgetConfirm.pads
         acceptText: qsTr("Forget")
         rejectText: qsTr("Cancel")
         destructiveAccept: true
@@ -405,6 +422,9 @@ Kit.Page {
         property string hostId: ""
         property string hostName: ""
         property bool rejected: false
+        // The pairingFinished token behind the refusal, so the line below can
+        // give the right advice instead of always blaming the PIN.
+        property string reason: ""
 
         readonly property string pin: App.moonlightPairingPin
 
@@ -418,8 +438,12 @@ Kit.Page {
             pairSheet.hostId = id;
             pairSheet.hostName = name;
             pairSheet.rejected = false;
-            App.pairMoonlight(id);
+            pairSheet.reason = "";
+            // Opened FIRST: pairMoonlight can refuse before it reaches the
+            // wire, and the refusal arrives through onMoonlightChanged, which
+            // a sheet that is not up yet would never see.
             pairSheet.open();
+            App.pairMoonlight(id);
         }
 
         onRejected: App.cancelMoonlightPairing()
@@ -474,9 +498,8 @@ Kit.Page {
                     Layout.preferredWidth: Tokens.s11 * 2
                 }
                 Label {
-                    text: pairSheet.rejected
-                          ? qsTr("Check that the code went into the right host, then try again.")
-                          : qsTr("Waiting for the host to accept the PIN…")
+                    text: pairSheet.rejected ? page.pairFailedText(pairSheet.reason)
+                                             : qsTr("Waiting for the host to accept the PIN…")
                     color: pairSheet.rejected ? Theme.error : Theme.muted
                     font.pixelSize: Tokens.textSummary
                     wrapMode: Text.WordWrap
@@ -510,10 +533,56 @@ Kit.Page {
                 return;
             }
             pairSheet.rejected = session.state === "pairingRefused";
+            pairSheet.reason = session.pairingReason !== undefined ? session.pairingReason : "";
         }
     }
 
     // ---- Helpers: tokens to localized copy ----------------------------------
+
+    function confirmForget() {
+        if (page.currentHostId.length === 0)
+            return;
+        forgetConfirm.pads = page.carryingPads(page.currentHostId);
+        forgetConfirm.open();
+    }
+
+    // The pads riding this host, by name. Moonlight bindings key on the host
+    // uuid in the slot list exactly as satellite bindings key on the
+    // connection id, so the same join answers for both.
+    function carryingPads(hostId) {
+        return App.carriedPads(hostId).map(function (pad) { return pad.name; });
+    }
+
+    // %n so the verb agrees where it inflects: English alternates
+    // rides/ride, and Bosnian needs a third form again at 2-4.
+    function bindingsDroppedText(n) {
+        return qsTr("%n bindings ride on it and will be dropped:", "", n);
+    }
+
+    // Said separately from the bindings line: a session can be carrying
+    // controllers this device did not bind, and forgetting ends it for them.
+    function sessionEndsText(n) {
+        return qsTr("Its session ends for the %n controllers on it.", "", n);
+    }
+
+    // Why the attempt ended, from the pairingFinished token. Every reason gets
+    // its own next step: telling someone to re-check the PIN when the host
+    // never answered sends them to the wrong screen.
+    function pairFailedText(reason) {
+        switch (reason) {
+        case "unreachable":
+            return qsTr("%1 did not answer. Check that it is switched on and on this network.")
+                     .arg(pairSheet.hostName);
+        case "declined":
+            return qsTr("%1 turned the request down. Check that pairing is allowed on the host.")
+                     .arg(pairSheet.hostName);
+        case "crypto":
+            return qsTr("Dish could not prepare its own identity for pairing. Try again.");
+        default:
+            return qsTr("Check that the code went into the right host, then try again.");
+        }
+    }
+
     function trustText(token) {
         switch (token) {
         case "paired":     return qsTr("Paired");

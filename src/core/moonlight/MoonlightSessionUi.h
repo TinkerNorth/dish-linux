@@ -147,7 +147,17 @@ inline SessionUiState sessionUiState(const SessionUiInputs& in) {
     }
 
     if (in.trustRejected) { return SessionUiState::TrustLost; }
-    if (in.probeAnswered && !in.paired) {
+    // TRUST IS MUTUAL AND THIS CLIENT HOLDS ONE HALF OF IT. A host reports
+    // PairStatus against the uniqueid on the request, so a box that still has
+    // this install on file answers 1 even after the client forgot it. That is
+    // the host's half only: every paired-only call is mutual TLS pinned against
+    // the certificate the pairing handshake verified, and without that
+    // certificate there is nothing to pin, no app list, and no session. So a
+    // host we cannot open a channel to is NOT PAIRED however warmly it answers,
+    // and the way out is the same PIN a stranger needs. Reporting it paired
+    // would state a relationship that nothing in the client can use, and the
+    // surfaces would hide the one control that repairs it.
+    if (in.probeAnswered && !(in.paired && in.remembered)) {
         return in.remembered ? SessionUiState::TrustLost : SessionUiState::NotPaired;
     }
 
@@ -223,7 +233,11 @@ enum class HostTrust : std::uint8_t { Paired, Remembered, NotPaired };
 
 inline HostTrust hostTrust(const SessionUiInputs& in) {
     if (in.identityChanged || in.trustRejected) { return HostTrust::NotPaired; }
-    if (in.paired) { return HostTrust::Paired; }
+    // BOTH HALVES, for the reason sessionUiState gives above: the host's word
+    // that it knows us, and a certificate of its own that we can pin against.
+    // One without the other is a chip that promises what the next tap cannot
+    // deliver, and Paired is the one chip that hides the Pair button.
+    if (in.paired && in.remembered) { return HostTrust::Paired; }
     // Answered and unpaired is a fact about now, whatever is remembered; only a
     // host that did not answer this visit falls back on the memory.
     if (in.probeAnswered) { return HostTrust::NotPaired; }

@@ -53,6 +53,24 @@ TEST_CASE("M2 not paired: answered, PairStatus 0, nothing remembered", "[moonlig
     CHECK(tokenOf(in) == "notPaired");
 }
 
+TEST_CASE("M2 again: the host's word alone is not a pairing", "[moonlight][ui]") {
+    // The disagreement a Forget leaves behind. A host reports PairStatus
+    // against the uniqueid on the request, and the client identity outlives a
+    // Forget, so a box we forgot still answers 1. Trust is MUTUAL: every
+    // paired-only call is mutual TLS pinned against the certificate the
+    // handshake verified, and that certificate went with the row. Reporting
+    // Paired here would hide the Pair button behind a chip nothing can act on.
+    SessionUiInputs in;
+    in.probeAttempted = true;
+    in.probeAnswered = true;
+    in.paired = true;      // the host's half
+    in.remembered = false; // ours
+    CHECK(sessionUiState(in) == SessionUiState::NotPaired);
+    CHECK(hostTrust(in) == HostTrust::NotPaired);
+    // Not TrustLost: nothing was lost, and an ordinary pairing recovers it.
+    CHECK(tokenOf(in) == "notPaired");
+}
+
 TEST_CASE("M3 pairing: the PIN is on screen", "[moonlight][ui]") {
     SessionUiInputs in;
     in.pairingActive = true;

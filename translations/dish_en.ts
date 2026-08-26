@@ -2723,10 +2723,6 @@
         <translation>Forget %1?</translation>
     </message>
     <message>
-        <source>Its pairing is deleted. You will need the PIN again.</source>
-        <translation>Its pairing is deleted. You will need the PIN again.</translation>
-    </message>
-    <message>
         <source>Cancel</source>
         <translation>Cancel</translation>
     </message>
@@ -2779,8 +2775,38 @@
         <translation>Waiting for the host to accept the PIN…</translation>
     </message>
     <message>
+        <source>Dish deletes its half of the pairing and will need the PIN again. %1 keeps its own record of this device until somebody removes it there.</source>
+        <translation>Dish deletes its half of the pairing and will need the PIN again. %1 keeps its own record of this device until somebody removes it there.</translation>
+    </message>
+    <message>
         <source>New code</source>
         <translation>New code</translation>
+    </message>
+    <message numerus="yes">
+        <source>%n bindings ride on it and will be dropped:</source>
+        <translation>
+            <numerusform>%n binding rides on it and will be dropped:</numerusform>
+            <numerusform>%n bindings ride on it and will be dropped:</numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <source>Its session ends for the %n controllers on it.</source>
+        <translation>
+            <numerusform>Its session ends for the %n controller on it.</numerusform>
+            <numerusform>Its session ends for the %n controllers on it.</numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>%1 did not answer. Check that it is switched on and on this network.</source>
+        <translation>%1 did not answer. Check that it is switched on and on this network.</translation>
+    </message>
+    <message>
+        <source>%1 turned the request down. Check that pairing is allowed on the host.</source>
+        <translation>%1 turned the request down. Check that pairing is allowed on the host.</translation>
+    </message>
+    <message>
+        <source>Dish could not prepare its own identity for pairing. Try again.</source>
+        <translation>Dish could not prepare its own identity for pairing. Try again.</translation>
     </message>
     <message>
         <source>Paired</source>
@@ -4167,6 +4193,18 @@
     <message>
         <source>Type %1 into the Moonlight or Sunshine page on %2.</source>
         <translation>Type %1 into the Moonlight or Sunshine page on %2.</translation>
+    </message>
+    <message>
+        <source>%1 did not answer. Check that it is switched on and on this network.</source>
+        <translation>%1 did not answer. Check that it is switched on and on this network.</translation>
+    </message>
+    <message>
+        <source>%1 turned the request down. Check that pairing is allowed on the host.</source>
+        <translation>%1 turned the request down. Check that pairing is allowed on the host.</translation>
+    </message>
+    <message>
+        <source>Dish could not prepare its own identity for pairing. Try again.</source>
+        <translation>Dish could not prepare its own identity for pairing. Try again.</translation>
     </message>
     <message>
         <source>Check that the code went into the right host, then try again.</source>

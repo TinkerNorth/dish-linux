@@ -33,6 +33,7 @@ set(DISH_TEST_SOURCES
     test_moonlight_session_ui.cpp
     test_moonlight_pad_slots.cpp
     test_moonlight_binding_refcount.cpp
+    test_moonlight_host_lifecycle.cpp
     test_moonlight_button_map.cpp
     test_moonlight_host_repository.cpp
     test_atomic_counter.cpp

@@ -2737,10 +2737,6 @@
         <translation>Zaboraviti %1?</translation>
     </message>
     <message>
-        <source>Its pairing is deleted. You will need the PIN again.</source>
-        <translation>Njegovo uparivanje se briše. Ponovo će vam trebati PIN.</translation>
-    </message>
-    <message>
         <source>Cancel</source>
         <translation>Otkaži</translation>
     </message>
@@ -2793,8 +2789,40 @@
         <translation>Čeka se da host prihvati PIN…</translation>
     </message>
     <message>
+        <source>Dish deletes its half of the pairing and will need the PIN again. %1 keeps its own record of this device until somebody removes it there.</source>
+        <translation>Dish briše svoju polovinu uparivanja i ponovo će tražiti PIN. %1 zadržava vlastiti zapis o ovom uređaju dok ga tamo neko ne ukloni.</translation>
+    </message>
+    <message>
         <source>New code</source>
         <translation>Novi kod</translation>
+    </message>
+    <message numerus="yes">
+        <source>%n bindings ride on it and will be dropped:</source>
+        <translation>
+            <numerusform>%n povezivanje se oslanja na njega i bit će uklonjeno:</numerusform>
+            <numerusform>%n povezivanja se oslanjaju na njega i bit će uklonjena:</numerusform>
+            <numerusform>%n povezivanja se oslanja na njega i bit će uklonjeno:</numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <source>Its session ends for the %n controllers on it.</source>
+        <translation>
+            <numerusform>Sesija se završava za %n kontroler na njemu.</numerusform>
+            <numerusform>Sesija se završava za %n kontrolera na njemu.</numerusform>
+            <numerusform>Sesija se završava za %n kontrolera na njemu.</numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>%1 did not answer. Check that it is switched on and on this network.</source>
+        <translation>%1 nije odgovorio. Provjerite je li uključen i na ovoj mreži.</translation>
+    </message>
+    <message>
+        <source>%1 turned the request down. Check that pairing is allowed on the host.</source>
+        <translation>%1 je odbio zahtjev. Provjerite je li uparivanje dozvoljeno na hostu.</translation>
+    </message>
+    <message>
+        <source>Dish could not prepare its own identity for pairing. Try again.</source>
+        <translation>Dish nije mogao pripremiti vlastiti identitet za uparivanje. Pokušajte ponovo.</translation>
     </message>
     <message>
         <source>Paired</source>
@@ -4186,6 +4214,18 @@
     <message>
         <source>Type %1 into the Moonlight or Sunshine page on %2.</source>
         <translation>Upišite %1 na Moonlight ili Sunshine stranicu na %2.</translation>
+    </message>
+    <message>
+        <source>%1 did not answer. Check that it is switched on and on this network.</source>
+        <translation>%1 nije odgovorio. Provjerite je li uključen i na ovoj mreži.</translation>
+    </message>
+    <message>
+        <source>%1 turned the request down. Check that pairing is allowed on the host.</source>
+        <translation>%1 je odbio zahtjev. Provjerite je li uparivanje dozvoljeno na hostu.</translation>
+    </message>
+    <message>
+        <source>Dish could not prepare its own identity for pairing. Try again.</source>
+        <translation>Dish nije mogao pripremiti vlastiti identitet za uparivanje. Pokušajte ponovo.</translation>
     </message>
     <message>
         <source>Check that the code went into the right host, then try again.</source>

@@ -77,6 +77,9 @@ ColumnLayout {
     // phrases them itself.
     readonly property string refusal: page.session.refusal !== undefined
                                       ? page.session.refusal : ""
+    // Which refusal PairingRefused was. One state, several next steps.
+    readonly property string pairingReason: page.session.pairingReason !== undefined
+                                            ? page.session.pairingReason : ""
 
     function refresh() {
         if (!page.draft.hasDestination || !page.draft.hostIsMoonlight) {
@@ -391,7 +394,7 @@ ColumnLayout {
             return qsTr("Type %1 into the Moonlight or Sunshine page on %2.")
                      .arg(App.moonlightPairingPin).arg(page.hostName);
         case "pairingRefused":
-            return qsTr("Check that the code went into the right host, then try again.");
+            return page.pairFailedText();
         case "unreachable":
             return qsTr("Check that the host is switched on and on this network, then try again.");
         case "remembered":
@@ -424,6 +427,23 @@ ColumnLayout {
             return page.liveBody();
         }
         return "";
+    }
+
+    // The same ladder the host screen shows, off the same token: an attempt
+    // that never reached the wire must not be reported as a mistyped PIN.
+    function pairFailedText() {
+        switch (page.pairingReason) {
+        case "unreachable":
+            return qsTr("%1 did not answer. Check that it is switched on and on this network.")
+                     .arg(page.hostName);
+        case "declined":
+            return qsTr("%1 turned the request down. Check that pairing is allowed on the host.")
+                     .arg(page.hostName);
+        case "crypto":
+            return qsTr("Dish could not prepare its own identity for pairing. Try again.");
+        default:
+            return qsTr("Check that the code went into the right host, then try again.");
+        }
     }
 
     function liveBody() {
