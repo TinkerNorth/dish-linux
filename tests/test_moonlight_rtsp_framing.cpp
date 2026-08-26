@@ -48,10 +48,6 @@ class FixtureHost {
     int connections() const { return connections_; }
     const QList<QByteArray>& requests() const { return requests_; }
 
-    // Stops accepting, so a client that reuses a socket cannot be rescued by a
-    // second connection succeeding.
-    void closeListener() { server_.close(); }
-
   private:
     void accept() {
         QTcpSocket* sock = server_.nextPendingConnection();
