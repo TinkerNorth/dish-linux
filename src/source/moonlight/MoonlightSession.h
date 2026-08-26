@@ -79,7 +79,7 @@ class MoonlightSession : public QObject {
     // Clears the pad's bit and sends the unplug, then reports how many
     // controllers are left. Zero is the caller's cue to tear the session down.
     std::size_t detachController(const QString& slotId);
-    std::size_t controllerCount() const { return pads_.size(); }
+    std::size_t controllerCount() const { return slots_.size(); }
     std::optional<std::uint8_t> controllerNumber(const QString& slotId) const;
     QString slotForController(std::uint8_t number) const;
 
