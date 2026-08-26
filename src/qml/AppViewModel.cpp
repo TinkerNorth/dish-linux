@@ -800,7 +800,7 @@ void AppViewModel::pairMoonlight(const QString& uuid) { model_->moonlight()->pai
 
 void AppViewModel::cancelMoonlightPairing() { model_->moonlight()->cancelPairing(); }
 
-void AppViewModel::forgetMoonlight(const QString& uuid) { model_->moonlight()->forget(uuid); }
+void AppViewModel::forgetMoonlight(const QString& uuid) { model_->forgetMoonlightHost(uuid); }
 
 void AppViewModel::probeMoonlightHost(const QString& uuid) { model_->moonlight()->probe(uuid); }
 
@@ -842,6 +842,10 @@ QVariantMap AppViewModel::moonlightSession(const QString& uuid, const QString& s
         QString::fromLatin1(moonlight::hostTrustToken(moonlight::hostTrust(inputs)));
     m[QStringLiteral("controllers")] = manager->controllerCount(uuid);
     m[QStringLiteral("maxControllers")] = static_cast<int>(moonlight::kMaxPads);
+    // PairingRefused is one state and several reasons, and they want different
+    // advice: a rejected PIN is "try again", a host that never answered is
+    // "check it is switched on". The token; the copy is QML's.
+    m[QStringLiteral("pairingReason")] = manager->pairingRefusedReason(uuid);
 
     QString hostName;
     QString appId;

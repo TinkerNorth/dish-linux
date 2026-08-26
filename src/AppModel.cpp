@@ -483,6 +483,23 @@ QString AppModel::moonlightBoundHostFor(const QString& slotId) const {
     return moonlight_->boundHostFor(slotId);
 }
 
+void AppModel::forgetMoonlightHost(const QString& hostUuid) {
+    if (hostUuid.isEmpty()) { return; }
+    // UNBIND BEFORE FORGETTING, the order ConnectionCoordinator uses for a
+    // satellite. moonlightRouting_ holds lambdas that captured the session by
+    // raw pointer and is read on the SDL gamepad thread, so a route still in
+    // the table when forget() deletes that session is a use after free there.
+    // unbindMoonlightSlot also sends each pad its farewell CONTROLLER_MULTI and
+    // hands the app back behind the last one, instead of dropping the session.
+    for (const auto& slotId : moonlight_->boundSlots(hostUuid)) { unbindMoonlightSlot(slotId); }
+    // The Emulate overrides are keyed (connection, slot), and the connection
+    // here IS the host. Left behind, they would seed a later re-pairing of the
+    // same box with picks made for a trust relationship that no longer exists.
+    typeStore_.clearConnection(hostUuid.toStdString());
+    moonlight_->forget(hostUuid);
+    rebuild();
+}
+
 std::optional<models::ConnectionSummary> AppModel::moonlightSummary(const QString& uuid) const {
     const auto row = moonlight_->row(uuid);
     if (!row) { return std::nullopt; }

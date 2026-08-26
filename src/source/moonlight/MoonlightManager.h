@@ -99,6 +99,10 @@ class MoonlightManager : public QObject {
     bool pairingActive() const { return pairingFlow_->active(); }
     // The last attempt finished not-ok and the user has not started another.
     bool pairingRefused(const QString& uuid) const;
+    // Why it finished not-ok, as the pairingFinished token. Empty when the last
+    // attempt on this host did not fail. The surfaces need it because a refused
+    // PIN and an unreachable host are the same STATE and different advice.
+    QString pairingRefusedReason(const QString& uuid) const;
 
     // Re-asks the host what it is: reachable, still paired, still the same
     // machine. Client-initiated by definition; call it on entering a screen and
@@ -111,6 +115,11 @@ class MoonlightManager : public QObject {
     void refreshApps(const QString& uuid);
     QList<MoonlightApp> apps(const QString& uuid) const;
 
+    // Drops EVERYTHING this subsystem holds about one host: the remembered row
+    // (the pairing anchor lives in it, so the pin goes with it), the discovered
+    // entry, the probe verdict, the app list, the bindings and the session that
+    // carried them. Callers above own the routes and the per-slot picks and
+    // must retire those first; AppModel::forgetMoonlightHost is that caller.
     void forget(const QString& uuid);
 
     // Tells a paired host to end whatever app it is running, tearing down our
@@ -188,6 +197,21 @@ class MoonlightManager : public QObject {
 
     void ensureIdentityLoaded();
     void onDiscovered(const QList<DiscoveredMoonlightHost>& hosts);
+    // Records the refusal, says so in the log, and tells the surfaces. Every
+    // way pair() can end without reaching the wire goes through here: a Pair
+    // that returns quietly is a Pair the user watches do nothing.
+    void refusePairing(const QString& uuid, const QString& reasonToken);
+    // Promotes a host the user has ACTED on from the scan set to the remembered
+    // store, still unpaired. Interest is durable: a host that exists only in a
+    // discovery result cannot carry a binding, keep an app pick or survive the
+    // next sweep, so choosing it as a destination has to write it down.
+    void rememberDestination(const QString& uuid);
+    // Bumped by forget(). A reply captures the epoch its request was made
+    // under and drops itself when it no longer matches, because probes_ and
+    // appCache_ are written through QHash::operator[], which INSERTS: a late
+    // callback would otherwise re-create the record forget() just dropped and
+    // leave a forgotten host rendering the trust it had before.
+    quint64 epochOf(const QString& uuid) const { return epochs_.value(uuid, 0); }
     MoonlightSession* ensureSession(const repository::MoonlightHost& host);
     void wireSession(MoonlightSession* session, const QString& uuid);
     // Starts the session if nothing is running on it yet. The app comes from
@@ -212,8 +236,13 @@ class MoonlightManager : public QObject {
     QHash<QString, HostProbe> probes_;
     QHash<QString, AppCache> appCache_;
     // The host whose last pairing attempt was refused, cleared when another
-    // one starts or the row is forgotten.
+    // one starts or the row is forgotten, and the token that says why.
     QString pairingRefusedUuid_;
+    QString pairingRefusedReason_;
+    // uuid -> forget generation. Absent is generation 0, so a host nobody has
+    // forgotten costs nothing; the entry SURVIVES forget() because it is the
+    // tombstone the in-flight replies are compared against.
+    QHash<QString, quint64> epochs_;
     // slotId -> host uuid. The binding table; the session's own PadSlots owns
     // the controller numbers.
     QHash<QString, QString> bindings_;

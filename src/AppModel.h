@@ -216,6 +216,11 @@ class AppModel : public QObject {
     // The Moonlight host this slot drives, or empty. The satellite equivalent
     // is ConnectionHub::bindings().
     QString moonlightBoundHostFor(const QString& slotId) const;
+    // Drops a remembered Moonlight host and everything ABOVE the subsystem that
+    // was keyed on it. The satellite equivalent is
+    // ConnectionCoordinator::forgetConnection, and it unbinds first for the
+    // same reason: the routes have to go before the session they point at.
+    void forgetMoonlightHost(const QString& hostUuid);
 
   signals:
     // Emitted after any field of state() changes.

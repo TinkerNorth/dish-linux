@@ -396,8 +396,10 @@ class AppViewModel : public QObject {
     // Everything the Moonlight session section renders, for one host seen from
     // one binding (slotId may be empty for a binding that does not exist yet):
     // { state, blocksApply, hostName, appId, appName, controllers,
-    //   controllerNumber, trust }. `state` is one of the twenty-one lowercase
-    // tokens in core/moonlight/MoonlightSessionUi.h; QML localizes it.
+    //   controllerNumber, trust, pairingReason, refusal }. `state` is one of
+    // the twenty-one lowercase tokens in core/moonlight/MoonlightSessionUi.h;
+    // QML localizes it. `pairingReason` is "" unless `state` is pairingRefused,
+    // and then it is the pairingFinished token that says which refusal it was.
     Q_INVOKABLE QVariantMap moonlightSession(const QString& uuid, const QString& slotId) const;
     // What Auto resolves to for this pad: a source with gyro or accelerometer
     // becomes PlayStation, everything else Xbox. Returns the wire type byte.

@@ -140,7 +140,10 @@ std::optional<MoonlightRow> MoonlightManager::row(const QString& uuid) const {
 }
 
 void MoonlightManager::startDiscovery() {
-    if (scanning_) { return; }
+    if (scanning_) {
+        qCDebug(lcMoon) << "discovery already running; coalesced";
+        return;
+    }
     scanning_ = true;
     emit scanningChanged();
     auto* watcher = new QFutureWatcher<QList<DiscoveredMoonlightHost>>(this);
@@ -155,8 +158,18 @@ void MoonlightManager::startDiscovery() {
 
 void MoonlightManager::onDiscovered(const QList<DiscoveredMoonlightHost>& hosts) {
     for (const auto& found : hosts) {
-        // Until serverinfo returns the real uuid, key on address; a later
-        // pairing rekeys the row to the host uuid.
+        // ONE HOST, ONE ID, and the address is it. mDNS here advertises no
+        // uniqueid, so the address is the only identifier both the found and
+        // the typed-in routes have on first contact; keying on it everywhere
+        // means a record, a pin and a binding never disagree about which host
+        // they mean. serverinfo's uuid is read for the REPLACED check and
+        // never promoted to a key, because a rekey would have to migrate all
+        // three at once. The cost is that a host which moves address arrives
+        // as a new row, which is the same trade the satellite pool makes.
+        //
+        // A sweep MERGES. Nothing here removes an entry a previous sweep found,
+        // so a pass that answers with less than the last one cannot delete a
+        // host the user is in the middle of using.
         const QString key = synthUuidForAddress(found.address);
         MoonlightRow row;
         row.uuid = key;
@@ -165,6 +178,7 @@ void MoonlightManager::onDiscovered(const QList<DiscoveredMoonlightHost>& hosts)
         row.discovered = true;
         discovered_.insert(key, row);
     }
+    qCInfo(lcMoon) << "discovery found" << hosts.size() << "host(s)";
     emit rowsChanged();
 }
 
@@ -185,14 +199,51 @@ void MoonlightManager::addManualHost(const QString& address, const QString& name
     stub.httpPort = httpPort;
     stub.httpsPort = httpsPort;
     hostRepo_.upsert(stub);
+    qCInfo(lcMoon) << "added host by address" << address << httpPort << httpsPort;
     emit rowsChanged();
+}
+
+// A Pair that ends before the wire is still an ANSWER. It records the refusal
+// so hostTrust and sessionUiState can render PairingRefused, says why in the
+// log, and re-emits the row set; without all three the PIN sheet sits on an
+// indeterminate spinner and four empty digit cells forever, which is exactly
+// what "I pressed Pair and nothing happened" looks like from the outside.
+void MoonlightManager::refusePairing(const QString& uuid, const QString& reasonToken) {
+    pairingRefusedUuid_ = uuid;
+    pairingRefusedReason_ = reasonToken;
+    qCWarning(lcMoon) << "pairing with" << uuid << "refused before the wire:" << reasonToken;
+    emit pairingChanged();
+    emit pairingFinished(uuid, false, reasonToken);
+    emit rowsChanged();
+}
+
+void MoonlightManager::rememberDestination(const QString& uuid) {
+    if (uuid.isEmpty() || hostRepo_.get(uuid)) { return; }
+    const auto it = discovered_.constFind(uuid);
+    if (it == discovered_.constEnd()) {
+        qCWarning(lcMoon) << "cannot remember" << uuid << ": no address on file for it";
+        return;
+    }
+    // Unpaired on purpose: this records INTEREST, not trust. The anchor is
+    // still only ever written by a pairing handshake that verified it.
+    repository::MoonlightHost host;
+    host.uuid = uuid;
+    host.name = it->name;
+    host.address = it->address;
+    hostRepo_.upsert(host);
+    qCInfo(lcMoon) << "remembered" << uuid << "at" << it->address << "as a binding destination";
 }
 
 void MoonlightManager::pair(const QString& uuid) {
     ensureIdentityLoaded();
     pairingRefusedUuid_.clear();
+    pairingRefusedReason_.clear();
+    if (uuid.isEmpty()) {
+        qCWarning(lcMoon) << "pair called with no host";
+        return;
+    }
     if (!identityReady_) {
-        emit pairingFinished(uuid, false, QStringLiteral("crypto"));
+        refusePairing(uuid, QStringLiteral("crypto"));
         return;
     }
     QString address;
@@ -205,28 +256,38 @@ void MoonlightManager::pair(const QString& uuid) {
     } else if (const auto it = discovered_.constFind(uuid); it != discovered_.constEnd()) {
         address = it->address;
     }
+    // The forgotten-then-paired case: a Forget drops both the remembered row
+    // and the discovered one, so a sheet still holding the old id has nowhere
+    // to dial. It has to SAY so rather than open on a PIN that never arrives.
     if (address.isEmpty()) {
-        emit pairingFinished(uuid, false, QStringLiteral("unreachable"));
+        refusePairing(uuid, QStringLiteral("unreachable"));
         return;
     }
     const auto identity = identityRepo_.identity();
     if (!identity) {
-        emit pairingFinished(uuid, false, QStringLiteral("crypto"));
+        refusePairing(uuid, QStringLiteral("crypto"));
         return;
     }
+    qCInfo(lcMoon) << "pairing with" << uuid << "at" << address << httpPort << httpsPort;
     pairingFlow_->start(uuid, address, httpPort, httpsPort, identity->certPem,
                         identity->privateKeyPem, deviceName_);
     emit pairingChanged();
 }
 
 void MoonlightManager::cancelPairing() {
+    qCInfo(lcMoon) << "pairing with" << pairingFlow_->hostUuid() << "cancelled by the user";
     pairingFlow_->cancel();
     pairingRefusedUuid_.clear();
+    pairingRefusedReason_.clear();
     emit pairingChanged();
 }
 
 bool MoonlightManager::pairingRefused(const QString& uuid) const {
     return !uuid.isEmpty() && pairingRefusedUuid_ == uuid;
+}
+
+QString MoonlightManager::pairingRefusedReason(const QString& uuid) const {
+    return pairingRefused(uuid) ? pairingRefusedReason_ : QString();
 }
 
 void MoonlightManager::probe(const QString& uuid) {
@@ -239,10 +300,20 @@ void MoonlightManager::probe(const QString& uuid) {
     } else if (const auto it = discovered_.constFind(uuid); it != discovered_.constEnd()) {
         address = it->address;
     }
-    if (address.isEmpty()) { return; }
+    if (address.isEmpty()) {
+        // Nothing to ask, so probeFinished has to fire anyway: a caller that
+        // waits for it (the host screen re-probes every row on open) would
+        // otherwise sit on Checking for a host that no longer exists.
+        qCWarning(lcMoon) << "probe of" << uuid << "skipped: no address on file";
+        emit probeFinished(uuid);
+        return;
+    }
 
     HostProbe& probe = probes_[uuid];
-    if (probe.inFlight) { return; }
+    if (probe.inFlight) {
+        qCDebug(lcMoon) << "probe of" << address << "already in flight; coalesced";
+        return;
+    }
     probe.inFlight = true;
     emit rowsChanged();
 
@@ -251,9 +322,17 @@ void MoonlightManager::probe(const QString& uuid) {
     // they are not read here at all.
     ensureIdentityLoaded();
     const QString rememberedUuid = stored ? stored->uuid : QString();
+    const quint64 epoch = epochOf(uuid);
     http_->getPlain(
         address, httpPort, QStringLiteral("/serverinfo"), QUrlQuery(),
-        [this, uuid, rememberedUuid, address](int status, const QByteArray& body) {
+        [this, uuid, rememberedUuid, address, epoch](int status, const QByteArray& body) {
+            if (epochOf(uuid) != epoch) {
+                // Forgotten while this was in flight. probes_[uuid] would
+                // INSERT, handing a stranger the verdict of the host it used
+                // to be, so the answer is dropped instead.
+                qCInfo(lcMoon) << "probe reply for" << address << "arrived after a forget";
+                return;
+            }
             HostProbe& result = probes_[uuid];
             result.inFlight = false;
             const std::optional<moonxml::ServerInfo> info =
@@ -292,17 +371,29 @@ void MoonlightManager::refreshApps(const QString& uuid) {
         cache.inFlight = false;
         cache.read = false;
         cache.failed = true;
+        qCInfo(lcMoon) << "applist on" << uuid << "not attempted: host is not paired";
         emit appsChanged(uuid);
         return;
     }
-    if (cache.inFlight) { return; }
+    if (cache.inFlight) {
+        qCDebug(lcMoon) << "applist on" << host->address << "already in flight; coalesced";
+        return;
+    }
     cache.inFlight = true;
     cache.failed = false;
     emit appsChanged(uuid);
 
+    const quint64 epoch = epochOf(uuid);
     http_->getTls(host->address, host->httpsPort, QStringLiteral("/applist"), QUrlQuery(),
                   host->serverCertPem,
-                  [this, uuid, address = host->address](int status, const QByteArray& body) {
+                  [this, uuid, epoch, address = host->address](int status, const QByteArray& body) {
+                      if (epochOf(uuid) != epoch) {
+                          // As in probe(): both appCache_ and probes_ below are
+                          // written through operator[], so a reply that outlived
+                          // a Forget would re-create what the Forget dropped.
+                          qCInfo(lcMoon) << "applist reply for" << address << "outlived a forget";
+                          return;
+                      }
                       AppCache& result = appCache_[uuid];
                       result.inFlight = false;
                       const std::string xml = body.toStdString();
@@ -361,7 +452,16 @@ void MoonlightManager::wireSession(MoonlightSession* session, const QString& uui
     QObject::connect(session, &MoonlightSession::linkStateChanged, this,
                      &MoonlightManager::rowsChanged);
     QObject::connect(session, &MoonlightSession::failed, this,
-                     [this, uuid](const QString& reasonToken) {
+                     [this, session, uuid](const QString& reasonToken) {
+                         // A session already out of the table is one forget()
+                         // is tearing down. Its verdict is about a host that no
+                         // longer exists, and probes_[uuid] would insert it.
+                         if (sessions_.value(uuid, nullptr) != session) {
+                             qCInfo(lcMoon)
+                                 << "session on" << uuid << "failed after a forget:" << reasonToken;
+                             return;
+                         }
+                         qCWarning(lcMoon) << "session on" << uuid << "failed:" << reasonToken;
                          if (reasonToken == QLatin1String("trustLost") ||
                              reasonToken == QLatin1String("notPaired")) {
                              probes_[uuid].trustRejected = true;
@@ -407,7 +507,10 @@ void MoonlightManager::ensureSessionRunning(MoonlightSession* session,
 std::optional<std::uint8_t>
 MoonlightManager::bindController(const QString& slotId, const QString& uuid, int storedType,
                                  const moonlight::SourceCapabilities& source) {
-    if (slotId.isEmpty() || uuid.isEmpty()) { return std::nullopt; }
+    if (slotId.isEmpty() || uuid.isEmpty()) {
+        qCWarning(lcMoon) << "bind refused: slot" << slotId << "host" << uuid;
+        return std::nullopt;
+    }
     // A slot drives exactly one destination.
     if (const QString prior = bindings_.value(slotId); !prior.isEmpty() && prior != uuid) {
         unbindController(slotId);
@@ -429,6 +532,10 @@ MoonlightManager::bindController(const QString& slotId, const QString& uuid, int
     bindings_.insert(slotId, uuid);
 
     ensureIdentityLoaded();
+    // A destination the user picked stops being a scan result and becomes a
+    // record. A binding on a host that lives only in the discovered set would
+    // name nothing the moment the sweep that found it is replaced.
+    rememberDestination(uuid);
     const auto host = hostRepo_.get(uuid);
     if (!host || !host->paired()) {
         // The binding stands; the session waits for trust. Nothing about the
@@ -454,15 +561,22 @@ MoonlightManager::bindController(const QString& slotId, const QString& uuid, int
         return std::nullopt;
     }
     ensureSessionRunning(session, *host);
+    qCInfo(lcMoon) << "bound" << slotId << "to" << uuid << "as controller" << *number;
     emit rowsChanged();
     return number;
 }
 
 void MoonlightManager::unbindController(const QString& slotId) {
     const QString uuid = bindings_.take(slotId);
-    if (uuid.isEmpty()) { return; }
+    if (uuid.isEmpty()) {
+        qCDebug(lcMoon) << "unbind of" << slotId << "is a no-op: no Moonlight binding on it";
+        return;
+    }
+    qCInfo(lcMoon) << "unbinding" << slotId << "from" << uuid;
     auto* session = sessions_.value(uuid, nullptr);
     if (session == nullptr) {
+        // A binding that never got a session, which is every binding made
+        // before its host was paired. The intent is retired and that is all.
         emit rowsChanged();
         return;
     }
@@ -548,6 +662,8 @@ void MoonlightManager::quitHostApp(const QString& uuid) {
     ensureIdentityLoaded();
     const auto host = hostRepo_.get(uuid);
     if (!host || !host->paired()) {
+        // /cancel is HTTPS and paired-only, so there is nothing to send.
+        qCWarning(lcMoon) << "cancel on" << uuid << "not attempted: host is not paired";
         emit hostAppCancelled(uuid, false);
         return;
     }
@@ -577,35 +693,68 @@ void MoonlightManager::quitHostApp(const QString& uuid) {
 }
 
 void MoonlightManager::forget(const QString& uuid) {
-    for (const auto& slotId : boundSlots(uuid)) { bindings_.remove(slotId); }
+    if (uuid.isEmpty()) {
+        qCWarning(lcMoon) << "forget called with no host";
+        return;
+    }
+    // THE EPOCH FIRST. Every request already on the wire for this host captured
+    // the old one and will now drop its own reply, which is what stops a probe
+    // or an applist landing a moment later from re-creating the records the
+    // rest of this function removes.
+    ++epochs_[uuid];
+    // A pairing still walking its phases would finish by upserting the row
+    // again, certificate and all: the host list would read empty while the
+    // pairing anchor stayed on file, and the next pair would meet a pin the
+    // user believes they deleted. cancel() does not emit finished().
+    if (pairingFlow_->active() && pairingFlow_->hostUuid() == uuid) {
+        qCInfo(lcMoon) << "forget cancels the pairing in flight with" << uuid;
+        pairingFlow_->cancel();
+    }
+    const QStringList dropped = boundSlots(uuid);
+    for (const auto& slotId : dropped) { bindings_.remove(slotId); }
     if (auto* session = sessions_.take(uuid)) {
         session->stop(/*handBackApp=*/true);
         session->deleteLater();
     }
+    // The pairing anchor lives IN the row, so removing the row removes the pin.
     hostRepo_.remove(uuid);
     discovered_.remove(uuid);
     probes_.remove(uuid);
     appCache_.remove(uuid);
-    if (pairingRefusedUuid_ == uuid) { pairingRefusedUuid_.clear(); }
+    if (pairingRefusedUuid_ == uuid) {
+        pairingRefusedUuid_.clear();
+        pairingRefusedReason_.clear();
+    }
+    qCInfo(lcMoon) << "forgot" << uuid << "and the" << dropped.size() << "bindings it carried";
     emit rowsChanged();
 }
 
 void MoonlightManager::setLastApp(const QString& uuid, const QString& appId,
                                   const QString& appName) {
-    if (auto host = hostRepo_.get(uuid)) {
-        host->lastAppId = appId;
-        host->lastAppName = appName;
-        hostRepo_.upsert(*host);
-        emit rowsChanged();
+    auto host = hostRepo_.get(uuid);
+    if (!host) {
+        // Only a REMEMBERED host has somewhere to keep a pick. Dropping it
+        // quietly is how an app choice silently fails to stick, so it is said
+        // out loud instead.
+        qCWarning(lcMoon) << "app pick" << appId << "not stored: no remembered host" << uuid;
+        return;
     }
+    host->lastAppId = appId;
+    host->lastAppName = appName;
+    hostRepo_.upsert(*host);
+    qCInfo(lcMoon) << "host" << uuid << "will next run" << appId;
+    emit rowsChanged();
 }
 
 void MoonlightManager::setControllerType(const QString& uuid, int type) {
-    if (auto host = hostRepo_.get(uuid)) {
-        host->controllerType = moonlight::migrateControllerType(type);
-        hostRepo_.upsert(*host);
-        emit rowsChanged();
+    auto host = hostRepo_.get(uuid);
+    if (!host) {
+        qCWarning(lcMoon) << "controller type" << type << "not stored: no remembered host" << uuid;
+        return;
     }
+    host->controllerType = moonlight::migrateControllerType(type);
+    hostRepo_.upsert(*host);
+    emit rowsChanged();
 }
 
 MoonlightSession* MoonlightManager::session(const QString& uuid) const {
