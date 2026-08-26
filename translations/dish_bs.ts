@@ -3808,6 +3808,10 @@
         <translation>Satelit nije prihvatio taj kontroler — povezivanje poništeno.</translation>
     </message>
     <message>
+        <source>That host is already running an app. Stop it on the host, then try again.</source>
+        <translation>Taj host već pokreće aplikaciju. Zaustavi je na hostu, pa pokušaj ponovo.</translation>
+    </message>
+    <message>
         <source>The Moonlight session ended.</source>
         <translation>Moonlight sesija je završena.</translation>
     </message>

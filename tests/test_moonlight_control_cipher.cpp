@@ -103,6 +103,47 @@ TEST_CASE("seal/open round-trips across an evolving sequence", "[moonlight][cont
     }
 }
 
+TEST_CASE("the GCM IV keeps only the low byte of the sequence", "[moonlight][controlcipher]") {
+    // ONLY THE LOW BYTE, however wrong that looks. The host builds the same IV
+    // with `std::array<std::uint8_t, 16> iv = {0}; iv[0] = seq;`, where
+    // assigning a u32 into a u8 drops the top three bytes. Writing all four
+    // agrees with the host for exactly 256 packets and disagrees forever after:
+    // a live Sunshine host accepted 256 sealed packets and answered the 257th
+    // with "Failed to verify tag", ending the session just past two minutes.
+    ControlCipher cipher;
+    REQUIRE(cipher.setKey(sessionKey()));
+    const auto plaintext = bytesOf("0002080004000000");
+
+    const auto sealedAt = [&](std::uint32_t seq) {
+        std::array<std::uint8_t, 256> out{};
+        const std::size_t len = cipher.seal(seq, plaintext.data(), plaintext.size(), out.data());
+        REQUIRE(len > 0);
+        // Past the [type][len][seq] header: tag + ciphertext, the part the IV
+        // decides. The header still carries the FULL 32-bit sequence.
+        return util::toHex(out.data() + ControlCipher::kHeaderSize + ControlCipher::kSeqSize,
+                           len - ControlCipher::kHeaderSize - ControlCipher::kSeqSize);
+    };
+
+    // Sequences 256 apart share an IV, so they seal to identical bytes. A
+    // four-byte IV would make every one of these differ.
+    CHECK(sealedAt(0) == sealedAt(256));
+    CHECK(sealedAt(0) == sealedAt(512));
+    CHECK(sealedAt(0) == sealedAt(0x01000000));
+    CHECK(sealedAt(1) == sealedAt(257));
+    CHECK(sealedAt(255) == sealedAt(511));
+    CHECK(sealedAt(2) == sealedAt(70000 - (70000 % 256) + 2));
+    // Neighbours inside one 256-packet cycle still differ.
+    CHECK(sealedAt(0) != sealedAt(1));
+    CHECK(sealedAt(255) != sealedAt(0));
+
+    // The wire header carries the untruncated sequence either way.
+    std::array<std::uint8_t, 256> out{};
+    const std::size_t len = cipher.seal(300, plaintext.data(), plaintext.size(), out.data());
+    REQUIRE(len > 0);
+    CHECK(util::toHex(out.data() + ControlCipher::kHeaderSize, ControlCipher::kSeqSize) ==
+          "2c010000");
+}
+
 TEST_CASE("a tampered packet is rejected", "[moonlight][controlcipher]") {
     ControlCipher cipher;
     REQUIRE(cipher.setKey(sessionKey()));

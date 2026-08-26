@@ -3792,6 +3792,10 @@
         <translation>Le satellite n&apos;a pas accepté cette manette — liaison annulée.</translation>
     </message>
     <message>
+        <source>That host is already running an app. Stop it on the host, then try again.</source>
+        <translation>Cet hôte exécute déjà une application. Arrêtez-la sur l’hôte, puis réessayez.</translation>
+    </message>
+    <message>
         <source>The Moonlight session ended.</source>
         <translation>La session Moonlight s’est terminée.</translation>
     </message>

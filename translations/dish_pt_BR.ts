@@ -3792,6 +3792,10 @@
         <translation>O satélite não aceitou esse controle — vínculo desfeito.</translation>
     </message>
     <message>
+        <source>That host is already running an app. Stop it on the host, then try again.</source>
+        <translation>Esse host já está executando um aplicativo. Feche-o no host e tente novamente.</translation>
+    </message>
+    <message>
         <source>The Moonlight session ended.</source>
         <translation>A sessão do Moonlight terminou.</translation>
     </message>

@@ -114,7 +114,13 @@ AppModel::AppModel(std::unique_ptr<source::WakeInhibitor> inhibitor, QObject* pa
     QObject::connect(moonlight_, &source::moon::MoonlightManager::rowsChanged, this,
                      &AppModel::stateChanged);
     QObject::connect(moonlight_, &source::moon::MoonlightManager::sessionFailed, this,
-                     [this](const QString&, const QString&) {
+                     [this](const QString&, const QString& reasonToken) {
+                         if (reasonToken == QLatin1String("appAlreadyRunning")) {
+                             emit errorMessage(
+                                 tr("That host is already running an app. Stop it on the host, "
+                                    "then try again."));
+                             return;
+                         }
                          emit errorMessage(tr("The Moonlight session ended."));
                      });
     // Host->local actuation shares the SDL output plumbing the satellite path

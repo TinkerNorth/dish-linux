@@ -26,6 +26,36 @@ std::optional<int> tagInt(std::string_view xml, std::string_view tag);
 // The <root status_code="..."> attribute; nullopt when absent.
 std::optional<int> statusCode(std::string_view xml);
 
+// The <root status_message="..."> attribute; nullopt when absent.
+std::optional<std::string> statusMessage(std::string_view xml);
+
+// The application-level result every reply carries on its root element,
+// independent of the HTTP status the transport reported. A host says no in the
+// BODY: /launch answers HTTP 200 with status_code="400" and status_message="An
+// app is already running on this host", so code that reads only the HTTP status
+// treats a refusal as success and fails later, naming the wrong thing.
+struct Status {
+    int code = 200;
+    std::string message;
+    // The <resume> flag a refusal carries: 1 means /resume would be accepted.
+    bool resume = false;
+
+    bool ok() const { return code >= 200 && code <= 299; }
+    // The host holds an app it will not start a second one beside.
+    bool appAlreadyRunning() const;
+};
+
+// A reply that names no status_code is read as success, which is what a host
+// that answers plainly sends. nullopt only when there is no root element.
+std::optional<Status> parseStatus(std::string_view xml);
+
+// One <SupportedDisplayMode><DisplayMode> row from /serverinfo.
+struct DisplayMode {
+    int width = 0;
+    int height = 0;
+    int refreshRate = 0;
+};
+
 // GET /serverinfo.
 struct ServerInfo {
     std::string hostname;
@@ -38,9 +68,17 @@ struct ServerInfo {
     int pairStatus = 0;
     // Running app id, 0 or -1 for none; drives launch-vs-resume.
     int currentGame = 0;
+    // Every <SupportedDisplayMode> row, in document order.
+    std::vector<DisplayMode> displayModes;
 
     bool busy() const { return state.find("_SERVER_BUSY") != std::string::npos; }
 };
+
+// The advertised mode closest to the host's own display: the largest area, and
+// the highest refresh rate offered at that size. nullopt when none were
+// advertised, so the caller keeps its own default rather than shrinking the
+// host's desktop.
+std::optional<DisplayMode> preferredDisplayMode(const std::vector<DisplayMode>& modes);
 
 // nullopt when the document has no status_code 200 root or lacks a hostname.
 std::optional<ServerInfo> parseServerInfo(std::string_view xml);

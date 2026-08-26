@@ -83,8 +83,59 @@ TEST_CASE("CONTROLLER_ARRIVAL layout", "[moonlight][wire]") {
     const std::size_t len = encodeControllerArrival(buf.data(), 2, moonproto::kControllerTypePs,
                                                     caps, moonproto::kStandardButtons);
     CHECK(len == kControllerArrivalSize);
-    // [06 02][0F 00][00 00 00 0B][04 00 00 55][ctrl][type][cap][buttons u32 LE]
-    CHECK(hexOf(buf.data(), len) == "06020f000000000b04000055020203fff70000");
+    // [06 02][10 00][00 00 00 0C][04 00 00 55][ctrl][type][cap][pad][buttons u32 LE]
+    CHECK(hexOf(buf.data(), len) == "060210000000000c0400005502020300fff70000");
+}
+
+TEST_CASE("CONTROLLER_ARRIVAL carries the struct's alignment pad", "[moonlight][wire]") {
+    // THE BODY IS EIGHT BYTES, NOT SEVEN. The fields add up to seven, but the
+    // host reads them out of a naturally aligned struct, so the u32 button mask
+    // starts at offset 4 and offset 3 is reserved. Sending seven shifted every
+    // field after the type by one and a live Sunshine host logged our
+    // capabilities 0x03 as `capabilities [FF03]` and our 0xFFFF button mask as
+    // `supportedButtonFlags [000000FF]`.
+    std::array<std::uint8_t, kMaxPlaintextSize> buf{};
+    const std::uint8_t caps = moonproto::kCapAnalogTriggers | moonproto::kCapRumble;
+    const std::size_t len =
+        encodeControllerArrival(buf.data(), 0, moonproto::kControllerTypeXbox, caps, 0xFFFF);
+    REQUIRE(len == 20);
+    CHECK(hexOf(buf.data(), len) == "060210000000000c0400005500010300ffff0000");
+
+    // Read back the way the host does: fixed offsets into the aligned struct.
+    const std::uint8_t* body = buf.data() + 12;
+    CHECK(body[0] == 0x00);                           // controller number
+    CHECK(body[1] == moonproto::kControllerTypeXbox); // type
+    CHECK(body[2] == caps);                           // capabilities
+    CHECK(body[3] == 0x00);                           // reserved / alignment pad
+    const std::uint32_t buttons =
+        static_cast<std::uint32_t>(body[4]) | (static_cast<std::uint32_t>(body[5]) << 8) |
+        (static_cast<std::uint32_t>(body[6]) << 16) | (static_cast<std::uint32_t>(body[7]) << 24);
+    CHECK(buttons == 0x0000FFFFU);
+    // The two words the host's own log prints, in its own spelling.
+    CHECK(static_cast<std::uint16_t>(body[2]) == 0x0003U);
+
+    // The wrapper counts the eight-byte body: packet_len 16, data_size 12.
+    CHECK(hexOf(buf.data() + 2, 2) == "1000");
+    CHECK(hexOf(buf.data() + 4, 4) == "0000000c");
+}
+
+TEST_CASE("CONTROLLER_ARRIVAL spans the whole emulated-type and capability range",
+          "[moonlight][wire]") {
+    std::array<std::uint8_t, kMaxPlaintextSize> buf{};
+    for (const std::uint8_t type :
+         {moonproto::kControllerTypeUnknown, moonproto::kControllerTypeXbox,
+          moonproto::kControllerTypePs, moonproto::kControllerTypeNintendo}) {
+        const std::uint8_t caps = static_cast<std::uint8_t>(
+            moonproto::kCapAnalogTriggers | moonproto::kCapRumble | moonproto::kCapTriggerRumble |
+            moonproto::kCapTouchpad | moonproto::kCapAccelerometer | moonproto::kCapGyro |
+            moonproto::kCapBattery | moonproto::kCapRgbLed);
+        REQUIRE(encodeControllerArrival(buf.data(), 3, type, caps, 0xFFFFFFFFU) ==
+                kControllerArrivalSize);
+        CHECK(buf[13] == type);
+        CHECK(buf[14] == 0xFF);
+        CHECK(buf[15] == 0x00);
+        CHECK(hexOf(buf.data() + 16, 4) == "ffffffff");
+    }
 }
 
 TEST_CASE("CONTROLLER_BATTERY layout", "[moonlight][wire]") {
@@ -142,6 +193,42 @@ TEST_CASE("RTP ping echoes the SETUP payload as SS_PING", "[moonlight][wire]") {
     CHECK(len == kRtpPingSize);
     CHECK(std::string(reinterpret_cast<const char*>(buf.data()), 16) == payload);
     CHECK(hexOf(buf.data() + 16, 4) == "04030201");
+}
+
+TEST_CASE("SS_PING is the live host's payload verbatim, not hex-decoded", "[moonlight][wire]") {
+    // A live Sunshine host sent X-SS-Ping-Payload: 68A75BBEEEA86826. It LOOKS
+    // like hex and is not: the host mints 16 printable ASCII characters and
+    // matches the session by those same 16 bytes. Hex-decoding it produces an
+    // 8-byte datagram, which lands in the 5..19 dead zone Wolf's udp-ping.cpp
+    // discards without a word.
+    std::array<std::uint8_t, kRtpPingSize> buf{};
+    const std::string payload = "68A75BBEEEA86826";
+    REQUIRE(payload.size() == 16);
+    const std::size_t len = encodeRtpPing(buf.data(), payload.data(), payload.size(), 0);
+    REQUIRE(len == 20);
+    CHECK(hexOf(buf.data(), len) == "3638413735424245454541383638323600000000");
+    // Byte for byte the header text; the hex decoding of it is 8 bytes long.
+    CHECK(std::string(reinterpret_cast<const char*>(buf.data()), 16) == payload);
+    const auto decoded = util::fromHex(payload);
+    REQUIRE(decoded.has_value());
+    CHECK(decoded->size() == 8);
+    CHECK(len != decoded->size());
+}
+
+TEST_CASE("the RTP ping encoder never emits a 5..19 byte datagram", "[moonlight][wire]") {
+    // LENGTH IS THE PROTOCOL. Wolf's rtp/udp-ping.cpp dispatches on the byte
+    // count alone: exactly 4 is the legacy PING, 20 or more is an SS_PING, and
+    // everything between is dropped silently, after which the host reports
+    // "Initial Ping Timeout" and ends the session ten seconds in.
+    std::array<std::uint8_t, kRtpPingSize> buf{};
+    const std::string filler(40, 'x');
+    for (std::size_t payloadLen = 0; payloadLen <= filler.size(); ++payloadLen) {
+        const std::size_t len = encodeRtpPing(buf.data(), filler.data(), payloadLen, 1);
+        CHECK((len == kRtpPingLegacySize || len == kRtpPingSize));
+        CHECK_FALSE((len > kRtpPingLegacySize && len < kRtpPingSize));
+    }
+    CHECK(encodeRtpPing(buf.data(), nullptr, 0, 1) == kRtpPingLegacySize);
+    CHECK(encodeRtpPing(buf.data(), nullptr, 16, 1) == kRtpPingLegacySize);
 }
 
 TEST_CASE("RTP ping pads a short payload and truncates a long one", "[moonlight][wire]") {

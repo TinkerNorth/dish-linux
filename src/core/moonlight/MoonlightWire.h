@@ -20,7 +20,7 @@ namespace dish::moonwire {
 
 // Total plaintext sizes ([type u16][len u16] header included).
 inline constexpr std::size_t kControllerMultiSize = 38;
-inline constexpr std::size_t kControllerArrivalSize = 19;
+inline constexpr std::size_t kControllerArrivalSize = 20;
 inline constexpr std::size_t kControllerMotionSize = 28;
 inline constexpr std::size_t kControllerBatterySize = 16;
 inline constexpr std::size_t kMouseMoveRelSize = 16;

@@ -3,6 +3,7 @@
 
 #include "core/moonlight/MoonlightXml.h"
 
+#include <cctype>
 #include <cstdlib>
 
 namespace dish::moonxml {
@@ -77,6 +78,44 @@ std::optional<std::string_view> rawTagValue(std::string_view xml, std::string_vi
     return std::nullopt;
 }
 
+// A reply that names no status_code is a plain success.
+constexpr int kDefaultOk = 200;
+
+bool containsNoCase(std::string_view haystack, std::string_view needle) {
+    if (needle.size() > haystack.size()) { return false; }
+    const auto lower = [](char c) {
+        return static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    };
+    for (std::size_t i = 0; i + needle.size() <= haystack.size(); ++i) {
+        std::size_t j = 0;
+        while (j < needle.size() && lower(haystack[i + j]) == lower(needle[j])) { ++j; }
+        if (j == needle.size()) { return true; }
+    }
+    return false;
+}
+
+// Every <DisplayMode> block inside <SupportedDisplayMode>, in document order.
+std::vector<DisplayMode> parseDisplayModes(std::string_view xml) {
+    std::vector<DisplayMode> modes;
+    const auto listed = rawTagValue(xml, "SupportedDisplayMode");
+    if (!listed) { return modes; }
+    std::string_view rest = *listed;
+    while (true) {
+        const std::size_t open = rest.find("<DisplayMode>");
+        if (open == std::string_view::npos) { break; }
+        const std::size_t close = rest.find("</DisplayMode>", open);
+        if (close == std::string_view::npos) { break; }
+        const std::string_view block = rest.substr(open, close - open);
+        DisplayMode mode;
+        mode.width = tagInt(block, "Width").value_or(0);
+        mode.height = tagInt(block, "Height").value_or(0);
+        mode.refreshRate = tagInt(block, "RefreshRate").value_or(0);
+        if (mode.width > 0 && mode.height > 0) { modes.push_back(mode); }
+        rest = rest.substr(close + 1);
+    }
+    return modes;
+}
+
 } // namespace
 
 std::optional<std::string> tagValue(std::string_view xml, std::string_view tag) {
@@ -101,8 +140,48 @@ std::optional<int> statusCode(std::string_view xml) {
     return parseInt(xml.substr(start, end - start));
 }
 
+std::optional<std::string> statusMessage(std::string_view xml) {
+    static constexpr std::string_view kAttr = "status_message=\"";
+    const std::size_t at = xml.find(kAttr);
+    if (at == std::string_view::npos) { return std::nullopt; }
+    const std::size_t start = at + kAttr.size();
+    const std::size_t end = xml.find('"', start);
+    if (end == std::string_view::npos) { return std::nullopt; }
+    return decodeEntities(xml.substr(start, end - start));
+}
+
+bool Status::appAlreadyRunning() const {
+    return !ok() && containsNoCase(message, "already running");
+}
+
+std::optional<Status> parseStatus(std::string_view xml) {
+    if (xml.find("<root") == std::string_view::npos) { return std::nullopt; }
+    Status status;
+    status.code = statusCode(xml).value_or(kDefaultOk);
+    status.message = statusMessage(xml).value_or("");
+    status.resume = tagInt(xml, "resume").value_or(0) == 1;
+    return status;
+}
+
+std::optional<DisplayMode> preferredDisplayMode(const std::vector<DisplayMode>& modes) {
+    std::optional<DisplayMode> best;
+    for (const auto& mode : modes) {
+        if (mode.width <= 0 || mode.height <= 0) { continue; }
+        if (!best) {
+            best = mode;
+            continue;
+        }
+        const long area = static_cast<long>(mode.width) * mode.height;
+        const long bestArea = static_cast<long>(best->width) * best->height;
+        if (area > bestArea || (area == bestArea && mode.refreshRate > best->refreshRate)) {
+            best = mode;
+        }
+    }
+    return best;
+}
+
 std::optional<ServerInfo> parseServerInfo(std::string_view xml) {
-    if (statusCode(xml).value_or(0) != 200) { return std::nullopt; }
+    if (statusCode(xml).value_or(kDefaultOk) != 200) { return std::nullopt; }
     const auto hostname = tagValue(xml, "hostname");
     if (!hostname || hostname->empty()) { return std::nullopt; }
     ServerInfo info;
@@ -114,12 +193,13 @@ std::optional<ServerInfo> parseServerInfo(std::string_view xml) {
     info.externalPort = tagInt(xml, "ExternalPort").value_or(0);
     info.pairStatus = tagInt(xml, "PairStatus").value_or(0);
     info.currentGame = tagInt(xml, "currentgame").value_or(0);
+    info.displayModes = parseDisplayModes(xml);
     return info;
 }
 
 std::vector<AppEntry> parseAppList(std::string_view xml) {
     std::vector<AppEntry> apps;
-    if (statusCode(xml).value_or(0) != 200) { return apps; }
+    if (statusCode(xml).value_or(kDefaultOk) != 200) { return apps; }
     std::size_t at = 0;
     while (true) {
         const std::size_t open = xml.find("<App>", at);
@@ -136,7 +216,8 @@ std::vector<AppEntry> parseAppList(std::string_view xml) {
 }
 
 std::optional<LaunchResult> parseLaunch(std::string_view xml) {
-    if (statusCode(xml).value_or(0) != 200) { return std::nullopt; }
+    const auto status = parseStatus(xml);
+    if (!status || !status->ok()) { return std::nullopt; }
     const auto url = tagValue(xml, "sessionUrl0");
     if (!url || url->empty()) { return std::nullopt; }
 

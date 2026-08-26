@@ -127,6 +127,65 @@ TEST_CASE("failure edges land in Failed with teardown + notify", "[moonlight][ma
     }
 }
 
+TEST_CASE("a resumable in-body refusal promotes the launch to a resume", "[moonlight][machine]") {
+    // /launch answered HTTP 200 with status_code="400", "An app is already
+    // running on this host" and <resume>1</resume>: the host will hand that
+    // session over, so ask it to, rather than giving up.
+    const auto r = reduce(at(SessionPhase::Launching), LaunchBusy{true});
+    REQUIRE(r.next.has_value());
+    CHECK(r.next->phase == SessionPhase::Launching);
+    CHECK(r.next->resuming);
+    CHECK_FALSE(r.next->failure.has_value());
+    CHECK(hasEffect(r, SessionEffect::SendLaunch));
+    CHECK_FALSE(hasEffect(r, SessionEffect::Teardown));
+}
+
+TEST_CASE("a refusal with no resume offer ends the attempt", "[moonlight][machine]") {
+    const auto r = reduce(at(SessionPhase::Launching), LaunchBusy{false});
+    REQUIRE(r.next.has_value());
+    CHECK(r.next->phase == SessionPhase::Failed);
+    REQUIRE(r.next->failure.has_value());
+    CHECK(*r.next->failure == SessionFailure::AppAlreadyRunning);
+    CHECK(hasEffect(r, SessionEffect::Teardown));
+    CHECK(hasEffect(r, SessionEffect::NotifyFailure));
+}
+
+TEST_CASE("a resume that is refused again does not loop", "[moonlight][machine]") {
+    SessionState resuming = at(SessionPhase::Launching);
+    resuming.resuming = true;
+    const auto r = reduce(resuming, LaunchBusy{true});
+    REQUIRE(r.next.has_value());
+    CHECK(r.next->phase == SessionPhase::Failed);
+    REQUIRE(r.next->failure.has_value());
+    CHECK(*r.next->failure == SessionFailure::AppAlreadyRunning);
+    CHECK_FALSE(hasEffect(r, SessionEffect::SendLaunch));
+}
+
+TEST_CASE("a busy reply outside Launching is ignored", "[moonlight][machine]") {
+    const SessionPhase elsewhere[] = {SessionPhase::Idle, SessionPhase::CheckingInfo,
+                                      SessionPhase::Rtsp, SessionPhase::ControlConnecting,
+                                      SessionPhase::Streaming};
+    for (const SessionPhase phase : elsewhere) {
+        CHECK_FALSE(reduce(at(phase), LaunchBusy{true}).next.has_value());
+        CHECK_FALSE(reduce(at(phase), LaunchBusy{false}).next.has_value());
+    }
+}
+
+TEST_CASE("a serverinfo that already names a running app resumes straight away",
+          "[moonlight][machine]") {
+    const auto r = reduce(at(SessionPhase::CheckingInfo), ServerInfoOk{true, 881448767});
+    REQUIRE(r.next.has_value());
+    CHECK(r.next->phase == SessionPhase::Launching);
+    CHECK(r.next->resuming);
+    CHECK(hasEffect(r, SessionEffect::SendLaunch));
+    // Sunshine spells "nothing running" as either 0 or -1.
+    for (const int idle : {0, -1}) {
+        const auto fresh = reduce(at(SessionPhase::CheckingInfo), ServerInfoOk{true, idle});
+        REQUIRE(fresh.next.has_value());
+        CHECK_FALSE(fresh.next->resuming);
+    }
+}
+
 TEST_CASE("stop wins from every phase", "[moonlight][machine]") {
     const SessionPhase all[] = {
         SessionPhase::Idle,  SessionPhase::CheckingInfo,      SessionPhase::Launching,

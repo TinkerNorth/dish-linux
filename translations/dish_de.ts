@@ -3792,6 +3792,10 @@
         <translation>Der Satellit hat diesen Controller nicht akzeptiert — Zuordnung rückgängig gemacht.</translation>
     </message>
     <message>
+        <source>That host is already running an app. Stop it on the host, then try again.</source>
+        <translation>Auf diesem Host läuft bereits eine App. Beende sie auf dem Host und versuche es dann erneut.</translation>
+    </message>
+    <message>
         <source>The Moonlight session ended.</source>
         <translation>Die Moonlight-Sitzung wurde beendet.</translation>
     </message>

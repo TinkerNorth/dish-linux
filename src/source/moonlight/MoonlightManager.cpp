@@ -3,7 +3,9 @@
 
 #include "source/moonlight/MoonlightManager.h"
 
+#include "core/moonlight/MoonlightXml.h"
 #include "source/moonlight/MoonlightDiscovery.h"
+#include "source/moonlight/MoonlightLog.h"
 
 #include <QFutureWatcher>
 #include <QHostInfo>
@@ -44,6 +46,8 @@ MoonlightManager::MoonlightManager(const std::shared_ptr<QSettings>& settings, Q
                 host.serverCertPem = serverCertPem;
                 hostRepo_.upsert(host);
             }
+            qCInfo(lcMoon) << "pairing with" << uuid << (ok ? "succeeded" : "failed")
+                           << reasonToken;
             emit pairingChanged();
             emit pairingFinished(uuid, ok, reasonToken);
             emit rowsChanged();
@@ -203,7 +207,10 @@ void MoonlightManager::connectHost(const QString& uuid, const QString& appId,
                                    std::uint8_t emulatedType, std::uint8_t capabilities) {
     ensureIdentityLoaded();
     const auto host = hostRepo_.get(uuid);
-    if (!host || !host->paired()) { return; }
+    if (!host || !host->paired()) {
+        qCWarning(lcMoon) << "connect refused for" << uuid << ": not a paired host";
+        return;
+    }
     auto* session = ensureSession(*host);
     session->start(appId, emulatedType, capabilities);
     emit rowsChanged();
@@ -214,6 +221,25 @@ void MoonlightManager::disconnect(const QString& uuid) {
         session->stop();
         emit rowsChanged();
     }
+}
+
+void MoonlightManager::cancelHostApp(const QString& uuid) {
+    ensureIdentityLoaded();
+    const auto host = hostRepo_.get(uuid);
+    if (!host || !host->paired()) {
+        emit hostAppCancelled(uuid, false);
+        return;
+    }
+    http_->getTls(host->address, host->httpsPort, QStringLiteral("/cancel"), QUrlQuery(),
+                  host->serverCertPem,
+                  [this, uuid, address = host->address](int status, const QByteArray& body) {
+                      const auto refusal = moonxml::parseStatus(body.toStdString());
+                      const bool ok = status == 200 && (!refusal || refusal->ok());
+                      qCInfo(lcMoon) << "cancel on" << address << "HTTP" << status << "host"
+                                     << (refusal ? refusal->code : 0) << "->" << ok;
+                      emit hostAppCancelled(uuid, ok);
+                      emit rowsChanged();
+                  });
 }
 
 void MoonlightManager::forget(const QString& uuid) {

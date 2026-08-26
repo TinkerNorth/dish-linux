@@ -20,13 +20,14 @@
 
 namespace dish::moonrtsp {
 
-// What the ANNOUNCE SDP advertises. Defaults are the floor the session
-// negotiates: video and audio are discarded, so the cheapest stream wins.
+// What the ANNOUNCE SDP advertises. The geometry follows the host's own
+// display so a virtual-display host does not resize the user's desktop; the
+// bitrate stays at the floor because video and audio are discarded.
 struct StreamConfig {
-    int width = 1280;
-    int height = 720;
-    int fps = 30;
-    int bitrateKbps = 1000;
+    int width = 1920;
+    int height = 1080;
+    int fps = 60;
+    int bitrateKbps = 500;
     int packetSize = 1024;
     int audioChannels = 2;
 };
@@ -65,7 +66,12 @@ std::optional<Response> parseResponse(std::string_view text);
 std::optional<int> transportPort(const Response& response);
 
 // SETUP control: "X-SS-Connect-Data" -> the u32 the ENet connect carries.
+// Parsed unsigned and 64 bits wide, then narrowed to the 32 bits on the wire.
 std::optional<std::uint32_t> connectData(const Response& response);
+
+// "Content-length" -> the declared payload size. Absent on the DESCRIBE reply,
+// which the host frames by closing the connection instead.
+std::optional<int> contentLength(const Response& response);
 
 // SETUP audio/video: "X-SS-Ping-Payload" -> the 16-char payload the RTP ping
 // datagrams echo. Absent on hosts that accept the legacy 4-byte PING.

@@ -91,35 +91,53 @@ std::string formatPlay(int cseq, const std::string& target, const std::string& s
 }
 
 std::string buildAnnouncePayload(const StreamConfig& config) {
-    // The line set a real client sends, trimmed to what host session setup
-    // consumes (Wolf's announce() and its required viewport/maxFPS args), at
-    // the floor settings — the video and audio payloads are discarded.
+    // The WHOLE attribute set a real client sends. A host builds its stream
+    // configuration by looking each of these up by name and a lookup that
+    // misses is fatal: measured against a live Sunshine host, an ANNOUNCE
+    // carrying only the handful of attributes this client cares about is
+    // answered 400 BAD REQUEST while this set is answered 200 OK, with either
+    // line ending. Nothing here is decoration.
     std::string p;
-    p += "v=0\n";
-    p += "o=android 0 14 IN IPv4 0.0.0.0\n";
-    p += "s=NVIDIA Streaming Client\n";
-    const auto arg = [&p](const std::string& key, int value) {
-        p += "a=" + key + ":" + std::to_string(value) + " \n";
+    const auto line = [&p](const std::string& text) { p += text + "\r\n"; };
+    const auto arg = [&line](const std::string& key, int value) {
+        line("a=" + key + ":" + std::to_string(value));
     };
+    line("v=0");
+    line("o=android 0 14 IN IPv4 0.0.0.0");
+    line("s=NVIDIA Streaming Client");
     arg("x-nv-video[0].clientViewportWd", config.width);
     arg("x-nv-video[0].clientViewportHt", config.height);
     arg("x-nv-video[0].maxFPS", config.fps);
     arg("x-nv-video[0].packetSize", config.packetSize);
+    arg("x-nv-video[0].rateControlMode", 4);
     arg("x-nv-video[0].timeoutLengthMs", 7000);
     arg("x-nv-video[0].framesWithInvalidRefThreshold", 0);
-    arg("x-nv-vqos[0].bw.maximumBitrateKbps", config.bitrateKbps);
-    arg("x-nv-vqos[0].fec.minRequiredFecPackets", 2);
-    arg("x-nv-vqos[0].bitStreamFormat", 0); // H.264, every host's floor
-    arg("x-nv-video[0].videoEncoderSlicesPerFrame", 1);
+    arg("x-nv-video[0].refPicInvalidation", 0);
     arg("x-nv-video[0].encoderCscMode", 0);
-    arg("x-nv-general.featureFlags", 167);
+    arg("x-nv-video[0].dynamicRangeMode", 0);
+    arg("x-nv-video[0].maxNumReferenceFrames", 1);
+    arg("x-nv-video[0].videoEncoderSlicesPerFrame", 1);
+    arg("x-nv-video[0].clientRefreshRateX100", config.fps * 100);
+    arg("x-nv-vqos[0].bitStreamFormat", 0); // H.264, every host's floor
+    arg("x-nv-vqos[0].bw.minimumBitrateKbps", config.bitrateKbps);
+    arg("x-nv-vqos[0].bw.maximumBitrateKbps", config.bitrateKbps);
+    arg("x-nv-vqos[0].fec.enable", 1);
+    arg("x-nv-vqos[0].fec.minRequiredFecPackets", 2);
+    arg("x-nv-vqos[0].fec.repairPercent", 20);
+    arg("x-nv-vqos[0].drc.enable", 0);
+    arg("x-nv-vqos[0].videoQualityScoreUpdateTime", 5000);
+    arg("x-nv-vqos[0].qosTrafficType", 5);
+    arg("x-nv-aqos.qosTrafficType", 4);
+    arg("x-nv-aqos.packetDuration", 5);
     arg("x-nv-audio.surround.numChannels", config.audioChannels);
     arg("x-nv-audio.surround.channelMask", 3);
     arg("x-nv-audio.surround.enable", 0);
     arg("x-nv-audio.surround.AudioQuality", 0);
-    arg("x-nv-aqos.packetDuration", 5);
-    p += "t=0 0\n";
-    p += "m=video 47998 \n";
+    arg("x-nv-general.useReliableUdp", 13);
+    arg("x-nv-general.featureFlags", 167);
+    arg("x-ml-general.featureFlags", 3);
+    arg("x-ss-general.encryptionEnabled", 0);
+    line("t=0 0");
     return p;
 }
 
@@ -193,13 +211,27 @@ std::optional<std::uint32_t> connectData(const Response& response) {
     if (!value) { return std::nullopt; }
     const std::string_view text = trimmed(*value);
     if (text.empty()) { return std::nullopt; }
+    // Read wide, then narrow. The token is unsigned 32-bit and a real host's
+    // routinely sits above INT32_MAX (4270471497 came off a live Sunshine
+    // host), so a signed parse yields nothing and the control stream connects
+    // with a token of 0.
     unsigned long long parsed = 0;
     for (const char c : text) {
         if (c < '0' || c > '9') { return std::nullopt; }
+        if (parsed > (0xFFFFFFFFFFFFFFFFULL - static_cast<unsigned long long>(c - '0')) / 10ULL) {
+            return std::nullopt;
+        }
         parsed = parsed * 10ULL + static_cast<unsigned long long>(c - '0');
-        if (parsed > 0xFFFFFFFFULL) { return std::nullopt; }
     }
-    return static_cast<std::uint32_t>(parsed);
+    return static_cast<std::uint32_t>(parsed & 0xFFFFFFFFULL);
+}
+
+std::optional<int> contentLength(const Response& response) {
+    const auto value = response.option("Content-length");
+    if (!value) { return std::nullopt; }
+    const auto parsed = parseInt(*value);
+    if (!parsed || *parsed < 0) { return std::nullopt; }
+    return parsed;
 }
 
 std::optional<std::string> pingPayload(const Response& response) {

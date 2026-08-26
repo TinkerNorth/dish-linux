@@ -44,12 +44,13 @@ enum class RtspStep : std::uint8_t {
 };
 
 enum class SessionFailure : std::uint8_t {
-    Unreachable,    // serverinfo never answered
-    NotPaired,      // host answered but this client is not paired
-    LaunchRejected, // launch/resume did not return a session
-    RtspRejected,   // an RTSP step failed or the TCP transport dropped
-    ControlLost,    // ENet connect failed or the live link died
-    HostEnded,      // the host sent TERMINATION
+    Unreachable,       // serverinfo never answered
+    NotPaired,         // host answered but this client is not paired
+    LaunchRejected,    // launch/resume did not return a session
+    AppAlreadyRunning, // the host holds an app and would not hand it over
+    RtspRejected,      // an RTSP step failed or the TCP transport dropped
+    ControlLost,       // ENet connect failed or the live link died
+    HostEnded,         // the host sent TERMINATION
 };
 
 struct SessionState {
@@ -98,6 +99,14 @@ struct LaunchFailed {
     bool operator==(const LaunchFailed&) const { return true; }
 };
 
+// The host refused in the BODY: HTTP 200 carrying status_code="400" and "An
+// app is already running on this host". `resumable` is its <resume> flag, so a
+// launch that may be taken over promotes to /resume instead of failing.
+struct LaunchBusy {
+    bool resumable = false;
+    bool operator==(const LaunchBusy& o) const { return resumable == o.resumable; }
+};
+
 // The RTSP TCP transport connected; the machine responds by sending OPTIONS.
 struct RtspReady {
     bool operator==(const RtspReady&) const { return true; }
@@ -136,9 +145,10 @@ struct StopRequested {
 
 using SessionEvent =
     std::variant<moon_event::StartRequested, moon_event::ServerInfoOk, moon_event::ServerInfoFailed,
-                 moon_event::LaunchOk, moon_event::LaunchFailed, moon_event::RtspReady,
-                 moon_event::RtspStepOk, moon_event::RtspFailed, moon_event::ControlConnected,
-                 moon_event::ControlLost, moon_event::HostTerminated, moon_event::StopRequested>;
+                 moon_event::LaunchOk, moon_event::LaunchFailed, moon_event::LaunchBusy,
+                 moon_event::RtspReady, moon_event::RtspStepOk, moon_event::RtspFailed,
+                 moon_event::ControlConnected, moon_event::ControlLost, moon_event::HostTerminated,
+                 moon_event::StopRequested>;
 
 // ── Effects (data; the coordinator executes them) ────────────────────────────
 
@@ -245,6 +255,14 @@ inline Reduction reduce(const SessionState& state, const SessionEvent& event) {
             next.phase = SessionPhase::Rtsp;
             next.rtspStep = RtspStep::Options;
             return {next, {SessionEffect::OpenRtsp}};
+        }
+        if (const auto* busy = std::get_if<LaunchBusy>(&event)) {
+            if (busy->resumable && !state.resuming) {
+                SessionState next = state;
+                next.resuming = true;
+                return {next, {SessionEffect::SendLaunch}};
+            }
+            return detail::fail(state, SessionFailure::AppAlreadyRunning);
         }
         if (std::holds_alternative<LaunchFailed>(event)) {
             return detail::fail(state, SessionFailure::LaunchRejected);

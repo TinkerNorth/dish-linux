@@ -124,6 +124,155 @@ TEST_CASE("parseLaunch rejects a missing or malformed session url", "[moonlight]
                     .has_value());
 }
 
+TEST_CASE("a host refuses in the BODY, not in the status line", "[moonlight][xml]") {
+    // Measured against a live Sunshine host: asking /launch to start a second
+    // app answers HTTP 200 with status_code="400" and "An app is already
+    // running on this host". Code that reads only the HTTP status treats that
+    // refusal as a success and then fails downstream on the missing
+    // sessionUrl0, naming the wrong thing.
+    const std::string busy =
+        "<?xml version=\"1.0\" encoding=\"utf-8\"?>"
+        "<root status_code=\"400\" status_message=\"An app is already running on this host\">"
+        "<resume>0</resume></root>";
+    const auto status = parseStatus(busy);
+    REQUIRE(status.has_value());
+    CHECK(status->code == 400);
+    CHECK(status->message == "An app is already running on this host");
+    CHECK_FALSE(status->ok());
+    CHECK_FALSE(status->resume);
+    CHECK(status->appAlreadyRunning());
+    // And the launch parse refuses it rather than reporting a session.
+    CHECK_FALSE(parseLaunch(busy).has_value());
+}
+
+TEST_CASE("a resumable refusal carries the resume flag", "[moonlight][xml]") {
+    const auto status =
+        parseStatus("<root status_code=\"400\" status_message=\"An app is already running on this "
+                    "host\"><resume>1</resume></root>");
+    REQUIRE(status.has_value());
+    CHECK(status->appAlreadyRunning());
+    CHECK(status->resume);
+}
+
+TEST_CASE("parseStatus reads every endpoint's root element", "[moonlight][xml]") {
+    SECTION("a plain success names no status_code at all") {
+        const auto status = parseStatus("<root><App><ID>1</ID></App></root>");
+        REQUIRE(status.has_value());
+        CHECK(status->code == 200);
+        CHECK(status->ok());
+        CHECK(status->message.empty());
+        CHECK_FALSE(status->appAlreadyRunning());
+    }
+    SECTION("2xx is success, not just 200") {
+        const auto status = parseStatus("<root status_code=\"204\"></root>");
+        REQUIRE(status.has_value());
+        CHECK(status->ok());
+    }
+    SECTION("a refusal that is not the busy one") {
+        const auto status =
+            parseStatus("<root status_code=\"401\" status_message=\"Not paired\"></root>");
+        REQUIRE(status.has_value());
+        CHECK_FALSE(status->ok());
+        CHECK(status->message == "Not paired");
+        CHECK_FALSE(status->appAlreadyRunning());
+    }
+    SECTION("the message match is case-insensitive and entity-decoded") {
+        const auto status = parseStatus(
+            "<root status_code=\"400\" status_message=\"An App Is ALREADY RUNNING &amp; busy\"/>");
+        REQUIRE(status.has_value());
+        CHECK(status->message == "An App Is ALREADY RUNNING & busy");
+        CHECK(status->appAlreadyRunning());
+    }
+    SECTION("a 2xx that mentions the phrase is still not a refusal") {
+        const auto status =
+            parseStatus("<root status_code=\"200\" status_message=\"already running\"/>");
+        REQUIRE(status.has_value());
+        CHECK_FALSE(status->appAlreadyRunning());
+    }
+    SECTION("no root element at all") { CHECK_FALSE(parseStatus("not xml at all").has_value()); }
+}
+
+TEST_CASE("statusMessage reads the root attribute", "[moonlight][xml]") {
+    CHECK(statusMessage("<root status_code=\"400\" status_message=\"nope\"/>") == "nope");
+    CHECK_FALSE(statusMessage("<root status_code=\"400\"/>").has_value());
+}
+
+TEST_CASE("parseServerInfo reads the advertised display modes", "[moonlight][xml]") {
+    const auto info = parseServerInfo(kServerInfo);
+    REQUIRE(info.has_value());
+    REQUIRE(info->displayModes.size() == 1);
+    CHECK(info->displayModes[0].width == 1920);
+    CHECK(info->displayModes[0].height == 1080);
+    CHECK(info->displayModes[0].refreshRate == 60);
+}
+
+TEST_CASE("preferredDisplayMode picks the host's own display", "[moonlight][xml]") {
+    // Ask for a mode that matches what the host is already showing: an
+    // Apollo/Vibepollo virtual display follows the client's request, so asking
+    // for something small resizes the user's desktop under them.
+    const std::string xml = "<root status_code=\"200\"><hostname>h</hostname>"
+                            "<SupportedDisplayMode>"
+                            "<DisplayMode><Width>1280</Width><Height>720</Height>"
+                            "<RefreshRate>60</RefreshRate></DisplayMode>"
+                            "<DisplayMode><Width>2560</Width><Height>1440</Height>"
+                            "<RefreshRate>60</RefreshRate></DisplayMode>"
+                            "<DisplayMode><Width>2560</Width><Height>1440</Height>"
+                            "<RefreshRate>144</RefreshRate></DisplayMode>"
+                            "<DisplayMode><Width>1920</Width><Height>1080</Height>"
+                            "<RefreshRate>240</RefreshRate></DisplayMode>"
+                            "</SupportedDisplayMode></root>";
+    const auto info = parseServerInfo(xml);
+    REQUIRE(info.has_value());
+    CHECK(info->displayModes.size() == 4);
+    const auto best = preferredDisplayMode(info->displayModes);
+    REQUIRE(best.has_value());
+    CHECK(best->width == 2560);
+    CHECK(best->height == 1440);
+    CHECK(best->refreshRate == 144); // largest area first, then the fastest at it
+
+    // A host that advertises none leaves the caller on its own default.
+    CHECK_FALSE(preferredDisplayMode({}).has_value());
+    const auto noModes = parseServerInfo("<root status_code=\"200\"><hostname>h</hostname></root>");
+    REQUIRE(noModes.has_value());
+    CHECK(noModes->displayModes.empty());
+    CHECK_FALSE(preferredDisplayMode(noModes->displayModes).has_value());
+}
+
+TEST_CASE("display-mode rows without a usable size are skipped", "[moonlight][xml]") {
+    const auto info = parseServerInfo("<root status_code=\"200\"><hostname>h</hostname>"
+                                      "<SupportedDisplayMode>"
+                                      "<DisplayMode><Width>0</Width><Height>0</Height>"
+                                      "<RefreshRate>60</RefreshRate></DisplayMode>"
+                                      "<DisplayMode><Height>768</Height></DisplayMode>"
+                                      "<DisplayMode><Width>1024</Width><Height>768</Height>"
+                                      "</DisplayMode>"
+                                      "</SupportedDisplayMode></root>");
+    REQUIRE(info.has_value());
+    REQUIRE(info->displayModes.size() == 1);
+    CHECK(info->displayModes[0].width == 1024);
+    CHECK(info->displayModes[0].refreshRate == 0);
+    const auto best = preferredDisplayMode(info->displayModes);
+    REQUIRE(best.has_value());
+    CHECK(best->height == 768);
+}
+
+TEST_CASE("an endpoint that names no status_code is still read", "[moonlight][xml]") {
+    // Wolf's /applist answers plainly, with no status_code attribute at all.
+    const auto apps = parseAppList("<root>"
+                                   "<App><AppTitle>Desktop</AppTitle><ID>881448767</ID></App>"
+                                   "</root>");
+    REQUIRE(apps.size() == 1);
+    CHECK(apps[0].id == "881448767");
+    const auto info = parseServerInfo("<root><hostname>wolf</hostname>"
+                                      "<PairStatus>1</PairStatus></root>");
+    REQUIRE(info.has_value());
+    CHECK(info->pairStatus == 1);
+    const auto launch = parseLaunch("<root><sessionUrl0>rtsp://10.0.0.5:48010</sessionUrl0>"
+                                    "<gamesession>1</gamesession></root>");
+    REQUIRE(launch.has_value());
+    CHECK(launch->rtspPort == 48010);
+}
+
 TEST_CASE("pairedFlag and tag helpers", "[moonlight][xml]") {
     CHECK(pairedFlag("<root status_code=\"200\"><paired>1</paired></root>"));
     CHECK_FALSE(pairedFlag("<root status_code=\"200\"><paired>0</paired></root>"));

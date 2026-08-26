@@ -5,6 +5,7 @@
 
 #include "core/moonlight/MoonlightPairingCrypto.h"
 #include "core/moonlight/MoonlightXml.h"
+#include "source/moonlight/MoonlightLog.h"
 
 #include <array>
 #include <cstdint>
@@ -15,6 +16,18 @@ namespace {
 
 bool fillRandom(std::array<std::uint8_t, 16>& out) {
     return mooncrypto::randomBytes(out.data(), out.size());
+}
+
+// The host reports a refused pairing phase in the body, not the status line, so
+// the phase log carries both.
+void logPhase(const char* phase, const QString& address, int status, const std::string& xml) {
+    const auto refusal = moonxml::parseStatus(xml);
+    const QString says = refusal ? QStringLiteral("%1 %2")
+                                       .arg(refusal->code)
+                                       .arg(QString::fromStdString(refusal->message))
+                                 : QStringLiteral("(no root element)");
+    qCInfo(lcMoon) << "pair" << phase << "on" << address << "HTTP" << status << "host" << says
+                   << "paired" << moonxml::pairedFlag(xml);
 }
 
 } // namespace
@@ -58,6 +71,7 @@ void MoonlightPairingFlow::cancel() {
 }
 
 void MoonlightPairingFlow::fail(const QString& reasonToken) {
+    qCWarning(lcMoon) << "pairing with" << address_ << "gave up:" << reasonToken;
     active_ = false;
     session_.reset();
     emit finished(false, reasonToken, QString());
@@ -77,6 +91,7 @@ void MoonlightPairingFlow::phase1() {
         [this, attempt = attempt_](int status, const QByteArray& body) {
             if (!current(attempt)) { return; }
             const std::string xml = body.toStdString();
+            logPhase("getservercert", address_, status, xml);
             if (status != 200 || !moonxml::pairedFlag(xml)) {
                 fail(status == 0 ? QStringLiteral("unreachable") : QStringLiteral("declined"));
                 return;
@@ -105,6 +120,7 @@ void MoonlightPairingFlow::phase2() {
                     [this, attempt = attempt_](int status, const QByteArray& body) {
                         if (!current(attempt)) { return; }
                         const std::string xml = body.toStdString();
+                        logPhase("clientchallenge", address_, status, xml);
                         const auto response = moonxml::tagValue(xml, "challengeresponse");
                         if (status != 200 || !moonxml::pairedFlag(xml) || !response) {
                             fail(status == 0 ? QStringLiteral("unreachable")
@@ -129,6 +145,7 @@ void MoonlightPairingFlow::phase3(const QString& serverChallengeResp) {
                     [this, attempt = attempt_](int status, const QByteArray& body) {
                         if (!current(attempt)) { return; }
                         const std::string xml = body.toStdString();
+                        logPhase("serverchallengeresp", address_, status, xml);
                         const auto secret = moonxml::tagValue(xml, "pairingsecret");
                         if (status != 200 || !moonxml::pairedFlag(xml) || !secret) {
                             fail(status == 0 ? QStringLiteral("unreachable")
@@ -159,6 +176,7 @@ void MoonlightPairingFlow::phase4() {
     http_->getPlain(address_, httpPort_, QStringLiteral("/pair"), query,
                     [this, attempt = attempt_](int status, const QByteArray& body) {
                         if (!current(attempt)) { return; }
+                        logPhase("clientpairingsecret", address_, status, body.toStdString());
                         if (status != 200 || !moonxml::pairedFlag(body.toStdString())) {
                             fail(status == 0 ? QStringLiteral("unreachable")
                                              : QStringLiteral("wrongPin"));
@@ -179,6 +197,7 @@ void MoonlightPairingFlow::phase5() {
     http_->getTls(address_, httpsPort_, QStringLiteral("/pair"), query, serverCert,
                   [this, serverCert, attempt = attempt_](int status, const QByteArray& body) {
                       if (!current(attempt)) { return; }
+                      logPhase("pairchallenge", address_, status, body.toStdString());
                       if (status != 200 || !moonxml::pairedFlag(body.toStdString())) {
                           fail(QStringLiteral("unreachable"));
                           return;

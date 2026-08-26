@@ -89,9 +89,17 @@ class MoonlightSession : public QObject {
     void connectControl();
     void startStreaming();
     void teardown();
+    // Opens the media sockets and starts the ping timer the moment SETUP names
+    // a port. The host counts its initial-ping deadline from its own session
+    // start, not from when our control channel comes up, so waiting for the
+    // ENet connect is already too late. Idempotent.
+    void ensureRtpPings();
     // One ping per media port. Repeated every tick until teardown so a lost
     // datagram cannot leave the host blind to our media address.
     void sendRtpPings();
+    // Hands back an app the host started for us and we could not use, so the
+    // next attempt is not refused by our own leftovers.
+    void cancelStrandedApp();
 
     // Marshals a host event from the control thread onto the Qt main thread.
     void onHostEvent(const moonwire::HostEvent& event);
@@ -109,9 +117,20 @@ class MoonlightSession : public QObject {
     std::uint8_t emulatedType_ = moonproto::kControllerTypeXbox;
     std::uint8_t capabilities_ = 0;
 
-    // Transport data threaded between phases.
+    // What the launch mode and the ANNOUNCE SDP ask for: the host's own
+    // display, so a virtual-display host does not resize the user's desktop.
+    moonrtsp::StreamConfig stream_;
+
+    // Transport data threaded between phases. The rikey is minted once per
+    // attempt so a launch that promotes to /resume keys the control stream
+    // with the same secret it already announced.
     std::array<std::uint8_t, 16> rikey_{};
+    bool rikeyReady_ = false;
     std::uint32_t rikeyId_ = 0;
+    // A launch succeeded, so the host is holding an app on our behalf.
+    bool launched_ = false;
+    // The session reached Streaming, so a later drop is not a setup failure.
+    bool wentLive_ = false;
     QString rtspTarget_; // parroted host string from the launch response
     QString rtspHostAddress_;
     int rtspPort_ = 0;

@@ -3792,6 +3792,10 @@
         <translation>El satélite no aceptó ese mando — vinculación deshecha.</translation>
     </message>
     <message>
+        <source>That host is already running an app. Stop it on the host, then try again.</source>
+        <translation>Ese host ya está ejecutando una aplicación. Ciérrala en el host y vuelve a intentarlo.</translation>
+    </message>
+    <message>
         <source>The Moonlight session ended.</source>
         <translation>La sesión de Moonlight ha terminado.</translation>
     </message>

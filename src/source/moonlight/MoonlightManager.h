@@ -75,6 +75,11 @@ class MoonlightManager : public QObject {
     void disconnect(const QString& uuid);
     void forget(const QString& uuid);
 
+    // Tells a paired host to end whatever app it is running. The protocol's own
+    // way out of "an app is already running", and the only one when the host
+    // will not hand that session over.
+    void cancelHostApp(const QString& uuid);
+
     void setLastApp(const QString& uuid, const QString& appId, const QString& appName);
     void setControllerType(const QString& uuid, int type);
 
@@ -97,7 +102,10 @@ class MoonlightManager : public QObject {
     void pairingChanged();
     // reasonToken: "" on success, else "unreachable"|"wrongPin"|"declined"|"crypto".
     void pairingFinished(const QString& uuid, bool ok, const QString& reasonToken);
+    // reasonToken: "unreachable"|"notPaired"|"launchRejected"|"appAlreadyRunning"
+    // |"rtspRejected"|"controlLost"|"hostEnded".
     void sessionFailed(const QString& uuid, const QString& reasonToken);
+    void hostAppCancelled(const QString& uuid, bool ok);
 
   private:
     void ensureIdentityLoaded();

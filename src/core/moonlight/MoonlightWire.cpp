@@ -90,11 +90,12 @@ std::size_t encodeControllerMulti(std::uint8_t* out, std::uint8_t controllerNumb
 std::size_t encodeControllerArrival(std::uint8_t* out, std::uint8_t controllerNumber,
                                     std::uint8_t controllerType, std::uint8_t capabilities,
                                     std::uint32_t supportedButtons) {
-    std::size_t off = putInputHeader(out, moonproto::kInputControllerArrival, 7);
+    std::size_t off = putInputHeader(out, moonproto::kInputControllerArrival, 8);
     out[off] = controllerNumber;
     out[off + 1] = controllerType;
     out[off + 2] = capabilities;
-    putU32Le(out + off + 3, supportedButtons);
+    out[off + 3] = 0;
+    putU32Le(out + off + 4, supportedButtons);
     return kControllerArrivalSize;
 }
 

@@ -280,6 +280,8 @@ set(DISH_CORE_SOURCES
     src/source/connection/DiscoveryGateway.cpp
     # Moonlight-host IO edge: HTTP/RTSP/ENet transports, discovery, pairing,
     # the session coordinator and the subsystem manager.
+    src/source/moonlight/MoonlightLog.h
+    src/source/moonlight/MoonlightLog.cpp
     src/source/moonlight/MoonlightHttp.h
     src/source/moonlight/MoonlightHttp.cpp
     src/source/moonlight/MoonlightRtspClient.h

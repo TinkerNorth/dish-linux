@@ -3,6 +3,8 @@
 
 #include "source/moonlight/MoonlightHttp.h"
 
+#include "source/moonlight/MoonlightLog.h"
+
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QNetworkRequest>
@@ -81,6 +83,16 @@ void MoonlightHttp::perform(const QUrl& url, bool tls, const QString& pinnedServ
         QSslConfiguration ssl = QSslConfiguration::defaultConfiguration();
         // Self-signed on both ends; trust is the explicit pin check below.
         ssl.setPeerVerifyMode(QSslSocket::VerifyNone);
+        // NEVER OFFER A SESSION TO RESUME. A resumed TLS session carries the
+        // peer identity forward instead of asking for the certificate again,
+        // so a Moonlight host's verify callback never runs and Sunshine kills
+        // the connection with a fatal internal_error alert (RFC 8446 alert 80)
+        // and logs nothing at all. Qt shares and persists sessions across the
+        // connections one QNetworkAccessManager makes, which is exactly the
+        // shape that triggers it, so all three switches go off together.
+        ssl.setSslOption(QSsl::SslOptionDisableSessionTickets, true);
+        ssl.setSslOption(QSsl::SslOptionDisableSessionSharing, true);
+        ssl.setSslOption(QSsl::SslOptionDisableSessionPersistence, true);
         const auto certs = QSslCertificate::fromData(certPem_.toUtf8(), QSsl::Pem);
         if (!certs.isEmpty()) { ssl.setLocalCertificate(certs.first()); }
         QSslKey key(privateKeyPem_.toUtf8(), QSsl::Rsa, QSsl::Pem, QSsl::PrivateKey);
@@ -88,29 +100,38 @@ void MoonlightHttp::perform(const QUrl& url, bool tls, const QString& pinnedServ
         request.setSslConfiguration(ssl);
     }
 
+    const QString path = full.path();
+    qCDebug(lcMoon) << "http ->" << (tls ? "https" : "http") << full.host() << path;
     QNetworkReply* reply = nam_->get(request);
     if (tls) {
         QObject::connect(reply, &QNetworkReply::sslErrors, reply,
                          [reply](const QList<QSslError>&) { reply->ignoreSslErrors(); });
     }
     QObject::connect(reply, &QNetworkReply::finished, this,
-                     [reply, tls, pinnedServerCertPem, cb = std::move(cb)]() {
+                     [reply, tls, path, pinnedServerCertPem, cb = std::move(cb)]() {
                          reply->deleteLater();
                          if (tls) {
                              const auto presented = reply->sslConfiguration().peerCertificate();
                              if (!sameCert(presented, pinnedServerCertPem)) {
+                                 qCWarning(lcMoon) << "http" << path
+                                                   << "rejected: server certificate does not "
+                                                      "match the pairing pin";
                                  cb(0, QByteArray());
                                  return;
                              }
                          }
                          if (reply->error() != QNetworkReply::NoError &&
                              reply->error() != QNetworkReply::ProtocolInvalidOperationError) {
+                             qCWarning(lcMoon)
+                                 << "http" << path << "failed:" << reply->errorString();
                              cb(0, QByteArray());
                              return;
                          }
                          const int status =
                              reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-                         cb(status, reply->readAll());
+                         const QByteArray body = reply->readAll();
+                         qCDebug(lcMoon) << "http <-" << path << status << body.size() << "bytes";
+                         cb(status, body);
                      });
 }
 

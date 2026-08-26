@@ -3780,6 +3780,10 @@
         <translation>The satellite wouldn’t accept that controller — binding undone.</translation>
     </message>
     <message>
+        <source>That host is already running an app. Stop it on the host, then try again.</source>
+        <translation>That host is already running an app. Stop it on the host, then try again.</translation>
+    </message>
+    <message>
         <source>The Moonlight session ended.</source>
         <translation>The Moonlight session ended.</translation>
     </message>

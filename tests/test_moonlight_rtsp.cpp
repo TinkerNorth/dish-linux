@@ -9,7 +9,10 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <cstdint>
+#include <optional>
 #include <string>
+#include <vector>
 
 using namespace dish::moonrtsp;
 
@@ -50,23 +53,88 @@ TEST_CASE("ANNOUNCE request carries the SDP payload", "[moonlight][rtsp]") {
     CHECK(req.find("Content-length: " + std::to_string(payload.size()) + "\r\n") !=
           std::string::npos);
     // The payload rides after the blank line.
-    CHECK(req.find("\r\n\r\nv=0\n") != std::string::npos);
+    CHECK(req.find("\r\n\r\nv=0\r\n") != std::string::npos);
 }
 
-TEST_CASE("ANNOUNCE payload advertises the floor stream settings", "[moonlight][rtsp]") {
+TEST_CASE("ANNOUNCE payload carries the WHOLE attribute set", "[moonlight][rtsp]") {
+    // IT HAS TO BE THE WHOLE SET. A host builds its stream configuration by
+    // looking each attribute up by name and a lookup that misses is fatal:
+    // measured against a live Sunshine host, an ANNOUNCE carrying only the
+    // seven attributes this client itself cares about is answered
+    // 400 BAD REQUEST, while this set is answered 200 OK. Nothing here is
+    // decoration, and an attribute dropped as unused is a host that stops
+    // talking to us.
     StreamConfig config;
+    config.width = 2560;
+    config.height = 1440;
+    config.fps = 120;
     const std::string p = buildAnnouncePayload(config);
-    // The three arguments host session setup requires…
-    CHECK(p.find("a=x-nv-video[0].clientViewportWd:1280 \n") != std::string::npos);
-    CHECK(p.find("a=x-nv-video[0].clientViewportHt:720 \n") != std::string::npos);
-    CHECK(p.find("a=x-nv-video[0].maxFPS:30 \n") != std::string::npos);
-    // …plus the floor codec/audio choices.
-    CHECK(p.find("a=x-nv-vqos[0].bitStreamFormat:0 \n") != std::string::npos);
-    CHECK(p.find("a=x-nv-audio.surround.numChannels:2 \n") != std::string::npos);
-    CHECK(p.find("a=x-nv-vqos[0].bw.maximumBitrateKbps:1000 \n") != std::string::npos);
-    // SDP framing lines the grammar expects.
-    CHECK(p.find("v=0\n") == 0);
-    CHECK(p.find("t=0 0\n") != std::string::npos);
+
+    const std::vector<std::string> expected = {
+        "v=0",
+        "o=android 0 14 IN IPv4 0.0.0.0",
+        "s=NVIDIA Streaming Client",
+        "a=x-nv-video[0].clientViewportWd:2560",
+        "a=x-nv-video[0].clientViewportHt:1440",
+        "a=x-nv-video[0].maxFPS:120",
+        "a=x-nv-video[0].packetSize:1024",
+        "a=x-nv-video[0].rateControlMode:4",
+        "a=x-nv-video[0].timeoutLengthMs:7000",
+        "a=x-nv-video[0].framesWithInvalidRefThreshold:0",
+        "a=x-nv-video[0].refPicInvalidation:0",
+        "a=x-nv-video[0].encoderCscMode:0",
+        "a=x-nv-video[0].dynamicRangeMode:0",
+        "a=x-nv-video[0].maxNumReferenceFrames:1",
+        "a=x-nv-video[0].videoEncoderSlicesPerFrame:1",
+        "a=x-nv-video[0].clientRefreshRateX100:12000",
+        "a=x-nv-vqos[0].bitStreamFormat:0",
+        "a=x-nv-vqos[0].bw.minimumBitrateKbps:500",
+        "a=x-nv-vqos[0].bw.maximumBitrateKbps:500",
+        "a=x-nv-vqos[0].fec.enable:1",
+        "a=x-nv-vqos[0].fec.minRequiredFecPackets:2",
+        "a=x-nv-vqos[0].fec.repairPercent:20",
+        "a=x-nv-vqos[0].drc.enable:0",
+        "a=x-nv-vqos[0].videoQualityScoreUpdateTime:5000",
+        "a=x-nv-vqos[0].qosTrafficType:5",
+        "a=x-nv-aqos.qosTrafficType:4",
+        "a=x-nv-aqos.packetDuration:5",
+        "a=x-nv-audio.surround.numChannels:2",
+        "a=x-nv-audio.surround.channelMask:3",
+        "a=x-nv-audio.surround.enable:0",
+        "a=x-nv-audio.surround.AudioQuality:0",
+        "a=x-nv-general.useReliableUdp:13",
+        "a=x-nv-general.featureFlags:167",
+        "a=x-ml-general.featureFlags:3",
+        "a=x-ss-general.encryptionEnabled:0",
+        "t=0 0",
+    };
+
+    // Every line, in order, CRLF-terminated, and nothing else.
+    std::string rebuilt;
+    for (const auto& line : expected) {
+        CHECK(p.find(line + "\r\n") != std::string::npos);
+        rebuilt += line + "\r\n";
+    }
+    CHECK(p == rebuilt);
+
+    // Thirty-two attributes, plus the v/o/s/t framing lines.
+    std::size_t attributes = 0;
+    for (std::size_t at = 0; (at = p.find("\na=", at)) != std::string::npos; ++at) { ++attributes; }
+    CHECK(attributes == 32);
+    CHECK(expected.size() == 36);
+    CHECK(p.find("v=0\r\n") == 0);
+}
+
+TEST_CASE("ANNOUNCE payload follows the negotiated display mode", "[moonlight][rtsp]") {
+    StreamConfig config;
+    CHECK(config.width == 1920);
+    CHECK(config.height == 1080);
+    CHECK(config.fps == 60);
+    const std::string p = buildAnnouncePayload(config);
+    CHECK(p.find("a=x-nv-video[0].clientViewportWd:1920\r\n") != std::string::npos);
+    CHECK(p.find("a=x-nv-video[0].clientViewportHt:1080\r\n") != std::string::npos);
+    CHECK(p.find("a=x-nv-video[0].maxFPS:60\r\n") != std::string::npos);
+    CHECK(p.find("a=x-nv-video[0].clientRefreshRateX100:6000\r\n") != std::string::npos);
 }
 
 TEST_CASE("PLAY request formatting", "[moonlight][rtsp]") {
@@ -145,9 +213,15 @@ TEST_CASE("transport parsing is robust", "[moonlight][rtsp]") {
         REQUIRE(resp.has_value());
         CHECK_FALSE(transportPort(*resp).has_value());
     }
-    SECTION("connect data overflow") {
+    SECTION("connect data that is not a number") {
         const auto resp =
-            parseResponse("RTSP/1.0 200 OK\r\nCSeq: 3\r\nX-SS-Connect-Data: 99999999999\r\n\r\n");
+            parseResponse("RTSP/1.0 200 OK\r\nCSeq: 3\r\nX-SS-Connect-Data: 12ab34\r\n\r\n");
+        REQUIRE(resp.has_value());
+        CHECK_FALSE(connectData(*resp).has_value());
+    }
+    SECTION("connect data wider than 64 bits") {
+        const auto resp = parseResponse("RTSP/1.0 200 OK\r\nCSeq: 3\r\n"
+                                        "X-SS-Connect-Data: 999999999999999999999999\r\n\r\n");
         REQUIRE(resp.has_value());
         CHECK_FALSE(connectData(*resp).has_value());
     }
@@ -157,6 +231,65 @@ TEST_CASE("transport parsing is robust", "[moonlight][rtsp]") {
         REQUIRE(resp.has_value());
         CHECK(pingPayload(*resp) == "AbCd0123EfGh4567");
     }
+}
+
+TEST_CASE("X-SS-Connect-Data parses unsigned, above and below INT32_MAX", "[moonlight][rtsp]") {
+    // READ WIDE, THEN NARROW. The token is unsigned 32-bit and a real host's
+    // routinely sits above INT32_MAX: 4270471497 came off a live Sunshine host.
+    // A signed parse fails for exactly those values and, defaulted, hands the
+    // control stream a token of 0 — which connects, to the wrong session.
+    const auto token = [](const std::string& text) {
+        const auto resp =
+            parseResponse("RTSP/1.0 200 OK\r\nCSeq: 3\r\nX-SS-Connect-Data: " + text + "\r\n\r\n");
+        REQUIRE(resp.has_value());
+        return connectData(*resp);
+    };
+
+    // Below INT32_MAX.
+    CHECK(token("0") == 0U);
+    CHECK(token("1") == 1U);
+    CHECK(token("3735928559") == 3735928559U);
+    CHECK(token("2147483646") == 2147483646U);
+    CHECK(token("2147483647") == 2147483647U); // INT32_MAX itself
+
+    // Above INT32_MAX — the half a signed parse loses.
+    CHECK(token("2147483648") == 2147483648U);
+    CHECK(token("4270471497") == 4270471497U); // the live host's own value
+    CHECK(token("4294967295") == 4294967295U); // UINT32_MAX
+
+    // Wider than the wire field: narrowed to the 32 bits ENet carries, never
+    // silently dropped to zero.
+    CHECK(token("4294967296") == 0U);
+    CHECK(token("4294967297") == 1U);
+    CHECK(token("99999999999") == static_cast<std::uint32_t>(99999999999ULL & 0xFFFFFFFFULL));
+
+    // Whitespace around the value is tolerated the way hosts emit it.
+    CHECK(token(" 4270471497 ") == 4270471497U);
+}
+
+TEST_CASE("Content-length frames a reply that declares one", "[moonlight][rtsp]") {
+    const auto declared = parseResponse("RTSP/1.0 200 OK\r\nCSeq: 4\r\n"
+                                        "Content-length: 11\r\n\r\nhello world");
+    REQUIRE(declared.has_value());
+    CHECK(contentLength(*declared) == 11);
+    CHECK(declared->payload == "hello world");
+
+    // The DESCRIBE shape: no Content-length at all, framed by the close.
+    const auto framedByClose = parseResponse("RTSP/1.0 200 OK\r\nCSeq: 2\r\n\r\n"
+                                             "a=fmtp:97 surround-params=21101\r\n");
+    REQUIRE(framedByClose.has_value());
+    CHECK_FALSE(contentLength(*framedByClose).has_value());
+    CHECK(framedByClose->payload.find("surround-params") != std::string::npos);
+
+    // Case-insensitive, and a non-numeric length is no length.
+    const auto lowercase =
+        parseResponse("RTSP/1.0 200 OK\r\nCSeq: 4\r\ncontent-length: 3\r\n\r\nabc");
+    REQUIRE(lowercase.has_value());
+    CHECK(contentLength(*lowercase) == 3);
+    const auto rubbish =
+        parseResponse("RTSP/1.0 200 OK\r\nCSeq: 4\r\nContent-length: many\r\n\r\nabc");
+    REQUIRE(rubbish.has_value());
+    CHECK_FALSE(contentLength(*rubbish).has_value());
 }
 
 TEST_CASE("option lookup is case-insensitive", "[moonlight][rtsp]") {
