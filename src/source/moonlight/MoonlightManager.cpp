@@ -59,7 +59,14 @@ MoonlightManager::MoonlightManager(const std::shared_ptr<QSettings>& settings, Q
                 probe.identityChanged = false;
                 probe.trustRejected = false;
             } else {
+                // WITH THE REASON, not just the fact. Both surfaces read
+                // pairingRefusedReason() to choose their advice, and a wire
+                // failure that recorded only "refused" told a user whose host
+                // declined the request, or went away mid-handshake, to check
+                // the code they typed. Every attempt that ends before the wire
+                // already records why; one that ends on it has to as well.
                 pairingRefusedUuid_ = uuid;
+                pairingRefusedReason_ = reasonToken;
             }
             qCInfo(lcMoon) << "pairing with" << uuid << (ok ? "succeeded" : "failed")
                            << reasonToken;
