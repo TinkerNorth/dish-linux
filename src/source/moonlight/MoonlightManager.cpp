@@ -208,6 +208,12 @@ void MoonlightManager::addManualHost(const QString& address, const QString& name
     hostRepo_.upsert(stub);
     qCInfo(lcMoon) << "added host by address" << address << httpPort << httpsPort;
     emit rowsChanged();
+    // AND ASK IT WHAT IT IS. Typing an address is a question, and a row that
+    // appears without one is a claim nobody checked: the user gets the same
+    // "Not paired" whether the machine answered, refused, or is not there at
+    // all. The hosts screen probes every row it already has when it opens, so
+    // a row added afterwards is the one case nothing would ever ask about.
+    probe(key);
 }
 
 // A Pair that ends before the wire is still an ANSWER. It records the refusal
