@@ -204,13 +204,19 @@ TEST_CASE("stop wins from every phase", "[moonlight][machine]") {
     }
 }
 
-TEST_CASE("Failed is restartable", "[moonlight][machine]") {
+TEST_CASE("Failed is restartable, from a clean slate", "[moonlight][machine]") {
     SessionState failed = at(SessionPhase::Failed);
     failed.failure = SessionFailure::ControlLost;
+    // The attempt that failed had promoted itself to a resume.
+    failed.resuming = true;
     const auto r = reduce(failed, StartRequested{});
     REQUIRE(r.next.has_value());
     CHECK(r.next->phase == SessionPhase::CheckingInfo);
     CHECK_FALSE(r.next->failure.has_value());
+    // A NEW SESSION, not the old one carried forward. A host that ended its
+    // session is running nothing to resume, and asking it to hand back a
+    // session it no longer has is refused rather than started.
+    CHECK_FALSE(r.next->resuming);
     CHECK(hasEffect(r, SessionEffect::FetchServerInfo));
 }
 
