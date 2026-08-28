@@ -103,7 +103,15 @@ QList<MoonlightRow> MoonlightManager::rows() const {
         const auto* session = sessions_.value(host.uuid, nullptr);
         if (session != nullptr) {
             row.link = session->linkState();
-            row.controllers = static_cast<int>(session->controllerCount());
+            // ONLY WHAT IS ACTUALLY RIDING THE HOST. The pads stay attached to
+            // a session that has been stopped, because their bindings are
+            // durable intent and a restart re-announces every one of them. The
+            // row's count is not that: it feeds the "In use by N" chip, and a
+            // host whose session was quit, dropped or ended is in use by
+            // nobody however many bindings still point at it.
+            if (row.link == MoonlightLinkState::Live) {
+                row.controllers = static_cast<int>(session->controllerCount());
+            }
         }
         if (const auto it = discovered_.constFind(host.uuid); it != discovered_.constEnd()) {
             row.discovered = true;
