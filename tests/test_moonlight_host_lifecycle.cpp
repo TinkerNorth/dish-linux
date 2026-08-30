@@ -29,6 +29,7 @@
 // routes nowhere, and the cases that need an answer stand up a loopback origin
 // and talk to that.
 
+#include "MoonlightFakeHost.h"
 #include "QSettingsFixture.h"
 #include "core/moonlight/MoonlightPadSlots.h"
 #include "core/moonlight/MoonlightSessionMachine.h"
@@ -45,6 +46,11 @@
 #include <QHostAddress>
 #include <QString>
 #include <QStringList>
+#include <QSslCertificate>
+#include <QSslConfiguration>
+#include <QSslKey>
+#include <QSslServer>
+#include <QSslSocket>
 #include <QTcpServer>
 #include <QTcpSocket>
 
@@ -99,17 +105,41 @@ bool spinUntil(const std::function<bool()>& ready, int timeoutMs = 8000) {
 class InfoHost {
   public:
     explicit InfoHost(QByteArray reply) : reply_(std::move(reply)) {
-        listening_ = server_.listen(QHostAddress::LocalHost, 0);
+        // Both ports, because the probe asks both: plaintext for reachability
+        // and identity, mutual TLS for the pairing verdict, which is the only
+        // route a live Sunshine host computes PairStatus on. A fixture that
+        // answered only in plaintext could never render a host Paired again.
+        const auto& identity = test::fixtureHostIdentity();
+        QSslConfiguration ssl = QSslConfiguration::defaultConfiguration();
+        const auto certs =
+            QSslCertificate::fromData(QByteArray::fromStdString(identity.certPem), QSsl::Pem);
+        if (!certs.isEmpty()) {
+            ssl.setLocalCertificate(certs.first());
+            ssl.setPrivateKey(QSslKey(QByteArray::fromStdString(identity.privateKeyPem), QSsl::Rsa,
+                                      QSsl::Pem, QSsl::PrivateKey));
+            ssl.setPeerVerifyMode(QSslSocket::VerifyNone);
+            tls_.setSslConfiguration(ssl);
+        }
+        listening_ =
+            server_.listen(QHostAddress::LocalHost, 0) && tls_.listen(QHostAddress::LocalHost, 0);
         QObject::connect(&server_, &QTcpServer::newConnection, &server_, [this] { accept(); });
+        QObject::connect(&tls_, &QTcpServer::pendingConnectionAvailable, &tls_, [this] {
+            while (auto* sock = tls_.nextPendingConnection()) { serve(sock); }
+        });
     }
 
     bool listening() const { return listening_; }
     int port() const { return static_cast<int>(server_.serverPort()); }
+    int httpsPort() const { return static_cast<int>(tls_.serverPort()); }
+    // What a paired record pins against.
+    QString certPem() const { return QString::fromStdString(test::fixtureHostIdentity().certPem); }
     int requests() const { return requests_; }
 
   private:
-    void accept() {
-        QTcpSocket* sock = server_.nextPendingConnection();
+    void accept() { serve(server_.nextPendingConnection()); }
+
+    void serve(QTcpSocket* sock) {
+        if (sock == nullptr) { return; }
         QObject::connect(sock, &QTcpSocket::disconnected, sock, &QObject::deleteLater);
         auto seen = std::make_shared<QByteArray>();
         QObject::connect(sock, &QTcpSocket::readyRead, sock, [this, sock, seen] {
@@ -123,6 +153,7 @@ class InfoHost {
     }
 
     QTcpServer server_;
+    QSslServer tls_;
     QByteArray reply_;
     bool listening_ = false;
     int requests_ = 0;
@@ -154,6 +185,10 @@ repository::MoonlightHost hostAt(const InfoHost& fixture,
     auto host = pairedHost(uuid);
     host.address = QStringLiteral("127.0.0.1");
     host.httpPort = fixture.port();
+    host.httpsPort = fixture.httpsPort();
+    // The real anchor, not kAnchor: the trust question travels over TLS and is
+    // pinned against this, so a stand-in certificate reads as an imposter.
+    host.serverCertPem = fixture.certPem();
     return host;
 }
 
@@ -822,8 +857,12 @@ TEST_CASE("a host that trusts us while we hold no certificate is not paired",
 
     const auto inputs = manager.uiInputs(uuid, QString());
     CHECK(inputs.probeAnswered);
-    CHECK(inputs.paired);           // the host's half
-    CHECK_FALSE(inputs.remembered); // ours
+    // The host's half is not readable here at all: the plaintext PairStatus is
+    // 0 for every caller on a live host, and with no anchor on file the TLS
+    // question cannot be asked safely. What the host still holds is discovered
+    // by the ordinary pairing this state offers, which confirms it PIN-free.
+    CHECK_FALSE(inputs.paired);
+    CHECK_FALSE(inputs.remembered);
     CHECK(moonlight::hostTrust(inputs) == moonlight::HostTrust::NotPaired);
     // Not TrustLost: nothing was lost, and the recovery is an ordinary pairing.
     CHECK(moonlight::sessionUiState(inputs) == moonlight::SessionUiState::NotPaired);
