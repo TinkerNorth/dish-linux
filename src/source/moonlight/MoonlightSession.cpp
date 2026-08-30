@@ -10,7 +10,8 @@
 #include "core/moonlight/MoonlightXml.h"
 #include "source/moonlight/MoonlightLog.h"
 
-#include <QMetaObject>
+#include <QMetaType>
+#include <QPointer>
 #include <QTcpSocket>
 #include <QTimer>
 #include <QUdpSocket>
@@ -81,19 +82,22 @@ MoonlightSession::MoonlightSession(MoonlightHttp* http, repository::MoonlightHos
     : QObject(parent), http_(http), host_(std::move(host)),
       control_(std::make_unique<MoonlightControlStream>()),
       rtsp_(std::make_unique<MoonlightRtspClient>()) {
-    control_->setLinkHandler([this](bool connected) {
-        // Hops off the control-stream service thread onto the Qt loop.
-        QMetaObject::invokeMethod(
-            this,
-            [this, connected] {
-                qCInfo(lcMoon) << "control link to" << host_.address << (connected ? "up" : "down");
-                dispatch(connected
-                             ? moonlight::SessionEvent{moonlight::moon_event::ControlConnected{}}
-                             : moonlight::SessionEvent{moonlight::moon_event::ControlLost{}});
-            },
-            Qt::QueuedConnection);
-    });
-    control_->setEventHandler([this](const moonwire::HostEvent& event) { onHostEvent(event); });
+    // Both handlers run on the control stream's service thread and only emit;
+    // the queued connections below are what hop onto the Qt loop.
+    qRegisterMetaType<moonwire::HostEvent>();
+    control_->setLinkHandler([this](bool connected) { emit controlLinkChanged(connected); });
+    control_->setEventHandler(
+        [this](const moonwire::HostEvent& event) { emit hostEventReceived(event); });
+    QObject::connect(
+        this, &MoonlightSession::controlLinkChanged, this,
+        [this](bool connected) {
+            qCInfo(lcMoon) << "control link to" << host_.address << (connected ? "up" : "down");
+            dispatch(connected ? moonlight::SessionEvent{moonlight::moon_event::ControlConnected{}}
+                               : moonlight::SessionEvent{moonlight::moon_event::ControlLost{}});
+        },
+        Qt::QueuedConnection);
+    QObject::connect(this, &MoonlightSession::hostEventReceived, this,
+                     &MoonlightSession::onHostEvent, Qt::QueuedConnection);
 
     QObject::connect(rtsp_.get(), &MoonlightRtspClient::connected, this,
                      [this] { dispatch(moonlight::moon_event::RtspReady{}); });
@@ -182,6 +186,11 @@ void MoonlightSession::announcePad(const QString& slotId) {
     const auto it = pads_.constFind(slotId);
     if (it == pads_.constEnd()) { return; }
     control_->sendControllerArrival(it->number, it->type, it->capabilities, it->buttons);
+    // And its first state, zeroed, carrying the active mask: a bound pad nobody
+    // has touched yet is then a pad the game can see rather than a name the
+    // host is still waiting to hear from.
+    control_->sendControllerMulti(it->number, activeMask_.load(std::memory_order_relaxed), 0, 0, 0,
+                                  0, 0, 0, 0);
 }
 
 void MoonlightSession::dispatch(const moonlight::SessionEvent& event) {
@@ -270,55 +279,109 @@ void MoonlightSession::setLinkState(MoonlightLinkState state) {
     emit linkStateChanged();
 }
 
+MoonlightHttp::BodyCb MoonlightSession::guarded(MoonlightHttp::BodyCb cb) {
+    QPointer<MoonlightSession> self(this);
+    return [self, cb = std::move(cb)](int status, const QByteArray& body) {
+        if (self.isNull()) { return; }
+        cb(status, body);
+    };
+}
+
 void MoonlightSession::fetchServerInfo() {
-    http_->getPlain(host_.address, host_.httpPort, QStringLiteral("/serverinfo"), QUrlQuery(),
-                    [this](int status, const QByteArray& body) {
-                        if (status != 200) {
-                            qCWarning(lcMoon)
-                                << "serverinfo on" << host_.address << "answered HTTP" << status;
-                            dispatch(moonlight::moon_event::ServerInfoFailed{});
-                            return;
-                        }
-                        const std::string xml = body.toStdString();
-                        const auto info = moonxml::parseServerInfo(xml);
-                        if (!info) {
-                            const auto refusal = moonxml::parseStatus(xml);
-                            qCWarning(lcMoon) << "serverinfo on" << host_.address
-                                              << "unusable: host" << hostSays(refusal);
-                            dispatch(moonlight::moon_event::ServerInfoFailed{});
-                            return;
-                        }
-                        // Ask for the host's own display rather than a small mode: an
-                        // Apollo/Vibepollo virtual display follows what the client asks
-                        // for, and a small request resizes the user's desktop under them.
-                        if (const auto mode = moonxml::preferredDisplayMode(info->displayModes)) {
-                            stream_.width = mode->width;
-                            stream_.height = mode->height;
-                            if (mode->refreshRate > 0) { stream_.fps = mode->refreshRate; }
-                        }
-                        qCInfo(lcMoon) << "serverinfo on" << host_.address << "paired"
-                                       << (info->pairStatus == 1) << "currentgame"
-                                       << info->currentGame << "mode" << stream_.width << "x"
-                                       << stream_.height << "@" << stream_.fps;
-                        moonlight::moon_event::ServerInfoOk ev;
-                        ev.paired = info->pairStatus == 1;
-                        ev.currentGame = info->currentGame;
-                        dispatch(ev);
-                    });
+    // TWO QUESTIONS, TWO CALLS. The plaintext port answers whether anything is
+    // there and whether it is the host the record anchors, and nothing else:
+    // Sunshine computes PairStatus on the mutual-TLS route alone and hands every
+    // plaintext caller a 0, its own paired devices included, so a session gated
+    // on this flag never started against a live host, which no amount of
+    // pairing made visible. The trust question is asked by askTrust().
+    http_->getPlain(
+        host_.address, host_.httpPort, QStringLiteral("/serverinfo"), QUrlQuery(),
+        guarded([this](int status, const QByteArray& body) {
+            if (status != 200) {
+                qCWarning(lcMoon) << "serverinfo on" << host_.address << "answered HTTP" << status;
+                dispatch(moonlight::moon_event::ServerInfoFailed{});
+                return;
+            }
+            const std::string xml = body.toStdString();
+            const auto info = moonxml::parseServerInfo(xml);
+            if (!info) {
+                const auto refusal = moonxml::parseStatus(xml);
+                qCWarning(lcMoon) << "serverinfo on" << host_.address << "unusable: host"
+                                  << hostSays(refusal);
+                dispatch(moonlight::moon_event::ServerInfoFailed{});
+                return;
+            }
+            const QString reported = QString::fromStdString(info->uuid);
+            if (!reported.isEmpty() && !host_.uuid.isEmpty() &&
+                !host_.uuid.startsWith(QLatin1String("addr:")) && reported != host_.uuid) {
+                // Another machine behind the address: the stored certificate
+                // anchors nothing, and a TLS call would only fail less usefully.
+                qCWarning(lcMoon) << host_.address << "answers as" << reported << "remembered as"
+                                  << host_.uuid << ": host replaced";
+                moonlight::moon_event::ServerInfoOk ev;
+                ev.remembered = host_.paired();
+                ev.identityChanged = true;
+                dispatch(ev);
+                return;
+            }
+            if (!host_.paired()) {
+                // Never paired: there is no certificate to present, so the
+                // trust question has its answer already.
+                qCInfo(lcMoon) << "serverinfo on" << host_.address << "answered; not paired";
+                moonlight::moon_event::ServerInfoOk ev;
+                ev.paired = false;
+                ev.remembered = false;
+                dispatch(ev);
+                return;
+            }
+            askTrust();
+        }));
+}
+
+void MoonlightSession::askTrust() {
+    http_->getTls(host_.address, host_.httpsPort, QStringLiteral("/serverinfo"), QUrlQuery(),
+                  host_.serverCertPem, guarded([this](int status, const QByteArray& body) {
+                      moonlight::moon_event::ServerInfoOk ev;
+                      ev.remembered = true;
+                      const auto info = status == 200 ? moonxml::parseServerInfo(body.toStdString())
+                                                      : std::optional<moonxml::ServerInfo>{};
+                      if (!info) {
+                          // The plaintext port answered a moment ago, so this is
+                          // the host declining the certificate, not a cable.
+                          qCWarning(lcMoon) << host_.address << "refused mutual TLS (HTTP" << status
+                                            << "): trust lost";
+                          ev.paired = false;
+                          dispatch(ev);
+                          return;
+                      }
+                      ev.paired = info->pairStatus == 1;
+                      ev.currentGame = info->currentGame;
+                      qCInfo(lcMoon)
+                          << "serverinfo on" << host_.address << "over TLS: paired" << ev.paired
+                          << "currentgame" << info->currentGame << "mode" << stream_.width << "x"
+                          << stream_.height << "@" << stream_.fps;
+                      dispatch(ev);
+                  }));
 }
 
 void MoonlightSession::sendLaunch() {
     // One control-stream key per attempt (Wolf keys the control AES-GCM on
-    // this rikey; rikeyid feeds nothing this client must vary, so it stays 0).
-    // A launch that promotes to /resume keeps the key it already announced.
+    // this rikey). The rikeyid is minted with it: nothing this client sends is
+    // keyed on it today, but a host is free to be, and the other two clients
+    // mint one, so a constant here would be an assumption about a host we do
+    // not control. A launch that promotes to /resume keeps both.
     if (!rikeyReady_) {
-        if (!mooncrypto::randomBytes(rikey_.data(), rikey_.size())) {
+        std::array<std::uint8_t, 4> id{};
+        if (!mooncrypto::randomBytes(rikey_.data(), rikey_.size()) ||
+            !mooncrypto::randomBytes(id.data(), id.size())) {
             qCWarning(lcMoon) << "launch on" << host_.address
                               << "aborted: no entropy for the rikey";
             dispatch(moonlight::moon_event::LaunchFailed{});
             return;
         }
-        rikeyId_ = 0;
+        rikeyId_ = static_cast<std::uint32_t>(id[0]) | (static_cast<std::uint32_t>(id[1]) << 8) |
+                   (static_cast<std::uint32_t>(id[2]) << 16) |
+                   (static_cast<std::uint32_t>(id[3]) << 24);
         rikeyReady_ = true;
     }
 
@@ -343,7 +406,7 @@ void MoonlightSession::sendLaunch() {
     query.addQueryItem(QStringLiteral("surroundAudioInfo"), QStringLiteral("196610"));
     const QString path = resuming ? QStringLiteral("/resume") : QStringLiteral("/launch");
     http_->getTls(host_.address, host_.httpsPort, path, query, host_.serverCertPem,
-                  [this, path](int status, const QByteArray& body) {
+                  guarded([this, path](int status, const QByteArray& body) {
                       const std::string xml = body.toStdString();
                       const auto refusal = moonxml::parseStatus(xml);
                       const auto launch = moonxml::parseLaunch(xml);
@@ -351,6 +414,18 @@ void MoonlightSession::sendLaunch() {
                           << path << "on" << host_.address << "HTTP" << status << "host"
                           << hostSays(refusal) << "rtsp port" << (launch ? launch->rtspPort : 0);
                       if (status == 200 && launch && launch->launched) {
+                          if (machine_.phase != moonlight::SessionPhase::Launching) {
+                              // THE LAUNCH WE WALKED AWAY FROM CAME GOOD ANYWAY. The
+                              // last pad left while the reply was in flight, so the
+                              // reducer will not act on it and nothing is riding the
+                              // session. The host is holding an app on our behalf all
+                              // the same: hand it straight back, or it sits there
+                              // refusing every later /launch.
+                              qCInfo(lcMoon) << path << "on" << host_.address
+                                             << "answered after the session closed; handing back";
+                              cancelStrandedApp();
+                              return;
+                          }
                           rtspTarget_ = QStringLiteral("rtsp://%1:%2")
                                             .arg(QString::fromStdString(launch->rtspHost))
                                             .arg(launch->rtspPort);
@@ -381,7 +456,7 @@ void MoonlightSession::sendLaunch() {
                           refusalMessage_ = QString::number(refusal->code);
                       }
                       dispatch(moonlight::moon_event::LaunchFailed{});
-                  });
+                  }));
 }
 
 void MoonlightSession::openRtsp() {
@@ -474,6 +549,8 @@ void MoonlightSession::startStreaming() {
     qCInfo(lcMoon) << "session live on" << host_.address << "announcing" << pads_.size() << "pads";
     for (auto it = pads_.constBegin(); it != pads_.constEnd(); ++it) {
         control_->sendControllerArrival(it->number, it->type, it->capabilities, it->buttons);
+        control_->sendControllerMulti(it->number, activeMask_.load(std::memory_order_relaxed), 0, 0,
+                                      0, 0, 0, 0, 0);
     }
     ensureRtpPings();
 }
@@ -570,38 +647,33 @@ void MoonlightSession::sendMotion(std::uint8_t controllerNumber, std::uint8_t mo
 }
 
 void MoonlightSession::onHostEvent(const moonwire::HostEvent& event) {
-    // Copy the POD event onto the Qt main thread; the handlers touch UI-thread
-    // plumbing (the SDL output queue) via the manager.
-    QMetaObject::invokeMethod(
-        this,
-        [this, event] {
-            switch (event.type) {
-            case moonwire::HostEventType::Rumble:
-            case moonwire::HostEventType::RumbleTriggers:
-                if (rumbleHandler_) {
-                    rumbleHandler_(static_cast<std::uint8_t>(event.controllerNumber),
-                                   event.rumbleLow, event.rumbleHigh);
-                }
-                break;
-            case moonwire::HostEventType::RgbLed:
-                if (ledHandler_) {
-                    ledHandler_(static_cast<std::uint8_t>(event.controllerNumber), event.red,
-                                event.green, event.blue);
-                }
-                break;
-            case moonwire::HostEventType::MotionRequest:
-                // rate 0 stops motion; any non-zero rate starts it.
-                motionRequested_ = event.motionRateHz != 0;
-                break;
-            case moonwire::HostEventType::Termination:
-                qCInfo(lcMoon) << host_.address << "sent TERMINATION";
-                dispatch(moonlight::moon_event::HostTerminated{});
-                break;
-            case moonwire::HostEventType::Unknown:
-                break;
-            }
-        },
-        Qt::QueuedConnection);
+    // On the Qt main thread: the handlers touch UI-thread plumbing (the SDL
+    // output queue) via the manager.
+    switch (event.type) {
+    case moonwire::HostEventType::Rumble:
+    case moonwire::HostEventType::RumbleTriggers:
+        if (rumbleHandler_) {
+            rumbleHandler_(static_cast<std::uint8_t>(event.controllerNumber), event.rumbleLow,
+                           event.rumbleHigh);
+        }
+        break;
+    case moonwire::HostEventType::RgbLed:
+        if (ledHandler_) {
+            ledHandler_(static_cast<std::uint8_t>(event.controllerNumber), event.red, event.green,
+                        event.blue);
+        }
+        break;
+    case moonwire::HostEventType::MotionRequest:
+        // rate 0 stops motion; any non-zero rate starts it.
+        motionRequested_ = event.motionRateHz != 0;
+        break;
+    case moonwire::HostEventType::Termination:
+        qCInfo(lcMoon) << host_.address << "sent TERMINATION";
+        dispatch(moonlight::moon_event::HostTerminated{});
+        break;
+    case moonwire::HostEventType::Unknown:
+        break;
+    }
 }
 
 } // namespace dish::source::moon

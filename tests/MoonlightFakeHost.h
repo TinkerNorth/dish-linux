@@ -269,7 +269,7 @@ class FakeMoonlightHost : public QObject {
     }
 
     QByteArray bodyFor(const FakeRequest& request) {
-        if (request.path == QLatin1String("/serverinfo")) { return serverInfoBody(); }
+        if (request.path == QLatin1String("/serverinfo")) { return serverInfoBody(request.tls); }
         if (request.path == QLatin1String("/applist")) { return appListBody(); }
         if (request.path == QLatin1String("/cancel")) {
             // 200 whether or not anything was running, which is exactly why the
@@ -283,7 +283,11 @@ class FakeMoonlightHost : public QObject {
         return QByteArrayLiteral("<root status_code=\"404\"></root>");
     }
 
-    QByteArray serverInfoBody() const {
+    // PairStatus 0 on the plaintext port whatever the truth, as a live Sunshine
+    // host answers every plaintext caller including one it holds a pairing
+    // for; the flag is computed on the mutual-TLS route alone. A client that
+    // reads the plaintext flag as an answer fails here the way it fails there.
+    QByteArray serverInfoBody(bool tls) const {
         return QStringLiteral("<root status_code=\"200\">"
                               "<hostname>Fixture</hostname>"
                               "<uniqueid>%1</uniqueid>"
@@ -293,7 +297,7 @@ class FakeMoonlightHost : public QObject {
                               "<currentgame>%3</currentgame>"
                               "</root>")
             .arg(uniqueId)
-            .arg(pairStatus)
+            .arg(tls ? pairStatus : 0)
             .arg(currentGame)
             .toUtf8();
     }

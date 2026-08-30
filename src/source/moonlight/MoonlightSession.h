@@ -113,11 +113,29 @@ class MoonlightSession : public QObject {
     // Terminal failure reason token, for the UI toast.
     void failed(const QString& reasonToken);
 
+    // Internal: the control stream's service thread reports through these, and
+    // a queued connection back to this object lands each report on the Qt
+    // loop. A signal rather than a lambda invokeMethod because the queued
+    // call is then built inside Qt, whose hand-off TSan already knows to
+    // trust; a lambda posted from the service thread is allocated in our own
+    // code and read on the Qt thread, which reads as a race between the two.
+    void controlLinkChanged(bool connected);
+    void hostEventReceived(dish::moonwire::HostEvent event);
+
   private:
     void dispatch(const moonlight::SessionEvent& event);
     void run(const moonlight::Reduction& reduction);
     void runEffect(moonlight::SessionEffect effect);
     void setLinkState(MoonlightLinkState state);
+    // Wraps a reply handler so it is dropped if this session is gone by the
+    // time the reply lands. The gateway is the manager's and outlives every
+    // session, so nothing severs a handler on its own; a forget, or the
+    // manager's own teardown, deletes a session with its /serverinfo or
+    // /launch still in flight.
+    MoonlightHttp::BodyCb guarded(MoonlightHttp::BodyCb cb);
+    // The second half of the serverinfo check, over mutual TLS: the only call
+    // that can answer whether the host still trusts this client.
+    void askTrust();
     // Announces one attached pad to the host. No-op unless the control link is
     // up; startStreaming() re-announces every pad when it comes up.
     void announcePad(const QString& slotId);
@@ -142,7 +160,8 @@ class MoonlightSession : public QObject {
     // next attempt is not refused by our own leftovers.
     void cancelStrandedApp();
 
-    // Marshals a host event from the control thread onto the Qt main thread.
+    // Applies one host event; runs on the Qt main thread, delivered by the
+    // queued hostEventReceived connection.
     void onHostEvent(const moonwire::HostEvent& event);
 
     MoonlightHttp* http_;
@@ -221,3 +240,5 @@ class MoonlightSession : public QObject {
 };
 
 } // namespace dish::source::moon
+
+Q_DECLARE_METATYPE(dish::moonwire::HostEvent)

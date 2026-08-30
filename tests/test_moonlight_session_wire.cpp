@@ -125,8 +125,10 @@ TEST_CASE("a first binding launches the app and brings the stream up", "[moonlig
 
     REQUIRE(rig.bindLive(QStringLiteral("pad-a")));
 
-    // The three things the host saw, in order and once each.
-    CHECK(rig.host.seen(QStringLiteral("/serverinfo")) == 1);
+    // The three things the host saw, in order and once each: the serverinfo is
+    // asked on both ports, plaintext for reachability and mutual TLS for the
+    // pairing, because the plaintext PairStatus is 0 for everybody.
+    CHECK(rig.host.seen(QStringLiteral("/serverinfo")) == 2);
     CHECK(rig.host.seen(QStringLiteral("/launch")) == 1);
     CHECK(rig.host.seen(QStringLiteral("/resume")) == 0);
     // The pad is announced on the live link, and the media ports have been
@@ -178,7 +180,7 @@ TEST_CASE("two bindings converging in one turn start one session", "[moonlight][
 
     REQUIRE(spinFor([&rig] { return rig.host.arrivals() >= 2; }));
     settle();
-    CHECK(rig.host.seen(QStringLiteral("/serverinfo")) == 1);
+    CHECK(rig.host.seen(QStringLiteral("/serverinfo")) == 2);
     CHECK(rig.host.seen(QStringLiteral("/launch")) == 1);
     CHECK(rig.manager->controllerCount(kHostId) == 2);
 }
