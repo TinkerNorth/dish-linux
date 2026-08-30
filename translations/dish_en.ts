@@ -186,6 +186,10 @@
         <translation>%1 has no %2.</translation>
     </message>
     <message>
+        <source>A %1 controller does not carry %2 over Moonlight.</source>
+        <translation>A %1 controller does not carry %2 over Moonlight.</translation>
+    </message>
+    <message>
         <source>%1 doesn’t carry %2.</source>
         <translation>%1 doesn’t carry %2.</translation>
     </message>
@@ -381,6 +385,22 @@
         <translation>Claiming controller…</translation>
     </message>
     <message>
+        <source>Auto</source>
+        <translation>Auto</translation>
+    </message>
+    <message>
+        <source>Paired</source>
+        <translation>Paired</translation>
+    </message>
+    <message>
+        <source>Remembered</source>
+        <translation>Remembered</translation>
+    </message>
+    <message>
+        <source>Not paired</source>
+        <translation>Not paired</translation>
+    </message>
+    <message>
         <source>slot %1</source>
         <translation>slot %1</translation>
     </message>
@@ -454,6 +474,10 @@
     <message>
         <source>Pick a destination to continue.</source>
         <translation>Pick a destination to continue.</translation>
+    </message>
+    <message>
+        <source>Unbind a controller on %1 to make room.</source>
+        <translation>Unbind a controller on %1 to make room.</translation>
     </message>
     <message>
         <source>Waiting on the controller catalog.</source>
@@ -596,8 +620,20 @@
         <translation>Manage destinations ›</translation>
     </message>
     <message>
+        <source>Moonlight hosts</source>
+        <translation>Moonlight hosts</translation>
+    </message>
+    <message>
+        <source>Moonlight host · %1</source>
+        <translation>Moonlight host · %1</translation>
+    </message>
+    <message>
         <source>This machine pairs as a Bluetooth gamepad. Gyro, touchpad and mouse need a Satellite host.</source>
         <translation>This machine pairs as a Bluetooth gamepad. Gyro, touchpad and mouse need a Satellite host.</translation>
+    </message>
+    <message>
+        <source>Auto sends %1 for this controller.</source>
+        <translation>Auto sends %1 for this controller.</translation>
     </message>
     <message>
         <source>Handing the device over can take a few seconds.</source>
@@ -853,6 +889,14 @@
     <message>
         <source>More actions for %1</source>
         <translation>More actions for %1</translation>
+    </message>
+    <message>
+        <source>Moonlight hosts</source>
+        <translation>Moonlight hosts</translation>
+    </message>
+    <message>
+        <source>Stream to a PC running Sunshine, Apollo or Wolf instead of a satellite.</source>
+        <translation>Stream to a PC running Sunshine, Apollo or Wolf instead of a satellite.</translation>
     </message>
     <message>
         <source>Forget</source>
@@ -2575,6 +2619,244 @@
     </message>
 </context>
 <context>
+    <name>MoonlightHostsPage</name>
+    <message>
+        <source>Moonlight hosts</source>
+        <translation>Moonlight hosts</translation>
+    </message>
+    <message numerus="yes">
+        <source>%n found</source>
+        <translation>
+            <numerusform>%n found</numerusform>
+            <numerusform>%n found</numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <source>%n paired</source>
+        <translation>
+            <numerusform>%n paired</numerusform>
+            <numerusform>%n paired</numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>Found</source>
+        <translation>Found</translation>
+    </message>
+    <message>
+        <source>scanning…</source>
+        <translation>scanning…</translation>
+    </message>
+    <message>
+        <source>Add by address…</source>
+        <translation>Add by address…</translation>
+    </message>
+    <message>
+        <source>Scanning…</source>
+        <translation>Scanning…</translation>
+    </message>
+    <message>
+        <source>Scan</source>
+        <translation>Scan</translation>
+    </message>
+    <message>
+        <source>Looking for Moonlight hosts</source>
+        <translation>Looking for Moonlight hosts</translation>
+    </message>
+    <message>
+        <source>Scanning your network for hosts advertising GameStream. They appear here as they answer.</source>
+        <translation>Scanning your network for hosts advertising GameStream. They appear here as they answer.</translation>
+    </message>
+    <message>
+        <source>No Moonlight hosts found</source>
+        <translation>No Moonlight hosts found</translation>
+    </message>
+    <message>
+        <source>A PC appears here once Sunshine, Apollo or Wolf is running on it and both machines are on the same network. You can also add one by address.</source>
+        <translation>A PC appears here once Sunshine, Apollo or Wolf is running on it and both machines are on the same network. You can also add one by address.</translation>
+    </message>
+    <message>
+        <source>Get Sunshine ↗</source>
+        <translation>Get Sunshine ↗</translation>
+    </message>
+    <message>
+        <source>%1, Moonlight host, %2</source>
+        <translation>%1, Moonlight host, %2</translation>
+    </message>
+    <message>
+        <source>Moonlight host (Sunshine/Apollo)</source>
+        <translation>Moonlight host (Sunshine/Apollo)</translation>
+    </message>
+    <message>
+        <source>In use by %1</source>
+        <translation>In use by %1</translation>
+    </message>
+    <message>
+        <source>Session</source>
+        <translation>Session</translation>
+    </message>
+    <message>
+        <source>Pair again</source>
+        <translation>Pair again</translation>
+    </message>
+    <message>
+        <source>Pair…</source>
+        <translation>Pair…</translation>
+    </message>
+    <message>
+        <source>More actions for %1</source>
+        <translation>More actions for %1</translation>
+    </message>
+    <message>
+        <source>Pairing is one-time trust, not a connection. Dish re-checks it when you use a controller.</source>
+        <translation>Pairing is one-time trust, not a connection. Dish re-checks it when you use a controller.</translation>
+    </message>
+    <message>
+        <source>Quit session</source>
+        <translation>Quit session</translation>
+    </message>
+    <message>
+        <source>Forget</source>
+        <translation>Forget</translation>
+    </message>
+    <message>
+        <source>Forget %1?</source>
+        <translation>Forget %1?</translation>
+    </message>
+    <message>
+        <source>Cancel</source>
+        <translation>Cancel</translation>
+    </message>
+    <message>
+        <source>Moonlight host</source>
+        <translation>Moonlight host</translation>
+    </message>
+    <message>
+        <source>Add a host by address</source>
+        <translation>Add a host by address</translation>
+    </message>
+    <message>
+        <source>Add</source>
+        <translation>Add</translation>
+    </message>
+    <message>
+        <source>Enter the host IP address or hostname. Dish uses the standard Moonlight ports.</source>
+        <translation>Enter the host IP address or hostname. Dish uses the standard Moonlight ports.</translation>
+    </message>
+    <message>
+        <source>192.168.1.20</source>
+        <translation>192.168.1.20</translation>
+    </message>
+    <message>
+        <source>Name (optional)</source>
+        <translation>Name (optional)</translation>
+    </message>
+    <message>
+        <source>Pairing</source>
+        <translation>Pairing</translation>
+    </message>
+    <message>
+        <source>Pair with %1</source>
+        <translation>Pair with %1</translation>
+    </message>
+    <message>
+        <source>Done</source>
+        <translation>Done</translation>
+    </message>
+    <message>
+        <source>Type %1 into the Moonlight or Sunshine page on %2.</source>
+        <translation>Type %1 into the Moonlight or Sunshine page on %2.</translation>
+    </message>
+    <message>
+        <source>Check that the code went into the right host, then try again.</source>
+        <translation>Check that the code went into the right host, then try again.</translation>
+    </message>
+    <message>
+        <source>Waiting for the host to accept the PIN…</source>
+        <translation>Waiting for the host to accept the PIN…</translation>
+    </message>
+    <message>
+        <source>Dish deletes its half of the pairing and will need the PIN again. %1 keeps its own record of this device until somebody removes it there.</source>
+        <translation>Dish deletes its half of the pairing and will need the PIN again. %1 keeps its own record of this device until somebody removes it there.</translation>
+    </message>
+    <message>
+        <source>New code</source>
+        <translation>New code</translation>
+    </message>
+    <message numerus="yes">
+        <source>%n bindings ride on it and will be dropped:</source>
+        <translation>
+            <numerusform>%n binding rides on it and will be dropped:</numerusform>
+            <numerusform>%n bindings ride on it and will be dropped:</numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <source>Its session ends for the %n controllers on it.</source>
+        <translation>
+            <numerusform>Its session ends for the %n controller on it.</numerusform>
+            <numerusform>Its session ends for the %n controllers on it.</numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>%1 did not answer. Check that it is switched on and on this network.</source>
+        <translation>%1 did not answer. Check that it is switched on and on this network.</translation>
+    </message>
+    <message>
+        <source>%1 turned the request down. Check that pairing is allowed on the host.</source>
+        <translation>%1 turned the request down. Check that pairing is allowed on the host.</translation>
+    </message>
+    <message>
+        <source>Dish could not prepare its own identity for pairing. Try again.</source>
+        <translation>Dish could not prepare its own identity for pairing. Try again.</translation>
+    </message>
+    <message>
+        <source>Paired</source>
+        <translation>Paired</translation>
+    </message>
+    <message>
+        <source>Remembered</source>
+        <translation>Remembered</translation>
+    </message>
+    <message>
+        <source>Not paired</source>
+        <translation>Not paired</translation>
+    </message>
+    <message numerus="yes">
+        <source>%n controllers</source>
+        <translation>
+            <numerusform>%n controller</numerusform>
+            <numerusform>%n controllers</numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>Pairing…</source>
+        <translation>Pairing…</translation>
+    </message>
+    <message>
+        <source>Starting…</source>
+        <translation>Starting…</translation>
+    </message>
+    <message>
+        <source>Connecting…</source>
+        <translation>Connecting…</translation>
+    </message>
+    <message>
+        <source>Streaming</source>
+        <translation>Streaming</translation>
+    </message>
+    <message>
+        <source>Unsteady</source>
+        <translation>Unsteady</translation>
+    </message>
+    <message>
+        <source>Failed</source>
+        <translation>Failed</translation>
+    </message>
+    <message>
+        <source>Disconnected</source>
+        <translation>Disconnected</translation>
+    </message>
+</context>
+<context>
     <name>PairingDialog</name>
     <message>
         <source>%1 is running a different Satellite version. Update both, then pair again.</source>
@@ -2951,6 +3233,10 @@
         <translation>Step 3 of 3 · Type</translation>
     </message>
     <message>
+        <source>Step 3 of 3 · Session</source>
+        <translation>Step 3 of 3 · Session</translation>
+    </message>
+    <message>
         <source>Step 3 of 3 · Feel</source>
         <translation>Step 3 of 3 · Feel</translation>
     </message>
@@ -2975,14 +3261,22 @@
         <translation>Standard</translation>
     </message>
     <message>
-        <source>satellite · 0 slots free</source>
-        <translation>satellite · 0 slots free</translation>
+        <source>moonlight</source>
+        <translation>moonlight</translation>
+    </message>
+    <message>
+        <source>satellite</source>
+        <translation>satellite</translation>
+    </message>
+    <message>
+        <source>%1 · 0 slots free</source>
+        <translation>%1 · 0 slots free</translation>
     </message>
     <message numerus="yes">
-        <source>satellite · %n slots free</source>
+        <source>%n slots free</source>
         <translation>
-            <numerusform>satellite · %n slot free</numerusform>
-            <numerusform>satellite · %n slots free</numerusform>
+            <numerusform>%n slot free</numerusform>
+            <numerusform>%n slots free</numerusform>
         </translation>
     </message>
     <message>
@@ -3276,8 +3570,8 @@
         <translation>Step %1, %2</translation>
     </message>
     <message>
-        <source>Sub-step %1 of 3</source>
-        <translation>Sub-step %1 of 3</translation>
+        <source>Sub-step %1 of %2</source>
+        <translation>Sub-step %1 of %2</translation>
     </message>
 </context>
 <context>
@@ -3338,6 +3632,22 @@
         </translation>
     </message>
     <message>
+        <source>full</source>
+        <translation>full</translation>
+    </message>
+    <message>
+        <source>Paired</source>
+        <translation>Paired</translation>
+    </message>
+    <message>
+        <source>Remembered</source>
+        <translation>Remembered</translation>
+    </message>
+    <message>
+        <source>Not paired</source>
+        <translation>Not paired</translation>
+    </message>
+    <message>
         <source>Which PC?</source>
         <translation>Which PC?</translation>
     </message>
@@ -3365,12 +3675,24 @@
         <translation>Needs pairing, PIN</translation>
     </message>
     <message>
+        <source>Moonlight hosts</source>
+        <translation>Moonlight hosts</translation>
+    </message>
+    <message>
+        <source>Moonlight host · %1</source>
+        <translation>Moonlight host · %1</translation>
+    </message>
+    <message>
+        <source>A PC appears here once Sunshine, Apollo or Wolf is running on it and both machines are on the same network. You can also add one by address.</source>
+        <translation>A PC appears here once Sunshine, Apollo or Wolf is running on it and both machines are on the same network. You can also add one by address.</translation>
+    </message>
+    <message>
         <source>No PCs found yet</source>
         <translation>No PCs found yet</translation>
     </message>
     <message>
-        <source>A PC shows up here once the free Satellite app is running on it and both machines are on the same network.</source>
-        <translation>A PC shows up here once the free Satellite app is running on it and both machines are on the same network.</translation>
+        <source>A PC shows up here once the free Satellite app is running on it, or once Sunshine, Apollo or Wolf is, and both machines are on the same network.</source>
+        <translation>A PC shows up here once the free Satellite app is running on it, or once Sunshine, Apollo or Wolf is, and both machines are on the same network.</translation>
     </message>
     <message>
         <source>Don’t see your PC? Install the free Satellite app on it.</source>
@@ -3695,14 +4017,277 @@
     </message>
 </context>
 <context>
+    <name>WizardSessionPage</name>
+    <message>
+        <source>Continue ›</source>
+        <translation>Continue ›</translation>
+    </message>
+    <message>
+        <source>Unbind a controller on %1 to make room.</source>
+        <translation>Unbind a controller on %1 to make room.</translation>
+    </message>
+    <message>
+        <source>Session</source>
+        <translation>Session</translation>
+    </message>
+    <message>
+        <source>Checking %1…</source>
+        <translation>Checking %1…</translation>
+    </message>
+    <message>
+        <source>Reading the app list from %1…</source>
+        <translation>Reading the app list from %1…</translation>
+    </message>
+    <message>
+        <source>Waiting for the host to accept the PIN…</source>
+        <translation>Waiting for the host to accept the PIN…</translation>
+    </message>
+    <message>
+        <source>Streaming</source>
+        <translation>Streaming</translation>
+    </message>
+    <message>
+        <source>Could not read the app list from %1</source>
+        <translation>Could not read the app list from %1</translation>
+    </message>
+    <message>
+        <source>Could not finish the session on %1</source>
+        <translation>Could not finish the session on %1</translation>
+    </message>
+    <message>
+        <source>%1 refused the session: %2</source>
+        <translation>%1 refused the session: %2</translation>
+    </message>
+    <message>
+        <source>%1 refused the session</source>
+        <translation>%1 refused the session</translation>
+    </message>
+    <message>
+        <source>Dish will start whatever the host lists first. Retry once %1 is reachable.</source>
+        <translation>Dish will start whatever the host lists first. Retry once %1 is reachable.</translation>
+    </message>
+    <message>
+        <source>The app started but the stream did not come up, so Dish closed it again.</source>
+        <translation>The app started but the stream did not come up, so Dish closed it again.</translation>
+    </message>
+    <message>
+        <source>Add the controller anyway and Dish will try again the next time you use it.</source>
+        <translation>Add the controller anyway and Dish will try again the next time you use it.</translation>
+    </message>
+    <message>
+        <source>No apps on this host</source>
+        <translation>No apps on this host</translation>
+    </message>
+    <message>
+        <source>%1 has no apps set up yet. Add one on the host, or add the controller and Dish will start whatever the host lists first.</source>
+        <translation>%1 has no apps set up yet. Add one on the host, or add the controller and Dish will start whatever the host lists first.</translation>
+    </message>
+    <message>
+        <source>Retry</source>
+        <translation>Retry</translation>
+    </message>
+    <message>
+        <source>Pair now</source>
+        <translation>Pair now</translation>
+    </message>
+    <message>
+        <source>Pair again</source>
+        <translation>Pair again</translation>
+    </message>
+    <message>
+        <source>Try again</source>
+        <translation>Try again</translation>
+    </message>
+    <message>
+        <source>New code</source>
+        <translation>New code</translation>
+    </message>
+    <message>
+        <source>Cancel</source>
+        <translation>Cancel</translation>
+    </message>
+    <message>
+        <source>Close the app on %1</source>
+        <translation>Close the app on %1</translation>
+    </message>
+    <message>
+        <source>Reconnect</source>
+        <translation>Reconnect</translation>
+    </message>
+    <message>
+        <source>Start a session</source>
+        <translation>Start a session</translation>
+    </message>
+    <message>
+        <source>See controllers on %1</source>
+        <translation>See controllers on %1</translation>
+    </message>
+    <message>
+        <source>Without a pick, Dish starts whatever %1 lists first.</source>
+        <translation>Without a pick, Dish starts whatever %1 lists first.</translation>
+    </message>
+    <message>
+        <source>Not paired yet</source>
+        <translation>Not paired yet</translation>
+    </message>
+    <message>
+        <source>Pair with %1</source>
+        <translation>Pair with %1</translation>
+    </message>
+    <message>
+        <source>%1 did not accept the PIN</source>
+        <translation>%1 did not accept the PIN</translation>
+    </message>
+    <message>
+        <source>%1 is not answering</source>
+        <translation>%1 is not answering</translation>
+    </message>
+    <message>
+        <source>%1 no longer recognises this device</source>
+        <translation>%1 no longer recognises this device</translation>
+    </message>
+    <message>
+        <source>%1 was reset</source>
+        <translation>%1 was reset</translation>
+    </message>
+    <message>
+        <source>New session</source>
+        <translation>New session</translation>
+    </message>
+    <message>
+        <source>Joining %1</source>
+        <translation>Joining %1</translation>
+    </message>
+    <message>
+        <source>Joining the session on %1</source>
+        <translation>Joining the session on %1</translation>
+    </message>
+    <message>
+        <source>%1 is full</source>
+        <translation>%1 is full</translation>
+    </message>
+    <message>
+        <source>Another device is using %1</source>
+        <translation>Another device is using %1</translation>
+    </message>
+    <message>
+        <source>Could not rejoin the session on %1</source>
+        <translation>Could not rejoin the session on %1</translation>
+    </message>
+    <message>
+        <source>Streaming to %1</source>
+        <translation>Streaming to %1</translation>
+    </message>
+    <message>
+        <source>Session on %1 ended</source>
+        <translation>Session on %1 ended</translation>
+    </message>
+    <message>
+        <source>%1 ended the session</source>
+        <translation>%1 ended the session</translation>
+    </message>
+    <message>
+        <source>%1 needs a one time PIN before Dish can start a session. Pair now, or add the controller and pair later.</source>
+        <translation>%1 needs a one time PIN before Dish can start a session. Pair now, or add the controller and pair later.</translation>
+    </message>
+    <message>
+        <source>Type %1 into the Moonlight or Sunshine page on %2.</source>
+        <translation>Type %1 into the Moonlight or Sunshine page on %2.</translation>
+    </message>
+    <message>
+        <source>%1 did not answer. Check that it is switched on and on this network.</source>
+        <translation>%1 did not answer. Check that it is switched on and on this network.</translation>
+    </message>
+    <message>
+        <source>%1 turned the request down. Check that pairing is allowed on the host.</source>
+        <translation>%1 turned the request down. Check that pairing is allowed on the host.</translation>
+    </message>
+    <message>
+        <source>Dish could not prepare its own identity for pairing. Try again.</source>
+        <translation>Dish could not prepare its own identity for pairing. Try again.</translation>
+    </message>
+    <message>
+        <source>Check that the code went into the right host, then try again.</source>
+        <translation>Check that the code went into the right host, then try again.</translation>
+    </message>
+    <message>
+        <source>Check that the host is switched on and on this network, then try again.</source>
+        <translation>Check that the host is switched on and on this network, then try again.</translation>
+    </message>
+    <message>
+        <source>Dish remembers the pairing with %1 and will start a session when the host is back.</source>
+        <translation>Dish remembers the pairing with %1 and will start a session when the host is back.</translation>
+    </message>
+    <message>
+        <source>The host removed the pairing. Pair again to start a session.</source>
+        <translation>The host removed the pairing. Pair again to start a session.</translation>
+    </message>
+    <message>
+        <source>This host has a new identity, so the old pairing no longer works. Pair again to start a session.</source>
+        <translation>This host has a new identity, so the old pairing no longer works. Pair again to start a session.</translation>
+    </message>
+    <message>
+        <source>This is the first controller on %1, so it picks what the host runs.</source>
+        <translation>This is the first controller on %1, so it picks what the host runs.</translation>
+    </message>
+    <message>
+        <source>%1 is already running a session for this device. This controller joins it as controller %2.</source>
+        <translation>%1 is already running a session for this device. This controller joins it as controller %2.</translation>
+    </message>
+    <message>
+        <source>A session carries four controllers at most, and %1 already has four. Unbind one to make room.</source>
+        <translation>A session carries four controllers at most, and %1 already has four. Unbind one to make room.</translation>
+    </message>
+    <message>
+        <source>%1 is running an app for a different device and will not hand that session over. Close it to start a new one, or add the controller and try again later.</source>
+        <translation>%1 is running an app for a different device and will not hand that session over. Close it to start a new one, or add the controller and try again later.</translation>
+    </message>
+    <message>
+        <source>The host has a session but would not hand it back. Close the app on %1 and start a new one.</source>
+        <translation>The host has a session but would not hand it back. Close the app on %1 and start a new one.</translation>
+    </message>
+    <message>
+        <source>The link dropped. Dish will rejoin the next time you use this controller.</source>
+        <translation>The link dropped. Dish will rejoin the next time you use this controller.</translation>
+    </message>
+    <message>
+        <source>The app closed on the host. Start a new session to keep using this controller.</source>
+        <translation>The app closed on the host. Start a new session to keep using this controller.</translation>
+    </message>
+    <message>
+        <source>%1 · controller %2 of 4</source>
+        <translation>%1 · controller %2 of 4</translation>
+    </message>
+    <message>
+        <source>Unbinding the last controller ends this session.</source>
+        <translation>Unbinding the last controller ends this session.</translation>
+    </message>
+    <message>
+        <source>This is the only Moonlight state that stops you adding the controller.</source>
+        <translation>This is the only Moonlight state that stops you adding the controller.</translation>
+    </message>
+    <message>
+        <source>You can add the controller now and settle this later.</source>
+        <translation>You can add the controller now and settle this later.</translation>
+    </message>
+</context>
+<context>
     <name>WizardTypePage</name>
     <message>
         <source>Continue ›</source>
         <translation>Continue ›</translation>
     </message>
     <message>
+        <source>Some hosts override the choice.</source>
+        <translation>Some hosts override the choice.</translation>
+    </message>
+    <message>
         <source>Types offered by %1’s catalog.</source>
         <translation>Types offered by %1’s catalog.</translation>
+    </message>
+    <message>
+        <source>Auto</source>
+        <translation>Auto</translation>
     </message>
     <message>
         <source>Rumble</source>
@@ -3717,8 +4302,16 @@
         <translation>Touchpad</translation>
     </message>
     <message>
+        <source>How should the host see it?</source>
+        <translation>How should the host see it?</translation>
+    </message>
+    <message>
         <source>How should the PC see it?</source>
         <translation>How should the PC see it?</translation>
+    </message>
+    <message>
+        <source>Dish asks %1 to plug in this controller. Some hosts override the choice.</source>
+        <translation>Dish asks %1 to plug in this controller. Some hosts override the choice.</translation>
     </message>
     <message>
         <source>Pick the controller the PC should report. Each unlocks different extras — this pad limits all three the same way.</source>
@@ -3740,12 +4333,28 @@
         <source>Best fit</source>
         <translation>Best fit</translation>
     </message>
+    <message>
+        <source>Picked for you</source>
+        <translation>Picked for you</translation>
+    </message>
+    <message>
+        <source>Auto sends %1 for this controller.</source>
+        <translation>Auto sends %1 for this controller.</translation>
+    </message>
 </context>
 <context>
     <name>dish::AppModel</name>
     <message>
         <source>The satellite wouldn’t accept that controller — binding undone.</source>
         <translation>The satellite wouldn’t accept that controller — binding undone.</translation>
+    </message>
+    <message>
+        <source>That host is already running an app. Stop it on the host, then try again.</source>
+        <translation>That host is already running an app. Stop it on the host, then try again.</translation>
+    </message>
+    <message>
+        <source>The Moonlight session ended.</source>
+        <translation>The Moonlight session ended.</translation>
     </message>
     <message>
         <source>Controller</source>

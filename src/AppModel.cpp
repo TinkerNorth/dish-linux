@@ -6,6 +6,8 @@
 #include "LightbarRouting.h"
 #include "composer/StreamingSlotCount.h"
 #include "core/input/UsbReportParsers.h"
+#include "core/moonlight/MoonlightPadSlots.h"
+#include "core/moonlight/MoonlightProtocol.h"
 #include "core/reducer/CatalogPrewarm.h"
 #include "core/reducer/PickerVisibility.h"
 #include "core/reducer/RumbleRouting.h"
@@ -77,7 +79,8 @@ AppModel::AppModel(std::unique_ptr<source::WakeInhibitor> inhibitor, QObject* pa
       motionEnabledStore_(&motionPrefRepo_), joystickRemapStore_(&joystickRemapRepo_),
       catalogSnapshot_(composer::CatalogSnapshot{}), catalogComposer_(catalogSnapshot_),
       usbPathStore_(&usbPathRepo_), usbObserver_(this), usbScanTimer_(new QTimer(this)),
-      inputRateTimer_(new QTimer(this)) {
+      inputRateTimer_(new QTimer(this)),
+      moonlight_(new source::moon::MoonlightManager(nullptr, this)) {
     QObject::connect(hub_, &net::ConnectionHub::changed, this, &AppModel::onHubChanged);
     QObject::connect(bridge_, &input::SDLGamepadBridge::devicesChanged, this,
                      &AppModel::onBridgeDevicesChanged);
@@ -106,6 +109,48 @@ AppModel::AppModel(std::unique_ptr<source::WakeInhibitor> inhibitor, QObject* pa
     QObject::connect(autoReconnectTimer_, &QTimer::timeout, this,
                      [this] { wifi_->autoReconnectAll(); });
 
+    // A rebuild whenever the Moonlight subsystem changes, so its rows and link
+    // states reach the UI through the same stateChanged() the satellite pool
+    // uses. The manager already coalesces on the Qt main thread.
+    QObject::connect(moonlight_, &source::moon::MoonlightManager::rowsChanged, this,
+                     &AppModel::stateChanged);
+    // A binding is durable intent: one made against a host that was not paired
+    // yet is recorded and waits. This is what stops the wait. Re-binding the
+    // slot is a restart, not a second pad, and it is the same call the binding
+    // flow makes, so the hot-path tables are wired the way a fresh bind wires
+    // them.
+    QObject::connect(moonlight_, &source::moon::MoonlightManager::pairingFinished, this,
+                     [this](const QString& uuid, bool ok, const QString&) {
+                         if (!ok) { return; }
+                         for (const auto& slotId : moonlight_->boundSlots(uuid)) {
+                             bindMoonlightSlot(slotId, uuid);
+                         }
+                     });
+    QObject::connect(moonlight_, &source::moon::MoonlightManager::sessionFailed, this,
+                     [this](const QString&, const QString& reasonToken) {
+                         if (reasonToken == QLatin1String("appAlreadyRunning")) {
+                             emit errorMessage(
+                                 tr("That host is already running an app. Stop it on the host, "
+                                    "then try again."));
+                             return;
+                         }
+                         emit errorMessage(tr("The Moonlight session ended."));
+                     });
+    // Host->local actuation shares the SDL output plumbing the satellite path
+    // uses. The manager has already resolved the event's controller number to
+    // the pad that holds it, because one session drives up to four.
+    moonlight_->setRumbleSink([this](const QString& slotId, std::uint16_t low, std::uint16_t high) {
+        if (slotId.isEmpty()) { return; }
+        // Moonlight sends low/high frequency magnitudes; map to the SDL
+        // strong/weak motors and let applyRumble marshal to the SDL thread.
+        bridge_->applyRumble(slotId, high, low, 0);
+    });
+    moonlight_->setLedSink(
+        [this](const QString& slotId, std::uint8_t r, std::uint8_t g, std::uint8_t b) {
+            if (slotId.isEmpty()) { return; }
+            bridge_->applyLightbar(slotId, r, g, b);
+        });
+
     // Hot path, called on the SDL gamepad thread: look the sender up under a
     // short-held mutex, then forward outside it.
     processor_.setReportSender([this](const std::string& did, std::uint16_t buttons,
@@ -114,7 +159,11 @@ AppModel::AppModel(std::unique_ptr<source::WakeInhibitor> inhibitor, QObject* pa
         net::ConnectionHub::ReportSender sender;
         {
             std::lock_guard<std::mutex> lock(routingMtx_);
-            sender = routing_.value(QString::fromStdString(did));
+            const QString key = QString::fromStdString(did);
+            sender = routing_.value(key);
+            // A slot bound to a Moonlight host has no satellite sender; fall
+            // through to the Moonlight table. The two are mutually exclusive.
+            if (!sender) { sender = moonlightRouting_.value(key); }
         }
         if (sender) { sender(buttons, lt, rt, lx, ly, rx, ry); }
     });
@@ -125,7 +174,9 @@ AppModel::AppModel(std::unique_ptr<source::WakeInhibitor> inhibitor, QObject* pa
         net::ConnectionHub::MotionSender sender;
         {
             std::lock_guard<std::mutex> lock(routingMtx_);
-            sender = motionRouting_.value(QString::fromStdString(did));
+            const QString key = QString::fromStdString(did);
+            sender = motionRouting_.value(key);
+            if (!sender) { sender = moonlightMotionRouting_.value(key); }
         }
         if (sender) { sender(gx, gy, gz, ax, ay, az, dtUs); }
     });
@@ -359,6 +410,133 @@ void AppModel::installRumbleHandlers() {
     }
 }
 
+void AppModel::bindMoonlightSlot(const QString& slotId, const QString& hostUuid) {
+    if (hostUuid.isEmpty()) {
+        unbindMoonlightSlot(slotId);
+        return;
+    }
+    // What the pad itself can deliver. The declared CONTROLLER_ARRIVAL bitfield
+    // is this intersected with the emulated type's ceiling, because declaring a
+    // capability the source cannot provide makes the host ask for reports that
+    // never arrive.
+    const SlotHardware hardware = slotHardware(slotId);
+    moonlight::SourceCapabilities source;
+    source.rumble = hardware.hasRumble;
+    source.motion = hardware.hasMotion;
+    source.touchpad = hardware.hasTouchpad;
+    source.lightbar = hardware.hasLightbar;
+    // The type is a property of the BINDING, so it comes from the per-slot
+    // override the binding flow writes; Auto resolves against the pad above.
+    const int storedType = typeStore_.typeFor(hostUuid.toStdString(), slotId.toStdString())
+                               .value_or(repository::kMoonlightControllerTypeAuto);
+
+    const auto number = moonlight_->bindController(slotId, hostUuid, storedType, source);
+
+    net::ConnectionHub::ReportSender reportSender;
+    net::ConnectionHub::MotionSender motionSender;
+    if (number) {
+        // Raw pointers: the session is parented to the manager, which outlives
+        // the SDL thread (stopped in ~AppModel before these tables clear). The
+        // controller number is resolved once here so the hot path carries it.
+        auto* session = moonlight_->session(hostUuid);
+        const std::uint8_t pad = *number;
+        if (session != nullptr) {
+            reportSender = [session, pad](std::uint16_t buttons, std::uint8_t lt, std::uint8_t rt,
+                                          std::int16_t lx, std::int16_t ly, std::int16_t rx,
+                                          std::int16_t ry) {
+                session->sendControllerState(pad, buttons, lt, rt, lx, ly, rx, ry);
+            };
+            motionSender = [session, pad](std::int16_t gx, std::int16_t gy, std::int16_t gz,
+                                          std::int16_t ax, std::int16_t ay, std::int16_t az,
+                                          std::uint32_t) {
+                // Gyro sample first, then accel; the host asks for whichever it
+                // wants via MOTION_EVENT, and sendMotion no-ops until then.
+                session->sendMotion(pad, moonproto::kMotionGyroscope, static_cast<float>(gx),
+                                    static_cast<float>(gy), static_cast<float>(gz));
+                session->sendMotion(pad, moonproto::kMotionAcceleration, static_cast<float>(ax),
+                                    static_cast<float>(ay), static_cast<float>(az));
+            };
+        }
+    }
+    {
+        std::lock_guard<std::mutex> lock(routingMtx_);
+        // A slot routes to exactly one transport: clear any satellite route so
+        // the report sender's fall-through reaches the Moonlight table.
+        routing_.remove(slotId);
+        motionRouting_.remove(slotId);
+        if (reportSender) {
+            // operator[], not insert: QHash::insert takes the value by const
+            // reference, so a std::move into it would silently copy the
+            // std::function (and its captured state) instead of moving.
+            moonlightRouting_[slotId] = std::move(reportSender);
+            moonlightMotionRouting_[slotId] = std::move(motionSender);
+        } else {
+            moonlightRouting_.remove(slotId);
+            moonlightMotionRouting_.remove(slotId);
+        }
+    }
+    // rebuild() re-derives the slot list against the new binding and emits.
+    rebuild();
+}
+
+void AppModel::unbindMoonlightSlot(const QString& slotId) {
+    {
+        std::lock_guard<std::mutex> lock(routingMtx_);
+        moonlightRouting_.remove(slotId);
+        moonlightMotionRouting_.remove(slotId);
+    }
+    // Drops this pad from the host's shared session, and tears the session down
+    // behind the last one so the app is not stranded.
+    moonlight_->unbindController(slotId);
+    rebuild();
+}
+
+QString AppModel::moonlightBoundHostFor(const QString& slotId) const {
+    return moonlight_->boundHostFor(slotId);
+}
+
+void AppModel::forgetMoonlightHost(const QString& hostUuid) {
+    if (hostUuid.isEmpty()) { return; }
+    // UNBIND BEFORE FORGETTING, the order ConnectionCoordinator uses for a
+    // satellite. moonlightRouting_ holds lambdas that captured the session by
+    // raw pointer and is read on the SDL gamepad thread, so a route still in
+    // the table when forget() deletes that session is a use after free there.
+    // unbindMoonlightSlot also sends each pad its farewell CONTROLLER_MULTI and
+    // hands the app back behind the last one, instead of dropping the session.
+    for (const auto& slotId : moonlight_->boundSlots(hostUuid)) { unbindMoonlightSlot(slotId); }
+    // The Emulate overrides are keyed (connection, slot), and the connection
+    // here IS the host. Left behind, they would seed a later re-pairing of the
+    // same box with picks made for a trust relationship that no longer exists.
+    typeStore_.clearConnection(hostUuid.toStdString());
+    moonlight_->forget(hostUuid);
+    rebuild();
+}
+
+std::optional<models::ConnectionSummary> AppModel::moonlightSummary(const QString& uuid) const {
+    const auto row = moonlight_->row(uuid);
+    if (!row) { return std::nullopt; }
+    models::ConnectionSummary summary;
+    summary.id = row->uuid;
+    summary.label = row->name;
+    summary.detail = row->address;
+    // Saved, not Disconnected, for a host that is merely not streaming: there
+    // is no link to have lost. Only a live control stream reads Connected.
+    switch (row->link) {
+    case source::moon::MoonlightLinkState::Live:
+        summary.live = models::LinkState::Connected;
+        break;
+    case source::moon::MoonlightLinkState::Linking:
+        summary.live = models::LinkState::Connecting;
+        break;
+    case source::moon::MoonlightLinkState::Failed:
+    case source::moon::MoonlightLinkState::Idle:
+    default:
+        summary.live = models::LinkState::Saved;
+        break;
+    }
+    return summary;
+}
+
 void AppModel::start() {
     bridge_->start();
     wifi_->autoReconnectAll();
@@ -376,6 +554,9 @@ void AppModel::start() {
     // Last: the janitor pass and the staged-update scan are disk IO, and the
     // first check is 15 s out, so nothing here delays the first frame.
     updateChecker_.start();
+    // A one-shot Moonlight scan beside the satellite discovery, so any
+    // GameStream host on the LAN shows up in the connections list.
+    moonlight_->startDiscovery();
 }
 
 void AppModel::clearPairingTarget() {
@@ -732,7 +913,14 @@ void AppModel::rebuild() {
     const auto bindings = hub_->bindings();
     for (auto& s : next) {
         const auto cid = bindings.value(s.id);
-        if (!cid.isEmpty()) {
+        // A Moonlight binding is a binding: the card, the accounting and the
+        // apply readback all key on boundConnectionId, so a pad driving a
+        // GameStream host has to report one too. The two tables are exclusive.
+        const QString moonHost = cid.isEmpty() ? moonlight_->boundHostFor(s.id) : QString();
+        if (!moonHost.isEmpty()) {
+            s.boundConnectionId = moonHost;
+            s.boundStatus = moonlightSummary(moonHost);
+        } else if (!cid.isEmpty()) {
             s.boundConnectionId = cid;
             s.boundStatus = hub_->summary(cid);
             // Server-localized catalog text; left empty, and the suffix

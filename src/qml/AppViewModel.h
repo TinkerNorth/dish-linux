@@ -91,6 +91,27 @@ class AppViewModel : public QObject {
     Q_PROPERTY(QVariantList discoveredServers READ discoveredServers NOTIFY discoveredChanged)
     Q_PROPERTY(bool scanning READ isScanning NOTIFY scanningChanged)
 
+    // ── Moonlight hosts (Sunshine / Apollo / Wolf) ───────────────────────────
+    // A sibling of the satellite pool: each entry has uuid, name, address,
+    // paired, discovered, link ("idle"|"linking"|"live"|"failed"), the richer
+    // phase token the row chip reads, the trust word
+    // ("paired"|"remembered"|"notPaired"), how many controllers ride it, and
+    // the app the session settled on.
+    //
+    // TRUST IS NOT LIVENESS. A Moonlight host never reports a connection state,
+    // so nothing here may be drawn as a pulsing dot: the words are what the
+    // client remembers and what the last client-initiated probe confirmed.
+    Q_PROPERTY(QVariantList moonlightHosts READ moonlightHosts NOTIFY moonlightChanged)
+    Q_PROPERTY(bool moonlightScanning READ moonlightScanning NOTIFY moonlightChanged)
+    Q_PROPERTY(bool moonlightPairingActive READ moonlightPairingActive NOTIFY moonlightChanged)
+    // The 4-digit PIN the user must type into the host's UI while pairing.
+    Q_PROPERTY(QString moonlightPairingPin READ moonlightPairingPin NOTIFY moonlightChanged)
+    Q_PROPERTY(QString moonlightPairingHost READ moonlightPairingHost NOTIFY moonlightChanged)
+    // The Auto sentinel, so the picker cannot fork the value the wire and the
+    // store agree on. 0xFF, and deliberately not 0: 0 is the wire's
+    // CONTROLLER_TYPE_UNKNOWN, which is a different promise.
+    Q_PROPERTY(int moonlightAutoType READ moonlightAutoType CONSTANT)
+
     // ── Reverse (host-initiated) pairing ─────────────────────────────────────
     // Phase is "idle" | "awaiting" | "approved" | "declined" | "timedout".
     Q_PROPERTY(QString reversePairingPhase READ reversePairingPhase NOTIFY reversePairingChanged)
@@ -317,6 +338,13 @@ class AppViewModel : public QObject {
     Q_INVOKABLE void startDiscovery();
     Q_INVOKABLE bool isScanning() const;
     Q_INVOKABLE QVariantList discoveredServers() const;
+
+    QVariantList moonlightHosts() const;
+    bool moonlightScanning() const;
+    bool moonlightPairingActive() const;
+    QString moonlightPairingPin() const;
+    QString moonlightPairingHost() const;
+    int moonlightAutoType() const;
     Q_INVOKABLE void forgetConnection(const QString& connectionId);
 
     // Keyed on the stable id, never a list index: the discovered list can reorder
@@ -337,6 +365,52 @@ class AppViewModel : public QObject {
 
     Q_INVOKABLE void requestReversePairing(const QString& serverId);
     Q_INVOKABLE void cancelReversePairing();
+
+    // ── Moonlight host commands ──────────────────────────────────────────────
+    Q_INVOKABLE void scanMoonlight();
+    // Adds a host by IP/hostname the user typed, ports fixed at the standard
+    // 47989/47984 pair.
+    Q_INVOKABLE void addMoonlightHost(const QString& address, const QString& name = QString());
+    // Shows moonlightPairingPin; the user types it into the host UI. The PIN is
+    // minted in C++ because it is security relevant, never in QML.
+    Q_INVOKABLE void pairMoonlight(const QString& uuid);
+    Q_INVOKABLE void cancelMoonlightPairing();
+    Q_INVOKABLE void forgetMoonlight(const QString& uuid);
+    // Re-asks the host whether it is reachable, still paired and still itself.
+    // Client-initiated by definition: call it on entering a screen and before
+    // starting a session. Nothing polls.
+    Q_INVOKABLE void probeMoonlightHost(const QString& uuid);
+    // GET /applist. Rows are {id, title}; the read is HTTPS and paired-only, so
+    // an unpaired host reports a failure rather than an empty list.
+    Q_INVOKABLE void refreshMoonlightApps(const QString& uuid);
+    Q_INVOKABLE QVariantList moonlightApps(const QString& uuid) const;
+    // The app the NEXT session on this host will run. Per host, not per
+    // binding: only the binding that creates a session picks one.
+    Q_INVOKABLE void setMoonlightApp(const QString& uuid, const QString& appId,
+                                     const QString& appName);
+    // Ends whatever the host is running, ours or another device's. The only way
+    // out of "an app is already running" when the host will not hand it over.
+    Q_INVOKABLE void quitMoonlightApp(const QString& uuid);
+    // True when `hostId` names a Moonlight host rather than a satellite.
+    Q_INVOKABLE bool isMoonlightHost(const QString& hostId) const;
+    // Everything the Moonlight session section renders, for one host seen from
+    // one binding (slotId may be empty for a binding that does not exist yet):
+    // { state, blocksApply, hostName, appId, appName, controllers,
+    //   controllerNumber, trust, pairingReason, refusal }. `state` is one of
+    // the twenty-one lowercase tokens in core/moonlight/MoonlightSessionUi.h;
+    // QML localizes it. `pairingReason` is "" unless `state` is pairingRefused,
+    // and then it is the pairingFinished token that says which refusal it was.
+    Q_INVOKABLE QVariantMap moonlightSession(const QString& uuid, const QString& slotId) const;
+    // What Auto resolves to for this pad: a source with gyro or accelerometer
+    // becomes PlayStation, everything else Xbox. Returns the wire type byte.
+    Q_INVOKABLE int moonlightResolvedType(const QString& slotId, int candidateType) const;
+    // The Moonlight host this slot drives, or empty.
+    Q_INVOKABLE QString moonlightBoundHost(const QString& slotId) const;
+    // The host's own seed for the next binding's type pick.
+    Q_INVOKABLE void setMoonlightControllerType(const QString& uuid, int type);
+    // Routes a controller slot's live input to a Moonlight host.
+    Q_INVOKABLE void bindMoonlight(const QString& slotId, const QString& uuid);
+    Q_INVOKABLE void unbindMoonlight(const QString& slotId);
 
     // ── Deadzone settings page ───────────────────────────────────────────────
     // Rows of {id,name,hasGyro,stickFlat,triggerFlat,forwardMotion}, re-pulled on
@@ -372,9 +446,13 @@ class AppViewModel : public QObject {
     // { feature, inOk, linkOk, typeOk, hostOk, verdict, failingLayer,
     //   hasFailingLayer }. feature / verdict / failingLayer are lowercase tokens
     // ("motion", "unavailable", "link"): the C++ never vends a sentence, QML
-    // localizes. hostKind is "satellite" or "bluetooth", hostId "" means no
-    // destination chosen yet, desiredPath is "standard" or "direct" and
-    // touchpadMode is 0=off 1=pad 2=mouse.
+    // localizes. hostKind is "satellite", "bluetooth" or "moonlight", hostId ""
+    // means no destination chosen yet, desiredPath is "standard" or "direct"
+    // and touchpadMode is 0=off 1=pad 2=mouse.
+    //
+    // A Moonlight destination waits on no catalog: no host reports what its
+    // emulated devices carry, so the type layer is the hard-coded table in
+    // core/moonlight/MoonlightPadSlots.h and the host layer always carries.
     Q_INVOKABLE QVariantList capabilityForCandidate(const QString& slotId, int type,
                                                     const QString& hostKind, const QString& hostId,
                                                     const QString& desiredPath, bool motionOn,
@@ -469,6 +547,9 @@ class AppViewModel : public QObject {
     // the FOUND list excludes ids that already have a row (the one-spot rule),
     // so a pair landing or a forget has to re-read too.
     void discoveredChanged();
+    void moonlightChanged();
+    // The /applist read for one host moved: in flight, arrived, or failed.
+    void moonlightAppsChanged(const QString& uuid);
 
     void scanningChanged();
     void reversePairingChanged();
@@ -577,6 +658,9 @@ class AppViewModel : public QObject {
     QString applySlotId_;
     QString applyConnectionId_;
     int applyType_ = 0;
+    // The destination this apply is writing to is a Moonlight host, so the
+    // satellite hub is not involved and the outcome is settled locally.
+    bool applyIsMoonlight_ = false;
     bool applyMotionOn_ = true;
     bool applyRumbleOn_ = true;
     int applyTouchpadMode_ = 0;

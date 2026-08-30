@@ -47,7 +47,9 @@ ColumnLayout {
     // binding dependency.
     property int accounting: 0
 
-    readonly property string displacedPad: page.accounting >= 0
+    // A Moonlight host REFUSES a fifth controller rather than displacing one, so
+    // there is never a pad to name for it and saying otherwise would be a lie.
+    readonly property string displacedPad: page.accounting >= 0 && !page.draft.hostIsMoonlight
                                          ? App.displacedSlotName(page.draft.hostId) : ""
 
     readonly property var sendChips: page.buildChips(["gamepad", "motion", "touchpad", "mouse"])

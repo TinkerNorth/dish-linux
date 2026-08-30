@@ -21,6 +21,24 @@ set(DISH_TEST_SOURCES
     test_kernel.cpp
     test_async_state.cpp
     test_session_crypto.cpp
+    test_moonlight_wire.cpp
+    test_moonlight_control_cipher.cpp
+    test_moonlight_crypto.cpp
+    test_moonlight_pairing.cpp
+    test_moonlight_xml.cpp
+    test_moonlight_rtsp.cpp
+    test_moonlight_rtsp_framing.cpp
+    test_moonlight_tls_config.cpp
+    test_moonlight_session_machine.cpp
+    test_moonlight_session_ui.cpp
+    test_moonlight_pad_slots.cpp
+    test_moonlight_binding_refcount.cpp
+    test_moonlight_host_lifecycle.cpp
+    test_moonlight_button_map.cpp
+    test_moonlight_host_repository.cpp
+    test_moonlight_discovery.cpp
+    test_moonlight_session_wire.cpp
+    test_moonlight_pairing_wire.cpp
     test_atomic_counter.cpp
     test_hex.cpp
     test_endian.cpp
@@ -179,6 +197,12 @@ target_link_libraries(DishTests
 # DishTests links — so the test reads the source file by absolute path instead.
 target_compile_definitions(DishTests PRIVATE
     DISH_LICENSES_JSON_PATH="${CMAKE_CURRENT_SOURCE_DIR}/../assets/licenses/licenses.json")
+
+# tests/MoonlightFakeHost.h stands up a real ENet listener, so a session can be
+# driven all the way to Streaming and the requests it does or does not make are
+# countable. dish_enet is linked PRIVATE to dish_core, which puts its objects in
+# this binary but does not hand on its include directory.
+target_include_directories(DishTests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../third_party/enet/include)
 
 # Same reason for the .qm files, which land beside the top-level binary dir.
 target_compile_definitions(DishTests PRIVATE
