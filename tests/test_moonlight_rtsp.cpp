@@ -125,16 +125,17 @@ TEST_CASE("ANNOUNCE payload carries the WHOLE attribute set", "[moonlight][rtsp]
     CHECK(p.find("v=0\r\n") == 0);
 }
 
-TEST_CASE("ANNOUNCE payload follows the negotiated display mode", "[moonlight][rtsp]") {
+TEST_CASE("ANNOUNCE payload asks for the smallest mode, as the other clients do",
+          "[moonlight][rtsp]") {
     StreamConfig config;
-    CHECK(config.width == 1920);
-    CHECK(config.height == 1080);
-    CHECK(config.fps == 60);
+    CHECK(config.width == 1280);
+    CHECK(config.height == 720);
+    CHECK(config.fps == 30);
     const std::string p = buildAnnouncePayload(config);
-    CHECK(p.find("a=x-nv-video[0].clientViewportWd:1920\r\n") != std::string::npos);
-    CHECK(p.find("a=x-nv-video[0].clientViewportHt:1080\r\n") != std::string::npos);
-    CHECK(p.find("a=x-nv-video[0].maxFPS:60\r\n") != std::string::npos);
-    CHECK(p.find("a=x-nv-video[0].clientRefreshRateX100:6000\r\n") != std::string::npos);
+    CHECK(p.find("a=x-nv-video[0].clientViewportWd:1280\r\n") != std::string::npos);
+    CHECK(p.find("a=x-nv-video[0].clientViewportHt:720\r\n") != std::string::npos);
+    CHECK(p.find("a=x-nv-video[0].maxFPS:30\r\n") != std::string::npos);
+    CHECK(p.find("a=x-nv-video[0].clientRefreshRateX100:3000\r\n") != std::string::npos);
 }
 
 TEST_CASE("PLAY request formatting", "[moonlight][rtsp]") {

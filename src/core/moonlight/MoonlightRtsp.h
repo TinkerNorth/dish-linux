@@ -20,13 +20,17 @@
 
 namespace dish::moonrtsp {
 
-// What the ANNOUNCE SDP advertises. The geometry follows the host's own
-// display so a virtual-display host does not resize the user's desktop; the
-// bitrate stays at the floor because video and audio are discarded.
+// What the ANNOUNCE SDP advertises. The geometry is the smallest a host will
+// take, and the same on all three Dish clients: nothing is decoded, so every
+// pixel the host encodes is GPU time taken from the game the user is playing
+// on that same machine. `sops=0` on the launch is what keeps the host from
+// changing the user's display to match, so the size never reaches their
+// desktop. The bitrate stays at the floor because video and audio are
+// discarded.
 struct StreamConfig {
-    int width = 1920;
-    int height = 1080;
-    int fps = 60;
+    int width = 1280;
+    int height = 720;
+    int fps = 30;
     int bitrateKbps = 500;
     int packetSize = 1024;
     int audioChannels = 2;
