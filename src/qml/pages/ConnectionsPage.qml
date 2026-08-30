@@ -40,6 +40,10 @@ Kit.Page {
     property string currentConnectionId: ""
     property string currentLabel: ""
 
+    // The shell owns the detail stack the Moonlight inventory is pushed onto.
+    readonly property var shellView: StackView.view
+    readonly property var shellApi: page.shellView ? page.shellView.shellApi : null
+
     // Scan on open: entering the destination surfaces reachable satellites
     // without an extra tap; startDiscovery() is guarded manager-side so an
     // in-flight sweep is never double-triggered.
@@ -402,6 +406,21 @@ Kit.Page {
                     }
                 }
             }
+        }
+
+        // ---- MOONLIGHT HOSTS ------------------------------------------------
+        // The second connection path lives on its own page rather than as more
+        // rows here: a Moonlight host pairs differently, carries different
+        // capabilities, and never reports liveness, so one merged list would
+        // make "Pair" and the status column each mean two things.
+        Kit.RowButton {
+            Layout.fillWidth: true
+            Layout.topMargin: Tokens.s5
+            title: qsTr("Moonlight hosts")
+            subtitle: qsTr("Stream to a PC running Sunshine, Apollo or Wolf instead of a satellite.")
+            onClicked: if (page.shellApi) page.shellApi.pushDetail(
+                           Qt.resolvedUrl("MoonlightHostsPage.qml"),
+                           qsTr("Moonlight hosts"), {})
         }
     }
 

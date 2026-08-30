@@ -52,7 +52,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             build-essential cmake ninja-build pkg-config \
-            libsodium-dev libsdl2-dev
+            libsodium-dev libsdl2-dev libssl-dev
 
       # Not apt: noble ships Qt 6.4.2 and this project's floor is 6.7. The
       # action pulls the official binaries and exports CMAKE_PREFIX_PATH.

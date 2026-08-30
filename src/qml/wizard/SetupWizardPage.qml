@@ -52,16 +52,23 @@ Kit.Page {
     readonly property var shellApi: wizard.shellStack ? wizard.shellStack.shellApi : null
 
     // ── Step state ──────────────────────────────────────────────────────────
-    // 0 Input · 1 Destination · 2 Type · 3 Feel · 4 Review.
+    // 0 Input · 1 Destination · 2 Type · 3 Session · 4 Feel · 5 Review.
+    //
+    // Step 3 exists only for a Moonlight destination, where what the host runs
+    // is a distinct question from how the pad feels and is the only step that
+    // can fail. It is instantiated either way (every step is a sibling gated on
+    // `visible`) and simply skipped, so nothing downstream has to know.
     property int step: 0
-    readonly property int lastStep: 4
+    readonly property int lastStep: 5
+    readonly property bool hasSessionStep: wizard.draft.hostKind === "moonlight"
     // Latched on a successful bind so the header dot and the blockers know the
     // wire is real before the pop lands.
     property bool applied: false
     readonly property bool applying: App.applyInFlight
 
     // Stage 1 Input, 2 Destination, 3 Binding — three pages live in stage 3,
-    // which is why it also carries a sub-step indicator.
+    // four for a Moonlight binding, which is why it also carries a sub-step
+    // indicator. Kit.WizardBanner already renders a variable sub-step count.
     readonly property int stage: wizard.step === 0 ? 1 : wizard.step === 1 ? 2 : 3
     readonly property int subStep: wizard.step >= 2 ? wizard.step - 2 : 0
 
@@ -72,8 +79,20 @@ Kit.Page {
         return n === 0 ? inputPage
              : n === 1 ? destinationPage
              : n === 2 ? typePage
-             : n === 3 ? feelPage
+             : n === 3 ? sessionPage
+             : n === 4 ? feelPage
              : reviewPage;
+    }
+
+    // The next/previous step the CURRENT draft actually has, so a satellite
+    // binding never lands on the session page and never has to step past it.
+    function stepAfter(n) {
+        const next = n + 1;
+        return (next === 3 && !wizard.hasSessionStep) ? 4 : next;
+    }
+    function stepBefore(n) {
+        const prev = n - 1;
+        return (prev === 3 && !wizard.hasSessionStep) ? 2 : prev;
     }
 
     readonly property var activePage: wizard.pageForStep(wizard.step)
@@ -118,7 +137,8 @@ Kit.Page {
         wizard.step === 0 ? qsTr("Step 1 of 3 · Input")
       : wizard.step === 1 ? qsTr("Step 2 of 3 · Destination")
       : wizard.step === 2 ? qsTr("Step 3 of 3 · Type")
-      : wizard.step === 3 ? qsTr("Step 3 of 3 · Feel")
+      : wizard.step === 3 ? qsTr("Step 3 of 3 · Session")
+      : wizard.step === 4 ? qsTr("Step 3 of 3 · Feel")
       : qsTr("Step 3 of 3 · Review")
 
     readonly property string hintText: {
@@ -144,7 +164,7 @@ Kit.Page {
             parts.push(wizard.draft.desiredPath === "direct" ? qsTr("Direct") : qsTr("Standard"));
         // The rate joins only from Review onward, where the banner is the
         // review and the numbers are the point.
-        if (wizard.step >= 4) {
+        if (wizard.step >= wizard.lastStep) {
             const rate = rateFormat.rateText(wizard.padInfo.hz, wizard.padInfo.hzLive);
             if (rate.length > 0)
                 parts.push(rate);
@@ -157,9 +177,13 @@ Kit.Page {
     function hostSubText() {
         const free = wizard.accounting >= 0
                    ? App.hostSlotCapacity() - App.hostBoundSlotCount(wizard.draft.hostId) : 0;
+        // A Moonlight session carries the same four, and calling it a satellite
+        // would be the one word on this screen that is simply untrue.
+        const kind = wizard.draft.hostKind === "moonlight" ? qsTr("moonlight")
+                                                           : qsTr("satellite");
         if (free <= 0)
-            return qsTr("satellite · 0 slots free");
-        return qsTr("satellite · %n slots free", "", free);
+            return qsTr("%1 · 0 slots free").arg(kind);
+        return qsTr("%1 · %2").arg(kind).arg(qsTr("%n slots free", "", free));
     }
 
     readonly property var padSlot: !wizard.draft.hasInput
@@ -190,7 +214,7 @@ Kit.Page {
             return qsTr("—");
         if (!wizard.draft.hasType || wizard.draft.typeName.length === 0)
             return qsTr("as —");
-        if (wizard.step >= 4 && reviewPage.extrasSummary.length > 0)
+        if (wizard.step >= wizard.lastStep && reviewPage.extrasSummary.length > 0)
             return qsTr("as %1 · %2").arg(wizard.draft.typeName).arg(reviewPage.extrasSummary);
         return qsTr("as %1").arg(wizard.draft.typeName);
     }
@@ -199,7 +223,7 @@ Kit.Page {
 
     function goBack() {
         if (wizard.step > 0 && !wizard.applying)
-            wizard.step -= 1;
+            wizard.step = wizard.stepBefore(wizard.step);
     }
 
     function primaryPressed() {
@@ -211,7 +235,7 @@ Kit.Page {
         if (page.primaryActivated() === false)
             return;
         if (wizard.step < wizard.lastStep)
-            wizard.step += 1;
+            wizard.step = wizard.stepAfter(wizard.step);
     }
 
     // Completed markers jump back. Back is non-destructive, so this is safe.
@@ -410,6 +434,7 @@ Kit.Page {
             transmitting: wizard.applying
             stage: wizard.stage
             subStep: wizard.subStep
+            subStepCount: wizard.hasSessionStep ? 4 : 3
             // Below four-fifths of the minimum window the banner drops its slot
             // sub-lines and marker labels rather than eating the body.
             compact: root.height < Tokens.minWindowHeight * 0.8
@@ -465,10 +490,19 @@ Kit.Page {
                     height: stepHost.height
                 }
 
+                WizardSessionPage {
+                    id: sessionPage
+                    draft: wizard.draft
+                    shellApi: wizard.shellApi
+                    visible: wizard.step === 3
+                    width: stepHost.width
+                    height: stepHost.height
+                }
+
                 WizardFeelPage {
                     id: feelPage
                     draft: wizard.draft
-                    visible: wizard.step === 3
+                    visible: wizard.step === 4
                     width: stepHost.width
                     height: stepHost.height
                 }
@@ -476,7 +510,7 @@ Kit.Page {
                 WizardReviewPage {
                     id: reviewPage
                     draft: wizard.draft
-                    visible: wizard.step === 4
+                    visible: wizard.step === 5
                     width: stepHost.width
                     height: stepHost.height
                 }

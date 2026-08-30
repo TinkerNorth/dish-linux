@@ -46,6 +46,7 @@
 #include "source/system/WakeInhibitor.h"
 #include "source/tray/StatusNotifierTrayIcon.h"
 #include "source/tray/TrayIcon.h"
+#include "source/moonlight/MoonlightManager.h"
 #include "source/usb/UsbGamepadManager.h"
 #include "source/usb/HidrawGateway.h"
 #include "update/UpdateChecker.h"
@@ -197,6 +198,30 @@ class AppModel : public QObject {
     // Linux. The lifecycle is owned here.
     source::usb::UsbGamepadManager* usbManager() { return usbManager_.get(); }
 
+    // The Moonlight-host subsystem: discovery, pairing, sessions. Sits beside
+    // the satellite wifi() pool as a sibling; the UI drives it through here.
+    source::moon::MoonlightManager* moonlight() { return moonlight_; }
+
+    // Routes a controller slot's hot-path reports to a Moonlight host instead
+    // of a satellite: records the binding, joins or starts that host's shared
+    // session, and points the SDL thread at the controller number it was given.
+    // The reverse is unbindMoonlightSlot, which drops the pad and tears the
+    // session down behind the last one. Passing an empty uuid clears the route.
+    //
+    // The binding is recorded even when the host is unpaired or unreachable: a
+    // binding is a durable intent, and the session is attempted when the pad is
+    // used rather than when the user saves.
+    void bindMoonlightSlot(const QString& slotId, const QString& hostUuid);
+    void unbindMoonlightSlot(const QString& slotId);
+    // The Moonlight host this slot drives, or empty. The satellite equivalent
+    // is ConnectionHub::bindings().
+    QString moonlightBoundHostFor(const QString& slotId) const;
+    // Drops a remembered Moonlight host and everything ABOVE the subsystem that
+    // was keyed on it. The satellite equivalent is
+    // ConnectionCoordinator::forgetConnection, and it unbinds first for the
+    // same reason: the routes have to go before the session they point at.
+    void forgetMoonlightHost(const QString& hostUuid);
+
   signals:
     // Emitted after any field of state() changes.
     void stateChanged();
@@ -272,6 +297,11 @@ class AppModel : public QObject {
         bool hasRumble = false;
     };
     SlotHardware slotHardware(const QString& slotId) const;
+
+    // A Moonlight host as the flat ConnectionSummary the slot list carries, so
+    // one binding vocabulary covers both destination kinds. The link is the
+    // session's, never a pairing light: a Moonlight host reports no liveness.
+    std::optional<models::ConnectionSummary> moonlightSummary(const QString& uuid) const;
 
     // Warm the catalog cache once each time a satellite link goes Live, so the
     // type picker usually resolves instantly from cache. Silent by design: it
@@ -432,6 +462,9 @@ class AppModel : public QObject {
     // from usbPollRateHz_ at rebuild(). Main-thread-only.
     QHash<QString, models::SlotLiveRates> liveRatesBySlot_;
 
+    // The Moonlight-host subsystem, parented to this.
+    source::moon::MoonlightManager* moonlight_;
+
     // slotId -> active sender. Read on the SDL gamepad thread, written on the Qt
     // main thread; routingMtx_ guards both directions.
     mutable std::mutex routingMtx_;
@@ -441,6 +474,12 @@ class AppModel : public QObject {
     QHash<QString, net::ConnectionHub::MotionSender> motionRouting_;
     QHash<QString, net::ConnectionHub::BatterySender> batteryRouting_;
     QHash<QString, net::ConnectionHub::TouchpadSender> touchpadRouting_;
+    // deviceId (slotId) -> Moonlight hot-path sender, read on the SDL gamepad
+    // thread under routingMtx_ alongside routing_ above. A slot is routed to a
+    // satellite OR a Moonlight host, never both, so the report sender checks
+    // this table only when routing_ has no entry.
+    QHash<QString, net::ConnectionHub::ReportSender> moonlightRouting_;
+    QHash<QString, net::ConnectionHub::MotionSender> moonlightMotionRouting_;
 };
 
 } // namespace dish

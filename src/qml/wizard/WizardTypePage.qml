@@ -5,6 +5,18 @@
 // one capability table so the types are actually comparable. A row reads Pending
 // whenever the host or its catalog is unresolved — a cross is never drawn from a
 // catalog we could not read, and a type is never guessed.
+//
+// A MOONLIGHT destination has no catalog to read. No host reports what its
+// emulated devices carry (there is no field for it anywhere in the protocol),
+// so the four types are protocol constants and their capability rows come from
+// the hard-coded table in core/moonlight/MoonlightPadSlots.h. Nothing here may
+// promise the host will honour the pick: a host may override it, and it never
+// tells us that it did.
+//
+// Auto resolves on the CLIENT, before the wire: a pad with gyro or an
+// accelerometer becomes PlayStation, everything else Xbox. That is the only
+// rule that both matches the reference host's own promotion of an
+// unknown-with-motion pad and lets the card state what the pad will support.
 
 // Bound: the card delegate reads the outer `page` id alongside its modelData.
 pragma ComponentBehavior: Bound
@@ -23,15 +35,21 @@ ColumnLayout {
     // ── The wizard's step contract ──────────────────────────────────────────
     readonly property bool canAdvance: page.draft.hasType && page.types.length > 0
     readonly property string primaryLabel: qsTr("Continue ›")
-    readonly property string hint: page.draft.hostName.length > 0
-                                   ? qsTr("Types offered by %1’s catalog.").arg(page.draft.hostName)
-                                   : ""
+    readonly property string hint: page.moonlight
+        ? qsTr("Some hosts override the choice.")
+        : page.draft.hostName.length > 0
+          ? qsTr("Types offered by %1’s catalog.").arg(page.draft.hostName)
+          : ""
 
     function primaryActivated() {
         return true;
     }
 
     function activated() {
+        if (page.moonlight) {
+            page.reload();
+            return;
+        }
         // Keyed on the DESTINATION, never on the pad: the pad has no binding
         // yet, and the slot-keyed read resolves through hub_->bindings().
         if (page.draft.hasDestination)
@@ -44,15 +62,41 @@ ColumnLayout {
     // The host's own pick for this pad — the pre-selection and the Best fit badge.
     property int bestFitType: -1
 
-    readonly property bool loadingOnly: App.emulateLoading && page.types.length === 0
+    readonly property bool moonlight: page.draft.hostIsMoonlight
+    readonly property int autoType: App.moonlightAutoType
+
+    // The four CONTROLLER_ARRIVAL types, in the order the picker offers them.
+    // The three brand names are NOT translated: they are the devices the host
+    // plugs in, and their names are the same in every language.
+    readonly property var moonlightTypes: [
+        { "type": page.autoType,  "name": qsTr("Auto") },
+        { "type": 1,              "name": "Xbox" },
+        { "type": 2,              "name": "PlayStation" },
+        { "type": 3,              "name": "Nintendo" }
+    ]
+
+    // What Auto would send for THIS pad, named so the Auto card can say it.
+    readonly property int autoResolved: page.draft.hasInput
+        ? App.moonlightResolvedType(page.draft.slotId, page.autoType) : 1
+    readonly property string autoResolvedName: page.autoResolved === 2 ? "PlayStation" : "Xbox"
+
+    readonly property bool loadingOnly: !page.moonlight && App.emulateLoading
+                                        && page.types.length === 0
     // A failure with a cache behind it is silent: the cached types resolve the
     // draft and the user has nothing to act on.
-    readonly property bool failedOnly: !App.emulateLoading && App.emulateError.length > 0
-                                       && page.types.length === 0
+    readonly property bool failedOnly: !page.moonlight && !App.emulateLoading
+                                       && App.emulateError.length > 0 && page.types.length === 0
 
     function reload() {
         if (!page.draft.hasDestination) {
             page.types = [];
+            return;
+        }
+        if (page.moonlight) {
+            page.types = page.moonlightTypes;
+            page.bestFitType = -1;
+            if (page.draft.type < 0)
+                page.draft.chooseType(page.autoType, page.moonlightTypes[0].name);
             return;
         }
         page.types = App.emulateTypesForHost(page.draft.hostId);
@@ -121,7 +165,8 @@ ColumnLayout {
 
     // ── Head ────────────────────────────────────────────────────────────────
     Label {
-        text: qsTr("How should the PC see it?")
+        text: page.moonlight ? qsTr("How should the host see it?")
+                             : qsTr("How should the PC see it?")
         color: Theme.onSurface
         font.pixelSize: Tokens.textStatus
         font.bold: true
@@ -129,7 +174,13 @@ ColumnLayout {
         Layout.fillWidth: true
     }
     Label {
-        text: qsTr("Pick the controller the PC should report. Each unlocks different extras — this pad limits all three the same way.")
+        // Honest about the one thing the protocol cannot promise: the host
+        // builds its virtual pad from what we declare, and may override it
+        // without ever telling us.
+        text: page.moonlight
+              ? qsTr("Dish asks %1 to plug in this controller. Some hosts override the choice.")
+                  .arg(page.draft.hostName)
+              : qsTr("Pick the controller the PC should report. Each unlocks different extras — this pad limits all three the same way.")
         color: Theme.muted
         font.pixelSize: Tokens.textSummary
         lineHeight: 1.5
@@ -247,6 +298,22 @@ ColumnLayout {
                         text: qsTr("Best fit")
                         tone: Kit.CapabilityChip.Ok
                     }
+                    // No "Best fit" for a Moonlight host: it does not tell us
+                    // what fits. Auto is the one card Dish itself decides.
+                    Kit.CapabilityChip {
+                        visible: page.moonlight && typeCard.modelData.type === page.autoType
+                        text: qsTr("Picked for you")
+                        tone: Kit.CapabilityChip.Ok
+                    }
+                }
+
+                Label {
+                    visible: page.moonlight && typeCard.modelData.type === page.autoType
+                    text: qsTr("Auto sends %1 for this controller.").arg(page.autoResolvedName)
+                    color: Theme.mutedStrong
+                    font.pixelSize: Tokens.textMeta
+                    wrapMode: Text.WordWrap
+                    Layout.fillWidth: true
                 }
 
                 Rectangle {

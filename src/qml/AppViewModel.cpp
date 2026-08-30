@@ -15,6 +15,11 @@
 #include "UI/CrashReport.h"
 #include "core/catalog/BundledCatalog.h"
 #include "core/input/Deadzones.h"
+#include "core/moonlight/MoonlightPadSlots.h"
+#include "core/moonlight/MoonlightProtocol.h"
+#include "core/moonlight/MoonlightSessionUi.h"
+#include "repository/MoonlightHostRepository.h"
+#include "source/moonlight/MoonlightManager.h"
 #include "core/reducer/CapabilitySolver.h"
 #include "core/reducer/CatalogFeatureGate.h"
 #include "core/reducer/CarriedPads.h"
@@ -293,6 +298,27 @@ AppViewModel::AppViewModel(dish::AppModel* model, QObject* parent)
                      [this] { emit discoveredChanged(); });
     QObject::connect(model_->wifi(), &net::WifiConnectionManager::scanningChanged, this,
                      [this] { emit scanningChanged(); });
+
+    // The Moonlight subsystem folds all of its changes (rows, scan state,
+    // pairing PIN/phase) into one moonlightChanged() the QML binds against.
+    QObject::connect(model_->moonlight(), &source::moon::MoonlightManager::rowsChanged, this,
+                     [this] { emit moonlightChanged(); });
+    QObject::connect(model_->moonlight(), &source::moon::MoonlightManager::scanningChanged, this,
+                     [this] { emit moonlightChanged(); });
+    QObject::connect(model_->moonlight(), &source::moon::MoonlightManager::pairingChanged, this,
+                     [this] { emit moonlightChanged(); });
+    // No toast on a refusal: the binding flow and the pairing sheet both render
+    // the refused state with copy that says what to do about it, and a second,
+    // vaguer sentence over the top of it is noise.
+    QObject::connect(model_->moonlight(), &source::moon::MoonlightManager::pairingFinished, this,
+                     [this](const QString&, bool, const QString&) { emit moonlightChanged(); });
+    QObject::connect(model_->moonlight(), &source::moon::MoonlightManager::probeFinished, this,
+                     [this](const QString&) { emit moonlightChanged(); });
+    QObject::connect(model_->moonlight(), &source::moon::MoonlightManager::appsChanged, this,
+                     [this](const QString& uuid) {
+                         emit moonlightAppsChanged(uuid);
+                         emit moonlightChanged();
+                     });
     QObject::connect(model_->wifi(), &net::WifiConnectionManager::reversePairingChanged, this,
                      [this] { emit reversePairingChanged(); });
     QObject::connect(model_, &dish::AppModel::catalogStateChanged, this,
@@ -545,7 +571,16 @@ void AppViewModel::bindSlot(const QString& slotId, const QString& connectionId) 
     model_->hub()->bind(slotId, connectionId);
 }
 
-void AppViewModel::unbindSlot(const QString& slotId) { model_->hub()->unbind(slotId); }
+void AppViewModel::unbindSlot(const QString& slotId) {
+    // One verb for both destination kinds: a slot rides a satellite OR a
+    // Moonlight host, and every caller (the board, the pad card, Configure
+    // binding) means the same thing by Unbind.
+    if (!model_->moonlightBoundHostFor(slotId).isEmpty()) {
+        model_->unbindMoonlightSlot(slotId);
+        return;
+    }
+    model_->hub()->unbind(slotId);
+}
 
 namespace {
 // A synthetic slot's id IS the packed vpKey string, so it parses. An SDL slot's
@@ -700,6 +735,172 @@ void AppViewModel::setControllerType(const QString& slotId, int type) {
 void AppViewModel::startDiscovery() { model_->wifi()->startDiscovery(); }
 
 bool AppViewModel::isScanning() const { return model_->wifi()->isScanning(); }
+
+namespace {
+
+QString moonlightLinkToken(source::moon::MoonlightLinkState link) {
+    switch (link) {
+    case source::moon::MoonlightLinkState::Linking:
+        return QStringLiteral("linking");
+    case source::moon::MoonlightLinkState::Live:
+        return QStringLiteral("live");
+    case source::moon::MoonlightLinkState::Failed:
+        return QStringLiteral("failed");
+    case source::moon::MoonlightLinkState::Idle:
+    default:
+        return QStringLiteral("idle");
+    }
+}
+
+} // namespace
+
+QVariantList AppViewModel::moonlightHosts() const {
+    QVariantList out;
+    for (const auto& row : model_->moonlight()->rows()) {
+        QVariantMap m;
+        m[QStringLiteral("uuid")] = row.uuid;
+        m[QStringLiteral("name")] = row.name;
+        m[QStringLiteral("address")] = row.address;
+        m[QStringLiteral("paired")] = row.paired;
+        m[QStringLiteral("discovered")] = row.discovered;
+        m[QStringLiteral("link")] = moonlightLinkToken(row.link);
+        m[QStringLiteral("trust")] = QString::fromLatin1(moonlight::hostTrustToken(row.trust));
+        m[QStringLiteral("phase")] = QString::fromLatin1(moonlight::hostPhaseToken(row.phase));
+        m[QStringLiteral("controllers")] = row.controllers;
+        m[QStringLiteral("appId")] = row.lastAppId;
+        m[QStringLiteral("appName")] = row.lastAppName;
+        m[QStringLiteral("lastAppName")] = row.lastAppName;
+        m[QStringLiteral("controllerType")] = row.controllerType;
+        out.append(m);
+    }
+    return out;
+}
+
+bool AppViewModel::moonlightScanning() const { return model_->moonlight()->isScanning(); }
+
+bool AppViewModel::moonlightPairingActive() const { return model_->moonlight()->pairingActive(); }
+
+QString AppViewModel::moonlightPairingPin() const { return model_->moonlight()->pairingPin(); }
+
+QString AppViewModel::moonlightPairingHost() const {
+    return model_->moonlight()->pairingHostUuid();
+}
+
+int AppViewModel::moonlightAutoType() const { return repository::kMoonlightControllerTypeAuto; }
+
+void AppViewModel::scanMoonlight() { model_->moonlight()->startDiscovery(); }
+
+void AppViewModel::addMoonlightHost(const QString& address, const QString& name) {
+    if (!address.trimmed().isEmpty()) {
+        model_->moonlight()->addManualHost(address.trimmed(), name.trimmed());
+    }
+}
+
+void AppViewModel::pairMoonlight(const QString& uuid) { model_->moonlight()->pair(uuid); }
+
+void AppViewModel::cancelMoonlightPairing() { model_->moonlight()->cancelPairing(); }
+
+void AppViewModel::forgetMoonlight(const QString& uuid) { model_->forgetMoonlightHost(uuid); }
+
+void AppViewModel::probeMoonlightHost(const QString& uuid) { model_->moonlight()->probe(uuid); }
+
+void AppViewModel::refreshMoonlightApps(const QString& uuid) {
+    model_->moonlight()->refreshApps(uuid);
+}
+
+QVariantList AppViewModel::moonlightApps(const QString& uuid) const {
+    QVariantList out;
+    for (const auto& app : model_->moonlight()->apps(uuid)) {
+        QVariantMap m;
+        m[QStringLiteral("id")] = app.id;
+        m[QStringLiteral("title")] = app.title;
+        out.append(m);
+    }
+    return out;
+}
+
+void AppViewModel::setMoonlightApp(const QString& uuid, const QString& appId,
+                                   const QString& appName) {
+    model_->moonlight()->setLastApp(uuid, appId, appName);
+}
+
+void AppViewModel::quitMoonlightApp(const QString& uuid) { model_->moonlight()->quitHostApp(uuid); }
+
+bool AppViewModel::isMoonlightHost(const QString& hostId) const {
+    return model_->moonlight()->knows(hostId);
+}
+
+QVariantMap AppViewModel::moonlightSession(const QString& uuid, const QString& slotId) const {
+    auto* manager = model_->moonlight();
+    const auto inputs = manager->uiInputs(uuid, slotId);
+    const auto state = moonlight::sessionUiState(inputs);
+
+    QVariantMap m;
+    m[QStringLiteral("state")] = QString::fromLatin1(moonlight::sessionUiToken(state));
+    m[QStringLiteral("blocksApply")] = moonlight::sessionUiBlocksApply(state);
+    m[QStringLiteral("trust")] =
+        QString::fromLatin1(moonlight::hostTrustToken(moonlight::hostTrust(inputs)));
+    m[QStringLiteral("controllers")] = manager->controllerCount(uuid);
+    m[QStringLiteral("maxControllers")] = static_cast<int>(moonlight::kMaxPads);
+    // PairingRefused is one state and several reasons, and they want different
+    // advice: a rejected PIN is "try again", a host that never answered is
+    // "check it is switched on". The token; the copy is QML's.
+    m[QStringLiteral("pairingReason")] = manager->pairingRefusedReason(uuid);
+
+    QString hostName;
+    QString appId;
+    QString appName;
+    if (const auto row = manager->row(uuid)) {
+        hostName = row->name;
+        appId = row->lastAppId;
+        appName = row->lastAppName;
+    }
+    // The RUNNING app wins over the remembered pick: a binding that joins a
+    // session must name what is actually up, never what we would have started.
+    QString refusal;
+    if (const auto* session = manager->session(uuid)) {
+        if (!session->appId().isEmpty()) {
+            appId = session->appId();
+            appName = session->appName();
+        }
+        refusal = session->refusalMessage();
+    }
+    m[QStringLiteral("refusal")] = refusal;
+    m[QStringLiteral("hostName")] = hostName;
+    m[QStringLiteral("appId")] = appId;
+    m[QStringLiteral("appName")] = appName;
+
+    // 1-based, the way the copy counts: "controller 2 of 4". Zero means this
+    // binding holds no number yet.
+    int ordinal = 0;
+    if (const auto number = manager->controllerNumber(slotId)) {
+        ordinal = static_cast<int>(*number) + 1;
+    } else if (!slotId.isEmpty()) {
+        ordinal = inputs.otherControllers + 1;
+    }
+    m[QStringLiteral("controllerNumber")] = ordinal;
+    return m;
+}
+
+int AppViewModel::moonlightResolvedType(const QString& slotId, int candidateType) const {
+    bool hasMotion = false;
+    if (const auto* slot = slotById(slotId)) { hasMotion = slot->capabilities.hasMotion; }
+    return moonlight::resolveControllerType(candidateType, hasMotion);
+}
+
+QString AppViewModel::moonlightBoundHost(const QString& slotId) const {
+    return model_->moonlightBoundHostFor(slotId);
+}
+
+void AppViewModel::setMoonlightControllerType(const QString& uuid, int type) {
+    model_->moonlight()->setControllerType(uuid, type);
+}
+
+void AppViewModel::bindMoonlight(const QString& slotId, const QString& uuid) {
+    model_->bindMoonlightSlot(slotId, uuid);
+}
+
+void AppViewModel::unbindMoonlight(const QString& slotId) { model_->unbindMoonlightSlot(slotId); }
 
 QVariantList AppViewModel::discoveredServers() const {
     // The one-spot rule: a satellite that already has a connections row renders
@@ -1060,7 +1261,44 @@ QVariantList AppViewModel::capabilityForCandidate(const QString& slotId, int typ
     }
 
     const bool hostIsBluetooth = hostKind == QLatin1String("bluetooth");
+    const bool hostIsMoonlight = hostKind == QLatin1String("moonlight");
     in.hostIsBluetooth = hostIsBluetooth;
+
+    if (hostIsMoonlight) {
+        // No Moonlight host reports what its emulated devices carry, so there
+        // is nothing to wait on and nothing to read: the type layer is the
+        // hard-coded table, and the host layer always carries. Crossing out a
+        // row we cannot verify would mark every Moonlight binding degraded.
+        in.hostResolved = !hostId.isEmpty();
+        in.hostMouseControl = true;
+        in.hostRumble = true;
+        const std::uint8_t resolved = moonlight::resolveControllerType(type, in.padMotion);
+        const std::uint8_t ceiling = moonlight::typeCapabilityCeiling(resolved);
+        in.typeResolved = true;
+        in.typeMotion = (ceiling & moonproto::kCapGyro) != 0;
+        in.typeTouchpad = (ceiling & moonproto::kCapTouchpad) != 0;
+        in.typeRumble = (ceiling & moonproto::kCapRumble) != 0;
+        in.typeLightbar = (ceiling & moonproto::kCapRgbLed) != 0;
+        in.userMotionOn = motionOn;
+        in.userRumbleOn = rumbleOn;
+        in.userTouchpadMode = touchpadMode;
+
+        QVariantList moonRows;
+        for (const auto& row : reducer::solveCapabilities(in)) {
+            QVariantMap m;
+            m[QStringLiteral("feature")] = capFeatureToken(row.feature);
+            m[QStringLiteral("inOk")] = row.inOk;
+            m[QStringLiteral("linkOk")] = row.linkOk;
+            m[QStringLiteral("typeOk")] = row.typeOk;
+            m[QStringLiteral("hostOk")] = row.hostOk;
+            m[QStringLiteral("verdict")] = capVerdictToken(row.verdict);
+            m[QStringLiteral("failingLayer")] = capLayerToken(row.failingLayer);
+            m[QStringLiteral("hasFailingLayer")] = row.hasFailingLayer;
+            moonRows.append(m);
+        }
+        return moonRows;
+    }
+
     // A Bluetooth destination is the system gamepad layer, with no catalog to
     // wait on. A satellite is resolved once its catalog lands.
     in.hostResolved = hostIsBluetooth ? !hostId.isEmpty() : model_->hasCatalogFor(hostId);
@@ -1245,6 +1483,7 @@ void AppViewModel::applyBinding(const QString& slotId, const QString& connection
     applySlotId_ = resolved;
     applyConnectionId_ = connectionId;
     applyType_ = type;
+    applyIsMoonlight_ = model_->moonlight()->knows(connectionId);
     applyMotionOn_ = motionOn;
     applyRumbleOn_ = rumbleOn;
     applyTouchpadMode_ = touchpadMode;
@@ -1277,7 +1516,9 @@ void AppViewModel::beginApplyBind() {
     // would re-attach the slot once per setting. The type goes straight into the
     // store because AppModel::setSlotControllerType needs an existing binding
     // and would bind a second time.
-    if (applyType_ > 0) {
+    if (applyType_ > 0 || (applyIsMoonlight_ && applyType_ != -1)) {
+        // A Moonlight binding stores its Auto sentinel too: 0xFF is a real pick
+        // there, resolved against the pad at CONTROLLER_ARRIVAL time.
         model_->typeStore()->setType(applyConnectionId_.toStdString(), applySlotId_.toStdString(),
                                      applyType_);
     }
@@ -1286,6 +1527,21 @@ void AppViewModel::beginApplyBind() {
                                         : applyTouchpadMode_ == 1 ? QStringLiteral("pad")
                                                                   : QStringLiteral("off"));
     setRumbleEnabled(applySlotId_, applyRumbleOn_);
+    if (applyIsMoonlight_) {
+        // The host remembers the last pick so the NEXT binding on it starts
+        // where this one did. The binding still owns the type it sends; this is
+        // a seed, not the authority.
+        setMoonlightControllerType(applyConnectionId_, applyType_);
+        // A binding to a Moonlight host is a durable INTENT, not a handshake:
+        // there is no descriptor to PUT and nothing to be refused by. The
+        // session is started or joined here if the host is already trusted and
+        // reachable, and its state is reported by the session section rather
+        // than by failing the apply. Nothing about the host may block saving
+        // what the user asked for.
+        bindMoonlight(applySlotId_, applyConnectionId_);
+        dispatchApply(reducer::apply_event::BindAccepted{});
+        return;
+    }
     bindSlot(applySlotId_, applyConnectionId_);
     applyBindTimer_->start();
 }
@@ -1358,6 +1614,16 @@ void AppViewModel::onApplyTick() {
             dispatchApply(
                 reducer::apply_event::PathSettled{live->pathPhase == reducer::UsbPhase::Direct});
         }
+        return;
+    }
+
+    // A Moonlight bind settles the instant it is written, so there is no
+    // readback to wait on and no host state that could turn it into a failure.
+    if (applyIsMoonlight_) {
+        // The host remembers the last pick so the NEXT binding on it starts
+        // where this one did. The binding still owns the type it sends; this is
+        // a seed, not the authority.
+        setMoonlightControllerType(applyConnectionId_, applyType_);
         return;
     }
 

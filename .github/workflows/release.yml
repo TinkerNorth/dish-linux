@@ -164,7 +164,7 @@ jobs:
             build-essential cmake ninja-build pkg-config \
             qt6-base-dev qt6-base-dev-tools qt6-declarative-dev qt6-svg-dev \
             qt6-tools-dev qt6-tools-dev-tools qt6-l10n-tools \
-            libsodium-dev libsdl2-dev libdbus-1-dev \
+            libsodium-dev libsdl2-dev libssl-dev libdbus-1-dev \
             dpkg-dev fakeroot file gzip \
             librsvg2-bin desktop-file-utils appstream lintian
 
@@ -323,7 +323,7 @@ jobs:
             git-core ca-certificates \
             gcc-c++ cmake ninja-build pkgconf-pkg-config rpm-build \
             qt6-qtbase-devel qt6-qtdeclarative-devel qt6-qtsvg-devel qt6-qttools-devel \
-            libsodium-devel SDL2-devel dbus-devel \
+            libsodium-devel SDL2-devel openssl-devel dbus-devel \
             librsvg2-tools desktop-file-utils libappstream-glib gzip
 
       - name: Checkout
@@ -466,7 +466,7 @@ jobs:
           # resolve on the build host.
           sudo apt-get install -y --no-install-recommends \
             build-essential cmake ninja-build pkg-config \
-            libsodium-dev libudev-dev libusb-1.0-0-dev \
+            libsodium-dev libssl-dev libudev-dev libusb-1.0-0-dev \
             libxkbcommon-x11-0 libxcb-cursor0 libxcb-icccm4 libxcb-image0 \
             libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 libxcb-shape0 \
             libxcb-xinerama0 libxcb-xkb1 \

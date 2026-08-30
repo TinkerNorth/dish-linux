@@ -34,6 +34,17 @@ inline constexpr const char* kMotionEnabledPrefix = "motion_enabled:";
 // Stable per-install device id (machineId source for X-Device-Id). One owner.
 inline constexpr const char* kDeviceIdKey = "deviceId";
 
+// The Moonlight client identity: one self-signed cert + key pair per install,
+// plus the uniqueid every GameStream HTTP call carries. Generated once;
+// deleting them unpairs this install from every Moonlight host.
+inline constexpr const char* kMoonlightCertKey = "moonlight_identity_cert";
+inline constexpr const char* kMoonlightKeyKey = "moonlight_identity_key";
+inline constexpr const char* kMoonlightUniqueIdKey = "moonlight_identity_uniqueid";
+
+// The remembered-Moonlight-host list, one JSON array under a single key.
+// Disjoint from kSatelliteListKey: the two connection families never mix rows.
+inline constexpr const char* kMoonlightHostListKey = "moonlight_host_list";
+
 // Retired key names, kept only so old installs can be upgraded in place.
 inline constexpr const char* kLegacyWifiListKey = "wifi_list";
 inline constexpr const char* kLegacySharedKeyPrefix = "wifi_shared_key/";
