@@ -114,6 +114,18 @@ AppModel::AppModel(std::unique_ptr<source::WakeInhibitor> inhibitor, QObject* pa
     // uses. The manager already coalesces on the Qt main thread.
     QObject::connect(moonlight_, &source::moon::MoonlightManager::rowsChanged, this,
                      &AppModel::stateChanged);
+    // A binding is durable intent: one made against a host that was not paired
+    // yet is recorded and waits. This is what stops the wait. Re-binding the
+    // slot is a restart, not a second pad, and it is the same call the binding
+    // flow makes, so the hot-path tables are wired the way a fresh bind wires
+    // them.
+    QObject::connect(moonlight_, &source::moon::MoonlightManager::pairingFinished, this,
+                     [this](const QString& uuid, bool ok, const QString&) {
+                         if (!ok) { return; }
+                         for (const auto& slotId : moonlight_->boundSlots(uuid)) {
+                             bindMoonlightSlot(slotId, uuid);
+                         }
+                     });
     QObject::connect(moonlight_, &source::moon::MoonlightManager::sessionFailed, this,
                      [this](const QString&, const QString& reasonToken) {
                          if (reasonToken == QLatin1String("appAlreadyRunning")) {
