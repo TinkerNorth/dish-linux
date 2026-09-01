@@ -12,6 +12,7 @@
 
 #include "core/reducer/DirectClaimFailure.h"
 
+#include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <optional>
@@ -122,6 +123,17 @@ class UsbDeviceGateway {
     // The model's current measured completion count (URB/transfer count) for the
     // poll-rate sampler. 0 if unknown / not claimed.
     virtual std::int64_t completionCount(int syntheticId) const = 0;
+
+    // Write one OUT report to a claimed device: rumble, a lightbar colour,
+    // player LEDs, trigger effects. `data[0]` is the report id and the buffer is
+    // the whole report exactly as core/input/UsbOutputReports.h built it; the
+    // gateway adds only framing the platform itself demands and never reasons
+    // about the contents. Returns false for an unknown id, a device with no OUT
+    // path, or a failed write.
+    //
+    // Callable from any thread and from inside a report callback: feedback
+    // arrives on the network receive thread while the read loop is mid-transfer.
+    virtual bool writeOutputReport(int syntheticId, const std::uint8_t* data, std::size_t len) = 0;
 };
 
 } // namespace dish::source::usb

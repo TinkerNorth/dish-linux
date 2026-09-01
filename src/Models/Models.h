@@ -88,7 +88,12 @@ struct PairResponse {
     std::optional<QString> status; // /api/pair/status: approved|pending|denied|none
     std::optional<QString> error;
     std::optional<QString> sharedKey;
-    int protocolVersion = proto::kProtocolVersion;
+    // The 409 body's range, as on SessionResponse. 0 = the server did not say.
+    int supportedProtocol = 0;
+    int supportedProtocolMin = 0;
+    // Absent on the wire means 1 (a pre-versioning satellite), so an
+    // unparsed DTO must never look like it agreed to the newest frames.
+    int protocolVersion = proto::kProtocolVersionMin;
     // 0 = the transport never produced a response. Lets the manager spot a 409
     // version mismatch without re-reading the body.
     int httpStatus = 0;
@@ -146,7 +151,13 @@ struct SessionResponse {
     std::optional<QString> sessionSalt; // 16-hex (8 bytes)
     int epoch = 0;
     int maxControllers = 16;
-    int protocolVersion = proto::kProtocolVersion;
+    // Absent on the wire means 1 (a pre-versioning satellite), so an
+    // unparsed DTO must never look like it agreed to the newest frames.
+    int protocolVersion = proto::kProtocolVersionMin;
+    // The 409 body's range. 0 means the server did not say, which is the only
+    // honest reading of a mismatch whose bounds are missing.
+    int supportedProtocol = 0;
+    int supportedProtocolMin = 0;
     QList<ControllerApplyDto> controllers;
     HostFeatureGrant mouseControl;
     std::optional<QString> error;
@@ -198,7 +209,9 @@ struct SessionViewControllerDto {
 struct SessionViewDto {
     std::optional<QString> connectionId;
     int epoch = 0;
-    int protocolVersion = proto::kProtocolVersion;
+    // Absent on the wire means 1 (a pre-versioning satellite), so an
+    // unparsed DTO must never look like it agreed to the newest frames.
+    int protocolVersion = proto::kProtocolVersionMin;
     int maxControllers = 16;
     QList<SessionViewControllerDto> controllers;
     HostFeatureGrant mouseControl;
@@ -222,7 +235,9 @@ struct HostCapabilityDto {
 // GET /api/server/capabilities: live backend health. Unauthenticated, so it is
 // the only pre-pairing signal that the receiver's driver stack is broken.
 struct CapabilitiesDto {
-    int protocolVersion = proto::kProtocolVersion;
+    // Absent on the wire means 1 (a pre-versioning satellite), so an
+    // unparsed DTO must never look like it agreed to the newest frames.
+    int protocolVersion = proto::kProtocolVersionMin;
     QString serverVersion;
     int maxControllers = 16;
     QString backendId;
@@ -285,7 +300,9 @@ struct CatalogHostFeatureDto {
 
 struct CatalogDto {
     QString locale;
-    int protocolVersion = proto::kProtocolVersion;
+    // Absent on the wire means 1 (a pre-versioning satellite), so an
+    // unparsed DTO must never look like it agreed to the newest frames.
+    int protocolVersion = proto::kProtocolVersionMin;
     // Catalog SCHEMA version, distinct from the wire protocol and the build. A
     // response omitting it is the legacy v1 catalog, so absent reads as 1 and
     // clients branch on schema level instead of sniffing for fields.

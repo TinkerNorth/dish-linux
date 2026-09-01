@@ -12,6 +12,7 @@
 #include "Util/Hex.h"
 #include "core/reducer/Backoff.h"
 #include "core/reducer/CloseNotify.h"
+#include "core/reducer/ProtocolNegotiation.h"
 #include "core/reducer/Reconcile.h"
 #include "core/reducer/RestOutcome.h"
 #include "core/reducer/ReversePairing.h"
@@ -122,6 +123,26 @@ QString versionMsg() {
     return QCoreApplication::translate(
         "dish::net::WifiConnectionManager",
         "This app and the satellite speak different protocol versions.");
+}
+// The 409 body names the satellite's range, so the message can say which end is
+// behind instead of leaving the user to guess. An unusable body falls back to
+// the neutral wording above rather than blaming the wrong side.
+QString versionMsgFor(reducer::ProtocolVerdict verdict) {
+    switch (verdict) {
+    case reducer::ProtocolVerdict::UpdateDish:
+        return QCoreApplication::translate(
+            "dish::net::WifiConnectionManager",
+            "This satellite needs a newer version of Dish. Update the app and retry.");
+    case reducer::ProtocolVerdict::UpdateSatellite:
+        return QCoreApplication::translate(
+            "dish::net::WifiConnectionManager",
+            "This satellite is too old for this version of Dish. Update the satellite.");
+    case reducer::ProtocolVerdict::Settled:
+    case reducer::ProtocolVerdict::RetryLower:
+    case reducer::ProtocolVerdict::Unusable:
+        break;
+    }
+    return versionMsg();
 }
 QString identityChangedMsg() {
     return QCoreApplication::translate(
@@ -620,6 +641,7 @@ void WifiConnectionManager::openSession(WifiConnection* conn,
 
     http_->putSession(
         server.ip, server.httpPort, deviceId_, deviceName_, proof, descriptors, wantsMouse,
+        conn->offeredProtocolVersion(),
         [this, conn, server, intent, id, pairingKey,
          sentDescriptors](const models::SessionResponse& resp, bool pinMismatch) {
             using reducer::RestVerdict;
@@ -635,8 +657,20 @@ void WifiConnectionManager::openSession(WifiConnection* conn,
                 return;
             }
             if (verdict == RestVerdict::VersionMismatch) {
+                const auto negotiated =
+                    reducer::settleRejected(resp.supportedProtocol, resp.supportedProtocolMin);
+                if (negotiated.verdict == reducer::ProtocolVerdict::RetryLower) {
+                    // The ranges still overlap: re-offer the satellite's ceiling
+                    // rather than dead-ending the user on "update something".
+                    // The lowered offer sticks to this connection, so the retry
+                    // does not repeat the rejected number.
+                    conn->setOfferedProtocolVersion(negotiated.settledVersion);
+                    conn->markStale();
+                    scheduleRetry(server, intent, resp.failure);
+                    return;
+                }
                 conn->markDisconnected();
-                emitErrorIfUserInitiated(intent, versionMsg());
+                emitErrorIfUserInitiated(intent, versionMsgFor(negotiated.verdict));
                 return;
             }
             if (verdict == RestVerdict::IdentityChanged) {
@@ -686,7 +720,12 @@ void WifiConnectionManager::openSession(WifiConnection* conn,
                 conn->markDisconnected();
                 return;
             }
-            client->setConnectionParams(token, sessionKey);
+            // The SETTLED version, not the offered one: a pre-versioning
+            // satellite echoes 1 whatever we asked for, and the 0x000C frame
+            // shape follows the echo.
+            const auto negotiated = reducer::settleAccepted(resp.protocolVersion);
+            conn->setSettledProtocolVersion(negotiated.settledVersion, negotiated.satelliteBehind);
+            client->setConnectionParams(token, sessionKey, negotiated.settledVersion);
             store_->remember(server);
             retryAttempts_.remove(id);
             lastFailure_.remove(id);
@@ -780,7 +819,7 @@ void WifiConnectionManager::rekey(WifiConnection* conn, const models::Discovered
     // them, and a session that truly exhausts self-heals via the death retry.
     http_->putSession(
         server.ip, server.httpPort, deviceId_, deviceName_, creds->proof,
-        conn->desiredDescriptors(), conn->wantsMouseControl(),
+        conn->desiredDescriptors(), conn->wantsMouseControl(), conn->offeredProtocolVersion(),
         [this, id, client, pairingKey](const models::SessionResponse& resp, bool pinMismatch) {
             auto* c = connections_.value(id, nullptr);
             if (c == nullptr) { return; }
@@ -821,7 +860,12 @@ void WifiConnectionManager::rekey(WifiConnection* conn, const models::Discovered
             // Same socket, fresh token and key, counters back to 1, so the hot
             // path never blips. connectionId is stable across PUTs, so the id and
             // slot state carry over.
-            client->setConnectionParams(token, sessionKey);
+            // A re-PUT settles again: the satellite could have been upgraded
+            // under a live session, and the frame shape must follow the answer
+            // it just gave, not the one it gave at connect.
+            const auto negotiated = reducer::settleAccepted(resp.protocolVersion);
+            c->setSettledProtocolVersion(negotiated.settledVersion, negotiated.satelliteBehind);
+            client->setConnectionParams(token, sessionKey, negotiated.settledVersion);
             // Otherwise the next enriched ack would read as drift.
             c->adoptEpoch(resp.epoch);
         });

@@ -84,7 +84,16 @@ void SatelliteClient::closeSocket() {
 }
 
 void SatelliteClient::setConnectionParams(const std::array<std::uint8_t, 4>& token,
-                                          const std::array<std::uint8_t, 32>& key) {
+                                          const std::array<std::uint8_t, 32>& key,
+                                          int settledProtocolVersion) {
+    // Clamped, not trusted: a version outside what this build encodes would pick
+    // a frame shape with no encoder behind it. Below the floor falls back to the
+    // floor, above the ceiling to the ceiling.
+    const int clamped = settledProtocolVersion < proto::kProtocolVersionMin
+                            ? proto::kProtocolVersionMin
+                        : settledProtocolVersion > proto::kProtocolVersion ? proto::kProtocolVersion
+                                                                           : settledProtocolVersion;
+    settledProtocolVersion_.store(clamped, std::memory_order_relaxed);
     {
         std::lock_guard<std::mutex> lock(materialMtx_);
         token_ = token;
@@ -212,11 +221,47 @@ std::array<std::uint8_t, 16> SatelliteClient::encodeTouchpadPayload(
     return out;
 }
 
+std::array<std::uint8_t, 19>
+SatelliteClient::encodePointerPayload(std::uint8_t controllerIndex,
+                                      const reducer::TouchpadForward& f) {
+    std::array<std::uint8_t, 19> out{};
+    out[0] = controllerIndex;
+    out[1] = reducer::pointerFingerFlags(f);
+    out[2] = reducer::pointerButtons(f);
+    auto storeLe16 = [&out](int off, std::int16_t v) {
+        const auto u = static_cast<std::uint16_t>(v);
+        out[static_cast<std::size_t>(off)] = static_cast<std::uint8_t>(u & 0xFFU);
+        out[static_cast<std::size_t>(off) + 1] = static_cast<std::uint8_t>((u >> 8) & 0xFFU);
+    };
+    out[3] = f.finger0Id;
+    storeLe16(4, f.finger0X);
+    storeLe16(6, f.finger0Y);
+    out[8] = f.finger1Id;
+    storeLe16(9, f.finger1X);
+    storeLe16(11, f.finger1Y);
+    out[13] = static_cast<std::uint8_t>(f.eventTimeMs & 0xFFU);
+    out[14] = static_cast<std::uint8_t>((f.eventTimeMs >> 8) & 0xFFU);
+    out[15] = static_cast<std::uint8_t>((f.eventTimeMs >> 16) & 0xFFU);
+    out[16] = static_cast<std::uint8_t>((f.eventTimeMs >> 24) & 0xFFU);
+    storeLe16(17, f.scrollV);
+    return out;
+}
+
 void SatelliteClient::sendTouchpad(int controllerIndex, bool finger0Active, std::uint8_t finger0Id,
                                    std::int16_t finger0X, std::int16_t finger0Y, bool finger1Active,
                                    std::uint8_t finger1Id, std::int16_t finger1X,
                                    std::int16_t finger1Y, bool buttonPressed,
                                    std::uint32_t eventTimeMs) {
+    // The settled version, never this client's own: a v1 satellite decodes only
+    // the 16-byte frame and drops anything longer.
+    if (proto::settledSpeaksV2(settledProtocolVersion_.load(std::memory_order_relaxed))) {
+        reducer::TouchpadForward f = reducer::assembleTouchpadForward(
+            finger0Active, finger0Id, finger0X, finger0Y, finger1Active, finger1Id, finger1X,
+            finger1Y, buttonPressed, eventTimeMs);
+        const auto payload = encodePointerPayload(static_cast<std::uint8_t>(controllerIndex), f);
+        sendEncrypted(kMsgTouchpad, payload.data(), payload.size());
+        return;
+    }
     const auto payload = encodeTouchpadPayload(
         static_cast<std::uint8_t>(controllerIndex), finger0Active, finger0Id, finger0X, finger0Y,
         finger1Active, finger1Id, finger1X, finger1Y, buttonPressed, eventTimeMs);
@@ -418,6 +463,24 @@ void SatelliteClient::processIncoming(const std::uint8_t* buf, std::size_t n) {
             handler = lightbarHandler_;
         }
         if (handler) { handler(*lm); }
+    } else if (msgType == kMsgTriggerEffects) {
+        const auto tm = parseTriggerEffectsMessage(body, bodyLen);
+        if (!tm) { return; }
+        TriggerEffectsHandler handler;
+        {
+            std::lock_guard<std::mutex> lock(triggerEffectsHandlerMtx_);
+            handler = triggerEffectsHandler_;
+        }
+        if (handler) { handler(*tm); }
+    } else if (msgType == kMsgPlayerLeds) {
+        const auto pm = parsePlayerLedsMessage(body, bodyLen);
+        if (!pm) { return; }
+        PlayerLedsHandler handler;
+        {
+            std::lock_guard<std::mutex> lock(playerLedsHandlerMtx_);
+            handler = playerLedsHandler_;
+        }
+        if (handler) { handler(*pm); }
     } else if (msgType == kMsgSessionClose) {
         if (bodyLen < 1) { return; }
         const std::uint8_t reason = body[0];
@@ -441,6 +504,16 @@ void SatelliteClient::setRumbleHandler(RumbleHandler handler) {
 void SatelliteClient::setLightbarHandler(LightbarHandler handler) {
     std::lock_guard<std::mutex> lock(lightbarHandlerMtx_);
     lightbarHandler_ = std::move(handler);
+}
+
+void SatelliteClient::setTriggerEffectsHandler(TriggerEffectsHandler handler) {
+    std::lock_guard<std::mutex> lock(triggerEffectsHandlerMtx_);
+    triggerEffectsHandler_ = std::move(handler);
+}
+
+void SatelliteClient::setPlayerLedsHandler(PlayerLedsHandler handler) {
+    std::lock_guard<std::mutex> lock(playerLedsHandlerMtx_);
+    playerLedsHandler_ = std::move(handler);
 }
 
 void SatelliteClient::setHeartbeatAckHandler(HeartbeatAckHandler handler) {
@@ -478,6 +551,28 @@ SatelliteClient::parseLightbarMessage(const std::uint8_t* payload, std::size_t l
     lm.g = payload[2];
     lm.b = payload[3];
     return lm;
+}
+
+std::optional<SatelliteClient::TriggerEffectsMessage>
+SatelliteClient::parseTriggerEffectsMessage(const std::uint8_t* payload, std::size_t len) {
+    // Exact length, not a floor: the blocks are replayed verbatim into the pad,
+    // so a short frame would ship uninitialised bytes to firmware.
+    if (payload == nullptr || len < kTriggerEffectsPayloadLen) { return std::nullopt; }
+    TriggerEffectsMessage tm;
+    tm.controllerIndex = payload[0];
+    constexpr std::size_t kBlock = static_cast<std::size_t>(proto::kTriggerEffectBlockBytes);
+    std::memcpy(tm.left.data(), payload + 1, kBlock);
+    std::memcpy(tm.right.data(), payload + 1 + kBlock, kBlock);
+    return tm;
+}
+
+std::optional<SatelliteClient::PlayerLedsMessage>
+SatelliteClient::parsePlayerLedsMessage(const std::uint8_t* payload, std::size_t len) {
+    if (payload == nullptr || len < kPlayerLedsPayloadLen) { return std::nullopt; }
+    PlayerLedsMessage pm;
+    pm.controllerIndex = payload[0];
+    pm.ledMask = payload[1];
+    return pm;
 }
 
 std::optional<SatelliteClient::RumbleMessage>

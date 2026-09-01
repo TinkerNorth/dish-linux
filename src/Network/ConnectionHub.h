@@ -67,6 +67,18 @@ class ConnectionHub : public QObject {
     using RumbleCapabilityFn = std::function<bool(const QString& slotId)>;
     void setRumbleCapabilityFn(RumbleCapabilityFn fn) { rumbleCapabilityFn_ = std::move(fn); }
 
+    // Protocol-2 actuators. Unset reads as "no", which is what an older build's
+    // wiring should mean: the satellite then never sends the message.
+    using TriggerEffectsCapabilityFn = std::function<bool(const QString& slotId)>;
+    void setTriggerEffectsCapabilityFn(TriggerEffectsCapabilityFn fn) {
+        triggerEffectsCapabilityFn_ = std::move(fn);
+    }
+
+    using PlayerLedsCapabilityFn = std::function<bool(const QString& slotId)>;
+    void setPlayerLedsCapabilityFn(PlayerLedsCapabilityFn fn) {
+        playerLedsCapabilityFn_ = std::move(fn);
+    }
+
     // A proto CONTROLLER_TYPE_*, which is how a DualSense registers as a virtual
     // DS4 rather than an Xbox pad. Unset means CONTROLLER_TYPE_XBOX.
     using ControllerTypeFn = std::function<int(const QString& slotId)>;
@@ -96,6 +108,8 @@ class ConnectionHub : public QObject {
     LightbarCapabilityFn lightbarCapabilityFn_;
     MotionCapabilityFn motionCapabilityFn_;
     RumbleCapabilityFn rumbleCapabilityFn_;
+    TriggerEffectsCapabilityFn triggerEffectsCapabilityFn_;
+    PlayerLedsCapabilityFn playerLedsCapabilityFn_;
     ControllerTypeFn controllerTypeFn_;
     TouchpadModeFn touchpadModeFn_;
 };
