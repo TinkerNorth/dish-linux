@@ -25,6 +25,7 @@
 #include "composer/WakeStateController.h"
 #include "repository/DeadzoneRepository.h"
 #include "repository/MotionPreferenceRepository.h"
+#include "core/model/Protocol.h"
 #include "core/reducer/BindingPresence.h"
 #include "core/reducer/FeedbackRouting.h"
 #include "core/reducer/PollRateSampler.h"

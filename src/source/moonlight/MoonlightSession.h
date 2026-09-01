@@ -123,8 +123,14 @@ class MoonlightSession : public QObject {
     // Host->client actuation, delivered on the Qt main thread. The controller
     // number is carried through: a session drives up to four pads, so an event
     // that named none of them could only be applied to the wrong one.
-    using RumbleHandler =
-        std::function<void(std::uint8_t controllerNumber, std::uint16_t low, std::uint16_t high)>;
+    // Already MIXED and already mapped onto the pad's two motors: the host's
+    // body and trigger rumble streams both land here (no pad this client can
+    // claim has trigger motors), and the wire's lowFrequency is the large
+    // motor. Handing over `strong`/`weak` rather than the wire's low/high is
+    // what stops the actuator having to re-derive that mapping, which is where
+    // this path used to invert the two.
+    using RumbleHandler = std::function<void(std::uint8_t controllerNumber, std::uint16_t strong,
+                                             std::uint16_t weak)>;
     using LedHandler = std::function<void(std::uint8_t controllerNumber, std::uint8_t r,
                                           std::uint8_t g, std::uint8_t b)>;
     void setRumbleHandler(RumbleHandler handler) { rumbleHandler_ = std::move(handler); }

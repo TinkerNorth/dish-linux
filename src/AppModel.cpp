@@ -9,6 +9,8 @@
 #include "core/input/UsbReportParsers.h"
 #include "core/moonlight/MoonlightPadSlots.h"
 #include "core/moonlight/MoonlightProtocol.h"
+#include "core/moonlight/MoonlightTelemetry.h"
+#include "core/moonlight/MoonlightTouchDiffer.h"
 #include "core/reducer/CatalogPrewarm.h"
 #include "core/reducer/PickerVisibility.h"
 #include "core/reducer/RumbleRouting.h"
@@ -19,6 +21,7 @@
 
 #include <chrono>
 #include <map>
+#include <memory>
 #include <optional>
 #include <set>
 #include <string>
@@ -140,15 +143,16 @@ AppModel::AppModel(std::unique_ptr<source::WakeInhibitor> inhibitor, QObject* pa
     // Host->local actuation shares the SDL output plumbing the satellite path
     // uses. The manager has already resolved the event's controller number to
     // the pad that holds it, because one session drives up to four.
-    moonlight_->setRumbleSink([this](const QString& slotId, std::uint16_t low, std::uint16_t high) {
-        if (slotId.isEmpty()) { return; }
-        // Moonlight sends low/high frequency magnitudes; map to the SDL
-        // strong/weak motors. The session has already mixed in the host's
-        // trigger-rumble stream, so this is the final value for both motors.
-        // Duration 0: the host refreshes on its own schedule and a stop is an
-        // explicit 0,0, so nothing here should expire it early.
-        actuateRumble(slotId, high, low, 0);
-    });
+    moonlight_->setRumbleSink(
+        [this](const QString& slotId, std::uint16_t strong, std::uint16_t weak) {
+            if (slotId.isEmpty()) { return; }
+            // Straight through: the session has already mapped the wire's
+            // low/high onto the pad's motors and mixed the host's trigger
+            // stream in, so this is the final value for both. Duration 0
+            // because the host refreshes on its own schedule and a stop is an
+            // explicit 0,0.
+            actuateRumble(slotId, strong, weak, 0);
+        });
     moonlight_->setLedSink(
         [this](const QString& slotId, std::uint8_t r, std::uint8_t g, std::uint8_t b) {
             if (slotId.isEmpty()) { return; }
