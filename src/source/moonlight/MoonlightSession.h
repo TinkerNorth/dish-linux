@@ -16,6 +16,9 @@
 #include "core/moonlight/MoonlightPadSlots.h"
 #include "core/moonlight/MoonlightRtsp.h"
 #include "core/moonlight/MoonlightSessionMachine.h"
+#include "core/moonlight/MoonlightTelemetry.h"
+#include "core/moonlight/MoonlightTouchDiffer.h"
+#include "core/moonlight/MoonlightTriggerRumble.h"
 #include "core/moonlight/MoonlightWire.h"
 #include "repository/MoonlightHostRepository.h"
 #include "source/moonlight/MoonlightControlStream.h"
@@ -30,6 +33,7 @@
 
 #include <array>
 #include <atomic>
+#include <map>
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -93,16 +97,40 @@ class MoonlightSession : public QObject {
     void sendControllerState(std::uint8_t controllerNumber, std::uint16_t internalButtons,
                              std::uint8_t lt, std::uint8_t rt, std::int16_t lx, std::int16_t ly,
                              std::int16_t rx, std::int16_t ry);
-    // Motion, on the SDL sensor thread. Gated by a host MOTION_EVENT request.
-    void sendMotion(std::uint8_t controllerNumber, std::uint8_t motionType, float x, float y,
+    // Motion, on the SDL sensor thread. Gated by the host's MOTION_EVENT
+    // subscriptions per (pad, motion type) and rate-limited to what it asked
+    // for: one session drives up to four pads and a host subscribes to each
+    // independently, so a session-wide flag would start every pad's stream the
+    // moment one game opened one sensor. Returns whether the sample went out.
+    bool sendMotion(std::uint8_t controllerNumber, std::uint8_t motionType, float x, float y,
                     float z);
-    bool motionRequested() const { return motionRequested_; }
+    // Battery, on the same thread as motion. Unconditional: a host that
+    // declared the capability gets the level whenever the pad reports one.
+    void sendBattery(std::uint8_t controllerNumber, std::uint8_t state, std::uint8_t percentage);
+    // One diffed touch event. Never rate-gated: the events are transitions, and
+    // dropping one strands a contact on the host.
+    void sendTouch(std::uint8_t controllerNumber, const moonlight::TouchEvent& event);
+
+    bool motionRequested(std::uint8_t controllerNumber, std::uint8_t motionType) const {
+        return motionGate_.wanted(controllerNumber, motionType);
+    }
+    // Forget a pad's subscriptions when it unbinds, so a returning pad waits to
+    // be asked again rather than resuming a stream the host has forgotten.
+    void forgetMotionSubscriptions(std::uint8_t controllerNumber) {
+        motionGate_.clear(controllerNumber);
+    }
 
     // Host->client actuation, delivered on the Qt main thread. The controller
     // number is carried through: a session drives up to four pads, so an event
     // that named none of them could only be applied to the wrong one.
-    using RumbleHandler =
-        std::function<void(std::uint8_t controllerNumber, std::uint16_t low, std::uint16_t high)>;
+    // Already MIXED and already mapped onto the pad's two motors: the host's
+    // body and trigger rumble streams both land here (no pad this client can
+    // claim has trigger motors), and the wire's lowFrequency is the large
+    // motor. Handing over `strong`/`weak` rather than the wire's low/high is
+    // what stops the actuator having to re-derive that mapping, which is where
+    // this path used to invert the two.
+    using RumbleHandler = std::function<void(std::uint8_t controllerNumber, std::uint16_t strong,
+                                             std::uint16_t weak)>;
     using LedHandler = std::function<void(std::uint8_t controllerNumber, std::uint8_t r,
                                           std::uint8_t g, std::uint8_t b)>;
     void setRumbleHandler(RumbleHandler handler) { rumbleHandler_ = std::move(handler); }
@@ -233,7 +261,13 @@ class MoonlightSession : public QObject {
     QTimer* rtpPingTimer_ = nullptr;
     std::uint32_t rtpPingSequence_ = 0;
 
-    bool motionRequested_ = false;
+    // Written from the control-stream receive thread, read from the input
+    // thread; the gate carries its own lock.
+    mutable moonlight::MoonlightMotionGate motionGate_;
+    // Per controller number, the live mix of the host's two rumble streams. Only
+    // touched on the control receive thread (both handlers run there), so no
+    // lock of its own.
+    std::map<int, moonlight::RumbleMix> rumbleMix_;
 
     RumbleHandler rumbleHandler_;
     LedHandler ledHandler_;

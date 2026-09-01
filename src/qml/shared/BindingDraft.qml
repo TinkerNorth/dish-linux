@@ -127,6 +127,10 @@ QtObject {
             return qsTr("Rumble");
         case "lightbar":
             return qsTr("Lightbar");
+        case "triggerEffects":
+            return qsTr("Adaptive triggers");
+        case "playerLeds":
+            return qsTr("Player LEDs");
         }
         return feature;
     }
@@ -148,6 +152,10 @@ QtObject {
             return qsTr("rumble motors");
         case "lightbar":
             return qsTr("lightbar");
+        case "triggerEffects":
+            return qsTr("adaptive triggers");
+        case "playerLeds":
+            return qsTr("player LEDs");
         }
         return feature;
     }
@@ -180,7 +188,13 @@ QtObject {
                 return qsTr("No touchpad on this controller to drive a mouse.");
             return qsTr("%1 has no %2.").arg(draft.padName).arg(draft.featureNoun(row.feature));
         case "link":
-            return qsTr("Direct mode can’t drive it — switch the connection to Standard.");
+            // Which path refuses depends on the feature: Standard has no call
+            // for the adaptive triggers or the player LEDs, and Direct is the
+            // only path that can reach them. Naming the wrong one sends the
+            // user to switch the connection the wrong way.
+            if (draft.desiredPath === "direct")
+                return qsTr("Direct mode can’t drive it — switch the connection to Standard.");
+            return qsTr("Standard mode can’t drive it — switch the connection to Direct.");
         case "type":
             if (draft.hostIsMoonlight)
                 return qsTr("A %1 controller does not carry %2 over Moonlight.")

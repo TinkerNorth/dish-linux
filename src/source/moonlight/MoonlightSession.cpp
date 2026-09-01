@@ -17,6 +17,7 @@
 #include <QUdpSocket>
 #include <QUrlQuery>
 
+#include <chrono>
 #include <cstring>
 #include <optional>
 
@@ -617,7 +618,10 @@ void MoonlightSession::teardown() {
     controlConnectData_ = 0;
     rtspSessionId_.clear();
     rtpPingSequence_ = 0;
-    motionRequested_ = false;
+    // A new session is a new set of subscriptions: the host has forgotten the
+    // old ones, so resuming them would stream to nobody.
+    motionGate_.clearAll();
+    rumbleMix_.clear();
 }
 
 void MoonlightSession::cancelStrandedApp() {
@@ -640,10 +644,27 @@ void MoonlightSession::sendControllerState(std::uint8_t controllerNumber,
                                   ry);
 }
 
-void MoonlightSession::sendMotion(std::uint8_t controllerNumber, std::uint8_t motionType, float x,
+bool MoonlightSession::sendMotion(std::uint8_t controllerNumber, std::uint8_t motionType, float x,
                                   float y, float z) {
-    if (!motionRequested_) { return; }
+    // Steady clock, not wall clock: a system time change must not open the gate
+    // for a second or wedge it shut for an hour.
+    const auto nowUs = std::chrono::duration_cast<std::chrono::microseconds>(
+                           std::chrono::steady_clock::now().time_since_epoch())
+                           .count();
+    if (!motionGate_.shouldSend(controllerNumber, motionType, nowUs)) { return false; }
     control_->sendControllerMotion(controllerNumber, motionType, x, y, z);
+    return true;
+}
+
+void MoonlightSession::sendBattery(std::uint8_t controllerNumber, std::uint8_t state,
+                                   std::uint8_t percentage) {
+    control_->sendControllerBattery(controllerNumber, state, percentage);
+}
+
+void MoonlightSession::sendTouch(std::uint8_t controllerNumber,
+                                 const moonlight::TouchEvent& event) {
+    control_->sendControllerTouch(controllerNumber, event.eventType, event.pointerId, event.x,
+                                  event.y, event.pressure);
 }
 
 void MoonlightSession::onHostEvent(const moonwire::HostEvent& event) {
@@ -651,12 +672,23 @@ void MoonlightSession::onHostEvent(const moonwire::HostEvent& event) {
     // output queue) via the manager.
     switch (event.type) {
     case moonwire::HostEventType::Rumble:
-    case moonwire::HostEventType::RumbleTriggers:
+    case moonwire::HostEventType::RumbleTriggers: {
+        // The two streams both land on the pad's two motors, because no pad this
+        // client can Direct-claim has impulse-trigger motors: xpad binds an Xbox
+        // pad as evdev-only and publishes no hidraw node for it. Mixing per
+        // motor by maximum is what stops a trigger update cancelling a body
+        // rumble that is still running. See core/moonlight/MoonlightTriggerRumble.h.
+        auto& mix = rumbleMix_[event.controllerNumber];
+        mix = event.type == moonwire::HostEventType::RumbleTriggers
+                  ? moonlight::withTriggerRumble(mix, event.rumbleLow, event.rumbleHigh)
+                  : moonlight::withBodyRumble(mix, event.rumbleLow, event.rumbleHigh);
+        const auto mixed = moonlight::mixRumble(mix);
         if (rumbleHandler_) {
-            rumbleHandler_(static_cast<std::uint8_t>(event.controllerNumber), event.rumbleLow,
-                           event.rumbleHigh);
+            rumbleHandler_(static_cast<std::uint8_t>(event.controllerNumber), mixed.strong,
+                           mixed.weak);
         }
         break;
+    }
     case moonwire::HostEventType::RgbLed:
         if (ledHandler_) {
             ledHandler_(static_cast<std::uint8_t>(event.controllerNumber), event.red, event.green,
@@ -664,8 +696,8 @@ void MoonlightSession::onHostEvent(const moonwire::HostEvent& event) {
         }
         break;
     case moonwire::HostEventType::MotionRequest:
-        // rate 0 stops motion; any non-zero rate starts it.
-        motionRequested_ = event.motionRateHz != 0;
+        // Per (pad, type) and at the requested rate; 0 stops that one stream.
+        motionGate_.onMotionRequest(event.controllerNumber, event.motionRateHz, event.motionType);
         break;
     case moonwire::HostEventType::Termination:
         qCInfo(lcMoon) << host_.address << "sent TERMINATION";

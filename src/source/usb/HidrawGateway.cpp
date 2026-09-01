@@ -491,4 +491,39 @@ std::int64_t HidrawGateway::completionCount(int syntheticId) const {
     return it->second->completions.load();
 }
 
+bool HidrawGateway::writeOutputReport(int syntheticId, const std::uint8_t* data, std::size_t len) {
+    if (data == nullptr || len == 0) { return false; }
+    Claimed* c = nullptr;
+    {
+        // The claim map's lock is released before the write: a write can block
+        // on a sleeping pad, and holding mtx_ across it would stall reconcile().
+        // Safe because releaseClaim() joins the reader and erases the entry only
+        // from the owner thread, and every caller here is downstream of a live
+        // binding for this device.
+        std::lock_guard<std::mutex> lock(mtx_);
+        const auto it = claimed_.find(syntheticId);
+        if (it == claimed_.end()) { return false; }
+        c = it->second.get();
+    }
+    const int fd = c->fd;
+    if (fd < 0) { return false; }
+
+    std::lock_guard<std::mutex> lock(c->writeMtx);
+    // hidraw takes the report exactly as built, with the id as byte 0 and no
+    // padding: unlike the Windows HID stack it does not demand a fixed-length
+    // buffer, so the builder's length IS the transfer length.
+    for (;;) {
+        const ssize_t written = ::write(fd, data, len);
+        if (written >= 0) { return static_cast<std::size_t>(written) == len; }
+        // A signal during the write is not a failure; anything else is. Retrying
+        // EINTR here matters because the app installs handlers (crash reporting,
+        // session management) that can land on any thread.
+        if (errno == EINTR) { continue; }
+        // Silent, like every other IO path in this file: a feedback write is
+        // lossy telemetry, and a pad that has gone away is about to surface as
+        // a claim failure anyway.
+        return false;
+    }
+}
+
 } // namespace dish::source::usb

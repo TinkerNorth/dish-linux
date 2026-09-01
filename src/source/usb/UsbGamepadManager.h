@@ -19,8 +19,11 @@
 
 #include "source/usb/UsbDeviceGateway.h"
 
+#include "core/input/UsbOutputReports.h"
 #include "core/reducer/UsbPathMachine.h"
 
+#include <array>
+#include <cstdint>
 #include <functional>
 #include <map>
 #include <memory>
@@ -119,6 +122,31 @@ class UsbGamepadManager {
     // timer; exposed so a test can fire it deterministically).
     void fireTimeout(int vendorId, int productId);
 
+    // ── Feedback to a Direct-claimed pad (the OUT direction) ─────────────────
+    //
+    // Keyed on the model, like every other public entry point here: a slot id
+    // carries (vid, pid), and the manager owns the mapping from that to the live
+    // synthetic id. Each returns whether the report actually reached the device,
+    // so a caller can tell "the pad has no such actuator" from "the pad has one
+    // and it fired" — the descriptor's caps are built from the same predicates,
+    // so in practice a false here means the claim went away mid-flight.
+    //
+    // Callable from the network receive thread. No-ops (false) when the model is
+    // not Direct-claimed right now, which is the normal case for a pad the user
+    // left on the Standard path.
+    bool applyRumble(int vendorId, int productId, std::uint16_t strongMagnitude,
+                     std::uint16_t weakMagnitude);
+    bool applyLightbar(int vendorId, int productId, std::uint8_t r, std::uint8_t g, std::uint8_t b);
+    bool applyPlayerLeds(int vendorId, int productId, std::uint8_t ledMask);
+    bool applyTriggerEffects(int vendorId, int productId,
+                             const std::uint8_t left[input::usbout::kTriggerEffectBlockBytes],
+                             const std::uint8_t right[input::usbout::kTriggerEffectBlockBytes]);
+
+    // Whether a Direct claim for this model is live right now. The link layer of
+    // the capability solve asks this before advertising an actuator, so the
+    // descriptor never promises a surface that a Standard-path pad cannot land.
+    bool isDirectClaimed(int vendorId, int productId) const;
+
     // The live FSM state per model (vpKey -> controller). Read-only snapshot.
     std::map<int, reducer::UsbController> controllers() const;
     std::optional<reducer::UsbController> controllerFor(int vendorId, int productId) const;
@@ -140,6 +168,27 @@ class UsbGamepadManager {
     // funnels through here so events apply in order.
     void applyEvent(int key, const reducer::UsbEvent& event);
     void execute(int key, const reducer::UsbController& c, const reducer::UsbEffect& fx);
+
+    // The claimed synthetic id + decoder family for a model, or nullopt when it
+    // is not Direct-claimed. One lookup shared by every feedback entry point.
+    struct DirectTarget {
+        int syntheticId = 0;
+        input::usbparse::HidParser parser = input::usbparse::HidParser::None;
+    };
+    std::optional<DirectTarget> directTarget(int vendorId, int productId) const;
+
+    // Drop a model's OUT-direction state when its claim ends, so a replugged pad
+    // re-sends the DualSense lightbar handoff instead of assuming the firmware
+    // still remembers it. Takes feedbackMtx_.
+    void forgetFeedbackState(int key);
+
+    // The Switch Pro accepts a packet only when its low nibble advances. Caller
+    // holds feedbackMtx_.
+    std::uint8_t nextSeqLocked(int key) {
+        const auto next = static_cast<std::uint8_t>((feedbackSeq_[key] + 1) & 0x0FU);
+        feedbackSeq_[key] = next;
+        return next;
+    }
 
     // Effectors.
     void runClaim(int key);
@@ -164,6 +213,16 @@ class UsbGamepadManager {
     // Consecutive reconcile() scans a tracked model has been missing from
     // enumerate(). Reset on sighting; the sweep fires at the threshold.
     std::unordered_map<int, int> missedScans_;
+
+    // Per-model OUT-direction state, guarded by its own mutex rather than mtx_:
+    // feedback arrives on the receive thread and must not contend with the 1 s
+    // reconcile sweep. Holds the DualSense's one-time lightbar handoff flag and
+    // the Switch Pro's rolling packet counter, both of which are properties of
+    // the claim rather than of any one write. Erased when the claim ends, so a
+    // replugged pad gets its handoff again.
+    mutable std::mutex feedbackMtx_;
+    std::unordered_map<int, input::usbout::FeedbackState> feedback_;
+    std::unordered_map<int, std::uint8_t> feedbackSeq_;
 };
 
 } // namespace dish::source::usb

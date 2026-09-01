@@ -21,6 +21,7 @@ namespace dish::moonwire {
 // Total plaintext sizes ([type u16][len u16] header included).
 inline constexpr std::size_t kControllerMultiSize = 38;
 inline constexpr std::size_t kControllerArrivalSize = 20;
+inline constexpr std::size_t kControllerTouchSize = 32;
 inline constexpr std::size_t kControllerMotionSize = 28;
 inline constexpr std::size_t kControllerBatterySize = 16;
 inline constexpr std::size_t kMouseMoveRelSize = 16;
@@ -49,6 +50,15 @@ std::size_t encodeControllerMulti(std::uint8_t* out, std::uint8_t controllerNumb
 std::size_t encodeControllerArrival(std::uint8_t* out, std::uint8_t controllerNumber,
                                     std::uint8_t controllerType, std::uint8_t capabilities,
                                     std::uint32_t supportedButtons);
+
+// One pointer event on the emulated pad's touch surface. `x` / `y` are
+// normalised 0..1 across the pad (the host multiplies by its emulated
+// touchpad's resolution) and `pressure` is 1.0 for a solid contact, 0.0 on
+// release. Unlike the satellite's full-state frame this is an EVENT stream, so
+// the caller diffs first (MoonlightTouchDiffer.h).
+std::size_t encodeControllerTouch(std::uint8_t* out, std::uint8_t controllerNumber,
+                                  std::uint8_t eventType, std::uint32_t pointerId, float x, float y,
+                                  float pressure);
 
 // Motion sample. `motionType` is moonproto::kMotionAcceleration/Gyroscope; the
 // components are IEEE-754 floats stored little-endian ("netfloat"). Units:

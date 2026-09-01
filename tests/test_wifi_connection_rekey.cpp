@@ -81,7 +81,7 @@ TEST_CASE("alive tick fires the rekey callback once per threshold approach and r
 
     auto client = std::make_shared<SatelliteClient>();
     REQUIRE(client->openSocket("127.0.0.1", port));
-    client->setConnectionParams({0x11, 0x22, 0x33, 0x44}, key(0xA5));
+    client->setConnectionParams({0x11, 0x22, 0x33, 0x44}, key(0xA5), dish::proto::kProtocolVersion);
 
     WifiConnection conn(WifiConnection::idFor(server()), server());
     int rekeyCalls = 0;
@@ -104,7 +104,7 @@ TEST_CASE("alive tick fires the rekey callback once per threshold approach and r
 
     // Installing a fresh token/key is what the manager's rekey does: the counter
     // restarts under the threshold and the latch re-arms without re-firing.
-    client->setConnectionParams({0x55, 0x66, 0x77, 0x88}, key(0x3C));
+    client->setConnectionParams({0x55, 0x66, 0x77, 0x88}, key(0x3C), dish::proto::kProtocolVersion);
     CHECK_FALSE(dish::reducer::counterNeedsRepush(client->sendCounter()));
     WifiConnectionTestAccess::tick(conn);
     CHECK(rekeyCalls == 1);
@@ -124,7 +124,7 @@ TEST_CASE("alive tick tolerates an absent rekey callback past the threshold", "[
 
     auto client = std::make_shared<SatelliteClient>();
     REQUIRE(client->openSocket("127.0.0.1", port));
-    client->setConnectionParams({0x11, 0x22, 0x33, 0x44}, key(0xA5));
+    client->setConnectionParams({0x11, 0x22, 0x33, 0x44}, key(0xA5), dish::proto::kProtocolVersion);
 
     WifiConnection conn(QStringLiteral("mid:m2"), server());
     conn.markConnecting();

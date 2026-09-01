@@ -293,4 +293,13 @@ void MoonlightControlStream::sendControllerBattery(std::uint8_t controllerNumber
     sealAndSend(plaintext, len);
 }
 
+void MoonlightControlStream::sendControllerTouch(std::uint8_t controllerNumber,
+                                                 std::uint8_t eventType, std::uint32_t pointerId,
+                                                 float x, float y, float pressure) {
+    std::uint8_t plaintext[moonwire::kMaxPlaintextSize];
+    const std::size_t len = moonwire::encodeControllerTouch(plaintext, controllerNumber, eventType,
+                                                            pointerId, x, y, pressure);
+    sealAndSend(plaintext, len);
+}
+
 } // namespace dish::source::moon

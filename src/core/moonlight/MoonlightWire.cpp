@@ -99,6 +99,22 @@ std::size_t encodeControllerArrival(std::uint8_t* out, std::uint8_t controllerNu
     return kControllerArrivalSize;
 }
 
+std::size_t encodeControllerTouch(std::uint8_t* out, std::uint8_t controllerNumber,
+                                  std::uint8_t eventType, std::uint32_t pointerId, float x, float y,
+                                  float pressure) {
+    // body: ctrl#(1) + eventType(1) + zero(2) + pointerId(4) + 3 netfloats(12) = 20.
+    std::size_t off = putInputHeader(out, moonproto::kInputControllerTouch, 20);
+    out[off] = controllerNumber;
+    out[off + 1] = eventType;
+    out[off + 2] = 0;
+    out[off + 3] = 0;
+    putU32Le(out + off + 4, pointerId);
+    putF32Le(out + off + 8, x);
+    putF32Le(out + off + 12, y);
+    putF32Le(out + off + 16, pressure);
+    return kControllerTouchSize;
+}
+
 std::size_t encodeControllerMotion(std::uint8_t* out, std::uint8_t controllerNumber,
                                    std::uint8_t motionType, float x, float y, float z) {
     std::size_t off = putInputHeader(out, moonproto::kInputControllerMotion, 16);

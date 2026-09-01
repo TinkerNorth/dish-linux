@@ -79,7 +79,8 @@ struct LoopbackClient {
         fd = bindLoopback(port);
         REQUIRE(fd >= 0);
         REQUIRE(client.openSocket("127.0.0.1", port));
-        client.setConnectionParams({0x11, 0x22, 0x33, 0x44}, key(0xA5));
+        client.setConnectionParams({0x11, 0x22, 0x33, 0x44}, key(0xA5),
+                                   dish::proto::kProtocolVersion);
     }
     ~LoopbackClient() {
         client.closeSocket();
@@ -152,7 +153,8 @@ TEST_CASE("a session never repeats a counter value under one key; re-key restart
     CHECK(seen.size() == 3);
 
     // A re-key installs a fresh nonce space, so counters restart at 1.
-    lb.client.setConnectionParams({0x55, 0x66, 0x77, 0x88}, LoopbackClient::key(0x3C));
+    lb.client.setConnectionParams({0x55, 0x66, 0x77, 0x88}, LoopbackClient::key(0x3C),
+                                  dish::proto::kProtocolVersion);
     CHECK(lb.client.sendCounter() == 1);
     lb.sendOne();
     const auto fresh = recvDatagram(lb.fd);
@@ -175,7 +177,7 @@ TEST_CASE("a live re-key never tears the (key, token, counter) draw", "[send_cou
     const auto keyFor = [](std::uint8_t gen) {
         return LoopbackClient::key(static_cast<std::uint8_t>(gen ^ 0x5A));
     };
-    lb.client.setConnectionParams(tokenFor(0), keyFor(0));
+    lb.client.setConnectionParams(tokenFor(0), keyFor(0), dish::proto::kProtocolVersion);
 
     const auto sender = [&lb] {
         for (int i = 0; i < 1500; ++i) { lb.sendOne(); }
@@ -184,7 +186,7 @@ TEST_CASE("a live re-key never tears the (key, token, counter) draw", "[send_cou
     std::thread b(sender);
     for (std::uint8_t gen = 1; gen <= kGens; ++gen) {
         std::this_thread::sleep_for(std::chrono::microseconds(300));
-        lb.client.setConnectionParams(tokenFor(gen), keyFor(gen));
+        lb.client.setConnectionParams(tokenFor(gen), keyFor(gen), dish::proto::kProtocolVersion);
     }
     a.join();
     b.join();

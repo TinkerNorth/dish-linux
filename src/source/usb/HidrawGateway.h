@@ -194,6 +194,7 @@ class HidrawGateway : public UsbDeviceGateway {
     void releaseClaim(int syntheticId) override;
     bool isKnownFastLaneModel(int vendorId, int productId) const override;
     std::int64_t completionCount(int syntheticId) const override;
+    bool writeOutputReport(int syntheticId, const std::uint8_t* data, std::size_t len) override;
 
   private:
     struct Claimed {
@@ -211,6 +212,10 @@ class HidrawGateway : public UsbDeviceGateway {
         input::usbparse::StickAutoRangeState sticks;
         input::usbhid::HidLayout layout;
         int featureReportLen = 0;
+        // Serialises writers against each other. The reader is untouched: a
+        // hidraw fd carries independent read and write paths, so an OUT report
+        // never waits on the blocking read.
+        std::mutex writeMtx;
 
         ~Claimed();
     };

@@ -77,6 +77,50 @@ TEST_CASE("CONTROLLER_MULTI splits the extended button word", "[moonlight][wire]
     CHECK(buf[31] == 0x80);
 }
 
+TEST_CASE("CONTROLLER_TOUCH lays out the header, pointer id and three netfloats",
+          "[moonlight][wire]") {
+    // control.hpp CONTROLLER_TOUCH_PACKET: ctrl(1) event(1) zero(2) pointer(4)
+    // x/y/pressure as little-endian floats. The INPUT_DATA wrapper's data-size
+    // field is BIG-endian while everything else is little, which is the one trap
+    // in this packet and the reason the whole 32 bytes are pinned rather than
+    // just the body.
+    std::uint8_t out[moonwire::kMaxPlaintextSize];
+    const std::size_t len = encodeControllerTouch(out, /*ctrl=*/1, moonproto::kTouchEventDown,
+                                                  /*pointerId=*/2, /*x=*/0.0F, /*y=*/1.0F,
+                                                  /*pressure=*/1.0F);
+    REQUIRE(len == kControllerTouchSize);
+    REQUIRE(len == 32U);
+    // 0206 (INPUT_DATA) | 1C00 (len 28 LE) | 00000018 (data size 24 BE)
+    // | 05000055 (0x55000005 LE) | 01 01 0000 | 02000000
+    // | 00000000 (0.0f) | 0000803F (1.0f) | 0000803F (1.0f)
+    REQUIRE(hexOf(out, len) == "06021c000000001805000055010100000200000000000000"
+                               "0000803f0000803f");
+}
+
+TEST_CASE("CONTROLLER_TOUCH carries the event type it was handed", "[moonlight][wire]") {
+    // The host holds a contact open until an UP arrives, so the event byte is
+    // the difference between a released finger and a stranded one. Body starts
+    // after the 12-byte wrapper: ctrl at 12, event at 13.
+    std::uint8_t out[moonwire::kMaxPlaintextSize];
+    for (const std::uint8_t type :
+         {moonproto::kTouchEventDown, moonproto::kTouchEventMove, moonproto::kTouchEventUp}) {
+        REQUIRE(encodeControllerTouch(out, 0, type, 0, 0.0F, 0.0F, 1.0F) == kControllerTouchSize);
+        CHECK(out[13] == type);
+    }
+}
+
+TEST_CASE("CONTROLLER_TOUCH pointer ids are a full little-endian u32", "[moonlight][wire]") {
+    // A pad's tracking id is one byte, but the wire field is four: truncating it
+    // would collide two contacts on any host that keyed on the full value.
+    std::uint8_t out[moonwire::kMaxPlaintextSize];
+    REQUIRE(encodeControllerTouch(out, 0, moonproto::kTouchEventDown, 0x12345678, 0.0F, 0.0F,
+                                  1.0F) == kControllerTouchSize);
+    CHECK(out[16] == 0x78);
+    CHECK(out[17] == 0x56);
+    CHECK(out[18] == 0x34);
+    CHECK(out[19] == 0x12);
+}
+
 TEST_CASE("CONTROLLER_ARRIVAL layout", "[moonlight][wire]") {
     std::array<std::uint8_t, kMaxPlaintextSize> buf{};
     const std::uint8_t caps = moonproto::kCapAnalogTriggers | moonproto::kCapRumble;

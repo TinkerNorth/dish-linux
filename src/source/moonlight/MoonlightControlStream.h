@@ -88,6 +88,10 @@ class MoonlightControlStream {
                               float y, float z);
     void sendControllerBattery(std::uint8_t controllerNumber, std::uint8_t state,
                                std::uint8_t percentage);
+    // One CONTROLLER_TOUCH event. Already diffed by the caller: the wire wants
+    // transitions, not the pad's full-state frame.
+    void sendControllerTouch(std::uint8_t controllerNumber, std::uint8_t eventType,
+                             std::uint32_t pointerId, float x, float y, float pressure);
 
   private:
     // A sealed-packet slot ENet borrows until delivery. Sized for the largest

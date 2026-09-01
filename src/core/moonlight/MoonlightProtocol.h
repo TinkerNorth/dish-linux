@@ -103,6 +103,14 @@ inline constexpr std::uint32_t kStandardButtons =
     kBtnLeftStick | kBtnRightStick | kBtnLeftButton | kBtnRightButton | kBtnHome | kBtnReservedLow |
     kBtnA | kBtnB | kBtnX | kBtnY;
 
+// ── CONTROLLER_TOUCH event types (control.hpp TOUCH_EVENT_TYPE) ──────────────
+// Shared by the touchscreen, pen and controller-touchpad surfaces. Only the
+// three a two-finger pad can produce are modelled; HOVER and the pen-only
+// values have no source here.
+inline constexpr std::uint8_t kTouchEventDown = 0x01;
+inline constexpr std::uint8_t kTouchEventUp = 0x02;
+inline constexpr std::uint8_t kTouchEventMove = 0x03;
+
 // ── CONTROLLER_MOTION types (also carried by the host's MOTION_EVENT) ────────
 inline constexpr std::uint8_t kMotionAcceleration = 0x01;
 inline constexpr std::uint8_t kMotionGyroscope = 0x02;

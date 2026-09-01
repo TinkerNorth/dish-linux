@@ -51,6 +51,14 @@ class FakeGateway : public UsbDeviceGateway {
     int claimCalls = 0;
     int nextSyntheticId = -1000;
     std::vector<int> released;
+    // Every OUT report the manager handed down, in order, with the id it was
+    // aimed at. The feedback tests assert on these bytes.
+    struct Written {
+        int syntheticId;
+        std::vector<std::uint8_t> bytes;
+    };
+    std::vector<Written> writes;
+    bool writeSucceeds = true;
 
     std::vector<UsbDeviceInfo> enumerate() override { return devices; }
     ClaimResult claim(const UsbDeviceInfo& /*d*/,
@@ -64,6 +72,10 @@ class FakeGateway : public UsbDeviceGateway {
         return fastLane;
     }
     std::int64_t completionCount(int /*syntheticId*/) const override { return 0; }
+    bool writeOutputReport(int syntheticId, const std::uint8_t* data, std::size_t len) override {
+        writes.push_back(Written{syntheticId, std::vector<std::uint8_t>(data, data + len)});
+        return writeSucceeds;
+    }
 };
 
 struct RecordingObserver : UsbDirectObserver {
@@ -379,6 +391,10 @@ class ReportingGateway : public UsbDeviceGateway {
     void releaseClaim(int /*syntheticId*/) override {}
     bool isKnownFastLaneModel(int /*v*/, int /*p*/) const override { return false; }
     std::int64_t completionCount(int /*syntheticId*/) const override { return 0; }
+    bool writeOutputReport(int /*syntheticId*/, const std::uint8_t* /*data*/,
+                           std::size_t /*len*/) override {
+        return false;
+    }
 };
 
 } // namespace

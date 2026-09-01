@@ -22,8 +22,9 @@ namespace {
 
 // Every layer carries everything; each test then breaks exactly one thing.
 // Standard is the everything-path here (SDL forwards motion, touch,
-// rumble and the lightbar wherever the driver exposes them); Direct is the
-// path with refusals (no output write path), pinned in its own cases below.
+// rumble and the lightbar wherever the driver exposes them, but has no call at
+// all for adaptive triggers or player LEDs); Direct writes OUT reports too, so
+// it carries every actuator the pad has. Both are pinned in their own cases.
 CapabilityInputs everythingCarries() {
     CapabilityInputs in;
     in.padMotion = true;
@@ -38,6 +39,10 @@ CapabilityInputs everythingCarries() {
     in.typeTouchpad = true;
     in.typeRumble = true;
     in.typeLightbar = true;
+    in.padTriggerEffects = true;
+    in.padPlayerLeds = true;
+    in.typeTriggerEffects = true;
+    in.typePlayerLeds = true;
     in.hostResolved = true;
     in.hostIsBluetooth = false;
     in.hostMouseControl = true;
@@ -58,10 +63,13 @@ CapabilityRow rowFor(const std::vector<CapabilityRow>& rows, CapFeature f) {
 
 } // namespace
 
-TEST_CASE("capability solver: the seven features come back in the fixed render order",
+TEST_CASE("capability solver: the nine features come back in the fixed render order",
           "[capability][solver]") {
+    // Declaration order is the render order both surfaces use, so a row inserted
+    // in the middle would silently reshuffle two UI tables. The two protocol-2
+    // actuators are appended after the lightbar for that reason.
     const auto rows = solveCapabilities(everythingCarries());
-    REQUIRE(rows.size() == 7);
+    REQUIRE(rows.size() == 9);
     REQUIRE(rows[0].feature == CapFeature::Gamepad);
     REQUIRE(rows[1].feature == CapFeature::Triggers);
     REQUIRE(rows[2].feature == CapFeature::Motion);
@@ -69,13 +77,22 @@ TEST_CASE("capability solver: the seven features come back in the fixed render o
     REQUIRE(rows[4].feature == CapFeature::Mouse);
     REQUIRE(rows[5].feature == CapFeature::Rumble);
     REQUIRE(rows[6].feature == CapFeature::Lightbar);
+    REQUIRE(rows[7].feature == CapFeature::TriggerEffects);
+    REQUIRE(rows[8].feature == CapFeature::PlayerLeds);
 }
 
 TEST_CASE("capability solver: everything carrying reads Available and blames nobody",
           "[capability][solver]") {
+    // The base is the Standard path, where the two protocol-2 actuators have no
+    // SDL call to reach them however good the pad is; their Available case is
+    // the Direct one below. Skipping them here rather than weakening the base
+    // keeps this case honest about what "everything carries" means per path.
     const auto rows = solveCapabilities(everythingCarries());
     for (const auto& r : rows) {
         if (r.feature == CapFeature::Mouse) { continue; } // touchpad mode is `pad`
+        if (r.feature == CapFeature::TriggerEffects || r.feature == CapFeature::PlayerLeds) {
+            continue;
+        }
         REQUIRE(r.verdict == CapVerdict::Available);
         REQUIRE_FALSE(r.hasFailingLayer);
         REQUIRE(r.inOk);
@@ -115,45 +132,55 @@ TEST_CASE("capability solver: the Standard link refuses nothing the pad carries"
     }
 }
 
-TEST_CASE("capability solver: a Direct claim fails rumble and lightbar on the Link layer",
+TEST_CASE("capability solver: a Direct claim carries every actuator the pad has",
           "[capability][solver]") {
-    // The dish-android #146 rule, path-resolved for the desktop: a capability shows
-    // only where it fires. A raw-HID claim reads everything but drives nothing
-    // back (no output write path), so rumble and the lightbar refuse at Link —
-    // the pad still HAS them, which is why the blame is not Input.
+    // A raw-HID claim now writes OUT reports as well as reading IN ones, so the
+    // Link layer stops refusing rumble and the lightbar. That pair is exactly
+    // what used to fail here, and lifting it is the point of the output path.
     auto in = everythingCarries();
     in.linkDirect = true;
     const auto rows = solveCapabilities(in);
 
-    for (const auto f : {CapFeature::Rumble, CapFeature::Lightbar}) {
+    for (const auto f : {CapFeature::Gamepad, CapFeature::Triggers, CapFeature::Motion,
+                         CapFeature::Touchpad, CapFeature::Rumble, CapFeature::Lightbar,
+                         CapFeature::TriggerEffects, CapFeature::PlayerLeds}) {
+        INFO("feature " << static_cast<int>(f));
+        REQUIRE(rowFor(rows, f).linkOk);
+        REQUIRE(rowFor(rows, f).verdict == CapVerdict::Available);
+    }
+}
+
+TEST_CASE("capability solver: the Standard path cannot carry the protocol-2 actuators",
+          "[capability][solver]") {
+    // SDL has a rumble call and an LED call and nothing else: no adaptive
+    // trigger API, no player-LED API. The pad still HAS the hardware, which is
+    // why the blame is Link and not Input.
+    auto in = everythingCarries();
+    in.linkDirect = false;
+    const auto rows = solveCapabilities(in);
+    for (const auto f : {CapFeature::TriggerEffects, CapFeature::PlayerLeds}) {
         const auto row = rowFor(rows, f);
+        INFO("feature " << static_cast<int>(f));
         REQUIRE(row.verdict == CapVerdict::Unavailable);
         REQUIRE(row.hasFailingLayer);
         REQUIRE(row.failingLayer == CapLayer::Link);
         REQUIRE(row.inOk);
         REQUIRE_FALSE(row.linkOk);
     }
-    for (const auto f :
-         {CapFeature::Gamepad, CapFeature::Triggers, CapFeature::Motion, CapFeature::Touchpad}) {
-        REQUIRE(rowFor(rows, f).linkOk);
-        REQUIRE(rowFor(rows, f).verdict == CapVerdict::Available);
-    }
 }
 
 TEST_CASE("capability solver: the per-path rumble matrix", "[capability][solver]") {
     // The android CapabilityComposer per-path matrix, re-derived: the probe is
-    // authoritative on Standard, the (absent) write path on Direct.
+    // authoritative on Standard, the claim's OUT report path on Direct.
     auto in = everythingCarries();
 
     SECTION("pad with motors on Standard -> available") {
         in.linkDirect = false;
         REQUIRE(rowFor(solveCapabilities(in), CapFeature::Rumble).verdict == CapVerdict::Available);
     }
-    SECTION("pad with motors on Direct -> unavailable at Link") {
+    SECTION("pad with motors on Direct -> available too") {
         in.linkDirect = true;
-        const auto row = rowFor(solveCapabilities(in), CapFeature::Rumble);
-        REQUIRE(row.verdict == CapVerdict::Unavailable);
-        REQUIRE(row.failingLayer == CapLayer::Link);
+        REQUIRE(rowFor(solveCapabilities(in), CapFeature::Rumble).verdict == CapVerdict::Available);
     }
     SECTION("pad without motors (Steam Controller) -> unavailable at Input on either path") {
         in.padRumble = false;
@@ -164,6 +191,58 @@ TEST_CASE("capability solver: the per-path rumble matrix", "[capability][solver]
             REQUIRE(row.failingLayer == CapLayer::Input);
         }
     }
+}
+
+TEST_CASE("capability solver: hardware the pad lacks blames Input, not Link",
+          "[capability][solver]") {
+    // A Direct-claimed DualShock 4 has no adaptive triggers and no player LEDs.
+    // The path could carry them; the pad has none, so the actionable layer is
+    // Input and no amount of switching paths would help.
+    auto in = everythingCarries();
+    in.linkDirect = true;
+    in.padTriggerEffects = false;
+    in.padPlayerLeds = false;
+    const auto rows = solveCapabilities(in);
+    for (const auto f : {CapFeature::TriggerEffects, CapFeature::PlayerLeds}) {
+        const auto row = rowFor(rows, f);
+        INFO("feature " << static_cast<int>(f));
+        REQUIRE(row.verdict == CapVerdict::Unavailable);
+        REQUIRE(row.failingLayer == CapLayer::Input);
+    }
+}
+
+TEST_CASE("capability solver: the catalog type can still refuse the new actuators",
+          "[capability][solver]") {
+    // A user who emulated an Xbox 360 pad on a DualSense gets no adaptive
+    // triggers, because the TYPE has none however good the hardware is.
+    auto in = everythingCarries();
+    in.linkDirect = true;
+    in.typeTriggerEffects = false;
+    in.typePlayerLeds = false;
+    const auto rows = solveCapabilities(in);
+    for (const auto f : {CapFeature::TriggerEffects, CapFeature::PlayerLeds}) {
+        const auto row = rowFor(rows, f);
+        INFO("feature " << static_cast<int>(f));
+        REQUIRE(row.verdict == CapVerdict::Unavailable);
+        REQUIRE(row.failingLayer == CapLayer::Type);
+    }
+}
+
+TEST_CASE("capability solver: a Bluetooth host carries none of the new actuators",
+          "[capability][solver]") {
+    // The system gamepad layer has a rumble channel and nothing else, so the
+    // Host layer refuses both even on a Direct-claimed DualSense.
+    auto in = everythingCarries();
+    in.linkDirect = true;
+    in.hostIsBluetooth = true;
+    const auto rows = solveCapabilities(in);
+    for (const auto f : {CapFeature::TriggerEffects, CapFeature::PlayerLeds}) {
+        const auto row = rowFor(rows, f);
+        INFO("feature " << static_cast<int>(f));
+        REQUIRE(row.verdict == CapVerdict::Unavailable);
+        REQUIRE(row.failingLayer == CapLayer::Host);
+    }
+    REQUIRE(rowFor(rows, CapFeature::Rumble).verdict == CapVerdict::Available);
 }
 
 TEST_CASE("capability solver: an unresolved catalog reads Pending everywhere with no blame",

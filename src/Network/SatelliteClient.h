@@ -12,6 +12,7 @@
 #include "core/model/Protocol.h"
 #include "core/reducer/LatencyWindow.h"
 #include "core/reducer/Reconcile.h"
+#include "core/reducer/TouchpadRouting.h"
 
 #include <arpa/inet.h>
 #include <netinet/in.h>
@@ -45,12 +46,16 @@ class SatelliteClient {
     static constexpr std::uint16_t kMsgTouchpad = proto::kMsgTouchpad;
     static constexpr std::uint16_t kMsgLightbar = proto::kMsgLightbar;
     static constexpr std::uint16_t kMsgSessionClose = proto::kMsgSessionClose;
+    static constexpr std::uint16_t kMsgTriggerEffects = proto::kMsgTriggerEffects;
+    static constexpr std::uint16_t kMsgPlayerLeds = proto::kMsgPlayerLeds;
 
     // Carried in the REST descriptor's caps object.
     static constexpr std::uint16_t kCapAnalogTriggers = proto::kCapAnalogTriggers;
     static constexpr std::uint16_t kCapRumble = proto::kCapRumble;
     static constexpr std::uint16_t kCapMotion = proto::kCapMotion;
     static constexpr std::uint16_t kCapLightbar = proto::kCapLightbar;
+    static constexpr std::uint16_t kCapTriggerEffects = proto::kCapTriggerEffects;
+    static constexpr std::uint16_t kCapPlayerLeds = proto::kCapPlayerLeds;
 
     // Wire values, mirroring satellite/src/core/types.h.
     static constexpr std::uint8_t kBatteryLevelUnknown = 0xFF;
@@ -80,8 +85,21 @@ class SatelliteClient {
     // Takes the HKDF-derived session key, never the raw pairing key. Must be
     // called after every session PUT: the token and salt rotate there, and this
     // restarts both counters at 1, which is only safe against a fresh key.
+    //
+    // `settledProtocolVersion` is the version the satellite echoed for THIS
+    // session, not the version this client offered — a pre-versioning satellite
+    // ignores the offer and answers 1. It keys the 0x000C frame shape, so it
+    // rotates with the token rather than being set once: passing our own
+    // version by reflex is exactly the bug that would send 19-byte frames to a
+    // 16-byte decoder.
     void setConnectionParams(const std::array<std::uint8_t, 4>& token,
-                             const std::array<std::uint8_t, 32>& key);
+                             const std::array<std::uint8_t, 32>& key, int settledProtocolVersion);
+
+    // The version in force for the live session; proto::kProtocolVersionMin
+    // until the first setConnectionParams.
+    int settledProtocolVersion() const {
+        return settledProtocolVersion_.load(std::memory_order_relaxed);
+    }
 
     // Hot path: called directly from the SDL input thread.
     void sendReport(int controllerIndex, std::uint16_t buttons, std::uint8_t lt, std::uint8_t rt,
@@ -97,6 +115,17 @@ class SatelliteClient {
 
     static std::uint16_t withRumbleCapability(std::uint16_t base, bool hasRumble) {
         return static_cast<std::uint16_t>(base | (hasRumble ? kCapRumble : 0));
+    }
+
+    // Protocol 2. These advertise an ACTUATOR, not a pad feature: the satellite
+    // gates 0x0010 / 0x0011 on them, so a slot that cannot land the report must
+    // not set the bit or the host's effect goes into a hole.
+    static std::uint16_t withTriggerEffectsCapability(std::uint16_t base, bool hasTriggerEffects) {
+        return static_cast<std::uint16_t>(base | (hasTriggerEffects ? kCapTriggerEffects : 0));
+    }
+
+    static std::uint16_t withPlayerLedsCapability(std::uint16_t base, bool hasPlayerLeds) {
+        return static_cast<std::uint16_t>(base | (hasPlayerLeds ? kCapPlayerLeds : 0));
     }
 
     // Axes are the satellite's right-handed frame (+X right, +Y up, +Z toward
@@ -136,6 +165,47 @@ class SatelliteClient {
                           std::int16_t finger0X, std::int16_t finger0Y, bool finger1Active,
                           std::uint8_t finger1Id, std::int16_t finger1X, std::int16_t finger1Y,
                           bool buttonPressed, std::uint32_t eventTimeMs);
+
+    // Protocol 2's POINTER frame on the same opcode: ctrlIdx(1) +
+    // fingerFlags(1) + buttons(1) + f0(id1 x2 y2) + f1(id1 x2 y2) +
+    // eventTimeMs(u32) + scrollV(i16), little-endian. The click that was
+    // flags bit2 in v1 is buttons bit0 here.
+    static std::array<std::uint8_t, 19> encodePointerPayload(std::uint8_t controllerIndex,
+                                                             const reducer::TouchpadForward& f);
+
+    struct TriggerEffectsMessage {
+        int controllerIndex = 0;
+        // The game's own DualSense effect blocks, left then right, forwarded
+        // verbatim by the satellite. Never interpreted here: byte 0 of each is
+        // the effect mode and the remaining ten are its parameters, and a
+        // client that "understood" them would be guessing at firmware.
+        std::array<std::uint8_t, proto::kTriggerEffectBlockBytes> left{};
+        std::array<std::uint8_t, proto::kTriggerEffectBlockBytes> right{};
+    };
+
+    using TriggerEffectsHandler = std::function<void(const TriggerEffectsMessage&)>;
+    void setTriggerEffectsHandler(TriggerEffectsHandler handler);
+
+    static constexpr std::size_t kTriggerEffectsPayloadLen =
+        1 + static_cast<std::size_t>(proto::kTriggerEffectsPayloadBytes);
+
+    // Header already stripped. Fixed 23 bytes: ctrlIdx(1) + left(11) + right(11).
+    static std::optional<TriggerEffectsMessage>
+    parseTriggerEffectsMessage(const std::uint8_t* payload, std::size_t len);
+
+    struct PlayerLedsMessage {
+        int controllerIndex = 0;
+        std::uint8_t ledMask = 0; // bit 0 = leftmost LED
+    };
+
+    using PlayerLedsHandler = std::function<void(const PlayerLedsMessage&)>;
+    void setPlayerLedsHandler(PlayerLedsHandler handler);
+
+    static constexpr std::size_t kPlayerLedsPayloadLen = 2;
+
+    // Header already stripped. Fixed 2 bytes: ctrlIdx(1) + ledMask(1).
+    static std::optional<PlayerLedsMessage> parsePlayerLedsMessage(const std::uint8_t* payload,
+                                                                   std::size_t len);
 
     struct RumbleMessage {
         int controllerIndex = 0;
@@ -281,6 +351,17 @@ class SatelliteClient {
     RumbleHandler rumbleHandler_;
     std::mutex lightbarHandlerMtx_;
     LightbarHandler lightbarHandler_;
+    std::mutex triggerEffectsHandlerMtx_;
+    TriggerEffectsHandler triggerEffectsHandler_;
+    std::mutex playerLedsHandlerMtx_;
+    PlayerLedsHandler playerLedsHandler_;
+
+    // Read on the input thread (frame selection) and written on the owner
+    // thread (a re-PUT), so it is atomic rather than guarded by materialMtx_:
+    // the hot path must not take a lock to pick a frame shape, and a stale read
+    // across a re-key can only cost one mis-shaped packet, which the receiver
+    // disambiguates by length anyway.
+    std::atomic<int> settledProtocolVersion_{proto::kProtocolVersionMin};
     std::mutex ackHandlerMtx_;
     HeartbeatAckHandler ackHandler_;
     std::mutex closeHandlerMtx_;

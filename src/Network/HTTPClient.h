@@ -52,10 +52,14 @@ class HTTPClient : public QObject {
     // Declarative upsert: `controllers` must be the WHOLE desired set, not a
     // delta. `mouseControl` is always false today (no touchpad-mouse UI) but the
     // grant is still parsed back.
+    //
+    // `protocolVersion` is the version to OFFER. Normally proto::kProtocolVersion;
+    // a satellite that answered 409 with a lower ceiling gets re-offered that
+    // ceiling instead of the same rejected number (see ProtocolNegotiation.h).
     void putSession(const QString& ip, int port, const QString& deviceId, const QString& deviceName,
                     const QString& hmacProof,
                     const QList<models::ControllerDescriptor>& controllers, bool mouseControl,
-                    SessionCb cb);
+                    int protocolVersion, SessionCb cb);
 
     // GET /api/connections/{id} — the reconcile endpoint (applied state + epoch).
     void getSession(const QString& ip, int port, const QString& connectionId,

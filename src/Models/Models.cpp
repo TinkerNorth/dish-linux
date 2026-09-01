@@ -36,6 +36,8 @@ std::uint16_t capsWordFromJson(const QJsonObject& caps) {
     if (boolOr(caps, "motion", false)) { word |= proto::kCapMotion; }
     if (boolOr(caps, "analogTriggers", false)) { word |= proto::kCapAnalogTriggers; }
     if (boolOr(caps, "lightbar", false)) { word |= proto::kCapLightbar; }
+    if (boolOr(caps, "triggerEffects", false)) { word |= proto::kCapTriggerEffects; }
+    if (boolOr(caps, "playerLeds", false)) { word |= proto::kCapPlayerLeds; }
     return word;
 }
 
@@ -77,7 +79,10 @@ PairResponse PairResponse::fromJson(const QJsonObject& obj) {
     r.pending = boolOr(obj, "pending", false);
     setIfNonEmpty(r.error, obj, "error");
     setIfNonEmpty(r.sharedKey, obj, "sharedKey");
-    r.protocolVersion = intOr(obj, "protocolVersion", proto::kProtocolVersion);
+    r.protocolVersion = intOr(obj, "protocolVersion", proto::kProtocolVersionMin);
+    // Only on the 409 body; 0 means the server did not name a range.
+    r.supportedProtocol = intOr(obj, "supported", 0);
+    r.supportedProtocolMin = intOr(obj, "supportedMin", 0);
     // A JSON body parsed, so the server is reachable even when ok=false.
     // PairingClient sets reachable=false on every network-error path.
     r.reachable = true;
@@ -120,7 +125,10 @@ SessionResponse SessionResponse::fromJson(const QJsonObject& obj) {
     setIfNonEmpty(r.sessionSalt, obj, "sessionSalt");
     r.epoch = intOr(obj, "epoch", 0);
     r.maxControllers = intOr(obj, "maxControllers", 16);
-    r.protocolVersion = intOr(obj, "protocolVersion", proto::kProtocolVersion);
+    r.protocolVersion = intOr(obj, "protocolVersion", proto::kProtocolVersionMin);
+    // Only on the 409 body; 0 means the server did not name a range.
+    r.supportedProtocol = intOr(obj, "supported", 0);
+    r.supportedProtocolMin = intOr(obj, "supportedMin", 0);
     for (const auto& v : obj.value(QLatin1String("controllers")).toArray()) {
         if (v.isObject()) { r.controllers.append(ControllerApplyDto::fromJson(v.toObject())); }
     }
@@ -169,7 +177,7 @@ SessionViewDto SessionViewDto::fromJson(const QJsonObject& obj) {
     SessionViewDto r;
     setIfNonEmpty(r.connectionId, obj, "connectionId");
     r.epoch = intOr(obj, "epoch", 0);
-    r.protocolVersion = intOr(obj, "protocolVersion", proto::kProtocolVersion);
+    r.protocolVersion = intOr(obj, "protocolVersion", proto::kProtocolVersionMin);
     r.maxControllers = intOr(obj, "maxControllers", 16);
     for (const auto& v : obj.value(QLatin1String("controllers")).toArray()) {
         if (v.isObject()) {
@@ -186,7 +194,7 @@ SessionViewDto SessionViewDto::fromJson(const QJsonObject& obj) {
 
 CapabilitiesDto CapabilitiesDto::fromJson(const QJsonObject& obj) {
     CapabilitiesDto c;
-    c.protocolVersion = intOr(obj, "protocolVersion", proto::kProtocolVersion);
+    c.protocolVersion = intOr(obj, "protocolVersion", proto::kProtocolVersionMin);
     c.serverVersion = optString(obj, "serverVersion");
     c.maxControllers = intOr(obj, "maxControllers", 16);
     const auto backend = obj.value(QLatin1String("backend")).toObject();
@@ -248,7 +256,7 @@ CatalogTypeDto CatalogTypeDto::fromJson(const QJsonObject& obj) {
 CatalogDto CatalogDto::fromJson(const QJsonObject& obj) {
     CatalogDto c;
     c.locale = optString(obj, "locale");
-    c.protocolVersion = intOr(obj, "protocolVersion", proto::kProtocolVersion);
+    c.protocolVersion = intOr(obj, "protocolVersion", proto::kProtocolVersionMin);
     // Absent = the legacy v1 catalog per contract; never default to current.
     c.catalogVersion = intOr(obj, "catalogVersion", 1);
     c.serverVersion = optString(obj, "serverVersion");
@@ -279,6 +287,8 @@ QJsonObject ControllerDescriptor::toJson() const {
              {"motion", (caps & proto::kCapMotion) != 0},
              {"analogTriggers", (caps & proto::kCapAnalogTriggers) != 0},
              {"lightbar", (caps & proto::kCapLightbar) != 0},
+             {"triggerEffects", (caps & proto::kCapTriggerEffects) != 0},
+             {"playerLeds", (caps & proto::kCapPlayerLeds) != 0},
          }},
         {"touchpadMode",
          QString::fromUtf8(proto::touchpadModeName(touchpadMode).data(),
