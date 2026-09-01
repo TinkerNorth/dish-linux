@@ -560,7 +560,7 @@ SatelliteClient::parseTriggerEffectsMessage(const std::uint8_t* payload, std::si
     if (payload == nullptr || len < kTriggerEffectsPayloadLen) { return std::nullopt; }
     TriggerEffectsMessage tm;
     tm.controllerIndex = payload[0];
-    constexpr std::size_t kBlock = static_cast<std::size_t>(proto::kTriggerEffectBlockBytes);
+    constexpr auto kBlock = static_cast<std::size_t>(proto::kTriggerEffectBlockBytes);
     std::memcpy(tm.left.data(), payload + 1, kBlock);
     std::memcpy(tm.right.data(), payload + 1 + kBlock, kBlock);
     return tm;

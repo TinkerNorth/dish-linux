@@ -185,7 +185,7 @@ class UsbGamepadManager {
     // The Switch Pro accepts a packet only when its low nibble advances. Caller
     // holds feedbackMtx_.
     std::uint8_t nextSeqLocked(int key) {
-        const std::uint8_t next = static_cast<std::uint8_t>((feedbackSeq_[key] + 1) & 0x0FU);
+        const auto next = static_cast<std::uint8_t>((feedbackSeq_[key] + 1) & 0x0FU);
         feedbackSeq_[key] = next;
         return next;
     }

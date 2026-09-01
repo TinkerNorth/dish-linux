@@ -176,9 +176,15 @@ std::optional<UsbGamepadManager::DirectTarget>
 UsbGamepadManager::directTarget(int vendorId, int productId) const {
     std::lock_guard<std::mutex> lock(mtx_);
     const auto it = controllers_.find(vpKey(vendorId, productId));
-    if (it == controllers_.end() || !it->second.syntheticId.has_value()) { return std::nullopt; }
+    if (it == controllers_.end()) { return std::nullopt; }
+    // Split from the lookup rather than folded into one `||`: a controller
+    // being tracked and a controller holding a live claim are two different
+    // facts, and separating them is also what lets the optional-access analysis
+    // see that the dereference below is guarded.
+    const reducer::UsbController& controller = it->second;
+    if (!controller.syntheticId.has_value()) { return std::nullopt; }
     DirectTarget t;
-    t.syntheticId = *it->second.syntheticId;
+    t.syntheticId = *controller.syntheticId;
     // The family comes from the identity, not from the gateway: the manager
     // must answer the same question the capability solve asked when it built
     // the descriptor, and that one only ever had (vid, pid).
