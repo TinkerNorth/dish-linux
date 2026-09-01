@@ -130,6 +130,14 @@
         <translation>Barra de luz</translation>
     </message>
     <message>
+        <source>Adaptive triggers</source>
+        <translation>Gatillos adaptativos</translation>
+    </message>
+    <message>
+        <source>Player LEDs</source>
+        <translation>LED de jugador</translation>
+    </message>
+    <message>
         <source>buttons or sticks</source>
         <translation>botones o sticks</translation>
     </message>
@@ -158,6 +166,14 @@
         <translation>barra de luz</translation>
     </message>
     <message>
+        <source>adaptive triggers</source>
+        <translation>gatillos adaptativos</translation>
+    </message>
+    <message>
+        <source>player LEDs</source>
+        <translation>LED de jugador</translation>
+    </message>
+    <message>
         <source>Waiting on a destination.</source>
         <translation>Falta elegir un destino.</translation>
     </message>
@@ -184,6 +200,10 @@
     <message>
         <source>%1 has no %2.</source>
         <translation>%1 no tiene %2.</translation>
+    </message>
+    <message>
+        <source>Standard mode can’t drive it — switch the connection to Direct.</source>
+        <translation>El Modo estándar no puede accionarlo — cambia la conexión a Directo.</translation>
     </message>
     <message>
         <source>A %1 controller does not carry %2 over Moonlight.</source>
@@ -4428,6 +4448,14 @@
     <message>
         <source>This app and the satellite speak different protocol versions.</source>
         <translation>Esta app y el satélite hablan versiones distintas del protocolo.</translation>
+    </message>
+    <message>
+        <source>This satellite needs a newer version of Dish. Update the app and retry.</source>
+        <translation>Este satélite necesita una versión más reciente de Dish. Actualiza la aplicación y vuelve a intentarlo.</translation>
+    </message>
+    <message>
+        <source>This satellite is too old for this version of Dish. Update the satellite.</source>
+        <translation>Este satélite es demasiado antiguo para esta versión de Dish. Actualiza el satélite.</translation>
     </message>
     <message>
         <source>This satellite&apos;s security identity changed. If it was reinstalled, forget it here and pair again.</source>

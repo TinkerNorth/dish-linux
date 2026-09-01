@@ -130,12 +130,12 @@ void HTTPClient::perform(const QString& url, const QByteArray& method, const QBy
 void HTTPClient::putSession(const QString& ip, int port, const QString& deviceId,
                             const QString& deviceName, const QString& hmacProof,
                             const QList<models::ControllerDescriptor>& controllers,
-                            bool mouseControl, SessionCb cb) {
+                            bool mouseControl, int protocolVersion, SessionCb cb) {
     const QString url = QStringLiteral("https://%1:%2/api/connections").arg(ip).arg(port);
     QJsonObject obj{
         {"deviceId", deviceId},
         {"deviceName", deviceName},
-        {"protocolVersion", proto::kProtocolVersion},
+        {"protocolVersion", protocolVersion},
         {"hmacProof", hmacProof},
         {"controllers", models::controllersJson(controllers)},
         {"hostFeatures", QJsonObject{{"mouseControl", mouseControl}}},

@@ -13,10 +13,10 @@ namespace dish::net {
 
 namespace {
 
-// What every descriptor advertises. CAP_RUMBLE, CAP_MOTION and CAP_LIGHTBAR are
-// folded in per-controller instead: rumble from the slot's path-resolved
-// actuator (the SDL probe on Standard, never a USB-direct claim), motion and
-// lightbar from the slot's own hardware.
+// What every descriptor advertises. CAP_RUMBLE, CAP_MOTION, CAP_LIGHTBAR and
+// the protocol-2 CAP_TRIGGER_EFFECTS / CAP_PLAYER_LEDS are folded in
+// per-controller instead: motion from the slot's own hardware, and every
+// actuator from the path that would carry it (core/reducer/FeedbackRouting.h).
 constexpr std::uint16_t kBaseCaps = SatelliteClient::kCapAnalogTriggers;
 
 } // namespace
@@ -57,10 +57,13 @@ models::ControllerDescriptor WifiConnection::descriptorOf(const SlotBinding& b) 
     models::ControllerDescriptor d;
     d.ctrlIdx = b.controllerIndex;
     d.type = static_cast<std::uint8_t>(b.controllerType);
-    d.caps = SatelliteClient::withLightbarCapability(
-        SatelliteClient::withMotionCapability(
-            SatelliteClient::withRumbleCapability(kBaseCaps, b.hasRumble), b.hasMotion),
-        b.hasLightbar);
+    std::uint16_t caps = kBaseCaps;
+    caps = SatelliteClient::withRumbleCapability(caps, b.hasRumble);
+    caps = SatelliteClient::withMotionCapability(caps, b.hasMotion);
+    caps = SatelliteClient::withLightbarCapability(caps, b.hasLightbar);
+    caps = SatelliteClient::withTriggerEffectsCapability(caps, b.hasTriggerEffects);
+    caps = SatelliteClient::withPlayerLedsCapability(caps, b.hasPlayerLeds);
+    d.caps = caps;
     d.touchpadMode = b.touchpadMode;
     return d;
 }
@@ -125,6 +128,8 @@ void WifiConnection::markConnected(const std::shared_ptr<SatelliteClient>& clien
 
     if (rumbleHandler_) { client->setRumbleHandler(rumbleHandler_); }
     if (lightbarHandler_) { client->setLightbarHandler(lightbarHandler_); }
+    if (triggerEffectsHandler_) { client->setTriggerEffectsHandler(triggerEffectsHandler_); }
+    if (playerLedsHandler_) { client->setPlayerLedsHandler(playerLedsHandler_); }
     // Rumble and lightbar may fire on the receive thread because they only hand
     // off to the SDL bridge's own queue. Close-notify and the ack reconcile drive
     // the session FSM and REST, so they are polled by the main-thread alive timer
@@ -210,7 +215,8 @@ void WifiConnection::markStale() {
 }
 
 void WifiConnection::attachSlot(const QString& slotId, int controllerType, bool hasLightbar,
-                                bool hasMotion, bool hasRumble, std::uint8_t touchpadMode) {
+                                bool hasMotion, bool hasRumble, std::uint8_t touchpadMode,
+                                bool hasTriggerEffects, bool hasPlayerLeds) {
     auto it = slots_.find(slotId);
     if (it == slots_.end()) {
         SlotBinding b;
@@ -219,6 +225,8 @@ void WifiConnection::attachSlot(const QString& slotId, int controllerType, bool 
         b.hasLightbar = hasLightbar;
         b.hasMotion = hasMotion;
         b.hasRumble = hasRumble;
+        b.hasTriggerEffects = hasTriggerEffects;
+        b.hasPlayerLeds = hasPlayerLeds;
         b.touchpadMode = touchpadMode;
         b.registered = false;
         slots_.emplace(slotId, b);
@@ -228,11 +236,15 @@ void WifiConnection::attachSlot(const QString& slotId, int controllerType, bool 
         const bool changed =
             it->second.controllerType != controllerType || it->second.hasLightbar != hasLightbar ||
             it->second.hasMotion != hasMotion || it->second.hasRumble != hasRumble ||
-            it->second.touchpadMode != touchpadMode;
+            it->second.touchpadMode != touchpadMode ||
+            it->second.hasTriggerEffects != hasTriggerEffects ||
+            it->second.hasPlayerLeds != hasPlayerLeds;
         it->second.controllerType = controllerType;
         it->second.hasLightbar = hasLightbar;
         it->second.hasMotion = hasMotion;
         it->second.hasRumble = hasRumble;
+        it->second.hasTriggerEffects = hasTriggerEffects;
+        it->second.hasPlayerLeds = hasPlayerLeds;
         it->second.touchpadMode = touchpadMode;
         if (changed && state_ == SessionState::Live) { emit slotChanged(slotId); }
     }
@@ -392,6 +404,16 @@ void WifiConnection::setRumbleHandler(RumbleHandler handler) {
 void WifiConnection::setLightbarHandler(LightbarHandler handler) {
     lightbarHandler_ = std::move(handler);
     if (auto c = clientRef_.get()) { c->setLightbarHandler(lightbarHandler_); }
+}
+
+void WifiConnection::setTriggerEffectsHandler(TriggerEffectsHandler handler) {
+    triggerEffectsHandler_ = std::move(handler);
+    if (auto c = clientRef_.get()) { c->setTriggerEffectsHandler(triggerEffectsHandler_); }
+}
+
+void WifiConnection::setPlayerLedsHandler(PlayerLedsHandler handler) {
+    playerLedsHandler_ = std::move(handler);
+    if (auto c = clientRef_.get()) { c->setPlayerLedsHandler(playerLedsHandler_); }
 }
 
 } // namespace dish::net

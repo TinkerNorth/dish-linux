@@ -25,7 +25,9 @@
 #include "composer/WakeStateController.h"
 #include "repository/DeadzoneRepository.h"
 #include "repository/MotionPreferenceRepository.h"
+#include "core/model/Protocol.h"
 #include "core/reducer/BindingPresence.h"
+#include "core/reducer/FeedbackRouting.h"
 #include "core/reducer/PollRateSampler.h"
 #include "source/input/ControllerActivitySource.h"
 #include "source/inputrate/InputRateStore.h"
@@ -57,6 +59,7 @@
 #include <QString>
 #include <QTimer>
 
+#include <array>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -295,8 +298,38 @@ class AppModel : public QObject {
         bool hasLightbar = false;
         bool hasTouchpad = false;
         bool hasRumble = false;
+        // Protocol-2 actuators. Hardware facts only: whether the path can drive
+        // them is the feedback router's answer, not this struct's.
+        bool hasTriggerEffects = false;
+        bool hasPlayerLeds = false;
     };
     SlotHardware slotHardware(const QString& slotId) const;
+
+    // The pad's last reported charge, or kBatteryLevelUnknown. A pad that has
+    // never published one has nothing to declare to a Moonlight host.
+    std::uint8_t slotBatteryLevel(const QString& slotId) const;
+
+    // slotHardware plus the live link state, in the shape the pure router takes.
+    // The single input to BOTH the descriptor's actuator caps and the dispatch,
+    // so an advertised capability and a delivered message can never disagree.
+    reducer::SlotFeedbackInputs feedbackInputs(const QString& slotId) const;
+
+    // Send one feedback report to whatever the slot can actuate. No-ops when
+    // nothing can. Called on the SatelliteClient receive thread and on the
+    // Moonlight control thread, so they only touch structures with their own
+    // locks (the SDL bridge's output queue, the USB manager's claim map).
+    void actuateRumble(const QString& slotId, std::uint16_t strong, std::uint16_t weak,
+                       std::uint16_t durationMs);
+    void actuateLightbar(const QString& slotId, std::uint8_t r, std::uint8_t g, std::uint8_t b);
+    void
+    actuateTriggerEffects(const QString& slotId,
+                          const std::array<std::uint8_t, proto::kTriggerEffectBlockBytes>& left,
+                          const std::array<std::uint8_t, proto::kTriggerEffectBlockBytes>& right);
+    void actuatePlayerLeds(const QString& slotId, std::uint8_t ledMask);
+
+    // The slot bound to a connection, or empty. Reads the hub's binding table,
+    // which is what makes it callable from a receive thread.
+    QString boundSlotForConnection(const QString& connectionId) const;
 
     // A Moonlight host as the flat ConnectionSummary the slot list carries, so
     // one binding vocabulary covers both destination kinds. The link is the
@@ -480,6 +513,10 @@ class AppModel : public QObject {
     // this table only when routing_ has no entry.
     QHash<QString, net::ConnectionHub::ReportSender> moonlightRouting_;
     QHash<QString, net::ConnectionHub::MotionSender> moonlightMotionRouting_;
+    QHash<QString, net::ConnectionHub::BatterySender> moonlightBatteryRouting_;
+    // Carries the pad's full-state touch frame; the sender owns the differ that
+    // turns it into the host's DOWN/MOVE/UP events.
+    QHash<QString, net::ConnectionHub::TouchpadSender> moonlightTouchRouting_;
 };
 
 } // namespace dish

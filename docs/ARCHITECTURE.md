@@ -317,7 +317,7 @@ The threads in the app:
 | SDL input | [`SDLGamepadBridge`](../src/Input/SDLGamepadBridge.h) | The SDL event pump, `GamepadInputProcessor::publish`, and the `sendto` that follows it |
 | USB direct | `UsbGamepadManager` per claimed device | Raw-HID URB reads, feeding the same publish path |
 | Heartbeat | [`SatelliteClient`](../src/Network/SatelliteClient.h) | Per-session keepalive sends and ping arming |
-| Receive | `SatelliteClient` | Ack decode, RTT sampling, rumble and lightbar callbacks, close-notify |
+| Receive | `SatelliteClient` | Ack decode, RTT sampling, the feedback callbacks (rumble, lightbar, trigger effects, player LEDs), close-notify |
 
 **The input hot path is intentionally not routed through the kernel.** The
 input, decode, encode, `sendto` path is plain C++ with no queue, no Qt event
@@ -336,6 +336,45 @@ cross-thread seams are explicit and narrow:
   arrive on the receive thread but every `SDL_GameController*` is resolved and
   used only on the SDL thread, so the request is queued and drained by
   `runLoop()`.
+- `UsbGamepadManager`'s `feedbackMtx_`, on its own mutex rather than the claim
+  map's, so a feedback write on the receive thread never contends with the 1 s
+  reconcile sweep. The gateway's write is overlapped, so it does not wait on
+  the pending read either.
+
+### The feedback path: one owner for "may I" and "where to"
+
+Feedback runs the other way down the same seams, and it has one rule: **a
+capability is advertised if and only if a dispatch would land**. The satellite
+gates its return paths on the descriptor's caps, so an advertised capability
+with no target is a message sent into a hole, and a target with no capability is
+an actuator the satellite will never drive.
+
+[`FeedbackRouting`](../src/core/reducer/FeedbackRouting.h) answers both
+questions from the same inputs, and both `ConnectionHub`'s capability functions
+and `AppModel::actuate*` go through it. The two paths carry different amounts:
+
+| Path | Rumble | Lightbar | Adaptive triggers | Player LEDs |
+|---|---|---|---|---|
+| Standard (SDL) | yes | yes | **no** | **no** |
+| Direct (raw HID) | yes | yes | yes | yes |
+
+SDL has a rumble call and an LED call and nothing else, so the last two columns
+are structurally out of reach there however good the pad is. The Direct path
+reaches them because the claim writes OUT reports as well as reading IN ones;
+the bytes are built by [`UsbOutputReports`](../src/core/input/UsbOutputReports.h),
+which is pure and host-tested, and the gateway adds only the framing the
+platform itself demands (on hidraw, none: the builder's length is the transfer
+length). A Direct claim that has gone away carries nothing —
+there is deliberately no fallback to Standard, because a pad on the Direct path
+is not open on the SDL path at the same time.
+
+**Not reachable on this platform, with the reason:** the Xbox One / Series pad's
+impulse-trigger motors. xpad binds an Xbox-class pad as evdev-only and publishes
+no hidraw node for it, so it never enumerates for a claim, and no other family
+has trigger motors at all. A
+Moonlight host's `RUMBLE_TRIGGERS` is therefore folded onto the body motors
+([`MoonlightTriggerRumble`](../src/core/moonlight/MoonlightTriggerRumble.h)) and
+advertised, so the effect lands somewhere rather than being silently dropped.
 
 Do not add Observables, `tr()`, or QML to that path. Everything around it
 (device hotplug, capability, capture mode, path switching) is modelled state and

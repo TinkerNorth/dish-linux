@@ -137,6 +137,45 @@ TEST_CASE("SessionResponse parses the contract's PUT example", "[models][session
     REQUIRE_FALSE(r.unauthorized());
 }
 
+TEST_CASE("SessionResponse reads the settled protocol version back", "[models][session]") {
+    // The echo keys the wire frames, so it has to survive the DTO unchanged.
+    const auto r = SessionResponse::fromJson(parse(R"({"protocolVersion":2})"));
+    REQUIRE(r.protocolVersion == 2);
+}
+
+TEST_CASE("an absent protocolVersion reads as 1, not as ours", "[models][session]") {
+    // The contract says an omitted field means 1. Defaulting to this build's
+    // version would make a pre-versioning satellite look like it agreed to the
+    // 19-byte POINTER frame it cannot decode.
+    const auto session = SessionResponse::fromJson(parse(R"({"epoch":1})"));
+    CHECK(session.protocolVersion == proto::kProtocolVersionMin);
+    CHECK(session.protocolVersion == 1);
+    const auto pair = PairResponse::fromJson(parse(R"({"ok":true})"));
+    CHECK(pair.protocolVersion == 1);
+}
+
+TEST_CASE("the 409 body's version range is parsed on both surfaces", "[models][session][pair]") {
+    // `supported` / `supportedMin` are what tell the client which end is behind,
+    // and version negotiation happens on pairing as well as the session PUT.
+    const auto session = SessionResponse::fromJson(
+        parse(R"({"error":"protocol version unsupported","supported":2,"supportedMin":1})"));
+    CHECK(session.supportedProtocol == 2);
+    CHECK(session.supportedProtocolMin == 1);
+    const auto pair = PairResponse::fromJson(
+        parse(R"({"ok":false,"error":"protocol version unsupported","supported":3,
+                  "supportedMin":2})"));
+    CHECK(pair.supportedProtocol == 3);
+    CHECK(pair.supportedProtocolMin == 2);
+}
+
+TEST_CASE("a body with no version range reads as 0, not as a guess", "[models][session]") {
+    // 0 is what the negotiation reducer treats as "the server did not say", and
+    // it must not be confused with a real bound.
+    const auto r = SessionResponse::fromJson(parse(R"({"error":"nope"})"));
+    CHECK(r.supportedProtocol == 0);
+    CHECK(r.supportedProtocolMin == 0);
+}
+
 TEST_CASE("SessionResponse maps each per-controller result string to its code",
           "[models][session]") {
     auto one = [](const char* result) {
@@ -374,6 +413,45 @@ TEST_CASE("ControllerDescriptor.toJson matches the contract's controllers[] elem
     REQUIRE(caps.value("analogTriggers").toBool());
     REQUIRE_FALSE(caps.value("lightbar").toBool());
     REQUIRE(obj.value("touchpadMode").toString() == "ds4");
+}
+
+TEST_CASE("the descriptor carries the protocol-2 actuator caps", "[models][descriptor]") {
+    // The satellite gates MSG_TRIGGER_EFFECTS and MSG_PLAYER_LEDS on exactly
+    // these two keys, so a missing or misspelled one is a feature that silently
+    // never arrives.
+    ControllerDescriptor d;
+    d.caps = proto::kCapTriggerEffects | proto::kCapPlayerLeds;
+    const auto caps = d.toJson().value("caps").toObject();
+    CHECK(caps.value("triggerEffects").toBool());
+    CHECK(caps.value("playerLeds").toBool());
+    CHECK_FALSE(caps.value("rumble").toBool());
+    CHECK_FALSE(caps.value("lightbar").toBool());
+}
+
+TEST_CASE("the actuator caps round-trip through the caps fold", "[models][descriptor]") {
+    // The client re-reads its own descriptor out of the session view to
+    // reconcile against, so the fold and its inverse have to agree or every
+    // heartbeat would read as drift and re-PUT.
+    ControllerDescriptor d;
+    d.caps = proto::kCapAnalogTriggers | proto::kCapRumble | proto::kCapMotion |
+             proto::kCapLightbar | proto::kCapTriggerEffects | proto::kCapPlayerLeds;
+    const auto view = SessionViewControllerDto::fromJson(d.toJson());
+    CHECK(view.capsPresent);
+    CHECK(view.caps == d.caps);
+}
+
+TEST_CASE("a server that omits the new caps reads them as absent, not set",
+          "[models][descriptor]") {
+    // Forward and backward compatibility both live here: an older satellite
+    // echoes a caps object without the two keys, and reading a missing key as
+    // true would make the client believe an actuator was negotiated.
+    const auto view = SessionViewControllerDto::fromJson(
+        parse(R"({"ctrlIdx":0,"caps":{"rumble":true,"motion":false,
+                  "analogTriggers":true,"lightbar":false}})"));
+    CHECK(view.capsPresent);
+    CHECK((view.caps & proto::kCapTriggerEffects) == 0);
+    CHECK((view.caps & proto::kCapPlayerLeds) == 0);
+    CHECK((view.caps & proto::kCapRumble) != 0);
 }
 
 TEST_CASE("controllersJson builds the WHOLE desired array", "[models][descriptor]") {

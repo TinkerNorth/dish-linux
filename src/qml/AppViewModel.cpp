@@ -161,6 +161,10 @@ QString capFeatureToken(reducer::CapFeature f) {
         return QStringLiteral("rumble");
     case reducer::CapFeature::Lightbar:
         return QStringLiteral("lightbar");
+    case reducer::CapFeature::TriggerEffects:
+        return QStringLiteral("triggerEffects");
+    case reducer::CapFeature::PlayerLeds:
+        return QStringLiteral("playerLeds");
     }
     return {};
 }

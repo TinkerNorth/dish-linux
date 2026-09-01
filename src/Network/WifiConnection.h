@@ -99,18 +99,49 @@ class WifiConnection : public QObject {
         std::uint8_t touchpadMode = proto::kTouchpadModeOff;
         bool hasLightbar = false;
         bool hasMotion = false;
-        // Path-resolved at bind: the SDL probe for a Standard slot, false for a
-        // USB-direct claim (no output write path), so the satellite never
-        // offers a rumble channel that cannot fire.
+        // Path-resolved at bind: the SDL probe for a Standard slot, the parser
+        // family plus a live Direct claim for a synthetic one, so the satellite
+        // never offers a rumble channel that cannot fire.
         bool hasRumble = false;
+        // Protocol-2 actuators, Direct-path only: no framework on either
+        // platform exposes an adaptive-trigger or player-LED API, so these are
+        // true only while a raw-HID claim on a family that has the hardware is
+        // live. The satellite sends 0x0010 / 0x0011 to nobody else.
+        bool hasTriggerEffects = false;
+        bool hasPlayerLeds = false;
         bool registered = false;
     };
+
+    // ── Protocol version, per satellite ─────────────────────────────────────
+    //
+    // `offered` is what the next session PUT asks for: this build's version,
+    // unless a 409 named a lower ceiling that still overlaps our range, in which
+    // case it sticks at that ceiling for this connection.
+    //
+    // `settled` is what the satellite ANSWERED with, and it is the one that
+    // keys the wire frames. The two differ whenever the satellite predates
+    // version negotiation: it echoes 1 whatever we offered.
+    int offeredProtocolVersion() const { return offeredProtocolVersion_; }
+    void setOfferedProtocolVersion(int version) { offeredProtocolVersion_ = version; }
+    int settledProtocolVersion() const { return settledProtocolVersion_; }
+    // True while the link works but the satellite is older than this build: a
+    // soft "update for the newest features" hint, never an error.
+    bool satelliteBehindProtocol() const { return satelliteBehindProtocol_; }
+    void setSettledProtocolVersion(int version, bool satelliteBehind) {
+        if (settledProtocolVersion_ == version && satelliteBehindProtocol_ == satelliteBehind) {
+            return;
+        }
+        settledProtocolVersion_ = version;
+        satelliteBehindProtocol_ = satelliteBehind;
+        emit changed();
+    }
 
     // The type and touchpad mode travel with the attach, so there is no
     // default-then-correct phase. While live the manager converges it via a
     // controller PUT; while idle it rides the next session PUT.
     void attachSlot(const QString& slotId, int controllerType, bool hasLightbar, bool hasMotion,
-                    bool hasRumble, std::uint8_t touchpadMode = proto::kTouchpadModeOff);
+                    bool hasRumble, std::uint8_t touchpadMode = proto::kTouchpadModeOff,
+                    bool hasTriggerEffects = false, bool hasPlayerLeds = false);
     void detachSlot();
     void detachSlot(const QString& slotId);
 
@@ -145,6 +176,14 @@ class WifiConnection : public QObject {
     void setRumbleHandler(RumbleHandler handler);
     using LightbarHandler = std::function<void(const SatelliteClient::LightbarMessage&)>;
     void setLightbarHandler(LightbarHandler handler);
+    // Protocol-2 return paths. Arrive only when the slot's descriptor claimed
+    // the matching actuator, so a handler that never fires means the caps said
+    // so, not that the satellite is silent.
+    using TriggerEffectsHandler =
+        std::function<void(const SatelliteClient::TriggerEffectsMessage&)>;
+    void setTriggerEffectsHandler(TriggerEffectsHandler handler);
+    using PlayerLedsHandler = std::function<void(const SatelliteClient::PlayerLedsMessage&)>;
+    void setPlayerLedsHandler(PlayerLedsHandler handler);
 
   signals:
     void changed();
@@ -188,8 +227,14 @@ class WifiConnection : public QObject {
     // failed re-PUT is not re-requested every tick.
     bool rekeyRequested_ = false;
 
+    int offeredProtocolVersion_ = proto::kProtocolVersion;
+    int settledProtocolVersion_ = proto::kProtocolVersionMin;
+    bool satelliteBehindProtocol_ = false;
+
     RumbleHandler rumbleHandler_;
     LightbarHandler lightbarHandler_;
+    TriggerEffectsHandler triggerEffectsHandler_;
+    PlayerLedsHandler playerLedsHandler_;
 
     models::ControllerDescriptor descriptorOf(const SlotBinding& b) const;
     int lowestFreeIndex() const;

@@ -130,6 +130,14 @@
         <translation>Lightbar</translation>
     </message>
     <message>
+        <source>Adaptive triggers</source>
+        <translation>Adaptive triggers</translation>
+    </message>
+    <message>
+        <source>Player LEDs</source>
+        <translation>Player LEDs</translation>
+    </message>
+    <message>
         <source>buttons or sticks</source>
         <translation>buttons or sticks</translation>
     </message>
@@ -158,6 +166,14 @@
         <translation>lightbar</translation>
     </message>
     <message>
+        <source>adaptive triggers</source>
+        <translation>adaptive triggers</translation>
+    </message>
+    <message>
+        <source>player LEDs</source>
+        <translation>player LEDs</translation>
+    </message>
+    <message>
         <source>Waiting on a destination.</source>
         <translation>Waiting on a destination.</translation>
     </message>
@@ -184,6 +200,10 @@
     <message>
         <source>%1 has no %2.</source>
         <translation>%1 has no %2.</translation>
+    </message>
+    <message>
+        <source>Standard mode can’t drive it — switch the connection to Direct.</source>
+        <translation>Standard mode can’t drive it — switch the connection to Direct.</translation>
     </message>
     <message>
         <source>A %1 controller does not carry %2 over Moonlight.</source>
@@ -4428,6 +4448,14 @@
     <message>
         <source>This app and the satellite speak different protocol versions.</source>
         <translation>This app and the satellite speak different protocol versions.</translation>
+    </message>
+    <message>
+        <source>This satellite needs a newer version of Dish. Update the app and retry.</source>
+        <translation>This satellite needs a newer version of Dish. Update the app and retry.</translation>
+    </message>
+    <message>
+        <source>This satellite is too old for this version of Dish. Update the satellite.</source>
+        <translation>This satellite is too old for this version of Dish. Update the satellite.</translation>
     </message>
     <message>
         <source>This satellite&apos;s security identity changed. If it was reinstalled, forget it here and pair again.</source>
