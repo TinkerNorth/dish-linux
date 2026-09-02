@@ -67,6 +67,12 @@ class UsbDirectObserver {
     virtual void syntheticAdded(int /*syntheticId*/, const std::string& /*name*/, bool /*hasGyro*/,
                                 int /*pollRateHz*/, int /*vendorId*/, int /*productId*/) {}
     virtual void syntheticRemoved(int /*syntheticId*/) {}
+    // The claimed pad's own mic-mute latch moved (the DualSense button, or a
+    // setPadMicMuted write echoing back). UNLIKE the other callbacks, this one
+    // fires on the GATEWAY READ THREAD — the edge is seen where the reports
+    // are — so an observer must marshal to its own thread before touching
+    // state (AppModel queues it).
+    virtual void padMicMuteChanged(int /*vendorId*/, int /*productId*/, bool /*muted*/) {}
     // Fired once after EVERY state-changing applyEvent. This is the single
     // unidirectional "the FSM state moved, rebuild the slot list from the fresh
     // controllers() snapshot" signal — the slot list binds to this, not to the
@@ -141,6 +147,15 @@ class UsbGamepadManager {
     bool applyTriggerEffects(int vendorId, int productId,
                              const std::uint8_t left[input::usbout::kTriggerEffectBlockBytes],
                              const std::uint8_t right[input::usbout::kTriggerEffectBlockBytes]);
+    // The mic-mute lamp. `state` is MSG_MIC_LED's own value (0/1/2); the
+    // builder records it in the FeedbackState shadow so every later DS5 write
+    // re-asserts it instead of stomping it.
+    bool applyMicMuteLed(int vendorId, int productId, std::uint8_t state);
+
+    // Overwrite the claimed pad's mic-mute latch (the UI mute control's way
+    // into the wire bit). False when the model is not Direct-claimed or has no
+    // latch.
+    bool setPadMicMuted(int vendorId, int productId, bool muted);
 
     // Whether a Direct claim for this model is live right now. The link layer of
     // the capability solve asks this before advertising an actuator, so the

@@ -5,6 +5,7 @@
 // they are the oracle, so do not "tidy" them.
 
 #include "Models/Models.h"
+#include "core/catalog/BundledCatalog.h"
 #include "core/model/Protocol.h"
 
 #include <catch2/catch_test_macros.hpp>
@@ -434,7 +435,8 @@ TEST_CASE("the actuator caps round-trip through the caps fold", "[models][descri
     // heartbeat would read as drift and re-PUT.
     ControllerDescriptor d;
     d.caps = proto::kCapAnalogTriggers | proto::kCapRumble | proto::kCapMotion |
-             proto::kCapLightbar | proto::kCapTriggerEffects | proto::kCapPlayerLeds;
+             proto::kCapLightbar | proto::kCapTriggerEffects | proto::kCapPlayerLeds |
+             proto::kCapMic | proto::kCapSpeaker;
     const auto view = SessionViewControllerDto::fromJson(d.toJson());
     CHECK(view.capsPresent);
     CHECK(view.caps == d.caps);
@@ -443,7 +445,7 @@ TEST_CASE("the actuator caps round-trip through the caps fold", "[models][descri
 TEST_CASE("a server that omits the new caps reads them as absent, not set",
           "[models][descriptor]") {
     // Forward and backward compatibility both live here: an older satellite
-    // echoes a caps object without the two keys, and reading a missing key as
+    // echoes a caps object without the newer keys, and reading a missing key as
     // true would make the client believe an actuator was negotiated.
     const auto view = SessionViewControllerDto::fromJson(
         parse(R"({"ctrlIdx":0,"caps":{"rumble":true,"motion":false,
@@ -451,7 +453,67 @@ TEST_CASE("a server that omits the new caps reads them as absent, not set",
     CHECK(view.capsPresent);
     CHECK((view.caps & proto::kCapTriggerEffects) == 0);
     CHECK((view.caps & proto::kCapPlayerLeds) == 0);
+    CHECK((view.caps & proto::kCapMic) == 0);
+    CHECK((view.caps & proto::kCapSpeaker) == 0);
     CHECK((view.caps & proto::kCapRumble) != 0);
+}
+
+TEST_CASE("the descriptor carries the audio caps as the contract's slugs", "[models][descriptor]") {
+    // The satellite gates the whole controller-audio feature on exactly these
+    // two keys ("mic" gates MSG_MIC_AUDIO in and MSG_MIC_LED out, "speaker"
+    // gates MSG_SPEAKER_AUDIO), so a missing or misspelled one is audio that
+    // silently never flows.
+    ControllerDescriptor d;
+    d.caps = proto::kCapMic;
+    auto caps = d.toJson().value("caps").toObject();
+    CHECK(caps.value("mic").toBool());
+    CHECK_FALSE(caps.value("speaker").toBool());
+    // Independent directions on the wire too.
+    d.caps = proto::kCapSpeaker;
+    caps = d.toJson().value("caps").toObject();
+    CHECK_FALSE(caps.value("mic").toBool());
+    CHECK(caps.value("speaker").toBool());
+    // Both keys are ALWAYS present, false when unclaimed, like every other cap.
+    d.caps = 0;
+    caps = d.toJson().value("caps").toObject();
+    REQUIRE(caps.contains("mic"));
+    REQUIRE(caps.contains("speaker"));
+    CHECK_FALSE(caps.value("mic").toBool());
+    CHECK_FALSE(caps.value("speaker").toBool());
+}
+
+TEST_CASE("the audio caps parse back from the session view", "[models][descriptor]") {
+    const auto view = SessionViewControllerDto::fromJson(
+        parse(R"({"ctrlIdx":2,"caps":{"analogTriggers":true,"mic":true,"speaker":false}})"));
+    CHECK(view.capsPresent);
+    CHECK((view.caps & proto::kCapMic) != 0);
+    CHECK((view.caps & proto::kCapSpeaker) == 0);
+}
+
+TEST_CASE("the bundled catalog offers audio on the two Sony types only", "[models][catalog]") {
+    // The type layer's offline truth: only the composite personas carry real
+    // audio endpoints, so xbox360 and switchpro must never gain the slugs by
+    // accident. Offering them for the Sony types cannot outrun the host, which
+    // gates audio on its own runtime switch.
+    namespace cat = dish::catalog;
+    for (const auto& slug : {cat::kSlugDs4, cat::kSlugDualSense}) {
+        const auto features = cat::typeFeatureSlugs(slug);
+        REQUIRE(features.has_value());
+        CHECK(features->contains(cat::kFeatureMic));
+        CHECK(features->contains(cat::kFeatureSpeaker));
+    }
+    for (const auto& slug : {cat::kSlugXbox360, cat::kSlugSwitchPro}) {
+        const auto features = cat::typeFeatureSlugs(slug);
+        REQUIRE(features.has_value());
+        CHECK_FALSE(features->contains(cat::kFeatureMic));
+        CHECK_FALSE(features->contains(cat::kFeatureSpeaker));
+    }
+    // And the audio slugs stay OUT of the protocol-1 caps-gate vocabulary:
+    // reducer::allowedCapsForType passes unknown bits through untouched, which
+    // is the trigger-effects precedent audio follows.
+    CHECK_FALSE(cat::knownFeatureSlugs().contains(cat::kFeatureMic));
+    CHECK_FALSE(cat::knownFeatureSlugs().contains(cat::kFeatureSpeaker));
+    CHECK(cat::audioFeatureSlugs() == QStringList{cat::kFeatureMic, cat::kFeatureSpeaker});
 }
 
 TEST_CASE("controllersJson builds the WHOLE desired array", "[models][descriptor]") {

@@ -131,7 +131,11 @@ TEST_CASE("hidraw uevent: an identity that cannot be read is skipped, never gues
     CHECK_FALSE(parseHidIds("HID_IDENT=0003:0000054C:00000CE6\n").has_value());
 }
 
-TEST_CASE("hidraw uevent: HID_NAME is what an unmodelled pad is named", "[input][hid-transport]") {
+TEST_CASE("hidraw uevent: HID_NAME is the unmodelled pad's fallback name",
+          "[input][hid-transport]") {
+    // Fallback, not first choice: enumeration prefers the USB `product`
+    // attribute (the string the audio stack also names endpoints with) and
+    // reads HID_NAME only when that is absent.
     const std::string_view uevent = "DRIVER=playstation\n"
                                     "HID_ID=0003:0000054C:00000CE6\n"
                                     "HID_NAME=Sony Interactive Entertainment DualSense\n"

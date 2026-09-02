@@ -251,6 +251,14 @@ void SDLGamepadBridge::runLoop() {
         case SDL_CONTROLLERBUTTONUP:
             rebuildState(ev.cdevice.which);
             break;
+        case SDL_AUDIODEVICEADDED:
+        case SDL_AUDIODEVICEREMOVED:
+            // Delivered here because this loop is the process's one SDL event
+            // pump; the audio subsystem itself is SdlAudioGateway's (see the
+            // signal's comment). A pad's own endpoints appear a beat after its
+            // HID interface, so this edge is what re-runs the route matcher.
+            QMetaObject::invokeMethod(this, "audioDevicesChanged", Qt::QueuedConnection);
+            break;
         case SDL_JOYDEVICEADDED: {
             // Unlike every other event here, this `which` is a device INDEX, not
             // an instance id — it matches SDL_JoystickOpen's argument.

@@ -50,6 +50,12 @@ class ConnectionHub : public QObject {
     BatterySender batterySenderForSlot(const QString& slotId) const;
     TouchpadSender touchpadSenderForSlot(const QString& slotId) const;
 
+    // seq, opus bytes, length -> sent. For the mic capture engine, which calls
+    // it from the audio thread (same closure contract as ReportSender from the
+    // SDL input thread).
+    using MicAudioSender = std::function<bool(std::uint16_t, const std::uint8_t*, std::size_t)>;
+    MicAudioSender micAudioSenderForSlot(const QString& slotId) const;
+
     // The seams below let bind() stamp per-device hardware facts onto the
     // REST descriptor. AppModel installs them off the SDL bridge's device
     // classification; each is unset in tests and before the bridge exists, and
@@ -78,6 +84,16 @@ class ConnectionHub : public QObject {
     void setPlayerLedsCapabilityFn(PlayerLedsCapabilityFn fn) {
         playerLedsCapabilityFn_ = std::move(fn);
     }
+
+    // Controller audio. Unset reads as "no", same as the other actuators, so
+    // the satellite neither expects MIC_AUDIO nor sends SPEAKER_AUDIO for a
+    // slot this build cannot route. AppModel folds the audio route (a Wave-2
+    // seam, false today) with the per-binding user toggle.
+    using MicCapabilityFn = std::function<bool(const QString& slotId)>;
+    void setMicCapabilityFn(MicCapabilityFn fn) { micCapabilityFn_ = std::move(fn); }
+
+    using SpeakerCapabilityFn = std::function<bool(const QString& slotId)>;
+    void setSpeakerCapabilityFn(SpeakerCapabilityFn fn) { speakerCapabilityFn_ = std::move(fn); }
 
     // A proto CONTROLLER_TYPE_*, which is how a DualSense registers as a virtual
     // DS4 rather than an Xbox pad. Unset means CONTROLLER_TYPE_XBOX.
@@ -110,6 +126,8 @@ class ConnectionHub : public QObject {
     RumbleCapabilityFn rumbleCapabilityFn_;
     TriggerEffectsCapabilityFn triggerEffectsCapabilityFn_;
     PlayerLedsCapabilityFn playerLedsCapabilityFn_;
+    MicCapabilityFn micCapabilityFn_;
+    SpeakerCapabilityFn speakerCapabilityFn_;
     ControllerTypeFn controllerTypeFn_;
     TouchpadModeFn touchpadModeFn_;
 };

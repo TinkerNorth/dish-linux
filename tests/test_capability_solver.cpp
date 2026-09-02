@@ -43,12 +43,23 @@ CapabilityInputs everythingCarries() {
     in.padPlayerLeds = true;
     in.typeTriggerEffects = true;
     in.typePlayerLeds = true;
+    // Controller audio: the pad has routes (a Wave-2 fact, forced true here so
+    // the fold is exercised ahead of the routes existing), the type is a Sony
+    // composite and the probe said the host carries both directions.
+    in.padMic = true;
+    in.padSpeaker = true;
+    in.typeMic = true;
+    in.typeSpeaker = true;
+    in.hostMic = true;
+    in.hostSpeaker = true;
     in.hostResolved = true;
     in.hostIsBluetooth = false;
     in.hostMouseControl = true;
     in.hostRumble = true;
     in.userMotionOn = true;
     in.userRumbleOn = true;
+    in.userMicOn = true;
+    in.userSpeakerOn = true;
     in.userTouchpadMode = 1; // pad
     return in;
 }
@@ -63,13 +74,14 @@ CapabilityRow rowFor(const std::vector<CapabilityRow>& rows, CapFeature f) {
 
 } // namespace
 
-TEST_CASE("capability solver: the nine features come back in the fixed render order",
+TEST_CASE("capability solver: the eleven features come back in the fixed render order",
           "[capability][solver]") {
     // Declaration order is the render order both surfaces use, so a row inserted
-    // in the middle would silently reshuffle two UI tables. The two protocol-2
-    // actuators are appended after the lightbar for that reason.
+    // in the middle would silently reshuffle two UI tables. The protocol-2
+    // additions are appended after the lightbar for that reason, the audio pair
+    // last of all.
     const auto rows = solveCapabilities(everythingCarries());
-    REQUIRE(rows.size() == 9);
+    REQUIRE(rows.size() == 11);
     REQUIRE(rows[0].feature == CapFeature::Gamepad);
     REQUIRE(rows[1].feature == CapFeature::Triggers);
     REQUIRE(rows[2].feature == CapFeature::Motion);
@@ -79,6 +91,8 @@ TEST_CASE("capability solver: the nine features come back in the fixed render or
     REQUIRE(rows[6].feature == CapFeature::Lightbar);
     REQUIRE(rows[7].feature == CapFeature::TriggerEffects);
     REQUIRE(rows[8].feature == CapFeature::PlayerLeds);
+    REQUIRE(rows[9].feature == CapFeature::Mic);
+    REQUIRE(rows[10].feature == CapFeature::Speaker);
 }
 
 TEST_CASE("capability solver: everything carrying reads Available and blames nobody",
@@ -236,7 +250,8 @@ TEST_CASE("capability solver: a Bluetooth host carries none of the new actuators
     in.linkDirect = true;
     in.hostIsBluetooth = true;
     const auto rows = solveCapabilities(in);
-    for (const auto f : {CapFeature::TriggerEffects, CapFeature::PlayerLeds}) {
+    for (const auto f : {CapFeature::TriggerEffects, CapFeature::PlayerLeds, CapFeature::Mic,
+                         CapFeature::Speaker}) {
         const auto row = rowFor(rows, f);
         INFO("feature " << static_cast<int>(f));
         REQUIRE(row.verdict == CapVerdict::Unavailable);
@@ -405,4 +420,122 @@ TEST_CASE("capability solver: gamepad and triggers always carry on a resolved ca
     const auto rumble = rowFor(rows, CapFeature::Rumble);
     REQUIRE(rumble.verdict == CapVerdict::Unavailable);
     REQUIRE(rumble.failingLayer == CapLayer::Input);
+}
+
+// ── Controller audio ─────────────────────────────────────────────────────────
+
+TEST_CASE("capability solver: audio carries when every layer says yes, on either path",
+          "[capability][solver][audio]") {
+    // The streams ride the pad's own USB-audio endpoints — a separate interface
+    // from the HID path — so unlike the trigger/LED pair the Link layer never
+    // refuses them and Standard vs Direct changes nothing.
+    auto in = everythingCarries();
+    for (const bool direct : {false, true}) {
+        in.linkDirect = direct;
+        const auto rows = solveCapabilities(in);
+        for (const auto f : {CapFeature::Mic, CapFeature::Speaker}) {
+            INFO("direct " << direct << " feature " << static_cast<int>(f));
+            const auto row = rowFor(rows, f);
+            REQUIRE(row.verdict == CapVerdict::Available);
+            REQUIRE(row.linkOk);
+        }
+    }
+}
+
+TEST_CASE("capability solver: the audio fold matrix names the first refusing layer",
+          "[capability][solver][audio]") {
+    auto in = everythingCarries();
+
+    SECTION("no route at the pad -> Input") {
+        in.padMic = false;
+        in.padSpeaker = false;
+        const auto rows = solveCapabilities(in);
+        for (const auto f : {CapFeature::Mic, CapFeature::Speaker}) {
+            const auto row = rowFor(rows, f);
+            REQUIRE(row.verdict == CapVerdict::Unavailable);
+            REQUIRE(row.failingLayer == CapLayer::Input);
+        }
+    }
+    SECTION("a type without audio endpoints -> Type") {
+        // An Xbox 360 emulation on a DualSense: the materialized pad has no
+        // audio function however good the physical hardware is.
+        in.typeMic = false;
+        in.typeSpeaker = false;
+        const auto rows = solveCapabilities(in);
+        for (const auto f : {CapFeature::Mic, CapFeature::Speaker}) {
+            const auto row = rowFor(rows, f);
+            REQUIRE(row.verdict == CapVerdict::Unavailable);
+            REQUIRE(row.failingLayer == CapLayer::Type);
+        }
+    }
+    SECTION("a host that switched audio off -> Host") {
+        in.hostMic = false;
+        in.hostSpeaker = false;
+        const auto rows = solveCapabilities(in);
+        for (const auto f : {CapFeature::Mic, CapFeature::Speaker}) {
+            const auto row = rowFor(rows, f);
+            REQUIRE(row.verdict == CapVerdict::Unavailable);
+            REQUIRE(row.failingLayer == CapLayer::Host);
+        }
+    }
+    SECTION("the directions are independent at every layer") {
+        in.hostMic = false; // speaker-only host
+        const auto rows = solveCapabilities(in);
+        REQUIRE(rowFor(rows, CapFeature::Mic).verdict == CapVerdict::Unavailable);
+        REQUIRE(rowFor(rows, CapFeature::Speaker).verdict == CapVerdict::Available);
+    }
+}
+
+TEST_CASE("capability solver: an unprobed host refuses audio rather than waiting",
+          "[capability][solver][audio]") {
+    // hostMic/hostSpeaker have no Pending state on purpose: audio is opt-in,
+    // so before a probe lands the honest verdict is "not carried" — and it must
+    // not read as the uniform Pending the unresolved-catalog case shows.
+    auto in = everythingCarries();
+    in.hostMic = false;
+    in.hostSpeaker = false;
+    const auto rows = solveCapabilities(in);
+    REQUIRE(rowFor(rows, CapFeature::Mic).verdict == CapVerdict::Unavailable);
+    REQUIRE(rowFor(rows, CapFeature::Speaker).verdict == CapVerdict::Unavailable);
+    REQUIRE(rowFor(rows, CapFeature::Motion).verdict == CapVerdict::Available);
+}
+
+TEST_CASE("capability solver: the audio user switches read Off, never Unavailable",
+          "[capability][solver][audio]") {
+    auto in = everythingCarries();
+    in.userMicOn = false;
+    in.userSpeakerOn = false;
+    const auto rows = solveCapabilities(in);
+    for (const auto f : {CapFeature::Mic, CapFeature::Speaker}) {
+        const auto row = rowFor(rows, f);
+        REQUIRE(row.verdict == CapVerdict::Off);
+        REQUIRE_FALSE(row.hasFailingLayer);
+        REQUIRE(row.inOk);
+        REQUIRE(row.hostOk);
+    }
+}
+
+TEST_CASE("capability solver: default inputs advertise no audio anywhere",
+          "[capability][solver][audio]") {
+    // The Wave-1 end-to-end truth: the pad-route seam answers false for every
+    // slot until the audio engines land, so with everything else carrying, the
+    // audio rows still refuse at Input and nothing ever advertises a cap.
+    auto in = everythingCarries();
+    in.padMic = CapabilityInputs{}.padMic;         // the real default,
+    in.padSpeaker = CapabilityInputs{}.padSpeaker; // not a test's idea of it
+    const auto rows = solveCapabilities(in);
+    for (const auto f : {CapFeature::Mic, CapFeature::Speaker}) {
+        const auto row = rowFor(rows, f);
+        REQUIRE(row.verdict == CapVerdict::Unavailable);
+        REQUIRE(row.failingLayer == CapLayer::Input);
+    }
+    // And the defaults themselves are pinned: flipping them is Wave 2's move,
+    // made deliberately, not by a refactor.
+    CHECK_FALSE(CapabilityInputs{}.padMic);
+    CHECK_FALSE(CapabilityInputs{}.padSpeaker);
+    CHECK_FALSE(CapabilityInputs{}.hostMic);
+    CHECK_FALSE(CapabilityInputs{}.hostSpeaker);
+    // The user defaults mirror the stores': mic off (privacy), speaker on.
+    CHECK_FALSE(CapabilityInputs{}.userMicOn);
+    CHECK(CapabilityInputs{}.userSpeakerOn);
 }

@@ -80,6 +80,11 @@ ColumnLayout {
         // Motion is a persisted per-pad preference (Dead zones writes it too);
         // seeding from the default would silently re-enable a gyro turned off.
         page.draft.setMotion(App.motionEnabledFor(slotId));
+        // Same rule for the audio pair: a re-run of the wizard over a pad whose
+        // mic the user enabled must not silently reset it — and the other way
+        // round, which for a microphone is the reset that matters.
+        page.draft.setMic(App.micEnabledFor(slotId));
+        page.draft.setSpeaker(App.speakerEnabledFor(slotId));
         page.padAdopted({
             "name": name,
             "transport": bluetooth ? qsTr("Bluetooth") : qsTr("USB"),
