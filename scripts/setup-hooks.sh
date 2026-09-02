@@ -21,5 +21,5 @@ echo "  Debian/Ubuntu:  sudo apt install clang-format clang-tidy"
 echo "  Fedora:         sudo dnf install clang-tools-extra"
 echo "  Arch:           sudo pacman -S clang"
 echo
-echo "Note: clang-tidy needs build-debug/compile_commands.json — generate it with:"
+echo "Note: clang-tidy needs build/compile_commands.json — generate it with:"
 echo "  scripts/build.sh debug"
