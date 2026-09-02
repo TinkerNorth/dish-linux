@@ -115,6 +115,26 @@ the repos share a version number.
   is the honest maximum rather than a shortcut. The two host rumble streams mix
   per motor by maximum, so neither can cancel the other.
 
+### Changed
+
+- **Build system: local builds and CI run the same rails.** `CMakePresets.json`
+  (new) carries the `debug`, `release` and `package` configure lines;
+  `linux-ci.yml`, `codeql.yml` and `release.yml` call the presets, the shared
+  `scripts/check-format.sh` gate, and the new `scripts/build-deb.sh` /
+  `scripts/build-rpm.sh` packaging scripts instead of inline copies (matrix
+  compilers stay env-injected CC/CXX and the ccache launcher stays
+  workflow-side, so presets never pin what the matrix varies). Locally:
+  `scripts/install-deps.sh` (the README apt list plus CI's pinned
+  clang-format; `--ci-qt` installs the exact Qt 6.9.3 CI builds against),
+  `scripts/build.sh` rewritten onto the presets (the debug tree is now
+  `build/`, CI's name, instead of `build-debug/`; the pre-commit hook's
+  `clang-tidy -p` target follows), and `scripts/ci_local.sh` renamed to
+  `scripts/ci-local.sh` (a forwarder keeps the old name) with its known gaps
+  closed: the Debug and Release configures now carry
+  `DISH_REQUIRE_TRANSLATIONS=ON` like CI, qmllint gains CI's
+  `-I "$QT_ROOT_DIR/qml"` include, and a `--compiler gcc|clang` flag
+  reproduces either side of CI's compiler matrix.
+
 ### Fixed
 
 - Moonlight motion samples were forwarded as the satellite's raw fixed-point
