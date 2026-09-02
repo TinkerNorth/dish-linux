@@ -17,12 +17,15 @@ using dish::reducer::FeedbackKind;
 using dish::reducer::FeedbackTarget;
 using dish::reducer::resolveFeedbackTarget;
 using dish::reducer::slotCarriesFeedback;
+using dish::reducer::slotCarriesMicCapture;
+using dish::reducer::slotCarriesSpeakerPlayout;
 using dish::reducer::SlotFeedbackInputs;
 
 namespace {
 
 const std::vector<FeedbackKind> kAllKinds{FeedbackKind::Rumble, FeedbackKind::Lightbar,
-                                          FeedbackKind::TriggerEffects, FeedbackKind::PlayerLeds};
+                                          FeedbackKind::TriggerEffects, FeedbackKind::PlayerLeds,
+                                          FeedbackKind::MicLed};
 
 // A DualSense on the Standard (SDL) path: every surface in hardware.
 SlotFeedbackInputs standardDualSense() {
@@ -32,6 +35,7 @@ SlotFeedbackInputs standardDualSense() {
     in.padLightbar = true;
     in.padTriggerEffects = true;
     in.padPlayerLeds = true;
+    in.padMicLed = true;
     return in;
 }
 
@@ -63,6 +67,8 @@ TEST_CASE("the Standard path carries rumble and the lightbar and nothing else",
     CHECK(resolveFeedbackTarget(in, FeedbackKind::Lightbar) == FeedbackTarget::Standard);
     CHECK(resolveFeedbackTarget(in, FeedbackKind::TriggerEffects) == FeedbackTarget::None);
     CHECK(resolveFeedbackTarget(in, FeedbackKind::PlayerLeds) == FeedbackTarget::None);
+    // The mic-mute lamp is with them: SDL has no call for it either.
+    CHECK(resolveFeedbackTarget(in, FeedbackKind::MicLed) == FeedbackTarget::None);
 }
 
 TEST_CASE("a synthetic slot whose claim is gone carries nothing", "[feedback][routing]") {
@@ -90,6 +96,8 @@ TEST_CASE("hardware the pad lacks is never advertised or dispatched", "[feedback
     CHECK(resolveFeedbackTarget(in, FeedbackKind::Lightbar) == FeedbackTarget::DirectUsb);
     CHECK(resolveFeedbackTarget(in, FeedbackKind::TriggerEffects) == FeedbackTarget::None);
     CHECK(resolveFeedbackTarget(in, FeedbackKind::PlayerLeds) == FeedbackTarget::None);
+    // No DS4 has a mute lamp either.
+    CHECK(resolveFeedbackTarget(in, FeedbackKind::MicLed) == FeedbackTarget::None);
 }
 
 TEST_CASE("a Switch Pro on the Direct path drives its player lights but no colour",
@@ -126,8 +134,8 @@ TEST_CASE("a live claim flag on a Standard slot changes nothing", "[feedback][ro
 
 TEST_CASE("advertising and dispatching are the same answer", "[feedback][routing]") {
     // The invariant the whole file exists for, over every combination of the
-    // five inputs: slotCarriesFeedback is true exactly when a target exists.
-    for (int bits = 0; bits < 32; ++bits) {
+    // six inputs: slotCarriesFeedback is true exactly when a target exists.
+    for (int bits = 0; bits < 64; ++bits) {
         SlotFeedbackInputs in;
         in.usbDirect = (bits & 1) != 0;
         in.directClaimLive = (bits & 2) != 0;
@@ -135,6 +143,7 @@ TEST_CASE("advertising and dispatching are the same answer", "[feedback][routing
         in.padLightbar = (bits & 8) != 0;
         in.padTriggerEffects = (bits & 16) != 0;
         in.padPlayerLeds = (bits & 16) != 0;
+        in.padMicLed = (bits & 32) != 0;
         for (const auto kind : kAllKinds) {
             INFO("bits " << bits << " kind " << static_cast<int>(kind));
             const bool carries = slotCarriesFeedback(in, kind);
@@ -142,4 +151,65 @@ TEST_CASE("advertising and dispatching are the same answer", "[feedback][routing
             CHECK(carries == hasTarget);
         }
     }
+}
+
+// ── The mic-mute lamp and the audio routes ───────────────────────────────────
+
+TEST_CASE("the mute lamp routes like the other Direct-only actuators", "[feedback][routing]") {
+    // A DualSense with a lamp: Direct-and-live lands it, Standard cannot (no
+    // SDL call), and a dead claim carries nothing — exactly the trigger/LED
+    // matrix, because a delivered MIC_LED is a write into the same OUT report.
+    SlotFeedbackInputs in = standardDualSense();
+    CHECK(resolveFeedbackTarget(in, FeedbackKind::MicLed) == FeedbackTarget::None);
+
+    in.usbDirect = true;
+    in.directClaimLive = true;
+    CHECK(resolveFeedbackTarget(in, FeedbackKind::MicLed) == FeedbackTarget::DirectUsb);
+
+    in.directClaimLive = false;
+    CHECK(resolveFeedbackTarget(in, FeedbackKind::MicLed) == FeedbackTarget::None);
+
+    in.directClaimLive = true;
+    in.padMicLed = false; // a family without the lamp
+    CHECK(resolveFeedbackTarget(in, FeedbackKind::MicLed) == FeedbackTarget::None);
+}
+
+TEST_CASE("the audio caps follow the routes, not the HID path", "[feedback][routing][audio]") {
+    // Mic capture and speaker playout ride the pad's own USB-audio endpoints,
+    // a separate interface from the raw-HID claim, so the path bits and the
+    // claim state must not move the answer in either direction.
+    SlotFeedbackInputs in;
+    in.padMicRoute = true;
+    in.padSpeakerRoute = true;
+    for (const bool direct : {false, true}) {
+        for (const bool live : {false, true}) {
+            in.usbDirect = direct;
+            in.directClaimLive = live;
+            INFO("direct " << direct << " live " << live);
+            CHECK(slotCarriesMicCapture(in));
+            CHECK(slotCarriesSpeakerPlayout(in));
+        }
+    }
+    // The directions are independent.
+    in.padMicRoute = false;
+    CHECK_FALSE(slotCarriesMicCapture(in));
+    CHECK(slotCarriesSpeakerPlayout(in));
+}
+
+TEST_CASE("the default inputs carry no audio and no lamp", "[feedback][routing][audio]") {
+    // The Wave-1 invariant: the routes and the lamp default false, so with
+    // nothing flipped a slot advertises neither audio cap and a delivered
+    // MIC_LED resolves to nowhere. Wave 2 flips these in AppModel's
+    // feedbackInputs(); this pin is what makes that an explicit move.
+    const SlotFeedbackInputs defaults;
+    CHECK_FALSE(slotCarriesMicCapture(defaults));
+    CHECK_FALSE(slotCarriesSpeakerPlayout(defaults));
+    CHECK(resolveFeedbackTarget(defaults, FeedbackKind::MicLed) == FeedbackTarget::None);
+
+    SlotFeedbackInputs liveDirect;
+    liveDirect.usbDirect = true;
+    liveDirect.directClaimLive = true;
+    CHECK_FALSE(slotCarriesMicCapture(liveDirect));
+    CHECK_FALSE(slotCarriesSpeakerPlayout(liveDirect));
+    CHECK(resolveFeedbackTarget(liveDirect, FeedbackKind::MicLed) == FeedbackTarget::None);
 }

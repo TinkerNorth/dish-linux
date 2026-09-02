@@ -112,6 +112,10 @@ QVariant SlotListModel::data(const QModelIndex& index, int role) const {
         return s.capabilities.hasRumble;
     case VerifiedModelRole:
         return s.verifiedModel;
+    case MicArmedRole:
+        return s.micArmed;
+    case MicMutedRole:
+        return s.micMuted;
     case BatteryLevelRole:
         return static_cast<int>(s.capabilities.batteryLevel);
     case BatteryStatusRole:
@@ -252,6 +256,8 @@ QHash<int, QByteArray> SlotListModel::roleNames() const {
         {HasTouchpadRole, "hasTouchpad"},
         {HasRumbleRole, "hasRumble"},
         {VerifiedModelRole, "verifiedModel"},
+        {MicArmedRole, "micArmed"},
+        {MicMutedRole, "micMuted"},
     };
 }
 

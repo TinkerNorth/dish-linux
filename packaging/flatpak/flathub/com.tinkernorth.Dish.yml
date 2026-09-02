@@ -24,6 +24,13 @@ finish-args:
   # encrypted UDP session all need the host network.
   - --share=network
 
+  # Controller audio: a claimed pad's own mic and speaker endpoints are
+  # ordinary audio devices, reached through the session audio server. The
+  # pulseaudio socket is the one grant that covers both stacks — on a PipeWire
+  # desktop it is served by pipewire-pulse, so no pipewire-specific grant is
+  # needed.
+  - --socket=pulseaudio
+
   # SDL input needs /dev/input/event*; USB-direct needs O_RDWR on /dev/hidraw*,
   # which no narrower grant provides — there is no hidraw portal, and
   # org.freedesktop.portal.Usb covers raw USB devices, not hidraw character
@@ -52,6 +59,10 @@ finish-args:
 modules:
   # Neither is in org.kde.Platform. Checksums verified against the release
   # tarballs; re-verify on every bump with `curl -sL <url> | sha256sum`.
+  # (libopus needs no module: the freedesktop base runtime ships it and the
+  # Sdk carries its headers, so the build's REQUIRED opus.pc check binds to
+  # the runtime copy — and fails the build loudly if a runtime bump ever
+  # drops it.)
   - name: libsodium
     buildsystem: autotools
     config-opts:
@@ -75,10 +86,13 @@ modules:
       - -DSDL_STATIC=OFF
       - -DSDL_SHARED=ON
       - -DSDL_TEST=OFF
-      # Dish uses SDL for gamepads only; the render and audio backends are dead
-      # weight in the sandbox.
+      # Dish uses SDL for gamepads and for controller audio (the pad's own mic
+      # and speaker endpoints); only the render backend is dead weight in the
+      # sandbox. The audio backends auto-detect against the Sdk: pulse (served
+      # by pipewire-pulse on PipeWire desktops) is the one the pulseaudio
+      # socket grant reaches.
       - -DSDL_RENDER=OFF
-      - -DSDL_AUDIO=OFF
+      - -DSDL_AUDIO=ON
       - -DSDL_HIDAPI=ON
       - -DSDL_JOYSTICK=ON
       - -DSDL_HAPTIC=ON

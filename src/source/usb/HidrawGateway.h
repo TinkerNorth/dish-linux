@@ -195,6 +195,7 @@ class HidrawGateway : public UsbDeviceGateway {
     bool isKnownFastLaneModel(int vendorId, int productId) const override;
     std::int64_t completionCount(int syntheticId) const override;
     bool writeOutputReport(int syntheticId, const std::uint8_t* data, std::size_t len) override;
+    bool setPadMicMuted(int syntheticId, bool muted) override;
 
   private:
     struct Claimed {
@@ -212,6 +213,11 @@ class HidrawGateway : public UsbDeviceGateway {
         input::usbparse::StickAutoRangeState sticks;
         input::usbhid::HidLayout layout;
         int featureReportLen = 0;
+        // The DualSense mic-mute latch. Atomics, because it is the one piece
+        // of decode state a second thread touches: the read loop flips it on
+        // the button edge, setPadMicMuted overwrites it when the user toggles
+        // mute in the UI, and both must land on the wire's next report.
+        input::usbparse::MicMuteLatch micMute;
         // Serialises writers against each other. The reader is untouched: a
         // hidraw fd carries independent read and write paths, so an OUT report
         // never waits on the blocking read.

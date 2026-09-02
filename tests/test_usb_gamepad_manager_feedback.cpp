@@ -20,6 +20,8 @@
 #include <functional>
 #include <memory>
 #include <optional>
+#include <tuple>
+#include <utility>
 #include <vector>
 
 using namespace dish::source::usb;
@@ -67,7 +69,9 @@ class RecordingGateway : public UsbDeviceGateway {
 
     std::vector<UsbDeviceInfo> enumerate() override { return devices; }
     ClaimResult claim(const UsbDeviceInfo& /*d*/,
-                      std::function<void(const UsbReport&)> /*onReport*/) override {
+                      std::function<void(const UsbReport&)> onReport) override {
+        // Kept so a test can play the read thread and feed reports back in.
+        lastOnReport = std::move(onReport);
         return ClaimResult::success(nextSyntheticId--);
     }
     void releaseClaim(int syntheticId) override { released.push_back(syntheticId); }
@@ -77,6 +81,13 @@ class RecordingGateway : public UsbDeviceGateway {
         writes.push_back(Written{syntheticId, std::vector<std::uint8_t>(data, data + len)});
         return writeSucceeds;
     }
+    bool setPadMicMuted(int syntheticId, bool muted) override {
+        muteWrites.push_back({syntheticId, muted});
+        return true;
+    }
+
+    std::function<void(const UsbReport&)> lastOnReport;
+    std::vector<std::pair<int, bool>> muteWrites;
 };
 
 // A manager with one claimed pad of the given identity. Claims are driven the
@@ -246,4 +257,115 @@ TEST_CASE("player LEDs are masked before they reach the gateway", "[usb][manager
     REQUIRE(h.manager->applyPlayerLeds(kSonyVid, kDualSensePid, 0xFF));
     REQUIRE(h.gateway.writes.size() == 1U);
     CHECK(h.gateway.writes[0].bytes[44] == 0x1F);
+}
+
+// ---- The mic-mute lamp and the mute latch ------------------------------------
+
+TEST_CASE("the mute lamp reaches the claimed pad and shadows into later writes",
+          "[usb][manager][feedback]") {
+    Harness h(kSonyVid, kDualSensePid);
+    const auto claimed = h.manager->controllerFor(kSonyVid, kDualSensePid);
+    REQUIRE(claimed.has_value());
+
+    REQUIRE(h.manager->applyMicMuteLed(kSonyVid, kDualSensePid, 1));
+    REQUIRE(h.gateway.writes.size() == 1U);
+    CHECK(h.gateway.writes[0].syntheticId == *claimed->syntheticId);
+    REQUIRE(h.gateway.writes[0].bytes.size() == 63U);
+    CHECK(h.gateway.writes[0].bytes[0] == 0x02);
+    CHECK(h.gateway.writes[0].bytes[2] == 0x03);
+    CHECK(h.gateway.writes[0].bytes[9] == 1);
+    CHECK(h.gateway.writes[0].bytes[10] == 0x10);
+
+    // The shadow lives in the manager's per-claim FeedbackState: a colour
+    // written afterwards must carry the lamp along.
+    REQUIRE(h.manager->applyLightbar(kSonyVid, kDualSensePid, 0x11, 0x22, 0x33));
+    REQUIRE(h.gateway.writes.size() == 2U);
+    CHECK(h.gateway.writes[1].bytes[9] == 1);
+    CHECK(h.gateway.writes[1].bytes[10] == 0x10);
+    CHECK(h.gateway.writes[1].bytes[45] == 0x11);
+}
+
+TEST_CASE("the lamp refuses an unclaimed model, a lamp-less family and a junk state",
+          "[usb][manager][feedback]") {
+    Harness ds4(kSonyVid, kDualShock4Pid);
+    CHECK_FALSE(ds4.manager->applyMicMuteLed(kSonyVid, kDualShock4Pid, 1)); // no lamp
+    CHECK_FALSE(ds4.manager->applyMicMuteLed(kSonyVid, kDualSensePid, 1));  // not claimed
+    CHECK(ds4.gateway.writes.empty());
+
+    Harness ds5(kSonyVid, kDualSensePid);
+    CHECK_FALSE(ds5.manager->applyMicMuteLed(kSonyVid, kDualSensePid, 3)); // junk state
+    CHECK(ds5.gateway.writes.empty());
+}
+
+TEST_CASE("a released claim forgets the lamp shadow", "[usb][manager][feedback]") {
+    // A replugged pad must not inherit a stale lamp any more than a stale
+    // lightbar handoff: the FeedbackState is per claim.
+    Harness h(kSonyVid, kDualSensePid);
+    REQUIRE(h.manager->applyMicMuteLed(kSonyVid, kDualSensePid, 1));
+    h.manager->onUsbGone(kSonyVid, kDualSensePid);
+    h.gateway.devices.clear();
+    h.gateway.devices.push_back(device(kSonyVid, kDualSensePid));
+    h.manager->reconcile();
+    REQUIRE(h.manager->isDirectClaimed(kSonyVid, kDualSensePid));
+
+    h.gateway.writes.clear();
+    REQUIRE(h.manager->applyLightbar(kSonyVid, kDualSensePid, 1, 2, 3));
+    REQUIRE(h.gateway.writes.size() == 1U);
+    CHECK(h.gateway.writes[0].bytes[9] == 0); // no resurrected lamp
+    CHECK((h.gateway.writes[0].bytes[2] & 0x03) == 0);
+}
+
+TEST_CASE("setPadMicMuted plumbs to the claimed pad's latch and nowhere else",
+          "[usb][manager][feedback]") {
+    Harness h(kSonyVid, kDualSensePid);
+    const auto claimed = h.manager->controllerFor(kSonyVid, kDualSensePid);
+    REQUIRE(h.manager->setPadMicMuted(kSonyVid, kDualSensePid, true));
+    REQUIRE(h.gateway.muteWrites.size() == 1U);
+    CHECK(h.gateway.muteWrites[0].first == *claimed->syntheticId);
+    CHECK(h.gateway.muteWrites[0].second);
+    CHECK_FALSE(h.manager->setPadMicMuted(kSonyVid, kDualShock4Pid, true)); // not claimed
+    CHECK(h.gateway.muteWrites.size() == 1U);
+}
+
+namespace {
+
+class MuteObserver : public UsbDirectObserver {
+  public:
+    std::vector<std::tuple<int, int, bool>> edges;
+    void padMicMuteChanged(int vendorId, int productId, bool muted) override {
+        edges.emplace_back(vendorId, productId, muted);
+    }
+};
+
+} // namespace
+
+TEST_CASE("the pad's mute latch reaches the observer on the edge only",
+          "[usb][manager][feedback]") {
+    // The decoder owns the latch and folds the wire bit itself; the observer
+    // exists so the app's store and lamp can mirror it, and it must fire once
+    // per CHANGE, not once per report -- fifty extra upcalls a second would be
+    // the read thread paying for nothing.
+    RecordingGateway gateway;
+    MuteObserver observer;
+    gateway.devices.push_back(device(kSonyVid, kDualSensePid));
+    UsbGamepadManager manager(&gateway, nullptr, nullptr, &observer);
+    manager.reconcile();
+    REQUIRE(gateway.lastOnReport);
+
+    UsbReport report{};
+    gateway.lastOnReport(report); // unmuted, matches the initial state: no edge
+    CHECK(observer.edges.empty());
+
+    report.micMuted = true;
+    gateway.lastOnReport(report);
+    gateway.lastOnReport(report); // held state repeats: still one edge
+    REQUIRE(observer.edges.size() == 1U);
+    CHECK(std::get<0>(observer.edges[0]) == kSonyVid);
+    CHECK(std::get<1>(observer.edges[0]) == kDualSensePid);
+    CHECK(std::get<2>(observer.edges[0]));
+
+    report.micMuted = false;
+    gateway.lastOnReport(report);
+    REQUIRE(observer.edges.size() == 2U);
+    CHECK_FALSE(std::get<2>(observer.edges[1]));
 }

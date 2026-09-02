@@ -138,6 +138,14 @@
         <translation>Spieler-LEDs</translation>
     </message>
     <message>
+        <source>Microphone</source>
+        <translation>Mikrofon</translation>
+    </message>
+    <message>
+        <source>Controller sound</source>
+        <translation>Controller-Ton</translation>
+    </message>
+    <message>
         <source>buttons or sticks</source>
         <translation>Tasten oder Sticks</translation>
     </message>
@@ -172,6 +180,14 @@
     <message>
         <source>player LEDs</source>
         <translation>Spieler-LEDs</translation>
+    </message>
+    <message>
+        <source>microphone</source>
+        <translation>Mikrofon</translation>
+    </message>
+    <message>
+        <source>speaker</source>
+        <translation>Lautsprecher</translation>
     </message>
     <message>
         <source>Waiting on a destination.</source>
@@ -656,6 +672,30 @@
         <translation>Automatisch sendet %1 für diesen Controller.</translation>
     </message>
     <message>
+        <source>Microphone</source>
+        <translation>Mikrofon</translation>
+    </message>
+    <message>
+        <source>The pad’s mic carries your voice to the host. Off sends nothing.</source>
+        <translation>Das Mikrofon des Pads überträgt Ihre Stimme zum Host. Aus sendet nichts.</translation>
+    </message>
+    <message>
+        <source>Mic muted</source>
+        <translation>Mikrofon stumm</translation>
+    </message>
+    <message>
+        <source>Mic live</source>
+        <translation>Mikrofon aktiv</translation>
+    </message>
+    <message>
+        <source>Controller sound</source>
+        <translation>Controller-Ton</translation>
+    </message>
+    <message>
+        <source>Audio from the host plays on the pad’s speaker or headset.</source>
+        <translation>Ton vom Host läuft über den Lautsprecher oder das Headset des Pads.</translation>
+    </message>
+    <message>
         <source>Handing the device over can take a few seconds.</source>
         <translation>Die Übergabe des Geräts kann ein paar Sekunden dauern.</translation>
     </message>
@@ -1021,6 +1061,22 @@
     <message>
         <source>Lightbar</source>
         <translation>Lichtleiste</translation>
+    </message>
+    <message>
+        <source>Mic muted</source>
+        <translation>Mikrofon stumm</translation>
+    </message>
+    <message>
+        <source>Mic live</source>
+        <translation>Mikrofon aktiv</translation>
+    </message>
+    <message>
+        <source>Microphone muted, click to unmute</source>
+        <translation>Mikrofon stummgeschaltet, zum Aufheben klicken</translation>
+    </message>
+    <message>
+        <source>Microphone live, click to mute</source>
+        <translation>Mikrofon aktiv, zum Stummschalten klicken</translation>
     </message>
     <message>
         <source>Motion %1 Hz</source>
@@ -3776,6 +3832,22 @@
     <message>
         <source>The game drives the pad’s light bar. Lightbar forwarding is a global setting.</source>
         <translation>Das Spiel steuert die Lichtleiste des Pads. Die Weiterleitung der Lichtleiste ist eine globale Einstellung.</translation>
+    </message>
+    <message>
+        <source>Microphone</source>
+        <translation>Mikrofon</translation>
+    </message>
+    <message>
+        <source>The pad’s mic carries your voice to the host. Off sends nothing.</source>
+        <translation>Das Mikrofon des Pads überträgt Ihre Stimme zum Host. Aus sendet nichts.</translation>
+    </message>
+    <message>
+        <source>Controller sound</source>
+        <translation>Controller-Ton</translation>
+    </message>
+    <message>
+        <source>Audio from the host plays on the pad’s speaker or headset.</source>
+        <translation>Ton vom Host läuft über den Lautsprecher oder das Headset des Pads.</translation>
     </message>
     <message>
         <source>Off</source>

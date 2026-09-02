@@ -144,6 +144,16 @@ ConnectionHub::TouchpadSender ConnectionHub::touchpadSenderForSlot(const QString
     };
 }
 
+ConnectionHub::MicAudioSender ConnectionHub::micAudioSenderForSlot(const QString& slotId) const {
+    const auto cid = bindings_.value(slotId);
+    if (cid.isEmpty()) { return {}; }
+    auto* conn = wifi_->get(cid);
+    if (conn == nullptr) { return {}; }
+    return [conn](std::uint16_t seq, const std::uint8_t* opus, std::size_t opusLen) {
+        return conn->sendMicAudio(seq, opus, opusLen);
+    };
+}
+
 void ConnectionHub::bind(const QString& slotId, const QString& connectionId) {
     QHash<QString, QString> current = bindings_;
     QString priorSlot;
@@ -166,12 +176,14 @@ void ConnectionHub::bind(const QString& slotId, const QString& connectionId) {
     const bool hasTriggerEffects =
         triggerEffectsCapabilityFn_ && triggerEffectsCapabilityFn_(slotId);
     const bool hasPlayerLeds = playerLedsCapabilityFn_ && playerLedsCapabilityFn_(slotId);
+    const bool hasMic = micCapabilityFn_ && micCapabilityFn_(slotId);
+    const bool hasSpeaker = speakerCapabilityFn_ && speakerCapabilityFn_(slotId);
     const int controllerType = controllerTypeFn_ ? controllerTypeFn_(slotId) : 0;
     const std::uint8_t touchpadMode =
         touchpadModeFn_ ? touchpadModeFn_(slotId) : proto::kTouchpadModeOff;
     if (auto* c = wifi_->get(connectionId)) {
         c->attachSlot(slotId, controllerType, hasLightbar, hasMotion, hasRumble, touchpadMode,
-                      hasTriggerEffects, hasPlayerLeds);
+                      hasTriggerEffects, hasPlayerLeds, hasMic, hasSpeaker);
     }
 }
 
