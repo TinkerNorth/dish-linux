@@ -169,6 +169,8 @@ Kit.Page {
             || draft.desiredPath !== page.openedWith.desiredPath
             || draft.motionOn !== page.openedWith.motionOn
             || draft.rumbleOn !== page.openedWith.rumbleOn
+            || draft.micOn !== page.openedWith.micOn
+            || draft.speakerOn !== page.openedWith.speakerOn
             || draft.touchpadMode !== page.openedWith.touchpadMode)
 
     function snapshot() {
@@ -178,6 +180,8 @@ Kit.Page {
             "desiredPath": draft.desiredPath,
             "motionOn": draft.motionOn,
             "rumbleOn": draft.rumbleOn,
+            "micOn": draft.micOn,
+            "speakerOn": draft.speakerOn,
             "touchpadMode": draft.touchpadMode
         };
     }
@@ -217,6 +221,8 @@ Kit.Page {
         }
         draft.motionOn = App.motionEnabledFor(page.slotId);
         draft.rumbleOn = App.rumbleEnabledFor(page.slotId);
+        draft.micOn = App.micEnabledFor(page.slotId);
+        draft.speakerOn = App.speakerEnabledFor(page.slotId);
 
         draft.sanitize();
         page.snapshot();
@@ -430,9 +436,15 @@ Kit.Page {
     readonly property bool motionTunable: page.carries("motion")
     readonly property bool rumbleTunable: page.carries("rumble")
     readonly property bool touchpadTunable: page.carries("touchpad") || page.carries("mouse")
+    // Carried where the whole path does: a Direct-claimed Sony pad whose own
+    // endpoints this machine confidently named, on an emulated type with audio,
+    // against a host whose probe said yes.
+    readonly property bool micTunable: page.carries("mic")
+    readonly property bool speakerTunable: page.carries("speaker")
     readonly property bool nothingTunable: draft.hasDestination && draft.hasType
                                            && !page.motionTunable && !page.rumbleTunable
-                                           && !page.touchpadTunable
+                                           && !page.touchpadTunable && !page.micTunable
+                                           && !page.speakerTunable
 
     readonly property var touchpadOptions: [qsTr("Off"), qsTr("Pad"), qsTr("Mouse")]
 
@@ -587,7 +599,8 @@ Kit.Page {
         page.applyRequested = true;
         applyOverlay.open();
         App.applyBinding(page.slotId, draft.hostId, draft.type, draft.desiredPath,
-                         draft.motionOn, draft.rumbleOn, draft.touchpadMode);
+                         draft.motionOn, draft.rumbleOn, draft.touchpadMode,
+                         draft.micOn, draft.speakerOn);
     }
 
     function failureText(reasonToken) {
@@ -669,6 +682,8 @@ Kit.Page {
                 required property bool hasLightbar
                 required property bool hasRumble
                 required property bool verifiedModel
+                required property bool micArmed
+                required property bool micMuted
                 required property int gamepadHz
                 required property bool gamepadHzLive
 
@@ -1188,7 +1203,8 @@ Kit.Page {
                         Kit.Card {
                             visible: draft.hasDestination
                                      && (page.motionTunable || page.touchpadTunable
-                                         || page.rumbleTunable || page.nothingTunable)
+                                         || page.rumbleTunable || page.micTunable
+                                         || page.speakerTunable || page.nothingTunable)
                             Layout.fillWidth: true
 
                             contentItem: ColumnLayout {
@@ -1246,6 +1262,54 @@ Kit.Page {
                                     onToggled: checked => draft.setRumble(checked)
                                 }
 
+                                Rectangle {
+                                    visible: page.rumbleTunable && page.micTunable
+                                    Layout.fillWidth: true
+                                    implicitHeight: 1
+                                    color: Theme.outlineSubtle
+                                }
+
+                                Kit.LabeledSwitch {
+                                    visible: page.micTunable
+                                    Layout.fillWidth: true
+                                    label: qsTr("Microphone")
+                                    description: qsTr("The pad’s mic carries your voice to the host. Off sends nothing.")
+                                    checked: draft.micOn
+                                    onToggled: checked => draft.setMic(checked)
+                                }
+
+                                // The LIVE mute, distinct from the durable
+                                // toggle above it: same state the slot card
+                                // and the pad's own mute button drive, so
+                                // every surface answers alike. Shown only
+                                // while the current binding actually arms a
+                                // microphone.
+                                Kit.DishButton {
+                                    visible: page.padRow !== null && page.padRow.micArmed
+                                    text: page.padRow !== null && page.padRow.micMuted
+                                          ? qsTr("Mic muted") : qsTr("Mic live")
+                                    variant: page.padRow !== null && page.padRow.micMuted
+                                             ? Kit.DishButton.Primary : Kit.DishButton.Outline
+                                    size: Kit.DishButton.Small
+                                    onClicked: App.toggleSlotMicMute(page.slotId)
+                                }
+
+                                Rectangle {
+                                    visible: page.micTunable && page.speakerTunable
+                                    Layout.fillWidth: true
+                                    implicitHeight: 1
+                                    color: Theme.outlineSubtle
+                                }
+
+                                Kit.LabeledSwitch {
+                                    visible: page.speakerTunable
+                                    Layout.fillWidth: true
+                                    label: qsTr("Controller sound")
+                                    description: qsTr("Audio from the host plays on the pad’s speaker or headset.")
+                                    checked: draft.speakerOn
+                                    onToggled: checked => draft.setSpeaker(checked)
+                                }
+
                                 Label {
                                     visible: page.nothingTunable
                                     Layout.fillWidth: true
@@ -1259,8 +1323,8 @@ Kit.Page {
                     }
 
                     // ══ WHAT CARRIES ════════════════════════════════════════════════
-                    // Seven rows at most: it never needs a scroller of its own, and the
-                    // page's single scroll region owns all overflow.
+                    // Eleven rows at most: it never needs a scroller of its own, and
+                    // the page's single scroll region owns all overflow.
                     Kit.Card {
                         Layout.alignment: Qt.AlignTop
                         Layout.fillWidth: page.stacked

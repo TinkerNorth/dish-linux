@@ -5,6 +5,9 @@ out/
 cmake-build-*/
 _deps/
 
+# Packaged artifacts (scripts/build-deb.sh, build-rpm.sh, build-appimage.sh)
+dist/
+
 # CMake
 CMakeFiles/
 CMakeCache.txt

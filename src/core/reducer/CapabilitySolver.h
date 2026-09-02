@@ -44,7 +44,9 @@ enum class CapFeature : std::uint8_t {
     Rumble,
     Lightbar,
     TriggerEffects,
-    PlayerLeds
+    PlayerLeds,
+    Mic,
+    Speaker
 };
 
 struct CapabilityInputs {
@@ -59,6 +61,12 @@ struct CapabilityInputs {
     // that an unknown pad claiming them would be the surprising answer.
     bool padTriggerEffects = false;
     bool padPlayerLeds = false;
+    // Controller audio: does the pad have a usable audio route on this machine
+    // (core/reducer/FeedbackRouting.h answers it). Default false for the same
+    // reason as the two above — and false everywhere until Wave 2 lands the
+    // route matching, so no binding shows audio as carried yet.
+    bool padMic = false;
+    bool padSpeaker = false;
 
     bool linkDirect = false;   // usb && directCapable && the draft wants Direct
     bool linkUsb = false;      // false means Bluetooth transport
@@ -67,14 +75,28 @@ struct CapabilityInputs {
     bool typeResolved = false; // false means the type layer refuses nothing
     bool typeMotion = false, typeTouchpad = false, typeRumble = false, typeLightbar = false;
     bool typeTriggerEffects = false, typePlayerLeds = false;
+    // From the catalog's mic/speaker feature slugs: true only for the types
+    // whose materializer can build a pad with audio endpoints (the two Sony
+    // types via composite personas).
+    bool typeMic = false, typeSpeaker = false;
 
     bool hostResolved = false; // false means Pending
     bool hostIsBluetooth = false;
     bool hostMouseControl = false;
     bool hostRumble = false;
+    // The controller-audio probe's per-direction verdict (reducer/
+    // HostAudioVerdict.h), NOT the catalog: the catalog says what the host
+    // could build, this says what it will carry right now, and it can flip
+    // between sessions. Unlike the two layers above, an unprobed host reads
+    // FALSE rather than Pending — audio is opt-in by design, so the honest
+    // answer before a probe is "not carried".
+    bool hostMic = false, hostSpeaker = false;
 
     // User gates drive Off, never Unavailable.
     bool userMotionOn = true, userRumbleOn = true;
+    // The audio defaults mirror the stores': mic off until asked (privacy),
+    // speaker on.
+    bool userMicOn = false, userSpeakerOn = true;
     int userTouchpadMode = 0; // 0=off 1=pad 2=mouse
 };
 
@@ -114,6 +136,10 @@ inline bool inputCarries(const CapabilityInputs& in, CapFeature f) {
         return in.padTriggerEffects;
     case CapFeature::PlayerLeds:
         return in.padPlayerLeds;
+    case CapFeature::Mic:
+        return in.padMic;
+    case CapFeature::Speaker:
+        return in.padSpeaker;
     }
     return false;
 }
@@ -127,7 +153,10 @@ inline bool linkCarries(const CapabilityInputs& in, CapFeature f) {
     // Standard (SDL) forwards motion, touch, rumble and the lightbar wherever
     // the pad's driver exposes them; the input layer's probe constrains it. The
     // adaptive triggers and the player LEDs have no SDL call at all, so they
-    // are the one thing the Standard path structurally cannot carry.
+    // are the one thing the Standard path structurally cannot carry. Audio is
+    // NOT with them: the streams ride the pad's own USB-audio endpoints, a
+    // separate interface reachable from either HID path, so the link layer
+    // never refuses it — the input layer's route facts are what constrain it.
     return f != CapFeature::TriggerEffects && f != CapFeature::PlayerLeds;
 }
 
@@ -153,6 +182,10 @@ inline bool typeCarries(const CapabilityInputs& in, CapFeature f) {
         return in.typeTriggerEffects;
     case CapFeature::PlayerLeds:
         return in.typePlayerLeds;
+    case CapFeature::Mic:
+        return in.typeMic;
+    case CapFeature::Speaker:
+        return in.typeSpeaker;
     }
     return false;
 }
@@ -161,7 +194,7 @@ inline bool hostCarries(const CapabilityInputs& in, CapFeature f) {
     if (!in.hostResolved) { return true; } // same rule as the type layer
     if (in.hostIsBluetooth) {
         // The system gamepad layer has no motion, touch, lightbar, trigger
-        // effect or player-LED channel.
+        // effect, player-LED or controller-audio channel.
         return f == CapFeature::Gamepad || f == CapFeature::Triggers || f == CapFeature::Rumble;
     }
     switch (f) {
@@ -177,6 +210,13 @@ inline bool hostCarries(const CapabilityInputs& in, CapFeature f) {
         return in.hostMouseControl;
     case CapFeature::Rumble:
         return in.hostRumble;
+    // The probe's live verdict, conservative-false until it lands: an
+    // unprobed host is Unavailable-at-host here rather than Pending, because
+    // no other layer can promise the host will carry the stream.
+    case CapFeature::Mic:
+        return in.hostMic;
+    case CapFeature::Speaker:
+        return in.hostSpeaker;
     }
     return false;
 }
@@ -193,6 +233,10 @@ inline bool userEnabled(const CapabilityInputs& in, CapFeature f) {
         return in.userTouchpadMode == 1;
     case CapFeature::Mouse:
         return in.userTouchpadMode == 2;
+    case CapFeature::Mic:
+        return in.userMicOn;
+    case CapFeature::Speaker:
+        return in.userSpeakerOn;
     default:
         return true;
     }
@@ -210,7 +254,8 @@ inline std::vector<CapabilityRow> solveCapabilities(const CapabilityInputs& in) 
     static constexpr CapFeature kOrder[] = {
         CapFeature::Gamepad,  CapFeature::Triggers,       CapFeature::Motion,
         CapFeature::Touchpad, CapFeature::Mouse,          CapFeature::Rumble,
-        CapFeature::Lightbar, CapFeature::TriggerEffects, CapFeature::PlayerLeds};
+        CapFeature::Lightbar, CapFeature::TriggerEffects, CapFeature::PlayerLeds,
+        CapFeature::Mic,      CapFeature::Speaker};
     const bool pending = capabilitiesPending(in);
 
     std::vector<CapabilityRow> rows;

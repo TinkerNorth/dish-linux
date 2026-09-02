@@ -93,6 +93,12 @@ struct UsbReport {
     std::int16_t finger1X = 0;
     std::int16_t finger1Y = 0;
     bool touchpadButton = false;
+
+    // The decoder's mic-mute LATCH state (DualSense only; false elsewhere).
+    // Already folded into wButtons as kXusbMicMute by the decoder — this field
+    // exists so the driver can mirror the state up as an edge without
+    // re-reading button bits.
+    bool micMuted = false;
 };
 
 class UsbDeviceGateway {
@@ -134,6 +140,16 @@ class UsbDeviceGateway {
     // Callable from any thread and from inside a report callback: feedback
     // arrives on the network receive thread while the read loop is mid-transfer.
     virtual bool writeOutputReport(int syntheticId, const std::uint8_t* data, std::size_t len) = 0;
+
+    // Overwrite the claimed device's mic-mute latch (the state the DualSense
+    // decoder folds onto the wire), so the app's mute control and the pad's
+    // own button stay one state. False for an unknown id or a family with no
+    // latch. Default no-op so fakes that never touch audio need no override.
+    virtual bool setPadMicMuted(int syntheticId, bool muted) {
+        (void)syntheticId;
+        (void)muted;
+        return false;
+    }
 };
 
 } // namespace dish::source::usb

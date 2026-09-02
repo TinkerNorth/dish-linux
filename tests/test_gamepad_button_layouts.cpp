@@ -96,8 +96,33 @@ TEST_CASE("xusb zero is identity", "[input][layout]") {
 }
 
 TEST_CASE("xusb unknown bits are dropped", "[input][layout]") {
-    // 0x0800 is reserved/unused in XUSB.
+    // 0x0800 was the one unassigned XUSB value; protocol 2 spends it on the
+    // DualSense mic-mute state, and it must STAY dropped here.
     REQUIRE(layout::hidButtonsOf(layout::xusbToHid(0x0800)) == 0);
+}
+
+TEST_CASE("the mic-mute bit is the one free XUSB value and never leaks", "[input][layout]") {
+    // The constant is a cross-repo wire agreement (satellite WBUTTON_MIC_MUTE).
+    REQUIRE(layout::kXusbMicMute == 0x0800);
+    // It sits in the gap between GUIDE and A, colliding with nothing.
+    constexpr int kAssigned =
+        layout::kXusbDpadMask | layout::kXusbStart | layout::kXusbBack | layout::kXusbLeftThumb |
+        layout::kXusbRightThumb | layout::kXusbLeftShoulder | layout::kXusbRightShoulder |
+        layout::kXusbGuide | layout::kXusbA | layout::kXusbB | layout::kXusbX | layout::kXusbY;
+    REQUIRE((layout::kXusbMicMute & kAssigned) == 0);
+
+    // xusbToHid drops it even in company: no HID gamepad descriptor has a mute
+    // button, and Moonlight must never see it.
+    const int packed =
+        layout::xusbToHid(layout::kXusbMicMute | layout::kXusbA | layout::kXusbGuide);
+    REQUIRE(layout::hidButtonsOf(packed) == (BTN_A | BTN_HOME));
+    REQUIRE(layout::hidHatOf(packed) == HAT_NONE);
+
+    // ...and hidToXusb can never produce it, from any button set or hat, so the
+    // bit only appears through an explicit fold (Wave 2's mute state).
+    for (int hat = HAT_NONE; hat <= HAT_NW; ++hat) {
+        REQUIRE((layout::hidToXusb(0xFFFF, hat) & layout::kXusbMicMute) == 0);
+    }
 }
 
 TEST_CASE("HID BTN_A maps to xusb A", "[input][layout]") { assertXusb(BTN_A, 0, 0x1000); }

@@ -24,7 +24,7 @@ arch=('x86_64')
 install='dish-bin.install'
 url="https://github.com/TinkerNorth/dish-linux"
 license=('LGPL-3.0-or-later')
-# The AppImage bundles Qt, SDL2 and libsodium; what remains is the AppImage
+# The AppImage bundles Qt, SDL2, libsodium and libopus; what remains is the AppImage
 # runtime itself and the desktop plumbing the entry/icon rely on.
 depends=(
     'fuse2'

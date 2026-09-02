@@ -88,6 +88,12 @@ AppModel::AppModel(std::unique_ptr<source::WakeInhibitor> inhibitor, QObject* pa
     QObject::connect(hub_, &net::ConnectionHub::changed, this, &AppModel::onHubChanged);
     QObject::connect(bridge_, &input::SDLGamepadBridge::devicesChanged, this,
                      &AppModel::onBridgeDevicesChanged);
+    // An audio endpoint arriving or leaving re-runs the pad-to-endpoint
+    // matcher: a composite pad's audio function enumerates a beat after its
+    // HID interface, and an unplug must pull the caps back before the host
+    // keeps streaming into nothing.
+    QObject::connect(bridge_, &input::SDLGamepadBridge::audioDevicesChanged, this,
+                     &AppModel::resolveAudioRoutes);
     // A direct relay: the bridge already QueuedConnection-hops to this thread.
     QObject::connect(bridge_, &input::SDLGamepadBridge::rawJoystickInput, this,
                      &AppModel::rawJoystickInput);
@@ -271,6 +277,19 @@ AppModel::AppModel(std::unique_ptr<source::WakeInhibitor> inhibitor, QObject* pa
         return reducer::slotCarriesFeedback(feedbackInputs(slotId), reducer::FeedbackKind::Rumble);
     });
 
+    // CAP_MIC / CAP_SPEAKER: the audio route (a Wave-2 seam that answers false
+    // for every slot today) gated by the per-binding toggle, same shape as
+    // CAP_MOTION above. The mic gate matters doubly — CAP_MIC is also what
+    // invites the MIC_LED return path, and a lamp for a microphone the user
+    // switched off would report a stream that cannot exist.
+    hub_->setMicCapabilityFn([this](const QString& slotId) {
+        return slotCarriesMicSource(slotId) && micEnabledStore_.isEnabled(slotId.toStdString());
+    });
+    hub_->setSpeakerCapabilityFn([this](const QString& slotId) {
+        return slotCarriesSpeakerSink(slotId) &&
+               speakerEnabledStore_.isEnabled(slotId.toStdString());
+    });
+
     // The user's Emulate override wins over the SDL hardware classification;
     // resolveControllerType applies that ladder.
     hub_->setControllerTypeFn(
@@ -443,6 +462,23 @@ void AppModel::installRumbleHandlers() {
             const QString deviceId = boundSlotForConnection(id);
             if (deviceId.isEmpty()) { return; }
             actuatePlayerLeds(deviceId, pm.ledMask);
+        });
+        // MSG_SPEAKER_AUDIO: straight into the playout engine on the receive
+        // thread — reorder window, Opus decode, the pad's own endpoint. The
+        // message borrows the receive buffer and the engine consumes it before
+        // returning, which is the SpeakerAudioMessage contract. Arrives only
+        // for a slot whose descriptor claimed CAP_SPEAKER; a frame for a voice
+        // the engine does not hold is dropped inside deliver().
+        conn->setSpeakerAudioHandler(
+            [this, id](const net::SatelliteClient::SpeakerAudioMessage& sm) {
+                speakerEngine_.deliver(id.toStdString(), sm.controllerIndex, sm.seq, sm.opus,
+                                       sm.opusLen);
+            });
+        // MSG_MIC_LED: the mute lamp, routed like every other feedback kind.
+        conn->setMicLedHandler([this, id](const net::SatelliteClient::MicLedMessage& mm) {
+            const QString deviceId = boundSlotForConnection(id);
+            if (deviceId.isEmpty()) { return; }
+            actuateMicLed(deviceId, mm.state);
         });
     }
 }
@@ -821,6 +857,10 @@ void AppModel::pollUsbDirect() {
         }
         if (changed) { rebuild(); }
     }
+    // Claims move on this poll, and a claimed pad is what makes an endpoint
+    // matchable at all. Cheap when nothing moved: the resolve compares before
+    // it publishes.
+    resolveAudioRoutes();
 }
 
 void AppModel::onUsbDirectChanged() {
@@ -828,6 +868,7 @@ void AppModel::onUsbDirectChanged() {
     // runs effects with its own lock released, and rebuild() only takes a fresh
     // snapshot of controllers().
     rebuild();
+    resolveAudioRoutes();
 
     // A Direct->Standard pick parks the controller in AwaitingFramework, but on
     // the SDL twin never left bridge_->devices(), so
@@ -1003,6 +1044,13 @@ void AppModel::rebuild() {
 
     const auto bindings = hub_->bindings();
     for (auto& s : next) {
+        // The mute control shows exactly where the descriptor claims a mic:
+        // the same fold the hub's capability fn makes (route AND toggle), so
+        // the card and the wire cannot disagree about whether a microphone
+        // exists to mute. The muted flag is the LOCAL truth, host lamp writes
+        // notwithstanding.
+        s.micArmed = slotCarriesMicSource(s.id) && micEnabledStore_.isEnabled(s.id.toStdString());
+        s.micMuted = micMuteStore_.isMuted(s.id.toStdString());
         const auto cid = bindings.value(s.id);
         // A Moonlight binding is a binding: the card, the accounting and the
         // apply readback all key on boundConnectionId, so a pad driving a
@@ -1089,6 +1137,21 @@ void AppModel::rebuild() {
     }
     streamingSlotCount_.set(nextStreaming);
 
+    // Mute is a live control over a present pad: a departed slot's entry is
+    // dropped so a replugged pad (which reuses its model-keyed id) comes back
+    // live, the way the hardware itself does.
+    {
+        std::set<std::string> presentIds;
+        for (const auto& s : state_.slotList) { presentIds.insert(s.id.toStdString()); }
+        micMuteStore_.retainOnly(presentIds);
+    }
+
+    // Every input the audio eligibility rules read funnels through this
+    // function (bindings, session states, toggles via re-bind, the probe
+    // verdict via poolChanged, mute via setSlotMicMuted), so the engines
+    // converge here and nowhere else.
+    reconcileAudioEngines();
+
     emit stateChanged();
 
     // Rides the same rebuild the Live transition triggered; the reducer's edge
@@ -1172,8 +1235,32 @@ reducer::SlotFeedbackInputs AppModel::feedbackInputs(const QString& slotId) cons
         const auto vp = reducer::parseSyntheticSlotId(slotId.toStdString());
         in.directClaimLive = vp.has_value() && usbManager_ != nullptr &&
                              usbManager_->isDirectClaimed(vp->first, vp->second);
+        if (vp.has_value()) {
+            const auto parser = input::usbparse::parserForDevice(vp->first, vp->second);
+            in.padMicLed = input::usbout::parserHasMicMuteLed(parser);
+        }
+        // The matcher's live answer: whether THIS pad's own endpoints were
+        // confidently named on this machine. The single fold both the
+        // descriptor caps and the engines read.
+        const auto route = audioRouteForSlot(slotId);
+        in.padMicRoute = route.microphone;
+        in.padSpeakerRoute = route.speaker;
     }
     return in;
+}
+
+bool AppModel::slotCarriesMicSource(const QString& slotId) const {
+    return reducer::slotCarriesMicCapture(feedbackInputs(slotId));
+}
+
+bool AppModel::slotCarriesSpeakerSink(const QString& slotId) const {
+    return reducer::slotCarriesSpeakerPlayout(feedbackInputs(slotId));
+}
+
+reducer::HostAudioVerdict AppModel::hostControllerAudioFor(const QString& hostId) const {
+    const auto* conn = wifi_->get(hostId);
+    if (conn == nullptr) { return {}; } // conservative: no probe, no audio
+    return {conn->hostMicAvailable(), conn->hostSpeakerAvailable()};
 }
 
 void AppModel::actuateRumble(const QString& slotId, std::uint16_t strong, std::uint16_t weak,
@@ -1242,6 +1329,152 @@ void AppModel::actuatePlayerLeds(const QString& slotId, std::uint8_t ledMask) {
     if (vp.has_value() && usbManager_ != nullptr) {
         usbManager_->applyPlayerLeds(vp->first, vp->second, ledMask);
     }
+}
+
+void AppModel::actuateMicLed(const QString& slotId, std::uint8_t state) {
+    const auto in = feedbackInputs(slotId);
+    if (reducer::resolveFeedbackTarget(in, reducer::FeedbackKind::MicLed) !=
+        reducer::FeedbackTarget::DirectUsb) {
+        return;
+    }
+    const auto vp = reducer::parseSyntheticSlotId(slotId.toStdString());
+    if (vp.has_value() && usbManager_ != nullptr) {
+        usbManager_->applyMicMuteLed(vp->first, vp->second, state);
+    }
+}
+
+audio::PadAudioRoute AppModel::audioRouteForSlot(const QString& slotId) const {
+    const auto vp = reducer::parseSyntheticSlotId(slotId.toStdString());
+    if (!vp.has_value()) { return {}; }
+    std::lock_guard<std::mutex> lock(audioRoutesMtx_);
+    const auto it = padAudioRoutes_.find(audio::padAudioKey(vp->first, vp->second));
+    if (it == padAudioRoutes_.end()) { return {}; }
+    return it->second;
+}
+
+void AppModel::resolveAudioRoutes() {
+    if (usbManager_ == nullptr) { return; }
+    std::vector<audio::AudioPadCandidate> pads;
+    for (const auto& [key, c] : usbManager_->controllers()) {
+        // Claimed pads only: the physical-pad audio path is the Direct claim's
+        // (the SDL twin never carries the iProduct string to match on).
+        if (c.phase != reducer::UsbPhase::Direct || !c.syntheticId.has_value()) { continue; }
+        const auto parser = input::usbparse::parserForDevice(c.vendorId, c.productId);
+        pads.push_back(audio::AudioPadCandidate{c.vendorId, c.productId, c.name,
+                                                input::usbparse::parserHasUsbAudio(parser)});
+    }
+    auto routes = audio::resolvePadAudioRoutes(pads, audioGateway_.captureDeviceNames(),
+                                               audioGateway_.playbackDeviceNames());
+    {
+        std::lock_guard<std::mutex> lock(audioRoutesMtx_);
+        if (routes == padAudioRoutes_) { return; }
+        padAudioRoutes_ = std::move(routes);
+    }
+    // The caps fold reads the routes, so every bound synthetic slot's
+    // descriptor has to re-fold and re-PUT — this is the "an endpoint
+    // appeared/vanished re-declares the slot" edge, and re-binding is the
+    // machinery that already exists for it (attachSlot detects the change and
+    // converges via the per-controller PUT).
+    const auto bindings = hub_->bindings();
+    for (auto it = bindings.cbegin(); it != bindings.cend(); ++it) {
+        if (reducer::parseSyntheticSlotId(it.key().toStdString()).has_value()) {
+            republishSlotCaps(it.key());
+        }
+    }
+    rebuild();
+}
+
+void AppModel::republishSlotCaps(const QString& slotId) {
+    const auto bound = hub_->boundConnection(slotId);
+    if (!bound.has_value()) { return; }
+    hub_->bind(slotId, bound->id);
+}
+
+void AppModel::setSlotMicMuted(const QString& slotId, bool muted) {
+    if (slotId.isEmpty()) { return; }
+    micMuteStore_.setMuted(slotId.toStdString(), muted);
+    const auto vp = reducer::parseSyntheticSlotId(slotId.toStdString());
+    if (vp.has_value() && usbManager_ != nullptr) {
+        // Keep the wire latch in step so kXusbMicMute holds the same state the
+        // app shows; a no-op when the pad's own button was the writer.
+        usbManager_->setPadMicMuted(vp->first, vp->second, muted);
+    }
+    // The lamp answers immediately and locally — a mute that waits on a host
+    // round-trip feels dead. A host MSG_MIC_LED landing later repaints it
+    // (last writer wins on the PAD; the UI keeps showing the local truth).
+    actuateMicLed(slotId, muted ? proto::kMicLedStateOn : proto::kMicLedStateOff);
+    // Restamps the slot card and re-runs the engine reconcile: muted closes
+    // the capture device, unmuted reopens it.
+    rebuild();
+}
+
+void AppModel::toggleSlotMicMute(const QString& slotId) {
+    if (slotId.isEmpty()) { return; }
+    setSlotMicMuted(slotId, !micMuteStore_.isMuted(slotId.toStdString()));
+}
+
+void AppModel::onPadMicMuteChanged(int vendorId, int productId, bool muted) {
+    // The synthetic slot id IS the model key's string form.
+    const QString slotId =
+        QString::fromStdString(std::to_string((vendorId << 16) | (productId & 0xFFFF)));
+    // The latch already moved (the decoder owns it); this mirrors the store,
+    // drives the lamp and reconciles the engines through the same single door
+    // the UI click uses.
+    setSlotMicMuted(slotId, muted);
+}
+
+void AppModel::reconcileAudioEngines() {
+    std::vector<source::audio::MicCaptureTarget> micTargets;
+    std::vector<source::audio::SpeakerVoiceTarget> speakerVoices;
+
+    for (const auto& s : state_.slotList) {
+        if (!s.usbDirect || !s.boundConnectionId.has_value()) { continue; }
+        auto* conn = wifi_->get(*s.boundConnectionId);
+        if (conn == nullptr) { continue; }
+        const auto route = audioRouteForSlot(s.id);
+        const std::string slotId = s.id.toStdString();
+        // Faltering counts as streaming: it is a session riding out missed
+        // acks, and tearing audio down two seconds before the input stream
+        // would flap on every blip.
+        const bool streaming = conn->state() == net::SessionState::Live ||
+                               conn->state() == net::SessionState::Faltering;
+
+        audio::AudioSlotFacts mic;
+        mic.streaming = streaming;
+        mic.toggleOn = micEnabledStore_.isEnabled(slotId);
+        mic.routeMatched = route.microphone;
+        mic.hostCarries = conn->hostMicAvailable();
+        mic.muted = micMuteStore_.isMuted(slotId);
+        if (audio::micCaptureEligible(mic)) {
+            source::audio::MicCaptureTarget target;
+            target.slotId = slotId;
+            target.captureDeviceName = route.captureDeviceName;
+            if (auto sender = hub_->micAudioSenderForSlot(s.id)) {
+                target.send = std::move(sender);
+                micTargets.push_back(std::move(target));
+            }
+        }
+
+        audio::AudioSlotFacts speaker;
+        speaker.streaming = streaming;
+        speaker.toggleOn = speakerEnabledStore_.isEnabled(slotId);
+        speaker.routeMatched = route.speaker;
+        speaker.hostCarries = conn->hostSpeakerAvailable();
+        if (audio::speakerPlayoutEligible(speaker)) {
+            const auto descriptor = conn->descriptorFor(s.id);
+            if (descriptor.has_value()) {
+                source::audio::SpeakerVoiceTarget voice;
+                voice.connectionId = s.boundConnectionId->toStdString();
+                voice.controllerIndex = descriptor->ctrlIdx;
+                voice.slotId = slotId;
+                voice.playbackDeviceName = route.playbackDeviceName;
+                speakerVoices.push_back(std::move(voice));
+            }
+        }
+    }
+
+    micEngine_.reconcile(micTargets);
+    speakerEngine_.reconcile(speakerVoices);
 }
 
 void AppModel::applyBindingPresence() {
