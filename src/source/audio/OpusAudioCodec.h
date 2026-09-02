@@ -35,7 +35,7 @@ namespace dish::audio {
 // not just channel count: the mic runs Opus's VOIP application at a bitrate
 // where in-band FEC exists, the speaker runs the AUDIO application at a bitrate
 // where fidelity matters more (OpusAudioCodec.cpp carries the numbers and why).
-enum class Stream { Mic, Speaker };
+enum class Stream : std::uint8_t { Mic, Speaker };
 
 // Declared here, defined in OpusAudioCodec.cpp, so the unique_ptrs below work
 // against the incomplete handle types above.
