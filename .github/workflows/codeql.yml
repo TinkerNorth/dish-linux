@@ -35,7 +35,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       - name: Install build dependencies
         run: |
@@ -50,9 +50,12 @@ jobs:
           Acquire::Retries "2";
           CONF
           sudo apt-get update
+          # catch2: the shared release preset configures with tests ON, and a
+          # system Catch2 keeps the configure off tests/' FetchContent fallback
+          # (a network fetch this lane does not otherwise need).
           sudo apt-get install -y --no-install-recommends \
             build-essential cmake ninja-build pkg-config \
-            libsodium-dev libsdl2-dev libssl-dev
+            libsodium-dev libsdl2-dev libssl-dev libopus-dev catch2
 
       # Not apt: noble ships Qt 6.4.2 and this project's floor is 6.7. The
       # action pulls the official binaries and exports CMAKE_PREFIX_PATH.
@@ -65,12 +68,16 @@ jobs:
           languages: ${{ matrix.language }}
           queries: security-extended,security-and-quality
 
+      # The configure flags live in CMakePresets.json (preset release), shared
+      # with linux-ci.yml and the local scripts. Two deliberate deltas against
+      # the old inline configure: the tree is build-release (the preset's
+      # binaryDir), and tests + translations are configured ON like the ci job
+      # (the traced build still compiles only Dish; setup-qt above provides
+      # the Linguist tools the translations flag requires).
       - name: Build
         run: |
-          cmake -S . -B build -G Ninja \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DDISH_BUILD_TESTS=OFF
-          cmake --build build --parallel --target Dish
+          cmake --preset release
+          cmake --build build-release --parallel --target Dish
 
       - name: Perform CodeQL analysis
         # SARIF upload requires GitHub Advanced Security on private repos.

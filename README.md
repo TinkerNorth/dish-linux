@@ -103,31 +103,34 @@ it in place. What the check sends is spelled out in [`PRIVACY.md`](PRIVACY.md).
 - GCC 12+ or Clang 15+, CMake 3.21+, Ninja
 - Qt 6.7+ (Core, Gui, Network, DBus, Svg, Quick, Qml, QuickControls2; Linguist
   tools for the translation catalogues)
-- libsodium, SDL2, OpenSSL (libcrypto), Catch2 v3
+- libsodium, SDL2, Opus, OpenSSL (libcrypto), Catch2 v3
 - Optional: `rsvg-convert`, which renders the rest of the launcher-icon ladder
   from the SVG. Without it the build says so and installs only the scalable and
   512x512 icons, which is enough for a working menu entry.
 
-On Debian and Ubuntu:
+Local builds and CI run on the same rails: `CMakePresets.json` carries the
+configure lines every workflow uses (`debug`, `release`, `package`), and the
+scripts under `scripts/` drive those presets. On Debian and Ubuntu:
 
 ```sh
-sudo apt install build-essential cmake ninja-build pkg-config \
-  qt6-base-dev qt6-base-dev-tools qt6-declarative-dev qt6-svg-dev \
-  qt6-tools-dev qt6-l10n-tools \
-  libsodium-dev libsdl2-dev libssl-dev libdbus-1-dev catch2 \
-  librsvg2-bin
-```
-
-Then:
-
-```sh
+scripts/install-deps.sh   # the apt list above + CI's pinned clang-format;
+                          # --ci-qt adds the exact Qt 6.9.3 CI builds against
 scripts/build.sh release
 ./build-release/dish
 ```
 
-`scripts/build.sh debug` builds into `build-debug/` instead, and
-`scripts/build.sh test` runs ctest after the build. `CONTRIBUTING.md` has the
-long-form CMake invocation and the hook, format and lint setup.
+`scripts/build.sh debug` builds the `debug` preset into `build/` (CI's tree
+name; earlier versions of this script used `build-debug/`), and
+`scripts/build.sh test` runs ctest after a debug build. Before pushing,
+`scripts/ci-local.sh` runs every `linux-ci.yml` gate in CI's order.
+`CONTRIBUTING.md` has the long-form preset invocation and the hook, format
+and lint setup.
+
+One deliberate difference between distro Qt and CI's Qt: the translation gate
+needs `lupdate` 6.9+ to resolve namespaced classes correctly, so on a distro
+whose Qt Linguist is older, `scripts/check-translations.sh` can report diffs
+CI does not. `scripts/install-deps.sh --ci-qt` installs the same Qt 6.9.3 CI
+uses if you hit that.
 
 ## How it works
 
@@ -268,8 +271,8 @@ extracting it.
 
 ```sh
 scripts/build.sh test
-# or, against an existing build tree
-ctest --test-dir build-debug --output-on-failure
+# or, against an existing debug-preset tree
+ctest --preset debug --parallel
 ```
 
 One `DishTests` executable links the `dish_core` library. It covers the pure

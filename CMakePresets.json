@@ -1,0 +1,74 @@
+{
+  "version": 3,
+  "cmakeMinimumRequired": { "major": 3, "minor": 21, "patch": 0 },
+  "configurePresets": [
+    {
+      "name": "debug",
+      "displayName": "Debug (tests, what linux-ci.yml builds first)",
+      "description": "The Debug lane linux-ci.yml configures: Ninja, tests on, translations required. No compiler is named: CI's gcc/clang matrix sets CC/CXX in the environment and CMake respects them natively, so a preset naming one would break the other leg. CI adds -DCMAKE_C[XX]_COMPILER_LAUNCHER=ccache on top of the preset; that stays workflow-side because a local box need not have ccache. DISH_REQUIRE_TRANSLATIONS is ON here, unlike CMakeLists' local-friendly OFF default, because local == CI is the point of the preset; note the gate itself also needs lupdate >= 6.9 (see .github/actions/setup-qt), which distro Qt may predate.",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "DISH_BUILD_TESTS": "ON",
+        "DISH_REQUIRE_TRANSLATIONS": "ON"
+      }
+    },
+    {
+      "name": "release",
+      "displayName": "Release (tests on, the shipping optimisation level)",
+      "description": "The Release lane linux-ci.yml configures and TESTS: -O3 plus LTO is a different compiler, so the suite runs against the configuration that ships, not only against Debug. Same compiler/ccache notes as the debug preset.",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build-release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "DISH_BUILD_TESTS": "ON",
+        "DISH_REQUIRE_TRANSLATIONS": "ON"
+      }
+    },
+    {
+      "name": "package",
+      "displayName": "Package (Release, /usr prefix, no tests)",
+      "description": "What the .deb/.rpm jobs configure (linux-ci.yml package, release.yml deb + rpm, via scripts/build-deb.sh / build-rpm.sh): install rules against /usr, tests off. Its own tree so a local package build never clobbers the release preset's build-release/. Translations are not required here: the package builds against the distro's Qt inside the target container, where the catalogues are compiled but the sync gate (which needs lupdate >= 6.9) is the ci job's business.",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build-package",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_INSTALL_PREFIX": "/usr",
+        "DISH_BUILD_TESTS": "OFF"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "debug",
+      "configurePreset": "debug"
+    },
+    {
+      "name": "release",
+      "configurePreset": "release"
+    },
+    {
+      "name": "package",
+      "configurePreset": "package"
+    }
+  ],
+  "testPresets": [
+    {
+      "name": "debug",
+      "configurePreset": "debug",
+      "output": { "outputOnFailure": true },
+      "environment": {
+        "QT_QPA_PLATFORM": "offscreen"
+      }
+    },
+    {
+      "name": "release",
+      "configurePreset": "release",
+      "output": { "outputOnFailure": true },
+      "environment": {
+        "QT_QPA_PLATFORM": "offscreen"
+      }
+    }
+  ]
+}

@@ -12,6 +12,7 @@
 #include "Util/Hex.h"
 #include "core/reducer/Backoff.h"
 #include "core/reducer/CloseNotify.h"
+#include "core/reducer/HostAudioVerdict.h"
 #include "core/reducer/ProtocolNegotiation.h"
 #include "core/reducer/Reconcile.h"
 #include "core/reducer/RestOutcome.h"
@@ -752,6 +753,7 @@ void WifiConnectionManager::openSession(WifiConnection* conn,
                     if (auto* c = connections_.value(id, nullptr)) { rekey(c, server); }
                 });
             conn->applyResults(resp.controllers);
+            probeHostAudio(id, server);
             const auto converge = reducer::lateSlotConverge(
                 sentDescriptors, descriptorsToDesired(conn->desiredDescriptors()));
             for (std::uint8_t ctrlIdx : converge.removes) { deleteSlot(id, ctrlIdx); }
@@ -868,6 +870,24 @@ void WifiConnectionManager::rekey(WifiConnection* conn, const models::Discovered
             client->setConnectionParams(token, sessionKey, negotiated.settledVersion);
             // Otherwise the next enriched ack would read as drift.
             c->adoptEpoch(resp.epoch);
+            // The satellite could have been upgraded or re-switched under the
+            // live session, same reason the protocol version re-settles above.
+            probeHostAudio(id, c->server());
+        });
+}
+
+void WifiConnectionManager::probeHostAudio(const QString& id,
+                                           const models::DiscoveredServer& server) {
+    // Unauthenticated read; a failure keeps the conservative "no audio"
+    // default rather than surfacing anything, because the absence of a verdict
+    // and a verdict of no are deliberately the same state.
+    http_->getCapabilities(
+        server.ip, server.httpPort, [this, id](const models::CapabilitiesDto& caps) {
+            auto* c = connections_.value(id, nullptr);
+            if (c == nullptr || c->state() != SessionState::Live) { return; }
+            if (!caps.reachable || caps.httpStatus < 200 || caps.httpStatus > 299) { return; }
+            const auto verdict = reducer::resolveHostControllerAudio(caps);
+            c->setHostControllerAudio(verdict.mic, verdict.speaker);
         });
 }
 

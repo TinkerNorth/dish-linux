@@ -41,6 +41,19 @@
       ]
     },
     {
+      "group": "org.opus-codec",
+      "artifact": "opus",
+      "version": "1.3+",
+      "name": "Opus",
+      "url": "https://opus-codec.org/",
+      "licenses": [
+        {
+          "name": "BSD 3-Clause License",
+          "url": "https://opensource.org/license/bsd-3-clause"
+        }
+      ]
+    },
+    {
       "group": "org.catchorg",
       "artifact": "Catch2",
       "version": "3.5.4",

@@ -126,6 +126,13 @@ class SDLGamepadBridge : public QObject {
   signals:
     void devicesChanged();
 
+    // An audio ENDPOINT appeared or vanished (SDL_AUDIODEVICEADDED/REMOVED).
+    // The bridge owns the one SDL event pump, so the events surface here, but
+    // SDL_INIT_AUDIO's lifecycle belongs to SdlAudioGateway — this signal only
+    // tells the pad-to-endpoint route resolver to re-run. Queued to the GUI
+    // thread; no payload, since the resolver re-enumerates wholesale anyway.
+    void audioDevicesChanged();
+
     // A raw joystick input observed while capture is enabled. `deviceId` is the
     // "sdl:<iid>" id; `kind` is 0=axis / 1=button / 2=hat; `index` is the raw
     // source index; `value` is the axis int16 / 1 for a button press / the

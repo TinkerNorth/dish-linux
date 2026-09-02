@@ -31,6 +31,7 @@
 #include "source/usb/UsbGamepadManager.h"
 #include "qml/AppSettingsMaps.h"
 #include "repository/DeadzoneRepository.h"
+#include "source/store/AudioEnabledStore.h"
 #include "source/store/CrashReportingStore.h"
 #include "source/store/MotionEnabledStore.h"
 #include "source/store/OnboardingPreferenceStore.h"
@@ -165,6 +166,10 @@ QString capFeatureToken(reducer::CapFeature f) {
         return QStringLiteral("triggerEffects");
     case reducer::CapFeature::PlayerLeds:
         return QStringLiteral("playerLeds");
+    case reducer::CapFeature::Mic:
+        return QStringLiteral("mic");
+    case reducer::CapFeature::Speaker:
+        return QStringLiteral("speaker");
     }
     return {};
 }
@@ -1247,7 +1252,8 @@ bool AppViewModel::catalogResolvedFor(const QString& hostId) const {
 QVariantList AppViewModel::capabilityForCandidate(const QString& slotId, int type,
                                                   const QString& hostKind, const QString& hostId,
                                                   const QString& desiredPath, bool motionOn,
-                                                  bool rumbleOn, int touchpadMode) const {
+                                                  bool rumbleOn, int touchpadMode, bool micOn,
+                                                  bool speakerOn) const {
     reducer::CapabilityInputs in;
 
     // An unknown slot leaves the input layer at its defaults rather than
@@ -1257,6 +1263,10 @@ QVariantList AppViewModel::capabilityForCandidate(const QString& slotId, int typ
         in.padTouchpad = slot->capabilities.hasTouchpad;
         in.padLightbar = slot->capabilities.hasLightbar;
         in.padRumble = slot->capabilities.hasRumble;
+        // The audio-route seam, one owner with the descriptor caps. Answers
+        // false for everything until Wave 2 lands the route matching.
+        in.padMic = model_->slotCarriesMicSource(slotId);
+        in.padSpeaker = model_->slotCarriesSpeakerSink(slotId);
         // A Bluetooth pad has no USB path to claim, so Direct is unreachable
         // rather than merely unselected.
         in.linkUsb = !slot->bluetooth;
@@ -1283,8 +1293,12 @@ QVariantList AppViewModel::capabilityForCandidate(const QString& slotId, int typ
         in.typeTouchpad = (ceiling & moonproto::kCapTouchpad) != 0;
         in.typeRumble = (ceiling & moonproto::kCapRumble) != 0;
         in.typeLightbar = (ceiling & moonproto::kCapRgbLed) != 0;
+        // typeMic/typeSpeaker stay false: GameStream has no controller-audio
+        // channel, so the type layer is the honest refusal for a Moonlight host.
         in.userMotionOn = motionOn;
         in.userRumbleOn = rumbleOn;
+        in.userMicOn = micOn;
+        in.userSpeakerOn = speakerOn;
         in.userTouchpadMode = touchpadMode;
 
         QVariantList moonRows;
@@ -1316,6 +1330,16 @@ QVariantList AppViewModel::capabilityForCandidate(const QString& slotId, int typ
         // advertises no block at all still carries it.
         in.hostRumble = rumble == hostFeatures.constEnd() ? true : rumble->supported;
     }
+    if (!hostIsBluetooth) {
+        // The mic/speaker host layer alone reads the live probe rather than the
+        // catalog: only /api/server/capabilities carries the host's audio
+        // switches, and they can flip between sessions. Deliberately outside
+        // the hostResolved gate above — the verdict is conservative false with
+        // no Pending state, so an unprobed host refuses rather than waits.
+        const auto audio = model_->hostControllerAudioFor(hostId);
+        in.hostMic = audio.mic;
+        in.hostSpeaker = audio.speaker;
+    }
 
     // Unresolved leaves typeResolved false, which refuses nothing.
     if (const auto typeDto = model_->catalogTypeFor(hostId, type)) {
@@ -1325,10 +1349,18 @@ QVariantList AppViewModel::capabilityForCandidate(const QString& slotId, int typ
         in.typeTouchpad = reducer::typeOffersTouchpadDs4(*typeDto);
         in.typeRumble = reducer::isFeatureOffered(*typeDto, catalog::kFeatureRumble, known);
         in.typeLightbar = reducer::isFeatureOffered(*typeDto, catalog::kFeatureLightbar, known);
+        // The audio slugs ride their own whitelist: they are protocol-2
+        // vocabulary and deliberately not in knownFeatureSlugs(), which the
+        // protocol-1 caps gate owns (see BundledCatalog.h).
+        const auto audioSlugs = catalog::audioFeatureSlugs();
+        in.typeMic = reducer::isFeatureOffered(*typeDto, catalog::kFeatureMic, audioSlugs);
+        in.typeSpeaker = reducer::isFeatureOffered(*typeDto, catalog::kFeatureSpeaker, audioSlugs);
     }
 
     in.userMotionOn = motionOn;
     in.userRumbleOn = rumbleOn;
+    in.userMicOn = micOn;
+    in.userSpeakerOn = speakerOn;
     in.userTouchpadMode = touchpadMode;
 
     QVariantList out;
@@ -1454,6 +1486,31 @@ bool AppViewModel::rumbleEnabledFor(const QString& /*slotId*/) const { return tr
 
 void AppViewModel::setRumbleEnabled(const QString& /*slotId*/, bool /*on*/) {}
 
+bool AppViewModel::micEnabledFor(const QString& slotId) const {
+    if (slotId.isEmpty()) { return source::MicEnabledStore::kDefaultEnabled; }
+    return model_->micEnabledStore()->isEnabled(slotId.toStdString());
+}
+
+void AppViewModel::setMicEnabled(const QString& slotId, bool on) {
+    if (slotId.isEmpty()) { return; }
+    model_->micEnabledStore()->setEnabled(slotId.toStdString(), on);
+}
+
+bool AppViewModel::speakerEnabledFor(const QString& slotId) const {
+    if (slotId.isEmpty()) { return source::SpeakerEnabledStore::kDefaultEnabled; }
+    return model_->speakerEnabledStore()->isEnabled(slotId.toStdString());
+}
+
+void AppViewModel::setSpeakerEnabled(const QString& slotId, bool on) {
+    if (slotId.isEmpty()) { return; }
+    model_->speakerEnabledStore()->setEnabled(slotId.toStdString(), on);
+}
+
+void AppViewModel::toggleSlotMicMute(const QString& slotId) {
+    if (slotId.isEmpty()) { return; }
+    model_->toggleSlotMicMute(slotId);
+}
+
 QString AppViewModel::discoverySourceFor(const QString& serverId) const {
     for (const auto& s : model_->wifi()->discoveredServers()) {
         if (s.id() == serverId) { return models::discoverySourceLabel(s.source); }
@@ -1470,7 +1527,7 @@ QString AppViewModel::applyDestinationState() const { return applyStepToken(appl
 
 void AppViewModel::applyBinding(const QString& slotId, const QString& connectionId, int type,
                                 const QString& desiredPath, bool motionOn, bool rumbleOn,
-                                int touchpadMode) {
+                                int touchpadMode, bool micOn, bool speakerOn) {
     if (applyInFlight()) { return; } // one run at a time; the overlay is modal
 
     // Re-resolve before anything is written: an earlier path switch can have
@@ -1491,6 +1548,8 @@ void AppViewModel::applyBinding(const QString& slotId, const QString& connection
     applyMotionOn_ = motionOn;
     applyRumbleOn_ = rumbleOn;
     applyTouchpadMode_ = touchpadMode;
+    applyMicOn_ = micOn;
+    applySpeakerOn_ = speakerOn;
 
     // Only a claimable wired pad has a path at all, and only a genuine change is
     // worth a 20 s budget.
@@ -1531,6 +1590,8 @@ void AppViewModel::beginApplyBind() {
                                         : applyTouchpadMode_ == 1 ? QStringLiteral("pad")
                                                                   : QStringLiteral("off"));
     setRumbleEnabled(applySlotId_, applyRumbleOn_);
+    setMicEnabled(applySlotId_, applyMicOn_);
+    setSpeakerEnabled(applySlotId_, applySpeakerOn_);
     if (applyIsMoonlight_) {
         // The host remembers the last pick so the NEXT binding on it starts
         // where this one did. The binding still owns the type it sends; this is

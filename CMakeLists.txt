@@ -137,6 +137,9 @@ find_package(Qt6 6.7 QUIET OPTIONAL_COMPONENTS LinguistTools)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(SODIUM REQUIRED IMPORTED_TARGET libsodium)
 pkg_check_modules(SDL2   REQUIRED IMPORTED_TARGET sdl2)
+# Controller audio (source/audio/OpusAudioCodec): the reference Opus codec,
+# found the same pkg-config way as the two above — every distro ships opus.pc.
+pkg_check_modules(OPUS   REQUIRED IMPORTED_TARGET opus)
 # OpenSSL's libcrypto backs the Moonlight-host pairing (AES-128, RSA, self-
 # signed X.509) and the control-stream AES-GCM, none of which libsodium offers.
 # Only libcrypto is used; the TLS client itself is Qt Network's.
@@ -222,6 +225,24 @@ set(DISH_CORE_SOURCES
     src/core/reducer/LatencyWindow.h
     src/core/reducer/CapabilitySolver.h
     src/core/reducer/CapabilitySolver.cpp
+    src/core/reducer/HostAudioVerdict.h
+    # Controller audio: the reorder window, the pure codec seam, the
+    # pad-to-endpoint matcher and the engine rules in core; the libopus link,
+    # the SDL device gateway and the engines at the source edge with the other
+    # third-party-facing code.
+    src/core/audio/AudioJitter.h
+    src/core/audio/AudioCodec.h
+    src/core/audio/PadAudioMatcher.h
+    src/core/audio/AudioEnginePolicy.h
+    src/source/audio/OpusAudioCodec.h
+    src/source/audio/OpusAudioCodec.cpp
+    src/source/audio/AudioDeviceGateway.h
+    src/source/audio/SdlAudioGateway.h
+    src/source/audio/SdlAudioGateway.cpp
+    src/source/audio/MicCaptureEngine.h
+    src/source/audio/MicCaptureEngine.cpp
+    src/source/audio/SpeakerPlayoutEngine.h
+    src/source/audio/SpeakerPlayoutEngine.cpp
     src/core/reducer/ApplyBindingMachine.h
     src/core/reducer/CatalogFeatureGate.h
     src/core/reducer/CatalogPrewarm.h
@@ -308,6 +329,10 @@ set(DISH_CORE_SOURCES
     src/source/store/ControllerTypeStore.cpp
     src/source/store/MotionEnabledStore.h
     src/source/store/MotionEnabledStore.cpp
+    src/source/store/AudioEnabledStore.h
+    src/source/store/AudioEnabledStore.cpp
+    src/source/store/MicMuteStore.h
+    src/source/store/MicMuteStore.cpp
     src/source/store/SatelliteMotionBackendStatusStore.h
     src/source/store/SatelliteMotionBackendStatusStore.cpp
     src/source/store/UsbPathPreferenceStore.h
@@ -388,6 +413,8 @@ set(DISH_CORE_SOURCES
     src/repository/DeadzoneRepository.cpp
     src/repository/MotionPreferenceRepository.h
     src/repository/MotionPreferenceRepository.cpp
+    src/repository/AudioPreferenceRepository.h
+    src/repository/AudioPreferenceRepository.cpp
     src/repository/TouchpadModeRepository.h
     src/composer/ConnectionsComposer.h
     src/composer/ConnectionsComposer.cpp
@@ -465,6 +492,8 @@ target_link_libraries(dish_core
         Qt6::Concurrent
         PkgConfig::SODIUM
         PkgConfig::SDL2
+        # Controller audio (see the pkg_check_modules comment above).
+        PkgConfig::OPUS
         Threads::Threads
     PRIVATE
         dish_warnings

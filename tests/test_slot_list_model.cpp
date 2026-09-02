@@ -89,8 +89,10 @@ TEST_CASE("SlotListModel: roleNames covers every Roles enumerator", "[slotmodel]
     SlotListModel model;
     const auto names = model.roleNames();
     // One entry per declared role: a role added without a name drifts this count.
-    REQUIRE(names.size() == 40);
+    REQUIRE(names.size() == 42);
     REQUIRE(names.value(SlotListModel::HasRumbleRole) == QByteArray("hasRumble"));
+    REQUIRE(names.value(SlotListModel::MicArmedRole) == QByteArray("micArmed"));
+    REQUIRE(names.value(SlotListModel::MicMutedRole) == QByteArray("micMuted"));
     REQUIRE(names.value(SlotListModel::BatteryLowRole) == QByteArray("batteryLow"));
     REQUIRE(names.value(SlotListModel::IdRole) == QByteArray("slotId"));
     REQUIRE(names.value(SlotListModel::NameRole) == QByteArray("name"));

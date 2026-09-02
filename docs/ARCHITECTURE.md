@@ -317,7 +317,7 @@ The threads in the app:
 | SDL input | [`SDLGamepadBridge`](../src/Input/SDLGamepadBridge.h) | The SDL event pump, `GamepadInputProcessor::publish`, and the `sendto` that follows it |
 | USB direct | `UsbGamepadManager` per claimed device | Raw-HID URB reads, feeding the same publish path |
 | Heartbeat | [`SatelliteClient`](../src/Network/SatelliteClient.h) | Per-session keepalive sends and ping arming |
-| Receive | `SatelliteClient` | Ack decode, RTT sampling, the feedback callbacks (rumble, lightbar, trigger effects, player LEDs), close-notify |
+| Receive | `SatelliteClient` | Ack decode, RTT sampling, the feedback callbacks (rumble, lightbar, trigger effects, player LEDs, speaker audio, mic LED), close-notify |
 
 **The input hot path is intentionally not routed through the kernel.** The
 input, decode, encode, `sendto` path is plain C++ with no queue, no Qt event
@@ -353,20 +353,75 @@ an actuator the satellite will never drive.
 questions from the same inputs, and both `ConnectionHub`'s capability functions
 and `AppModel::actuate*` go through it. The two paths carry different amounts:
 
-| Path | Rumble | Lightbar | Adaptive triggers | Player LEDs |
-|---|---|---|---|---|
-| Standard (SDL) | yes | yes | **no** | **no** |
-| Direct (raw HID) | yes | yes | yes | yes |
+| Path | Rumble | Lightbar | Adaptive triggers | Player LEDs | Mic-mute lamp |
+|---|---|---|---|---|---|
+| Standard (SDL) | yes | yes | **no** | **no** | **no** |
+| Direct (raw HID) | yes | yes | yes | yes | yes* |
 
-SDL has a rumble call and an LED call and nothing else, so the last two columns
-are structurally out of reach there however good the pad is. The Direct path
-reaches them because the claim writes OUT reports as well as reading IN ones;
-the bytes are built by [`UsbOutputReports`](../src/core/input/UsbOutputReports.h),
-which is pure and host-tested, and the gateway adds only the framing the
-platform itself demands (on hidraw, none: the builder's length is the transfer
-length). A Direct claim that has gone away carries nothing —
-there is deliberately no fallback to Standard, because a pad on the Direct path
-is not open on the SDL path at the same time.
+SDL has a rumble call and an LED call and nothing else, so the last three
+columns are structurally out of reach there however good the pad is. The Direct
+path reaches them because the claim writes OUT reports as well as reading IN
+ones; the bytes are built by
+[`UsbOutputReports`](../src/core/input/UsbOutputReports.h), which is pure and
+host-tested, and the gateway adds only the framing the platform itself demands
+(on hidraw, none: the builder's length is the transfer length). A Direct claim
+that has gone away carries nothing — there is deliberately no fallback to
+Standard, because a pad on the Direct path is not open on the SDL path at the
+same time.
+
+\* `MSG_MIC_LED` (0x0014) resolves through the same router into the DS5
+mute-lamp builder, whose state lives in the per-claim `FeedbackState` shadow:
+every DS5 report starts from a fresh memset and the firmware applies whatever
+the valid flags claim, so each builder re-asserts the last lamp or an unrelated
+colour change would be a lamp-off write. The lamp is also driven locally the
+moment mute toggles (the button must never feel dead waiting on a host
+round-trip); a later host write repaints it — last writer wins on the PAD,
+while the app UI always shows the local mute truth (`MicMuteStore`).
+
+### Controller audio: routes, verdict, engines
+
+The controller-audio caps (`mic`/`speaker`) go through the same "advertised iff
+it lands" rule but are keyed on the pad's AUDIO routes
+(`slotCarriesMicCapture` / `slotCarriesSpeakerPlayout`) rather than the HID
+path: the streams ride the pad's own USB-audio endpoints, a separate USB
+interface the OS keeps while this client claims only HID. The routes come from
+[`PadAudioMatcher`](../src/core/audio/PadAudioMatcher.h), which matches the
+claimed pad's USB product string (iProduct, read from sysfs at enumeration —
+the same string pipewire and pulse embed in the pad's audio device names)
+against the endpoint names SDL enumerates, and resolves EVERY ambiguity to "no
+route" (two DualSenses share a string; so does a DS4 — a wrong route is worse
+than none). `AppModel::resolveAudioRoutes` re-runs it on claim changes and on
+SDL's audio hotplug events (pumped by the bridge's event loop, forwarded as
+`audioDevicesChanged`), and a changed route re-binds the affected slots so
+their descriptors re-fold and re-PUT.
+
+The host's live verdict is a third layer: `WifiConnectionManager::probeHostAudio`
+reads `GET /api/server/capabilities` after every session PUT and folds it via
+[`HostAudioVerdict`](../src/core/reducer/HostAudioVerdict.h) into per-session
+connection state — conservative "no audio" until a probe answers, reset with
+the session.
+
+The engines execute the pure rules in
+[`AudioEnginePolicy`](../src/core/audio/AudioEnginePolicy.h) and nothing else:
+`MicCaptureEngine` opens one capture device per eligible slot (streaming AND
+toggled on AND route matched AND host verdict AND not muted), windows the
+callback stream to exact 20 ms frames, Opus-encodes and sends `MSG_MIC_AUDIO`
+with a caller-owned seq that advances on failed encodes too;
+`SpeakerPlayoutEngine` holds one playback device per eligible slot, fed on the
+receive thread through the reorder window and the Opus decoder's FEC/PLC, with
+a two-frame start cushion that is rebuilt as silence when a suppressed-silence
+stretch drains the queue. Both talk SDL only through
+[`AudioDeviceGateway`](../src/source/audio/AudioDeviceGateway.h);
+`SdlAudioGateway` owns `SDL_INIT_AUDIO`'s lifecycle — deliberately NOT the SDL
+bridge, whose gamepad subsystems stop and start without taking a live stream
+down. THE PRIVACY INVARIANT: muted or ineligible means the capture device is
+CLOSED and zero `sendMicAudio` calls happen — not silence sent in their place —
+enforced structurally by the reconcile and per-window by the session's enabled
+flag, and pinned by the engine tests. The DualSense's own mute button is a
+decoder-owned latch (`MicMuteLatch`) folded into `wButtons` as `kXusbMicMute`
+on the read thread, mirrored up on the edge, and stripped from every Moonlight
+button word by `moonmap::toMoonlightButtons`, whose explicit per-bit map has no
+row for it (a pin test keeps it that way).
 
 **Not reachable on this platform, with the reason:** the Xbox One / Series pad's
 impulse-trigger motors. xpad binds an Xbox-class pad as evdev-only and publishes

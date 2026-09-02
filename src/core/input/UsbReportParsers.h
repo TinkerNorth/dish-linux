@@ -18,6 +18,7 @@
 
 #include "core/input/GamepadButtonLayouts.h"
 
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 
@@ -82,6 +83,20 @@ struct StickAutoRangeState {
     // carry pad data.
     std::int16_t steamStickX = 0;
     std::int16_t steamStickY = 0;
+};
+
+// The DualSense mic-mute button is momentary, but the wire's kXusbMicMute
+// carries the mute STATE it toggles (contract, Controller audio), so the latch
+// that state lives in is ours to keep — for as long as the pad is claimed,
+// which is the same lifetime the pad's own firmware gives its mute setting.
+// Its own struct rather than a StickAutoRangeState field because two threads
+// touch it: the read loop flips it on the button edge, and the app writes it
+// when the user toggles mute in the UI, so the slot-card control and the pad's
+// button stay one state. Relaxed atomics — last writer wins is exactly the
+// semantic a human-scale toggle wants, and the read loop must not take a lock.
+struct MicMuteLatch {
+    std::atomic<bool> held{false};
+    std::atomic<bool> muted{false};
 };
 
 // Normalised to the XUSB axis/trigger scale.
@@ -299,8 +314,12 @@ inline bool decodeDualShock4(const std::uint8_t* buf, std::size_t len, ParsedRep
 //   buf[6]=R2 analog; buf[8] face/hat (low nibble hat, 0x10 Square/X 0x20 Cross/A
 //   0x40 Circle/B 0x80 Triangle/Y); buf[9]: 0x01 L1 0x02 R1 0x10 Create(Back) 0x20
 //   Options(Start) 0x40 L3 0x80 R3.
+//
+// `mute` is the cross-report mic-mute latch; null decodes everything except the
+// mute state, which is the honest answer for a caller that kept no per-device
+// memory (dish-android's decoder makes the same offer).
 inline bool decodeDualSense(const std::uint8_t* buf, std::size_t len, ParsedReport& s,
-                            StickAutoRangeState& /*unused*/) {
+                            StickAutoRangeState& /*unused*/, MicMuteLatch* mute = nullptr) {
     if (len < 11) { return false; }
     if (buf[0] != 0x01) { return false; }
 
@@ -325,6 +344,19 @@ inline bool decodeDualSense(const std::uint8_t* buf, std::size_t len, ParsedRepo
     if ((buf[9] & 0x80) != 0) { b |= layout::kXusbRightThumb; }
     // PS button.
     if (len > 10 && (buf[10] & 0x01) != 0) { b |= layout::kXusbGuide; }
+    // Mic-mute lives beside the PS button and the touchpad click in button
+    // byte 10 (0x04 next to 0x01 and 0x02). The press is an edge, the wire bit
+    // is a state: flip the latch on the way down only, so holding the button
+    // does not chatter the mute on and off at report rate.
+    if (mute != nullptr) {
+        const bool muteDown = (buf[10] & 0x04) != 0;
+        if (muteDown && !mute->held.load(std::memory_order_relaxed)) {
+            mute->muted.store(!mute->muted.load(std::memory_order_relaxed),
+                              std::memory_order_relaxed);
+        }
+        mute->held.store(muteDown, std::memory_order_relaxed);
+        if (mute->muted.load(std::memory_order_relaxed)) { b |= layout::kXusbMicMute; }
+    }
     b = setDpadFromHat(b, static_cast<std::uint8_t>(buf[8] & 0x0F));
     s.wButtons = b;
 
@@ -671,14 +703,16 @@ inline WirelessEvent checkWirelessEvent(HidParser p, const std::uint8_t* buf, st
 }
 
 // False leaves `out` untouched: the family is None, or the report was too short
-// or carried the wrong id.
+// or carried the wrong id. `micMute` reaches only the family with the button;
+// null (the default) decodes without a mute state.
 inline bool decodeReport(HidParser parser, const std::uint8_t* buf, std::size_t len,
-                         ParsedReport& out, StickAutoRangeState& sticks) {
+                         ParsedReport& out, StickAutoRangeState& sticks,
+                         MicMuteLatch* micMute = nullptr) {
     switch (parser) {
     case HidParser::DualShock4:
         return decodeDualShock4(buf, len, out, sticks);
     case HidParser::DualSense:
-        return decodeDualSense(buf, len, out, sticks);
+        return decodeDualSense(buf, len, out, sticks, micMute);
     case HidParser::SwitchProUsb:
         return decodeSwitchProUsb(buf, len, out, sticks);
     case HidParser::GenericHid:
@@ -765,6 +799,16 @@ inline bool parserHasTouchpad(HidParser parser) {
 inline bool parserHasRumble(HidParser parser) {
     return parser == HidParser::DualShock4 || parser == HidParser::DualSense ||
            parser == HidParser::SwitchProUsb;
+}
+
+// Whether the FAMILY is a composite whose USB device carries a USB Audio Class
+// function next to the HID interface (the DualSense, and the DualShock 4 whose
+// v2 revision streams audio over USB). The audio function stays with the OS —
+// this path claims only HID — so this is a candidacy fact for the audio-route
+// matcher, not a promise: whether the endpoints actually enumerated is the
+// matcher's question (a v1 DS4 simply never shows them).
+inline bool parserHasUsbAudio(HidParser parser) {
+    return parser == HidParser::DualShock4 || parser == HidParser::DualSense;
 }
 
 } // namespace dish::input::usbparse
