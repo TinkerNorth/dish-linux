@@ -6,6 +6,8 @@
 #include "Util/Endian.h"
 #include "core/wire/SessionCrypto.h"
 
+#include <QtGlobal>
+
 #include <sodium.h>
 
 #include <chrono>
@@ -268,9 +270,43 @@ void SatelliteClient::sendTouchpad(int controllerIndex, bool finger0Active, std:
     sendEncrypted(kMsgTouchpad, payload.data(), payload.size());
 }
 
+std::array<std::uint8_t, 3> SatelliteClient::encodeAudioFrameHeader(std::uint8_t controllerIndex,
+                                                                    std::uint16_t seq) {
+    return {controllerIndex, static_cast<std::uint8_t>(seq >> 8),
+            static_cast<std::uint8_t>(seq & 0xFFU)};
+}
+
+bool SatelliteClient::sendMicAudio(int controllerIndex, std::uint16_t seq, const std::uint8_t* opus,
+                                   std::size_t opusLen) {
+    // An empty packet is malformed by contract, and the satellite would drop
+    // it anyway; the upper bound keeps the assembled payload under the
+    // datagram ceiling so the refusal happens before the copy, not after.
+    if (opus == nullptr || opusLen == 0 || opusLen > proto::kAudioWireMaxOpusBytes) {
+        return false;
+    }
+    std::vector<std::uint8_t> payload(static_cast<std::size_t>(proto::kAudioWireHeaderBytes) +
+                                      opusLen);
+    const auto header = encodeAudioFrameHeader(static_cast<std::uint8_t>(controllerIndex), seq);
+    std::memcpy(payload.data(), header.data(), header.size());
+    std::memcpy(payload.data() + header.size(), opus, opusLen);
+    return sendEncrypted(kMsgMicAudio, payload.data(), payload.size());
+}
+
 bool SatelliteClient::sendEncrypted(std::uint16_t msgType, const std::uint8_t* payload,
                                     std::size_t len) {
     if (sock_ < 0) { return false; }
+    // Datagram ceiling. Nothing legitimate approaches it — everything but
+    // audio sits under 30 bytes, and a real 20 ms Opus packet is ~80-240 — so
+    // an oversize payload is a caller bug: refuse it here rather than emit a
+    // fragmented datagram the satellite would truncate and fail the AEAD on.
+    // Logged once per client, not per frame (see oversizeSendLogged_).
+    if (len > proto::kUdpMaxInnerPayloadBytes) {
+        if (!oversizeSendLogged_.exchange(true, std::memory_order_relaxed)) {
+            qWarning("SatelliteClient: refusing oversize payload (%zu > %zu bytes, msgType 0x%04X)",
+                     len, proto::kUdpMaxInnerPayloadBytes, msgType);
+        }
+        return false;
+    }
     // Inner: msgType(BE16) + payloadLen(BE16) + payload.
     const std::size_t innerLen = 4 + len;
     std::vector<std::uint8_t> inner(innerLen);
@@ -369,7 +405,11 @@ void SatelliteClient::stopReceiveLoop() {
 }
 
 void SatelliteClient::receiveLoop() {
-    std::uint8_t buf[256];
+    // A full datagram, not the 256 bytes of the pre-audio protocol: recvfrom
+    // TRUNCATES a UDP datagram to the buffer and a truncated SPEAKER_AUDIO
+    // ciphertext then fails the AEAD, so every full-size audio frame would be
+    // silently dropped here.
+    std::uint8_t buf[proto::kUdpDatagramMaxBytes];
     while (ackRunning_.load(std::memory_order_relaxed)) {
         if (sock_ < 0) { break; }
         sockaddr_in from{};
@@ -481,6 +521,26 @@ void SatelliteClient::processIncoming(const std::uint8_t* buf, std::size_t n) {
             handler = playerLedsHandler_;
         }
         if (handler) { handler(*pm); }
+    } else if (msgType == kMsgSpeakerAudio) {
+        // The message borrows the receive buffer: the handler decodes or
+        // copies before returning, which is the SpeakerAudioMessage contract.
+        const auto sm = parseSpeakerAudioMessage(body, bodyLen);
+        if (!sm) { return; }
+        SpeakerAudioHandler handler;
+        {
+            std::lock_guard<std::mutex> lock(speakerAudioHandlerMtx_);
+            handler = speakerAudioHandler_;
+        }
+        if (handler) { handler(*sm); }
+    } else if (msgType == kMsgMicLed) {
+        const auto mm = parseMicLedMessage(body, bodyLen);
+        if (!mm) { return; }
+        MicLedHandler handler;
+        {
+            std::lock_guard<std::mutex> lock(micLedHandlerMtx_);
+            handler = micLedHandler_;
+        }
+        if (handler) { handler(*mm); }
     } else if (msgType == kMsgSessionClose) {
         if (bodyLen < 1) { return; }
         const std::uint8_t reason = body[0];
@@ -514,6 +574,16 @@ void SatelliteClient::setTriggerEffectsHandler(TriggerEffectsHandler handler) {
 void SatelliteClient::setPlayerLedsHandler(PlayerLedsHandler handler) {
     std::lock_guard<std::mutex> lock(playerLedsHandlerMtx_);
     playerLedsHandler_ = std::move(handler);
+}
+
+void SatelliteClient::setSpeakerAudioHandler(SpeakerAudioHandler handler) {
+    std::lock_guard<std::mutex> lock(speakerAudioHandlerMtx_);
+    speakerAudioHandler_ = std::move(handler);
+}
+
+void SatelliteClient::setMicLedHandler(MicLedHandler handler) {
+    std::lock_guard<std::mutex> lock(micLedHandlerMtx_);
+    micLedHandler_ = std::move(handler);
 }
 
 void SatelliteClient::setHeartbeatAckHandler(HeartbeatAckHandler handler) {
@@ -573,6 +643,36 @@ SatelliteClient::parsePlayerLedsMessage(const std::uint8_t* payload, std::size_t
     pm.controllerIndex = payload[0];
     pm.ledMask = payload[1];
     return pm;
+}
+
+std::optional<SatelliteClient::SpeakerAudioMessage>
+SatelliteClient::parseSpeakerAudioMessage(const std::uint8_t* payload, std::size_t len) {
+    // Floor, not exact: everything after the 3-byte header IS the Opus packet
+    // (Opus packets are self-delimiting), and a header with no Opus byte behind
+    // it is malformed — a silence frame is a 1-byte DTX packet, never an empty
+    // one.
+    if (payload == nullptr || len < kAudioWireMinPayloadLen) { return std::nullopt; }
+    SpeakerAudioMessage sm;
+    sm.controllerIndex = payload[0];
+    sm.seq = readU16Be(payload + 1);
+    sm.opus = payload + proto::kAudioWireHeaderBytes;
+    sm.opusLen = len - static_cast<std::size_t>(proto::kAudioWireHeaderBytes);
+    return sm;
+}
+
+std::optional<SatelliteClient::MicLedMessage>
+SatelliteClient::parseMicLedMessage(const std::uint8_t* payload, std::size_t len) {
+    // Exact length, unlike the floor rules above: the message is a coalesced
+    // last-value-wins state, so a longer frame is not a newer server appending
+    // fields but a frame this client does not understand at all.
+    if (payload == nullptr || len != kMicLedPayloadLen) { return std::nullopt; }
+    // An unknown state byte is dropped rather than clamped: rendering "some
+    // lamp mode" the game never asked for would be a guess at firmware.
+    if (payload[1] >= proto::kMicLedStateCount) { return std::nullopt; }
+    MicLedMessage mm;
+    mm.controllerIndex = payload[0];
+    mm.state = payload[1];
+    return mm;
 }
 
 std::optional<SatelliteClient::RumbleMessage>

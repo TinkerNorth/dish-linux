@@ -217,8 +217,17 @@ std::optional<ProbedNode> probe(const std::string& hidrawName) {
 
     ProbedNode probed;
     probed.node = "/dev/" + hidrawName;
-    // HID_NAME is the same hid->name string HIDIOCGRAWNAME copies out.
-    probed.name = detail::ueventValue(uevent, "HID_NAME");
+    // The USB device's `product` attribute (iProduct) first: the audio stack
+    // derives its card and node names from that same descriptor string, and
+    // the pad-to-endpoint matcher (core/audio/PadAudioMatcher.h) keys on
+    // exactly that shared fact — it is also what Windows and android
+    // enumerate, so the pad shows one name across clients. HID_NAME would not
+    // do for either job: the kernel builds it as "<manufacturer> <product>",
+    // and the longer string is contained in no endpoint name. It stays as the
+    // fallback (the same hid->name string HIDIOCGRAWNAME copies out) for a
+    // device with no readable product string.
+    probed.name = readSysfsLine(sysDir + "/../../product");
+    if (probed.name.empty()) { probed.name = detail::ueventValue(uevent, "HID_NAME"); }
     probed.vendorId = static_cast<std::uint16_t>(ids->vendorId);
     probed.productId = static_cast<std::uint16_t>(ids->productId);
     // Admission is decided per parser at the call sites, so probe keeps the
@@ -425,14 +434,17 @@ void HidrawGateway::readLoop(Claimed* c) {
         }
 
         input::usbparse::ParsedReport parsed{};
-        const bool decoded =
-            c->layout.valid
-                ? input::usbhid::decodeFromLayout(data, len, parsed, c->layout)
-                : input::usbparse::decodeReport(c->parser, data, len, parsed, c->sticks);
+        const bool decoded = c->layout.valid
+                                 ? input::usbhid::decodeFromLayout(data, len, parsed, c->layout)
+                                 : input::usbparse::decodeReport(c->parser, data, len, parsed,
+                                                                 c->sticks, &c->micMute);
         if (!decoded) { continue; }
 
         UsbReport report{};
         report.wButtons = parsed.wButtons;
+        // The latch, not the button: what the wire's kXusbMicMute bit carries,
+        // mirrored up so the driver can edge-detect it.
+        report.micMuted = c->micMute.muted.load(std::memory_order_relaxed);
         report.lt = parsed.lt;
         report.rt = parsed.rt;
         report.lx = parsed.lx;
@@ -489,6 +501,17 @@ std::int64_t HidrawGateway::completionCount(int syntheticId) const {
     const auto it = claimed_.find(syntheticId);
     if (it == claimed_.end()) { return 0; }
     return it->second->completions.load();
+}
+
+bool HidrawGateway::setPadMicMuted(int syntheticId, bool muted) {
+    std::lock_guard<std::mutex> lock(mtx_);
+    const auto it = claimed_.find(syntheticId);
+    if (it == claimed_.end()) { return false; }
+    if (it->second->parser != input::usbparse::HidParser::DualSense) { return false; }
+    // The latch alone, never `held`: a UI toggle is not a button press, and
+    // touching the edge tracker could swallow or double a real press racing in.
+    it->second->micMute.muted.store(muted, std::memory_order_relaxed);
+    return true;
 }
 
 bool HidrawGateway::writeOutputReport(int syntheticId, const std::uint8_t* data, std::size_t len) {

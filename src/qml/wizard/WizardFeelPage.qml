@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 // Copyright (C) 2026 Dish contributors.
 //
-// Wizard page 4 — Binding · feel. All four rows render always; an unavailable one
+// Wizard page 4 — Binding · feel. All six rows render always; an unavailable one
 // names the layer that refused it, and only the CONTROL dims — the reason is the
 // part the user came for. Reasons come from BindingDraft.whyFor(), which
 // Configure binding reads too, so one pad never gets two explanations.
@@ -35,7 +35,7 @@ ColumnLayout {
         // Nothing to fetch: the solver reads what pages 1-3 already resolved.
     }
 
-    // ── The four extras ─────────────────────────────────────────────────────
+    // ── The six extras ──────────────────────────────────────────────────────
     // `gated` marks the ones this binding actually owns a switch for. The light
     // bar is forwarded per-app, not per-binding, so its control reports rather
     // than sets.
@@ -67,6 +67,20 @@ ColumnLayout {
             "body": qsTr("The game drives the pad’s light bar. Lightbar forwarding is a global setting."),
             "segmented": false,
             "gated": false
+        },
+        {
+            "feature": "mic",
+            "label": qsTr("Microphone"),
+            "body": qsTr("The pad’s mic carries your voice to the host. Off sends nothing."),
+            "segmented": false,
+            "gated": true
+        },
+        {
+            "feature": "speaker",
+            "label": qsTr("Controller sound"),
+            "body": qsTr("Audio from the host plays on the pad’s speaker or headset."),
+            "segmented": false,
+            "gated": true
         }
     ]
 
@@ -110,6 +124,10 @@ ColumnLayout {
             return page.draft.rumbleOn;
         if (feature === "motion")
             return page.draft.motionOn;
+        if (feature === "mic")
+            return page.draft.micOn;
+        if (feature === "speaker")
+            return page.draft.speakerOn;
         return App.lightbarFollowGame;
     }
 
@@ -118,6 +136,10 @@ ColumnLayout {
             page.draft.setRumble(on);
         else if (feature === "motion")
             page.draft.setMotion(on);
+        else if (feature === "mic")
+            page.draft.setMic(on);
+        else if (feature === "speaker")
+            page.draft.setSpeaker(on);
     }
 
     spacing: Tokens.s6

@@ -48,6 +48,9 @@ class SatelliteClient {
     static constexpr std::uint16_t kMsgSessionClose = proto::kMsgSessionClose;
     static constexpr std::uint16_t kMsgTriggerEffects = proto::kMsgTriggerEffects;
     static constexpr std::uint16_t kMsgPlayerLeds = proto::kMsgPlayerLeds;
+    static constexpr std::uint16_t kMsgMicAudio = proto::kMsgMicAudio;
+    static constexpr std::uint16_t kMsgSpeakerAudio = proto::kMsgSpeakerAudio;
+    static constexpr std::uint16_t kMsgMicLed = proto::kMsgMicLed;
 
     // Carried in the REST descriptor's caps object.
     static constexpr std::uint16_t kCapAnalogTriggers = proto::kCapAnalogTriggers;
@@ -56,6 +59,8 @@ class SatelliteClient {
     static constexpr std::uint16_t kCapLightbar = proto::kCapLightbar;
     static constexpr std::uint16_t kCapTriggerEffects = proto::kCapTriggerEffects;
     static constexpr std::uint16_t kCapPlayerLeds = proto::kCapPlayerLeds;
+    static constexpr std::uint16_t kCapMic = proto::kCapMic;
+    static constexpr std::uint16_t kCapSpeaker = proto::kCapSpeaker;
 
     // Wire values, mirroring satellite/src/core/types.h.
     static constexpr std::uint8_t kBatteryLevelUnknown = 0xFF;
@@ -128,6 +133,18 @@ class SatelliteClient {
         return static_cast<std::uint16_t>(base | (hasPlayerLeds ? kCapPlayerLeds : 0));
     }
 
+    // Controller audio. Same actuator/source rule: kCapMic promises the client
+    // sources 0x0012 (and lands the 0x0014 lamp, which rides it), kCapSpeaker
+    // that it plays 0x0013. Independent directions — the fold sets each only
+    // where the matching audio route exists (core/reducer/FeedbackRouting.h).
+    static std::uint16_t withMicCapability(std::uint16_t base, bool hasMic) {
+        return static_cast<std::uint16_t>(base | (hasMic ? kCapMic : 0));
+    }
+
+    static std::uint16_t withSpeakerCapability(std::uint16_t base, bool hasSpeaker) {
+        return static_cast<std::uint16_t>(base | (hasSpeaker ? kCapSpeaker : 0));
+    }
+
     // Axes are the satellite's right-handed frame (+X right, +Y up, +Z toward
     // player); SDL already applies the manufacturer rotation for HIDAPI pads, so
     // samples arrive in that frame. Scale: gyro LSB = 2000/32767 deg/s, accel LSB
@@ -145,6 +162,22 @@ class SatelliteClient {
                       std::int16_t finger0X, std::int16_t finger0Y, bool finger1Active,
                       std::uint8_t finger1Id, std::int16_t finger1X, std::int16_t finger1Y,
                       bool buttonPressed, std::uint32_t eventTimeMs);
+
+    // MSG_MIC_AUDIO: ctrlIdx(1) + seq(u16 BE) + exactly one 20 ms Opus packet.
+    // `seq` wraps and exists only for the receiver's gap detection and
+    // late-drop; the caller advances it once per encoded frame. An empty packet
+    // is malformed by contract (a DTX silence frame is a 1-byte packet, not an
+    // empty one) and is refused here, as is a packet the datagram ceiling
+    // cannot carry. Returns false when nothing was sent.
+    bool sendMicAudio(int controllerIndex, std::uint16_t seq, const std::uint8_t* opus,
+                      std::size_t opusLen);
+
+    // The 3-byte header both audio messages carry ahead of their Opus bytes,
+    // big-endian unlike the LE up-stream payloads: it mirrors the satellite's
+    // own encodeAudioFrameHeader (core/types.h). Explicit shifts keep it
+    // host-byte-order-independent.
+    static std::array<std::uint8_t, 3> encodeAudioFrameHeader(std::uint8_t controllerIndex,
+                                                              std::uint16_t seq);
 
     // MSG_MOTION inner payload, after the 4-byte type+length header: ctrlIdx +
     // 6×i16 + u32, little-endian to match the satellite's decodeMotionReport.
@@ -206,6 +239,42 @@ class SatelliteClient {
     // Header already stripped. Fixed 2 bytes: ctrlIdx(1) + ledMask(1).
     static std::optional<PlayerLedsMessage> parsePlayerLedsMessage(const std::uint8_t* payload,
                                                                    std::size_t len);
+
+    struct SpeakerAudioMessage {
+        int controllerIndex = 0;
+        std::uint16_t seq = 0;
+        // One Opus packet, borrowed from the receive buffer: valid only for the
+        // duration of the handler call, so a consumer that queues must copy.
+        // Opus packets are self-delimiting, so the length IS the packet.
+        const std::uint8_t* opus = nullptr;
+        std::size_t opusLen = 0;
+    };
+
+    using SpeakerAudioHandler = std::function<void(const SpeakerAudioMessage&)>;
+    void setSpeakerAudioHandler(SpeakerAudioHandler handler);
+
+    // Header already stripped. Floor kAudioWireMinPayloadLen (header + at least
+    // one Opus byte); everything past the header is the packet.
+    static constexpr std::size_t kAudioWireMinPayloadLen =
+        static_cast<std::size_t>(proto::kAudioWireMinPayloadBytes);
+    static std::optional<SpeakerAudioMessage> parseSpeakerAudioMessage(const std::uint8_t* payload,
+                                                                       std::size_t len);
+
+    struct MicLedMessage {
+        int controllerIndex = 0;
+        std::uint8_t state = 0; // proto::kMicLedState*
+    };
+
+    using MicLedHandler = std::function<void(const MicLedMessage&)>;
+    void setMicLedHandler(MicLedHandler handler);
+
+    // Header already stripped. Exactly 2 bytes — ctrlIdx(1) + state(1) — and
+    // the state must be a known kMicLedState*: an unknown lamp mode can only
+    // come from a host speaking something we do not, so it is dropped rather
+    // than guessed at (the same rule as the satellite's own decoder).
+    static constexpr std::size_t kMicLedPayloadLen = 2;
+    static std::optional<MicLedMessage> parseMicLedMessage(const std::uint8_t* payload,
+                                                           std::size_t len);
 
     struct RumbleMessage {
         int controllerIndex = 0;
@@ -302,7 +371,9 @@ class SatelliteClient {
     friend class SatelliteClientTestAccess;
 
     // False only on a real failure: a buffer-full drop reports success, since
-    // UDP absorbs it.
+    // UDP absorbs it. Also false when nothing went on the wire at all — no
+    // socket, counter exhausted, the AEAD refused, or the payload is over the
+    // datagram ceiling (the one-time logged refusal; see the definition).
     bool sendEncrypted(std::uint16_t msgType, const std::uint8_t* payload, std::size_t len);
     void heartbeatLoop();
     void receiveLoop();
@@ -355,6 +426,14 @@ class SatelliteClient {
     TriggerEffectsHandler triggerEffectsHandler_;
     std::mutex playerLedsHandlerMtx_;
     PlayerLedsHandler playerLedsHandler_;
+    std::mutex speakerAudioHandlerMtx_;
+    SpeakerAudioHandler speakerAudioHandler_;
+    std::mutex micLedHandlerMtx_;
+    MicLedHandler micLedHandler_;
+    // One log line per client for an oversize send, not one per frame: at 50
+    // audio frames a second a misconfigured caller would otherwise turn one
+    // mistake into a log flood.
+    std::atomic<bool> oversizeSendLogged_{false};
 
     // Read on the input thread (frame selection) and written on the owner
     // thread (a re-PUT), so it is atomic rather than guarded by materialMtx_:

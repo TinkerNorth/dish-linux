@@ -32,6 +32,10 @@ enum class FeedbackKind : std::uint8_t {
     Lightbar,
     TriggerEffects,
     PlayerLeds,
+    // The mic-mute lamp (kMsgMicLed). A feedback kind like the others even
+    // though its gate is CAP_MIC rather than a cap of its own: the routing
+    // question — where does a delivered state land — is the same question.
+    MicLed,
 };
 
 enum class FeedbackTarget : std::uint8_t {
@@ -56,6 +60,20 @@ struct SlotFeedbackInputs {
     bool padLightbar = false;
     bool padTriggerEffects = false;
     bool padPlayerLeds = false;
+    // The model has a mic-mute lamp (DualSense only). False until the Wave-2
+    // USB output-report builder exists to drive it — a lamp the report builder
+    // cannot address is a lamp this client does not have.
+    bool padMicLed = false;
+
+    // Controller-audio routes: does the claimed pad have a usable audio path on
+    // THIS machine (its own USB-audio endpoints matched to a Windows audio
+    // device)? Deliberately independent of the HID path above — the pad's audio
+    // function is a separate USB interface, reachable whether input rides
+    // Standard or Direct. Both stay false until Wave 2 lands the device
+    // enumeration and matching, so nothing advertises an audio cap yet; the
+    // fold below is already the single owner Wave 2 flips.
+    bool padMicRoute = false;
+    bool padSpeakerRoute = false;
 };
 
 namespace detail {
@@ -70,11 +88,15 @@ inline bool padHas(const SlotFeedbackInputs& in, FeedbackKind kind) {
         return in.padTriggerEffects;
     case FeedbackKind::PlayerLeds:
         return in.padPlayerLeds;
+    case FeedbackKind::MicLed:
+        return in.padMicLed;
     }
     return false;
 }
 
-// What the SDL layer can drive, whatever the pad has.
+// What the SDL layer can drive, whatever the pad has. The mic-mute lamp is
+// with the triggers and player LEDs: SDL has no call for it, so only a Direct
+// claim's OUT report path can ever land one.
 inline bool standardPathCarries(FeedbackKind kind) {
     return kind == FeedbackKind::Rumble || kind == FeedbackKind::Lightbar;
 }
@@ -96,5 +118,14 @@ inline FeedbackTarget resolveFeedbackTarget(const SlotFeedbackInputs& in, Feedba
 inline bool slotCarriesFeedback(const SlotFeedbackInputs& in, FeedbackKind kind) {
     return resolveFeedbackTarget(in, kind) != FeedbackTarget::None;
 }
+
+// Whether the descriptor may claim the controller-audio caps. The same rule as
+// the feedback kinds — a cap is a promise something lands — but keyed on the
+// audio routes rather than the HID path, because the streams ride the pad's own
+// audio endpoints (see SlotFeedbackInputs::padMicRoute). CAP_MIC also gates the
+// kMsgMicLed return path server-side, so the lamp needs no claim of its own.
+inline bool slotCarriesMicCapture(const SlotFeedbackInputs& in) { return in.padMicRoute; }
+
+inline bool slotCarriesSpeakerPlayout(const SlotFeedbackInputs& in) { return in.padSpeakerRoute; }
 
 } // namespace dish::reducer

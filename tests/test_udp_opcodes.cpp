@@ -26,6 +26,19 @@ TEST_CASE("kept opcode constants match the protocol-1 values", "[udp][opcodes]")
     REQUIRE(SatelliteClient::kMsgSessionClose == 0x000F);
 }
 
+TEST_CASE("the protocol-2 opcodes extend the range contiguously", "[udp][opcodes]") {
+    REQUIRE(SatelliteClient::kMsgTriggerEffects == 0x0010);
+    REQUIRE(SatelliteClient::kMsgPlayerLeds == 0x0011);
+    REQUIRE(SatelliteClient::kMsgMicAudio == 0x0012);
+    REQUIRE(SatelliteClient::kMsgSpeakerAudio == 0x0013);
+    REQUIRE(SatelliteClient::kMsgMicLed == 0x0014);
+    // The MIC_LED state vocabulary is satellite MIC_LED_STATE_*, verbatim.
+    REQUIRE(proto::kMicLedStateOff == 0);
+    REQUIRE(proto::kMicLedStateOn == 1);
+    REQUIRE(proto::kMicLedStatePulse == 2);
+    REQUIRE(proto::kMicLedStateCount == 3);
+}
+
 // 0x0004..0x0008 and 0x000E were the topology opcodes, now removed. A test
 // cannot name a member that no longer compiles, so re-introducing one instead
 // forces an edit to this list, which surfaces the regression in review.

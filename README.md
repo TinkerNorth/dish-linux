@@ -103,7 +103,7 @@ it in place. What the check sends is spelled out in [`PRIVACY.md`](PRIVACY.md).
 - GCC 12+ or Clang 15+, CMake 3.21+, Ninja
 - Qt 6.7+ (Core, Gui, Network, DBus, Svg, Quick, Qml, QuickControls2; Linguist
   tools for the translation catalogues)
-- libsodium, SDL2, OpenSSL (libcrypto), Catch2 v3
+- libsodium, SDL2, Opus, OpenSSL (libcrypto), Catch2 v3
 - Optional: `rsvg-convert`, which renders the rest of the launcher-icon ladder
   from the SVG. Without it the build says so and installs only the scalable and
   512x512 icons, which is enough for a working menu entry.
@@ -114,7 +114,7 @@ On Debian and Ubuntu:
 sudo apt install build-essential cmake ninja-build pkg-config \
   qt6-base-dev qt6-base-dev-tools qt6-declarative-dev qt6-svg-dev \
   qt6-tools-dev qt6-l10n-tools \
-  libsodium-dev libsdl2-dev libssl-dev libdbus-1-dev catch2 \
+  libsodium-dev libsdl2-dev libssl-dev libopus-dev libdbus-1-dev catch2 \
   librsvg2-bin
 ```
 

@@ -38,6 +38,8 @@ std::uint16_t capsWordFromJson(const QJsonObject& caps) {
     if (boolOr(caps, "lightbar", false)) { word |= proto::kCapLightbar; }
     if (boolOr(caps, "triggerEffects", false)) { word |= proto::kCapTriggerEffects; }
     if (boolOr(caps, "playerLeds", false)) { word |= proto::kCapPlayerLeds; }
+    if (boolOr(caps, "mic", false)) { word |= proto::kCapMic; }
+    if (boolOr(caps, "speaker", false)) { word |= proto::kCapSpeaker; }
     return word;
 }
 
@@ -204,6 +206,27 @@ CapabilitiesDto CapabilitiesDto::fromJson(const QJsonObject& obj) {
     if (auto ec = optString(backend, "errorCode"); !ec.isEmpty()) { c.backendErrorCode = ec; }
     const auto motion = obj.value(QLatin1String("motion")).toObject();
     c.motionAvailable = boolOr(motion, "available", false);
+    for (const auto& v : obj.value(QLatin1String("backends")).toArray()) {
+        if (!v.isObject()) { continue; }
+        const auto bo = v.toObject();
+        CapabilitiesBackendDto b;
+        b.id = optString(bo, "id");
+        b.supported = boolOr(bo, "supported", false);
+        b.available = boolOr(bo, "available", false);
+        b.audio = boolOr(bo, "audio", false);
+        c.backends.append(b);
+    }
+    // Presence, not truthiness: an absent block is UNKNOWN and falls back to
+    // the per-backend audio flag (reducer/HostAudioVerdict.h), while a present
+    // block with false fields is a host that switched audio off.
+    const auto controllerAudio = obj.value(QLatin1String("controllerAudio"));
+    if (controllerAudio.isObject()) {
+        const auto ao = controllerAudio.toObject();
+        c.hasControllerAudioBlock = true;
+        c.controllerAudioEnabled = boolOr(ao, "enabled", false);
+        c.controllerAudioMic = boolOr(ao, "mic", false);
+        c.controllerAudioSpeaker = boolOr(ao, "speaker", false);
+    }
     const auto host = obj.value(QLatin1String("host"));
     if (host.isObject()) {
         const auto ho = host.toObject();
@@ -289,6 +312,8 @@ QJsonObject ControllerDescriptor::toJson() const {
              {"lightbar", (caps & proto::kCapLightbar) != 0},
              {"triggerEffects", (caps & proto::kCapTriggerEffects) != 0},
              {"playerLeds", (caps & proto::kCapPlayerLeds) != 0},
+             {"mic", (caps & proto::kCapMic) != 0},
+             {"speaker", (caps & proto::kCapSpeaker) != 0},
          }},
         {"touchpadMode",
          QString::fromUtf8(proto::touchpadModeName(touchpadMode).data(),

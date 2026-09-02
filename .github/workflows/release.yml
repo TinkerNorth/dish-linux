@@ -164,7 +164,7 @@ jobs:
             build-essential cmake ninja-build pkg-config \
             qt6-base-dev qt6-base-dev-tools qt6-declarative-dev qt6-svg-dev \
             qt6-tools-dev qt6-tools-dev-tools qt6-l10n-tools \
-            libsodium-dev libsdl2-dev libssl-dev libdbus-1-dev \
+            libsodium-dev libsdl2-dev libssl-dev libopus-dev libdbus-1-dev \
             dpkg-dev fakeroot file gzip \
             librsvg2-bin desktop-file-utils appstream lintian
 
@@ -323,7 +323,7 @@ jobs:
             git-core ca-certificates \
             gcc-c++ cmake ninja-build pkgconf-pkg-config rpm-build \
             qt6-qtbase-devel qt6-qtdeclarative-devel qt6-qtsvg-devel qt6-qttools-devel \
-            libsodium-devel SDL2-devel openssl-devel dbus-devel \
+            libsodium-devel SDL2-devel openssl-devel opus-devel dbus-devel \
             librsvg2-tools desktop-file-utils libappstream-glib gzip
 
       - name: Checkout
@@ -466,7 +466,7 @@ jobs:
           # resolve on the build host.
           sudo apt-get install -y --no-install-recommends \
             build-essential cmake ninja-build pkg-config \
-            libsodium-dev libssl-dev libudev-dev libusb-1.0-0-dev \
+            libsodium-dev libssl-dev libopus-dev libpulse-dev libudev-dev libusb-1.0-0-dev \
             libxkbcommon-x11-0 libxcb-cursor0 libxcb-icccm4 libxcb-image0 \
             libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 libxcb-shape0 \
             libxcb-xinerama0 libxcb-xkb1 \
@@ -480,8 +480,12 @@ jobs:
 
       # Not apt for the same reason as Qt: jammy ships SDL 2.0.20 and the code
       # uses SDL_GameControllerPath, which needs 2.24. Same version, checksum
-      # and gamepad-only feature set as the Flatpak manifest's sdl2 module;
-      # linuxdeploy bundles the resulting library into the AppImage. Runs
+      # and feature set as the Flatpak manifest's sdl2 module: gamepads plus
+      # the audio subsystem controller audio opens the pads' own endpoints
+      # through (libpulse-dev above is what lets its pulse backend configure;
+      # SDL dlopen's the host's libpulse at run time, so nothing extra is
+      # bundled). linuxdeploy bundles the resulting library into the AppImage.
+      # Runs
       # after setup-qt because that action overwrites CMAKE_PREFIX_PATH and
       # this step prepends to it.
       - name: Build SDL2 (jammy's predates SDL_GameControllerPath)
@@ -498,7 +502,7 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_INSTALL_PREFIX="${RUNNER_TEMP}/sdl-prefix" \
             -DSDL_STATIC=OFF -DSDL_SHARED=ON -DSDL_TEST=OFF \
-            -DSDL_RENDER=OFF -DSDL_AUDIO=OFF \
+            -DSDL_RENDER=OFF -DSDL_AUDIO=ON \
             -DSDL_HIDAPI=ON -DSDL_JOYSTICK=ON -DSDL_HAPTIC=ON
           cmake --build "${RUNNER_TEMP}/sdl-build" --parallel
           cmake --install "${RUNNER_TEMP}/sdl-build"

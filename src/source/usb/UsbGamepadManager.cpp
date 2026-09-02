@@ -10,6 +10,8 @@
 
 #include "Input/GamepadInputProcessor.h"
 
+#include <atomic>
+#include <memory>
 #include <unordered_set>
 #include <utility>
 #include <vector>
@@ -201,13 +203,16 @@ bool UsbGamepadManager::applyRumble(int vendorId, int productId, std::uint16_t s
     const auto target = directTarget(vendorId, productId);
     if (!target.has_value() || gateway_ == nullptr) { return false; }
     std::array<std::uint8_t, input::usbout::kMaxOutputReportBytes> buf{};
-    std::uint8_t seq = 0;
+    std::size_t n = 0;
     {
+        // The state is read for the DS5 mute-lamp re-assert, so the lookup and
+        // the build are one critical section like the lightbar's.
         std::lock_guard<std::mutex> lock(feedbackMtx_);
-        seq = nextSeqLocked(vpKey(vendorId, productId));
+        const std::uint8_t seq = nextSeqLocked(vpKey(vendorId, productId));
+        const auto& st = feedback_[vpKey(vendorId, productId)];
+        n = input::usbout::buildRumbleReport(target->parser, st, strongMagnitude, weakMagnitude,
+                                             seq, buf.data(), buf.size());
     }
-    const std::size_t n = input::usbout::buildRumbleReport(
-        target->parser, strongMagnitude, weakMagnitude, seq, buf.data(), buf.size());
     if (n == 0) { return false; }
     return gateway_->writeOutputReport(target->syntheticId, buf.data(), n);
 }
@@ -234,13 +239,14 @@ bool UsbGamepadManager::applyPlayerLeds(int vendorId, int productId, std::uint8_
     const auto target = directTarget(vendorId, productId);
     if (!target.has_value() || gateway_ == nullptr) { return false; }
     std::array<std::uint8_t, input::usbout::kMaxOutputReportBytes> buf{};
-    std::uint8_t seq = 0;
+    std::size_t n = 0;
     {
         std::lock_guard<std::mutex> lock(feedbackMtx_);
-        seq = nextSeqLocked(vpKey(vendorId, productId));
+        const std::uint8_t seq = nextSeqLocked(vpKey(vendorId, productId));
+        const auto& st = feedback_[vpKey(vendorId, productId)];
+        n = input::usbout::buildPlayerLedsReport(target->parser, st, ledMask, seq, buf.data(),
+                                                 buf.size());
     }
-    const std::size_t n =
-        input::usbout::buildPlayerLedsReport(target->parser, ledMask, seq, buf.data(), buf.size());
     if (n == 0) { return false; }
     return gateway_->writeOutputReport(target->syntheticId, buf.data(), n);
 }
@@ -251,10 +257,37 @@ bool UsbGamepadManager::applyTriggerEffects(
     const auto target = directTarget(vendorId, productId);
     if (!target.has_value() || gateway_ == nullptr) { return false; }
     std::array<std::uint8_t, input::usbout::kMaxOutputReportBytes> buf{};
-    const std::size_t n = input::usbout::buildTriggerEffectsReport(target->parser, left, right,
-                                                                   buf.data(), buf.size());
+    std::size_t n = 0;
+    {
+        std::lock_guard<std::mutex> lock(feedbackMtx_);
+        const auto& st = feedback_[vpKey(vendorId, productId)];
+        n = input::usbout::buildTriggerEffectsReport(target->parser, st, left, right, buf.data(),
+                                                     buf.size());
+    }
     if (n == 0) { return false; }
     return gateway_->writeOutputReport(target->syntheticId, buf.data(), n);
+}
+
+bool UsbGamepadManager::applyMicMuteLed(int vendorId, int productId, std::uint8_t state) {
+    const auto target = directTarget(vendorId, productId);
+    if (!target.has_value() || gateway_ == nullptr) { return false; }
+    std::array<std::uint8_t, input::usbout::kMaxOutputReportBytes> buf{};
+    std::size_t n = 0;
+    {
+        // The builder writes the lamp shadow, so the lookup and the build are
+        // one critical section like the lightbar handoff's.
+        std::lock_guard<std::mutex> lock(feedbackMtx_);
+        auto& st = feedback_[vpKey(vendorId, productId)];
+        n = input::usbout::buildMicMuteLedReport(target->parser, st, state, buf.data(), buf.size());
+    }
+    if (n == 0) { return false; }
+    return gateway_->writeOutputReport(target->syntheticId, buf.data(), n);
+}
+
+bool UsbGamepadManager::setPadMicMuted(int vendorId, int productId, bool muted) {
+    const auto target = directTarget(vendorId, productId);
+    if (!target.has_value() || gateway_ == nullptr) { return false; }
+    return gateway_->setPadMicMuted(target->syntheticId, muted);
 }
 
 std::map<int, reducer::UsbController> UsbGamepadManager::controllers() const {
@@ -428,7 +461,26 @@ ClaimResult UsbGamepadManager::doClaim(const UsbDeviceInfo& device) {
     // throwing move ctor plus a heap copy of the slot id on every claim.
     std::string slotId = std::to_string(vp);
     input::GamepadInputProcessor* processor = processor_;
-    const ClaimResult outcome = gateway_->claim(device, [processor, slotId](const UsbReport& r) {
+    // Last mute state mirrored up, per claim. Starts unmuted, which is what a
+    // freshly claimed pad's latch says too, so the first edge is a real press
+    // and not a startup echo. shared_ptr because the closure is copied into
+    // the gateway and the edge must be tracked in one place.
+    auto lastMicMuted = std::make_shared<std::atomic<bool>>(false);
+    UsbDirectObserver* observer = observer_;
+    const int vendorId = device.vendorId;
+    const int productId = device.productId;
+    const ClaimResult outcome = gateway_->claim(device, [processor, slotId, lastMicMuted, observer,
+                                                         vendorId, productId](const UsbReport& r) {
+        // The decoder owns the mute latch (the wire bit is folded in on the
+        // read thread, with nothing in the way); the observer is told only on
+        // the edge, so the mirror costs one relaxed load per report. Fires on
+        // THIS thread — padMicMuteChanged's contract says so.
+        if (r.micMuted != lastMicMuted->load(std::memory_order_relaxed)) {
+            lastMicMuted->store(r.micMuted, std::memory_order_relaxed);
+            if (observer != nullptr) {
+                observer->padMicMuteChanged(vendorId, productId, r.micMuted);
+            }
+        }
         if (processor == nullptr) { return; }
         input::GamepadInputProcessor::DeviceState st;
         st.wButtons = r.wButtons;

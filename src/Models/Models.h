@@ -232,6 +232,19 @@ struct HostCapabilityDto {
     std::optional<bool> available;
 };
 
+// One entry of the additive `backends[]` array: the host's full backend option
+// list, most-preferred first. Read for the runtime-switched `audio` flag; the
+// singular flattened backend fields below stay what every other caller uses.
+struct CapabilitiesBackendDto {
+    QString id;
+    bool supported = false;
+    bool available = false;
+    // Whether this backend will materialize a pad with real audio endpoints
+    // right now: its own ability AND the host's controllerAudio setting. Absent
+    // on satellites predating controller audio, which reads as false.
+    bool audio = false;
+};
+
 // GET /api/server/capabilities: live backend health. Unauthenticated, so it is
 // the only pre-pairing signal that the receiver's driver stack is broken.
 struct CapabilitiesDto {
@@ -253,6 +266,19 @@ struct CapabilitiesDto {
     HostCapabilityDto hostMouseControl;
     HostCapabilityDto hostKeyboardControl;
     HostCapabilityDto hostRumble;
+    // Additive; empty on satellites that predate the array.
+    QList<CapabilitiesBackendDto> backends;
+    // The top-level `controllerAudio` block: the host's audio switch split by
+    // direction. `hasControllerAudioBlock` distinguishes ABSENT (unknown — an
+    // older satellite may still carry audio, reported per-backend) from a
+    // present block whose fields are false; reducer/HostAudioVerdict.h owns the
+    // fold, so no other caller should read these four directly. A field missing
+    // from a PRESENT block reads false, the opt-out the rest of this document
+    // takes.
+    bool hasControllerAudioBlock = false;
+    bool controllerAudioEnabled = false;
+    bool controllerAudioMic = false;
+    bool controllerAudioSpeaker = false;
     int httpStatus = 0;
     bool reachable = false;
 
@@ -449,6 +475,16 @@ struct ControllerSlot {
     // "Layout guessed" warn chip, which belongs on the Direct option card
     // because the risk exists only there. Always false for a Bluetooth pad.
     bool verifiedModel = false;
+
+    // Controller audio. `micArmed` is "this slot's descriptor claims a
+    // microphone" (route matched AND the per-binding toggle on) — the
+    // condition for showing a mute control at all, because a mute over no
+    // microphone is dead chrome. `micMuted` is the LOCAL mute truth
+    // (MicMuteStore), shown unconditionally where armed: the pad's own lamp
+    // may later be repainted by the host, but the app never reports a state it
+    // did not decide.
+    bool micArmed = false;
+    bool micMuted = false;
 };
 
 struct RememberedWifi {

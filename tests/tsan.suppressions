@@ -13,6 +13,15 @@ called_from_lib:libQt6Core.so
 called_from_lib:libQt6DBus.so
 # The HTTP thread QNetworkAccessManager runs the manifest fetch on.
 called_from_lib:libQt6Network.so
+# Qt 6.9 reimplemented QWaitCondition over std::condition_variable, so a Qt
+# thread handoff now enters the interceptor through libstdc++'s out-of-line
+# condition_variable::wait instead of a libQt6* frame, and the lines above no
+# longer match: TSan then reports "unlock of an unlocked mutex" against a
+# mutex living inside Qt-allocated memory it never saw locked (seen from
+# QNetworkAccessManager's worker startup under test_moonlight_binding_refcount).
+# Safe ONLY while no first-party code uses std::condition_variable — both of
+# those waits would be silenced too. Grep src/ before keeping this line.
+called_from_lib:libstdc++.so
 called_from_lib:libglib-2.0.so
 called_from_lib:libgobject-2.0.so
 called_from_lib:libdbus-1.so

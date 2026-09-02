@@ -31,6 +31,12 @@ inline const QString kFeatureRumble = QStringLiteral("rumble");
 inline const QString kFeatureMotion = QStringLiteral("motion");
 inline const QString kFeatureLightbar = QStringLiteral("lightbar");
 inline const QString kFeatureTouchpad = QStringLiteral("touchpad");
+// Controller audio (protocol 2). Deliberately NOT in knownFeatureSlugs():
+// that list is the protocol-1 caps-gate vocabulary (reducer::allowedCapsForType),
+// and the audio caps follow the trigger-effects precedent of passing through it
+// untouched. The capability solver's type layer reads these two directly.
+inline const QString kFeatureMic = QStringLiteral("mic");
+inline const QString kFeatureSpeaker = QStringLiteral("speaker");
 
 // The `known` whitelist reducer::isFeatureOffered gates on, owned here so every
 // caller passes the same vocabulary instead of re-listing it.
@@ -39,13 +45,25 @@ inline QStringList knownFeatureSlugs() {
             kFeatureTouchpad};
 }
 
+// The whitelist for the solver's audio type-layer reads, so the same
+// isFeatureOffered gate serves them without widening the protocol-1 list.
+inline QStringList audioFeatureSlugs() { return {kFeatureMic, kFeatureSpeaker}; }
+
 // Order is fixed (triggers, rumble, extras) so the list is ==-comparable in tests
 // and downstream snapshots.
+//
+// Audio rides the two Sony types only: they are the pads that carry real
+// speaker and microphone endpoints, so they are the only identities a host can
+// materialize with any. Offering them here cannot outrun the host, which gates
+// audio on its own runtime controllerAudio switch, and a satellite old enough
+// to serve no catalog reports no switch at all (mirrors dish-android's
+// BundledCatalog).
 inline std::optional<QStringList> typeFeatureSlugs(const QString& slug) {
     QStringList base{kFeatureAnalogTriggers, kFeatureRumble};
     if (slug == kSlugXbox360) { return base; }
     if (slug == kSlugDs4 || slug == kSlugDualSense) {
-        return base + QStringList{kFeatureMotion, kFeatureTouchpad, kFeatureLightbar};
+        return base + QStringList{kFeatureMotion, kFeatureTouchpad, kFeatureLightbar, kFeatureMic,
+                                  kFeatureSpeaker};
     }
     if (slug == kSlugSwitchPro) { return base + QStringList{kFeatureMotion}; }
     return std::nullopt;

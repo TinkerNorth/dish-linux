@@ -138,6 +138,14 @@
         <translation>LED indikatori igrača</translation>
     </message>
     <message>
+        <source>Microphone</source>
+        <translation>Mikrofon</translation>
+    </message>
+    <message>
+        <source>Controller sound</source>
+        <translation>Zvuk kontrolera</translation>
+    </message>
+    <message>
         <source>buttons or sticks</source>
         <translation>dugmad ili palice</translation>
     </message>
@@ -172,6 +180,14 @@
     <message>
         <source>player LEDs</source>
         <translation>LED indikatore igrača</translation>
+    </message>
+    <message>
+        <source>microphone</source>
+        <translation>mikrofon</translation>
+    </message>
+    <message>
+        <source>speaker</source>
+        <translation>zvučnik</translation>
     </message>
     <message>
         <source>Waiting on a destination.</source>
@@ -658,6 +674,30 @@
         <translation>Automatski šalje %1 za ovaj kontroler.</translation>
     </message>
     <message>
+        <source>Microphone</source>
+        <translation>Mikrofon</translation>
+    </message>
+    <message>
+        <source>The pad’s mic carries your voice to the host. Off sends nothing.</source>
+        <translation>Mikrofon pada prenosi vaš glas do hosta. Isključeno ne šalje ništa.</translation>
+    </message>
+    <message>
+        <source>Mic muted</source>
+        <translation>Mikrofon utišan</translation>
+    </message>
+    <message>
+        <source>Mic live</source>
+        <translation>Mikrofon aktivan</translation>
+    </message>
+    <message>
+        <source>Controller sound</source>
+        <translation>Zvuk kontrolera</translation>
+    </message>
+    <message>
+        <source>Audio from the host plays on the pad’s speaker or headset.</source>
+        <translation>Zvuk s hosta se reproducira na zvučniku ili slušalicama pada.</translation>
+    </message>
+    <message>
         <source>Handing the device over can take a few seconds.</source>
         <translation>Predaja uređaja može potrajati nekoliko sekundi.</translation>
     </message>
@@ -1029,6 +1069,22 @@
     <message>
         <source>Lightbar</source>
         <translation>Svjetlosna traka</translation>
+    </message>
+    <message>
+        <source>Mic muted</source>
+        <translation>Mikrofon utišan</translation>
+    </message>
+    <message>
+        <source>Mic live</source>
+        <translation>Mikrofon aktivan</translation>
+    </message>
+    <message>
+        <source>Microphone muted, click to unmute</source>
+        <translation>Mikrofon je utišan, kliknite da ga uključite</translation>
+    </message>
+    <message>
+        <source>Microphone live, click to mute</source>
+        <translation>Mikrofon je aktivan, kliknite da ga utišate</translation>
     </message>
     <message>
         <source>Motion %1 Hz</source>
@@ -3797,6 +3853,22 @@
     <message>
         <source>The game drives the pad’s light bar. Lightbar forwarding is a global setting.</source>
         <translation>Igra upravlja svjetlosnom trakom pada. Prosljeđivanje svjetlosne trake je globalna postavka.</translation>
+    </message>
+    <message>
+        <source>Microphone</source>
+        <translation>Mikrofon</translation>
+    </message>
+    <message>
+        <source>The pad’s mic carries your voice to the host. Off sends nothing.</source>
+        <translation>Mikrofon pada prenosi vaš glas do hosta. Isključeno ne šalje ništa.</translation>
+    </message>
+    <message>
+        <source>Controller sound</source>
+        <translation>Zvuk kontrolera</translation>
+    </message>
+    <message>
+        <source>Audio from the host plays on the pad’s speaker or headset.</source>
+        <translation>Zvuk s hosta se reproducira na zvučniku ili slušalicama pada.</translation>
     </message>
     <message>
         <source>Off</source>

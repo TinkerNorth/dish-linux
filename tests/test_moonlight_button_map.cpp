@@ -4,6 +4,7 @@
 // The internal-button word to Moonlight button-flag translation, pinned per
 // bit so a mis-mapped Home/Guide or stick click is caught at build time.
 
+#include "core/input/GamepadButtonLayouts.h"
 #include "core/moonlight/MoonlightButtonMap.h"
 #include "core/moonlight/MoonlightProtocol.h"
 
@@ -55,4 +56,23 @@ TEST_CASE("empty and full words", "[moonlight][buttonmap]") {
 TEST_CASE("ABXY combination reproduces the doc example", "[moonlight][buttonmap]") {
     // A + X pressed -> 0x1000 | 0x4000 = 0x5000.
     CHECK(toMoonlightButtons(inbtn::kA | inbtn::kX) == 0x5000U);
+}
+
+TEST_CASE("the Satellite-only mic-mute bit never reaches a Moonlight button word",
+          "[moonlight][buttonmap]") {
+    // 0x0800 has no XINPUT assignment; protocol 2 spends it on the DualSense
+    // mic-mute STATE (input::layout::kXusbMicMute), and a Direct-claimed
+    // DualSense folds it into every report while muted. The map's explicitness
+    // is what strips it — these pins keep that structural fact from eroding
+    // into an accidental row.
+    CHECK(toMoonlightButtons(input::layout::kXusbMicMute) == 0U);
+    const std::uint16_t all = inbtn::kDpadUp | inbtn::kDpadDown | inbtn::kDpadLeft |
+                              inbtn::kDpadRight | inbtn::kStart | inbtn::kBack | inbtn::kLeftThumb |
+                              inbtn::kRightThumb | inbtn::kLeftShoulder | inbtn::kRightShoulder |
+                              inbtn::kA | inbtn::kB | inbtn::kX | inbtn::kY;
+    // Alongside every mapped bit, the word reads the same with or without it.
+    CHECK(toMoonlightButtons(static_cast<std::uint16_t>(all | input::layout::kXusbMicMute)) ==
+          toMoonlightButtons(all));
+    // The bit the map must keep dropping is the bit the wire spends.
+    CHECK(input::layout::kXusbMicMute == 0x0800);
 }

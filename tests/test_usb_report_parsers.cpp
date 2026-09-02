@@ -725,3 +725,87 @@ TEST_CASE("other parsers never see wireless events", "[usb-parsers][steam]") {
           WirelessEvent::None);
     CHECK(checkWirelessEvent(HidParser::None, conn.data(), conn.size()) == WirelessEvent::None);
 }
+
+// ── DualSense mic-mute button ────────────────────────────────────────────────
+
+namespace {
+
+// A neutral DualSense 0x01 report with the mute button up or down.
+std::vector<std::uint8_t> ds5Report(bool muteDown) {
+    std::vector<std::uint8_t> r(11, 0);
+    r[0] = 0x01;
+    r[1] = r[2] = r[3] = r[4] = 128; // sticks centred
+    r[8] = 0x08;                     // hat neutral
+    if (muteDown) { r[10] = 0x04; }
+    return r;
+}
+
+std::uint16_t ds5Buttons(const std::vector<std::uint8_t>& r, MicMuteLatch& mute) {
+    ParsedReport out{};
+    StickAutoRangeState sticks;
+    REQUIRE(decodeReport(HidParser::DualSense, r.data(), r.size(), out, sticks, &mute));
+    return out.wButtons;
+}
+
+} // namespace
+
+TEST_CASE("the mute press is an edge that toggles a held state", "[usb-parsers][ds5][mute]") {
+    // The button is momentary; the wire bit is the STATE it toggles, flipped
+    // on the way down only. Holding the button must not chatter the mute on
+    // and off at report rate.
+    MicMuteLatch mute;
+    CHECK((ds5Buttons(ds5Report(false), mute) & layout::kXusbMicMute) == 0);
+
+    CHECK((ds5Buttons(ds5Report(true), mute) & layout::kXusbMicMute) != 0); // press: muted
+    CHECK((ds5Buttons(ds5Report(true), mute) & layout::kXusbMicMute) != 0); // held: still muted
+    CHECK((ds5Buttons(ds5Report(false), mute) & layout::kXusbMicMute) !=
+          0); // released: state stays
+
+    CHECK((ds5Buttons(ds5Report(true), mute) & layout::kXusbMicMute) == 0); // second press: live
+    CHECK((ds5Buttons(ds5Report(false), mute) & layout::kXusbMicMute) == 0);
+    CHECK_FALSE(mute.muted.load());
+}
+
+TEST_CASE("an externally written latch rides the next report", "[usb-parsers][ds5][mute]") {
+    // The UI mute control writes the latch from another thread; the decoder
+    // folds whatever the latch says, so the app's toggle and the pad's button
+    // are one state on the wire.
+    MicMuteLatch mute;
+    mute.muted.store(true);
+    CHECK((ds5Buttons(ds5Report(false), mute) & layout::kXusbMicMute) != 0);
+    // And the pad's own button still toggles it back off from there.
+    CHECK((ds5Buttons(ds5Report(true), mute) & layout::kXusbMicMute) == 0);
+}
+
+TEST_CASE("a null latch decodes without a mute state", "[usb-parsers][ds5][mute]") {
+    // The honest answer for a caller that kept no per-device memory — and the
+    // proof the bit only ever comes from the latch.
+    ParsedReport out{};
+    StickAutoRangeState sticks;
+    const auto r = ds5Report(true);
+    REQUIRE(decodeReport(HidParser::DualSense, r.data(), r.size(), out, sticks));
+    CHECK((out.wButtons & layout::kXusbMicMute) == 0);
+}
+
+TEST_CASE("the mute bit does not disturb its neighbours in byte 10", "[usb-parsers][ds5][mute]") {
+    // PS (0x01) and the touchpad click (0x02) share the byte.
+    MicMuteLatch mute;
+    auto r = ds5Report(true);
+    r[10] |= 0x01; // PS held too
+    ParsedReport out{};
+    StickAutoRangeState sticks;
+    REQUIRE(decodeReport(HidParser::DualSense, r.data(), r.size(), out, sticks, &mute));
+    CHECK((out.wButtons & layout::kXusbGuide) != 0);
+    CHECK((out.wButtons & layout::kXusbMicMute) != 0);
+}
+
+TEST_CASE("only the Sony composites are USB-audio candidates", "[usb-parsers][audio]") {
+    // The matcher's candidacy gate: a family without a USB Audio Class
+    // function must never borrow endpoints by name alone.
+    CHECK(parserHasUsbAudio(HidParser::DualSense));
+    CHECK(parserHasUsbAudio(HidParser::DualShock4));
+    CHECK_FALSE(parserHasUsbAudio(HidParser::SwitchProUsb));
+    CHECK_FALSE(parserHasUsbAudio(HidParser::SteamController));
+    CHECK_FALSE(parserHasUsbAudio(HidParser::GenericHid));
+    CHECK_FALSE(parserHasUsbAudio(HidParser::None));
+}

@@ -81,6 +81,11 @@ class SlotListModel : public QAbstractListModel {
         HasTouchpadRole,
         HasRumbleRole,
         VerifiedModelRole,
+
+        // Controller audio: whether the slot's descriptor claims a mic (the
+        // mute control's visibility) and the LOCAL mute truth.
+        MicArmedRole,
+        MicMutedRole,
     };
     Q_ENUM(Roles)
 

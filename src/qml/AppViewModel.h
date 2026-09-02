@@ -456,7 +456,8 @@ class AppViewModel : public QObject {
     Q_INVOKABLE QVariantList capabilityForCandidate(const QString& slotId, int type,
                                                     const QString& hostKind, const QString& hostId,
                                                     const QString& desiredPath, bool motionOn,
-                                                    bool rumbleOn, int touchpadMode) const;
+                                                    bool rumbleOn, int touchpadMode, bool micOn,
+                                                    bool speakerOn) const;
 
     // { feature, supported } rows for the type picker's preview pills. Empty
     // while the catalog is unresolved: a guessed pill is worse than none.
@@ -490,13 +491,23 @@ class AppViewModel : public QObject {
     Q_INVOKABLE bool motionEnabledFor(const QString& slotId) const;
     Q_INVOKABLE bool rumbleEnabledFor(const QString& slotId) const;
     Q_INVOKABLE void setRumbleEnabled(const QString& slotId, bool on);
+    // Controller audio, persisted per slot like motion. Mic defaults OFF
+    // (privacy: capture is opt-in per binding), speaker ON.
+    Q_INVOKABLE bool micEnabledFor(const QString& slotId) const;
+    Q_INVOKABLE void setMicEnabled(const QString& slotId, bool on);
+    Q_INVOKABLE bool speakerEnabledFor(const QString& slotId) const;
+    Q_INVOKABLE void setSpeakerEnabled(const QString& slotId, bool on);
+    // The live mute control (both surfaces' click lands here; the pad's own
+    // button reaches the same state through the report decoder). State reads
+    // ride the slot model's micArmed/micMuted roles, so there is no getter.
+    Q_INVOKABLE void toggleSlotMicMute(const QString& slotId);
 
     // ── Apply ────────────────────────────────────────────────────────────────
     // The one write the binding surfaces make. Terminates in exactly one
     // applyFinished, and is ignored while a run is already in flight.
     Q_INVOKABLE void applyBinding(const QString& slotId, const QString& connectionId, int type,
                                   const QString& desiredPath, bool motionOn, bool rumbleOn,
-                                  int touchpadMode);
+                                  int touchpadMode, bool micOn, bool speakerOn);
     // Accepted only while the Connection step is active.
     Q_INVOKABLE void cancelApply();
 
@@ -664,6 +675,10 @@ class AppViewModel : public QObject {
     bool applyMotionOn_ = true;
     bool applyRumbleOn_ = true;
     int applyTouchpadMode_ = 0;
+    // The store defaults, restated so an apply that never touched audio writes
+    // the same answer the stores would have given.
+    bool applyMicOn_ = false;
+    bool applySpeakerOn_ = true;
     // The 20 s path budget, the 8 s bind budget, and the 250 ms elapsed tick.
     QTimer* applyPathTimer_ = nullptr;
     QTimer* applyBindTimer_ = nullptr;

@@ -20,6 +20,64 @@ the repos share a version number.
 
 ### Added
 
+- **Controller audio, wave 1: wire + capability model** `[wire-coordinated]`
+  (satellite's `MSG_MIC_AUDIO`/`MSG_SPEAKER_AUDIO`/`MSG_MIC_LED`; dish-android
+  shipped the client reference; dish-windows companion). This lands the
+  protocol-2 audio extension's plumbing without yet turning any audio on:
+  - the wire: `MSG_MIC_AUDIO` (0x0012) send path, `MSG_SPEAKER_AUDIO` (0x0013)
+    and `MSG_MIC_LED` (0x0014) dispatch, the `mic`/`speaker` descriptor caps,
+    and the datagram ceilings (1500-byte receive buffer, 1472-byte inner
+    payload guard) a full-size audio frame needs;
+  - the pure cores: the 2-frame reorder window (`core/audio/AudioJitter.h`,
+    the third mirror of satellite's — edit together) and the pinned Opus
+    formats (mic mono VOIP 32 kbps DTX, speaker stereo AUDIO 96 kbps, both
+    VBR + in-band FEC) behind `core/audio/AudioCodec.h`, libopus-backed in
+    `source/audio/OpusAudioCodec.*` (new system dependency: `libopus`, found
+    through `pkg-config` like SDL2 and libsodium);
+  - the host verdict: `GET /api/server/capabilities` is now probed after every
+    session PUT for the `controllerAudio` block (per-backend `audio` fallback),
+    so the capability table's mic/speaker host layer reflects what the host
+    will actually carry — conservative "no audio" until a probe says yes;
+  - the model and UI: Microphone and Controller sound rows in the capability
+    matrix and per-binding toggles (mic defaults OFF for privacy, speaker ON),
+    persisted like the motion toggle; `wButtons` bit 0x0800 reserved as the
+    DualSense mic-mute state.
+- **Controller audio, wave 2: the audio itself** `[wire-coordinated]`. A
+  Direct-claimed DualSense (or DS4 v2) now carries real audio end to end:
+  - pad-to-endpoint routing: the claimed pad's USB product string (iProduct,
+    read from sysfs — the same string pipewire and pulse embed in the pad's
+    audio device names) is matched against the endpoints SDL enumerates, with
+    every ambiguity resolving to "no route" (two pads sharing a name,
+    duplicate endpoint names, a name containing two pads' strings) — routes
+    re-resolve on claim changes and audio hotplug, and a change re-declares
+    the slot's descriptor;
+  - the capture engine: the pad's own headset mic, windowed to exact 20 ms
+    frames, Opus-encoded and sent as `MSG_MIC_AUDIO`, one seq per window
+    including failed encodes. THE PRIVACY INVARIANT: muted, toggled off,
+    unrouted, unstreaming or unwelcome at the host means the capture device is
+    CLOSED and zero packets leave — never silence in their place;
+  - the playout engine: `MSG_SPEAKER_AUDIO` through the reorder window and
+    Opus FEC/PLC to the pad's own speaker endpoint, with a two-frame start
+    cushion rebuilt as silence after the satellite's suppressed-silence
+    stretches;
+  - the DualSense mute button: decoded as an edge onto a latch that folds the
+    mute STATE into `wButtons` (0x0800) on the read thread, mirrored to the
+    app's mute state, stripped from Moonlight's button words; the slot card
+    and Configure binding show the local truth with a click-to-toggle control,
+    and the pad's mute lamp answers locally at once (a later host `MSG_MIC_LED`
+    repaints it — last writer wins on the pad);
+  - `MSG_MIC_LED` actuation: the DS5 lamp + mic-amp power-save bit, shadowed in
+    the per-claim feedback state so rumble/lightbar/player-LED/trigger writes
+    re-assert it instead of stomping it;
+  - `SDL_INIT_AUDIO` is owned by the audio gateway, not the gamepad bridge, so
+    gamepad re-inits never take a live stream down; the bridge's event loop
+    forwards audio hotplug. The Flatpak gains the `pulseaudio` socket (served
+    by `pipewire-pulse` on PipeWire desktops), and the AppImage's bundled SDL
+    is now built with its audio subsystem on.
+  Mute is deliberately session-scoped (not persisted): it clears when the pad
+  leaves, the way the hardware's own mute does; the durable off-switch is the
+  per-binding Microphone toggle, which still defaults OFF.
+
 - **Protocol 2** `[wire-coordinated]` (satellite #86, #87; dish-android #174,
   #175; dish-windows companion). The version is now negotiated rather than
   assumed: the client offers 2, the satellite settles the session on that

@@ -7,6 +7,7 @@
 
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <string>
 #include <string_view>
@@ -45,6 +46,17 @@ inline constexpr std::uint16_t kMsgSessionClose = 0x000F; // s→c reason(1)
 // a client that never advertises never has to handle them.
 inline constexpr std::uint16_t kMsgTriggerEffects = 0x0010; // s→c ctrlIdx + left(11) + right(11)
 inline constexpr std::uint16_t kMsgPlayerLeds = 0x0011;     // s→c ctrlIdx + ledMask(1)
+// Controller audio: the EMULATED pad's own endpoints, never the host's game
+// audio. Both audio messages carry ctrlIdx(1) + seq(u16 BE) + exactly one 20 ms
+// Opus packet; `seq` wraps and buys only gap detection and late-drop inside the
+// receiver's 2-frame reorder window (core/audio/AudioJitter.h) — no acks, no
+// retransmits, Opus in-band FEC + PLC conceal loss.
+inline constexpr std::uint16_t kMsgMicAudio = 0x0012;     // c→s the pad's headset mic, mono
+inline constexpr std::uint16_t kMsgSpeakerAudio = 0x0013; // s→c the pad's speaker out, stereo
+// Mic-mute lamp (s→c): ctrlIdx(1) + state(1), kMicLedState*. Coalesced
+// last-value-wins server-side like the lightbar. Gated on kCapMic rather than a
+// cap of its own: a mute lamp without a microphone behind it is dead metal.
+inline constexpr std::uint16_t kMsgMicLed = 0x0014;
 
 // After the 4-byte inner type+len header: backendAvailable(1) +
 // totalActiveControllers(1) + epoch(u16 BE) + activeBitmap(u16 BE).
@@ -88,6 +100,53 @@ inline constexpr int kTriggerEffectsPayloadBytes = 2 * kTriggerEffectBlockBytes;
 // bit 0 = leftmost LED (DualSense uses bits 0-4, Switch Pro bits 0-3).
 inline constexpr int kPlayerLedsPayloadBytes = 1;
 
+// ── Datagram ceilings ───────────────────────────────────────────────────────
+// One Ethernet MTU in either direction, so a full audio frame crosses a LAN
+// without fragmenting (a fragmented Opus packet would be an all-or-nothing loss
+// anyway). What the crypto framing leaves behind is the ceiling every sender
+// must stay under; the satellite pins the same number and truncates a longer
+// read, which then fails the AEAD.
+inline constexpr std::size_t kUdpDatagramMaxBytes = 1500;
+inline constexpr std::size_t kUdpOuterHeaderBytes = 8; // token(4) + counter(4 BE)
+inline constexpr std::size_t kUdpInnerHeaderBytes = 4; // msgType(2 BE) + msgLen(2 BE)
+inline constexpr std::size_t kUdpAeadTagBytes = 16;    // ChaCha20-Poly1305-IETF
+inline constexpr std::size_t kUdpMaxInnerPayloadBytes =
+    kUdpDatagramMaxBytes - kUdpOuterHeaderBytes - kUdpInnerHeaderBytes - kUdpAeadTagBytes;
+
+// ── Controller audio wire format (kMsgMicAudio / kMsgSpeakerAudio) ──────────
+// Fixed on the wire, never negotiated: Opus resamples to 48 kHz internally
+// regardless, so pinning the rate costs nothing and spares both ends a
+// resampler; 20 ms is also the emulated pad's USB-audio service interval, so no
+// side re-windows. Mirrors satellite core/types.h AUDIO_*.
+inline constexpr int kAudioSampleRateHz = 48000;
+inline constexpr int kAudioFrameMs = 20;
+inline constexpr int kAudioFrameSamples = kAudioSampleRateHz / 1000 * kAudioFrameMs; // per channel
+// Mic is the pad's headset microphone (mono); speaker is channels 1/2 of the
+// DualSense 4-channel OUT stream, its speaker and headset jack (stereo).
+inline constexpr int kAudioMicChannels = 1;
+inline constexpr int kAudioSpeakerChannels = 2;
+
+// Both audio messages: ctrlIdx(1) + seq(u16 BE) ahead of the Opus bytes.
+inline constexpr int kAudioWireHeaderBytes = 3;
+// Smallest frame worth dispatching: the header plus at least one Opus byte. A
+// 1-byte Opus packet is legal (a valid DTX silence frame, and the mic encoder
+// really does emit those); a header with nothing behind it is malformed.
+inline constexpr int kAudioWireMinPayloadBytes = kAudioWireHeaderBytes + 1;
+// Largest Opus packet one datagram can carry. Two orders of magnitude above a
+// real 20 ms packet (~80 bytes mic, ~240 speaker); a bound, not a target.
+inline constexpr std::size_t kAudioWireMaxOpusBytes =
+    kUdpMaxInnerPayloadBytes - static_cast<std::size_t>(kAudioWireHeaderBytes);
+
+// kMsgMicLed state byte. Pulse is the DualSense's own breathing pattern, which
+// the pad renders itself; the satellite only forwards which mode the game asked
+// for. Anything else is malformed and dropped rather than guessed at.
+inline constexpr std::uint8_t kMicLedStateOff = 0;
+inline constexpr std::uint8_t kMicLedStateOn = 1;
+inline constexpr std::uint8_t kMicLedStatePulse = 2;
+inline constexpr std::uint8_t kMicLedStateCount = 3;
+// After the 1-byte ctrlIdx: state(1).
+inline constexpr int kMicLedPayloadBytes = 1;
+
 // ── MSG_SESSION_CLOSE reason byte ───────────────────────────────────────────
 inline constexpr std::uint8_t kCloseReasonShutdown = 0; // server going down
 inline constexpr std::uint8_t kCloseReasonKicked = 1;   // admin kick (transient)
@@ -103,6 +162,12 @@ inline constexpr std::uint16_t kCapLightbar = 0x0008;
 // sends 0x0010 / 0x0011 only to a session that claimed it can land them.
 inline constexpr std::uint16_t kCapTriggerEffects = 0x0010;
 inline constexpr std::uint16_t kCapPlayerLeds = 0x0020;
+// Controller audio. Same house rule: a cap advertises the CLIENT's own
+// actuator/source — kCapMic says this client sources kMsgMicAudio (and takes
+// the kMsgMicLed return path, which rides it), kCapSpeaker that it accepts
+// kMsgSpeakerAudio. Independent directions; neither implies the other.
+inline constexpr std::uint16_t kCapMic = 0x0040;
+inline constexpr std::uint16_t kCapSpeaker = 0x0080;
 
 // ── Controller types (catalog ids / descriptor `type`) ──────────────────────
 inline constexpr std::uint8_t kControllerTypeXbox = 0;

@@ -31,7 +31,7 @@ ColumnLayout {
     function primaryActivated() {
         App.applyBinding(page.draft.slotId, page.draft.hostId, page.draft.type,
                          page.draft.desiredPath, page.draft.motionOn, page.draft.rumbleOn,
-                         page.draft.touchpadMode);
+                         page.draft.touchpadMode, page.draft.micOn, page.draft.speakerOn);
         return false;
     }
 

@@ -36,6 +36,13 @@ inline constexpr std::uint16_t kY = 0x8000;
 // Translates the internal button word into Moonlight's effective button flags.
 // The two vocabularies mostly line up (both descend from XInput) but Home/Guide
 // and the stick clicks sit at different bits, so the map is explicit.
+//
+// The explicitness is load-bearing the other way too: 0x0800 has no XINPUT
+// assignment and protocol 2 spends it on the DualSense mic-mute STATE
+// (input::layout::kXusbMicMute), a Satellite-only signal a GameStream host
+// would misread. A Direct-claimed DualSense's decoder folds that bit into
+// every report while muted; this map has no row for it, so it can never leak
+// to a Moonlight host — a pin test holds that door shut.
 inline std::uint32_t toMoonlightButtons(std::uint16_t buttons) {
     std::uint32_t out = 0;
     const auto set = [&](std::uint16_t in, std::uint32_t flag) {

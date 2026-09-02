@@ -23,6 +23,16 @@ inline constexpr int kXusbRightThumb = 0x0080;
 inline constexpr int kXusbLeftShoulder = 0x0100;
 inline constexpr int kXusbRightShoulder = 0x0200;
 inline constexpr int kXusbGuide = 0x0400;
+// Not an XINPUT bit: 0x0800 is the one value the XINPUT-shaped word leaves
+// unassigned, and protocol 2 spends it on the DualSense mic-mute button
+// (satellite core/types.h WBUTTON_MIC_MUTE, docs/contract.md, Controller
+// audio). It carries mute STATE, not an edge, held on every frame while muted,
+// and only the DualSense identity consumes it host-side; every other emulated
+// pad ignores it. xusbToHid deliberately drops it (no HID gamepad descriptor
+// has a mute button, and Moonlight must never see it) and hidToXusb never
+// produces it, so it can only be set by an explicit fold. Wave 2 of the
+// controller-audio port is what sets it on live reports.
+inline constexpr int kXusbMicMute = 0x0800;
 inline constexpr int kXusbA = 0x1000;
 inline constexpr int kXusbB = 0x2000;
 inline constexpr int kXusbX = 0x4000;

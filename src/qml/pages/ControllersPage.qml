@@ -111,6 +111,8 @@ Kit.Page {
                 required property bool pathSupported
                 required property bool claimInProgress
                 required property string directFailure
+                required property bool micArmed
+                required property bool micMuted
 
                 readonly property string pathNote:
                     pathSupported ? page.pathNoteText(pathPhase, directFailure) : ""
@@ -234,6 +236,24 @@ Kit.Page {
                             text: page.batteryLabel(card.batteryLevel, card.batteryStatus)
                             tone: card.batteryLow ? Kit.CapabilityChip.Low
                                                   : Kit.CapabilityChip.Neutral
+                        }
+
+                        // The mic state, LOCAL truth, shown only where the
+                        // slot's descriptor actually claims a microphone — a
+                        // mute over no mic is dead chrome. A button, not a
+                        // chip: mute is a live control, and the pad's own mute
+                        // button lands on the same state so the two can never
+                        // disagree.
+                        Kit.DishButton {
+                            visible: card.micArmed
+                            text: card.micMuted ? qsTr("Mic muted") : qsTr("Mic live")
+                            variant: card.micMuted ? Kit.DishButton.Primary
+                                                   : Kit.DishButton.Outline
+                            size: Kit.DishButton.Small
+                            Accessible.name: card.micMuted
+                                             ? qsTr("Microphone muted, click to unmute")
+                                             : qsTr("Microphone live, click to mute")
+                            onClicked: App.toggleSlotMicMute(card.slotId)
                         }
 
                         Kit.LiveStat {

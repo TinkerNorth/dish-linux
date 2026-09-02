@@ -138,6 +138,14 @@
         <translation>Player LEDs</translation>
     </message>
     <message>
+        <source>Microphone</source>
+        <translation>Microphone</translation>
+    </message>
+    <message>
+        <source>Controller sound</source>
+        <translation>Controller sound</translation>
+    </message>
+    <message>
         <source>buttons or sticks</source>
         <translation>buttons or sticks</translation>
     </message>
@@ -172,6 +180,14 @@
     <message>
         <source>player LEDs</source>
         <translation>player LEDs</translation>
+    </message>
+    <message>
+        <source>microphone</source>
+        <translation>microphone</translation>
+    </message>
+    <message>
+        <source>speaker</source>
+        <translation>speaker</translation>
     </message>
     <message>
         <source>Waiting on a destination.</source>
@@ -656,6 +672,30 @@
         <translation>Auto sends %1 for this controller.</translation>
     </message>
     <message>
+        <source>Microphone</source>
+        <translation>Microphone</translation>
+    </message>
+    <message>
+        <source>The pad’s mic carries your voice to the host. Off sends nothing.</source>
+        <translation>The pad’s mic carries your voice to the host. Off sends nothing.</translation>
+    </message>
+    <message>
+        <source>Mic muted</source>
+        <translation>Mic muted</translation>
+    </message>
+    <message>
+        <source>Mic live</source>
+        <translation>Mic live</translation>
+    </message>
+    <message>
+        <source>Controller sound</source>
+        <translation>Controller sound</translation>
+    </message>
+    <message>
+        <source>Audio from the host plays on the pad’s speaker or headset.</source>
+        <translation>Audio from the host plays on the pad’s speaker or headset.</translation>
+    </message>
+    <message>
         <source>Handing the device over can take a few seconds.</source>
         <translation>Handing the device over can take a few seconds.</translation>
     </message>
@@ -1059,6 +1099,22 @@
     <message>
         <source>Lightbar</source>
         <translation>Lightbar</translation>
+    </message>
+    <message>
+        <source>Mic muted</source>
+        <translation>Mic muted</translation>
+    </message>
+    <message>
+        <source>Mic live</source>
+        <translation>Mic live</translation>
+    </message>
+    <message>
+        <source>Microphone muted, click to unmute</source>
+        <translation>Microphone muted, click to unmute</translation>
+    </message>
+    <message>
+        <source>Microphone live, click to mute</source>
+        <translation>Microphone live, click to mute</translation>
     </message>
     <message>
         <source>Motion %1 Hz</source>
@@ -3776,6 +3832,22 @@
     <message>
         <source>The game drives the pad’s light bar. Lightbar forwarding is a global setting.</source>
         <translation>The game drives the pad’s light bar. Lightbar forwarding is a global setting.</translation>
+    </message>
+    <message>
+        <source>Microphone</source>
+        <translation>Microphone</translation>
+    </message>
+    <message>
+        <source>The pad’s mic carries your voice to the host. Off sends nothing.</source>
+        <translation>The pad’s mic carries your voice to the host. Off sends nothing.</translation>
+    </message>
+    <message>
+        <source>Controller sound</source>
+        <translation>Controller sound</translation>
+    </message>
+    <message>
+        <source>Audio from the host plays on the pad’s speaker or headset.</source>
+        <translation>Audio from the host plays on the pad’s speaker or headset.</translation>
     </message>
     <message>
         <source>Off</source>

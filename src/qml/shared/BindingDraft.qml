@@ -28,6 +28,9 @@ QtObject {
     property string desiredPath: "standard" // "standard" | "direct" — never "auto"
     property bool motionOn: true
     property bool rumbleOn: true
+    // The stores' defaults, restated: mic OFF until asked (privacy), speaker ON.
+    property bool micOn: false
+    property bool speakerOn: true
     property int touchpadMode: 0          // 0 off · 1 pad · 2 mouse
 
     // The app this binding will start, or the one it will join. PER SESSION,
@@ -68,7 +71,8 @@ QtObject {
             return [];
         return App.capabilityForCandidate(draft.slotId, candidateType, draft.hostKind,
                                           draft.hostId, draft.desiredPath, draft.motionOn,
-                                          draft.rumbleOn, draft.touchpadMode);
+                                          draft.rumbleOn, draft.touchpadMode, draft.micOn,
+                                          draft.speakerOn);
     }
 
     function capabilityRows() {
@@ -131,6 +135,10 @@ QtObject {
             return qsTr("Adaptive triggers");
         case "playerLeds":
             return qsTr("Player LEDs");
+        case "mic":
+            return qsTr("Microphone");
+        case "speaker":
+            return qsTr("Controller sound");
         }
         return feature;
     }
@@ -156,6 +164,10 @@ QtObject {
             return qsTr("adaptive triggers");
         case "playerLeds":
             return qsTr("player LEDs");
+        case "mic":
+            return qsTr("microphone");
+        case "speaker":
+            return qsTr("speaker");
         }
         return feature;
     }
@@ -281,6 +293,16 @@ QtObject {
 
     function setRumble(on) {
         draft.rumbleOn = on;
+        draft.sanitize();
+    }
+
+    function setMic(on) {
+        draft.micOn = on;
+        draft.sanitize();
+    }
+
+    function setSpeaker(on) {
+        draft.speakerOn = on;
         draft.sanitize();
     }
 

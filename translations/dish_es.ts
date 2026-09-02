@@ -138,6 +138,14 @@
         <translation>LED de jugador</translation>
     </message>
     <message>
+        <source>Microphone</source>
+        <translation>Micrófono</translation>
+    </message>
+    <message>
+        <source>Controller sound</source>
+        <translation>Sonido del mando</translation>
+    </message>
+    <message>
         <source>buttons or sticks</source>
         <translation>botones o sticks</translation>
     </message>
@@ -172,6 +180,14 @@
     <message>
         <source>player LEDs</source>
         <translation>LED de jugador</translation>
+    </message>
+    <message>
+        <source>microphone</source>
+        <translation>micrófono</translation>
+    </message>
+    <message>
+        <source>speaker</source>
+        <translation>altavoz</translation>
     </message>
     <message>
         <source>Waiting on a destination.</source>
@@ -656,6 +672,30 @@
         <translation>Automático envía %1 para este mando.</translation>
     </message>
     <message>
+        <source>Microphone</source>
+        <translation>Micrófono</translation>
+    </message>
+    <message>
+        <source>The pad’s mic carries your voice to the host. Off sends nothing.</source>
+        <translation>El micrófono del mando lleva tu voz al host. Apagado no envía nada.</translation>
+    </message>
+    <message>
+        <source>Mic muted</source>
+        <translation>Micrófono silenciado</translation>
+    </message>
+    <message>
+        <source>Mic live</source>
+        <translation>Micrófono activo</translation>
+    </message>
+    <message>
+        <source>Controller sound</source>
+        <translation>Sonido del mando</translation>
+    </message>
+    <message>
+        <source>Audio from the host plays on the pad’s speaker or headset.</source>
+        <translation>El audio del host suena por el altavoz o los auriculares del mando.</translation>
+    </message>
+    <message>
         <source>Handing the device over can take a few seconds.</source>
         <translation>Ceder el dispositivo puede tardar unos segundos.</translation>
     </message>
@@ -1021,6 +1061,22 @@
     <message>
         <source>Lightbar</source>
         <translation>Barra de luz</translation>
+    </message>
+    <message>
+        <source>Mic muted</source>
+        <translation>Micrófono silenciado</translation>
+    </message>
+    <message>
+        <source>Mic live</source>
+        <translation>Micrófono activo</translation>
+    </message>
+    <message>
+        <source>Microphone muted, click to unmute</source>
+        <translation>Micrófono silenciado, haz clic para activarlo</translation>
+    </message>
+    <message>
+        <source>Microphone live, click to mute</source>
+        <translation>Micrófono activo, haz clic para silenciarlo</translation>
     </message>
     <message>
         <source>Motion %1 Hz</source>
@@ -3776,6 +3832,22 @@
     <message>
         <source>The game drives the pad’s light bar. Lightbar forwarding is a global setting.</source>
         <translation>El juego controla la barra de luz del mando. El reenvío de la barra de luz es un ajuste global.</translation>
+    </message>
+    <message>
+        <source>Microphone</source>
+        <translation>Micrófono</translation>
+    </message>
+    <message>
+        <source>The pad’s mic carries your voice to the host. Off sends nothing.</source>
+        <translation>El micrófono del mando lleva tu voz al host. Apagado no envía nada.</translation>
+    </message>
+    <message>
+        <source>Controller sound</source>
+        <translation>Sonido del mando</translation>
+    </message>
+    <message>
+        <source>Audio from the host plays on the pad’s speaker or headset.</source>
+        <translation>El audio del host suena por el altavoz o los auriculares del mando.</translation>
     </message>
     <message>
         <source>Off</source>

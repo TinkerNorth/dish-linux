@@ -127,6 +127,14 @@ class WifiConnectionManager : public QObject {
     // Re-PUT for a fresh token/salt/key on the SAME socket, so there is no state
     // blip visible to the UI.
     void rekey(WifiConnection* conn, const models::DiscoveredServer& server);
+    // Reads GET /api/server/capabilities for the host's controller-audio
+    // verdict and folds it into the connection (reducer/HostAudioVerdict.h).
+    // Fired after EVERY successful session PUT — connect, reconnect-after-death
+    // and the proactive re-key alike — because the verdict is live host state
+    // and a fresh session is exactly when it may have moved. Probing only from
+    // a UI surface was dish-android's mistake: an auto-reconnected session then
+    // streams with the verdict stuck at the conservative default.
+    void probeHostAudio(const QString& id, const models::DiscoveredServer& server);
     void syncSlot(const QString& id, const QString& slotId);
     void deleteSlot(const QString& id, int ctrlIdx);
     void handleServerClose(WifiConnection* conn, const models::DiscoveredServer& server,

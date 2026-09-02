@@ -20,13 +20,18 @@
 #include <vector>
 
 using dish::input::usbout::buildLightbarReport;
+using dish::input::usbout::buildMicMuteLedReport;
 using dish::input::usbout::buildPlayerLedsReport;
 using dish::input::usbout::buildRumbleReport;
 using dish::input::usbout::buildTriggerEffectsReport;
 using dish::input::usbout::FeedbackState;
 using dish::input::usbout::kMaxOutputReportBytes;
+using dish::input::usbout::kMicMuteLedOff;
+using dish::input::usbout::kMicMuteLedOn;
+using dish::input::usbout::kMicMuteLedPulse;
 using dish::input::usbout::kTriggerEffectBlockBytes;
 using dish::input::usbout::parserHasLightbar;
+using dish::input::usbout::parserHasMicMuteLed;
 using dish::input::usbout::parserHasPlayerLeds;
 using dish::input::usbout::parserHasTriggerEffects;
 using dish::input::usbparse::HidParser;
@@ -74,12 +79,18 @@ TEST_CASE("only the families with the hardware carry each actuator", "[usb][outp
     CHECK(parserHasTriggerEffects(HidParser::DualSense));
     CHECK_FALSE(parserHasTriggerEffects(HidParser::DualShock4));
     CHECK_FALSE(parserHasTriggerEffects(HidParser::SwitchProUsb));
+
+    // So is the mic-mute lamp (the DS4 has a mute-less headset path).
+    CHECK(parserHasMicMuteLed(HidParser::DualSense));
+    CHECK_FALSE(parserHasMicMuteLed(HidParser::DualShock4));
+    CHECK_FALSE(parserHasMicMuteLed(HidParser::SwitchProUsb));
+    CHECK_FALSE(parserHasMicMuteLed(HidParser::GenericHid));
 }
 
 TEST_CASE("DualShock 4 rumble is report 0x05 with the motors flagged valid", "[usb][output]") {
     Buf buf{};
-    const std::size_t n =
-        buildRumbleReport(HidParser::DualShock4, 0xAB00, 0xCD00, /*seq=*/0, buf.data(), buf.size());
+    const std::size_t n = buildRumbleReport(HidParser::DualShock4, FeedbackState{}, 0xAB00, 0xCD00,
+                                            /*seq=*/0, buf.data(), buf.size());
     REQUIRE(n == 32);
     CHECK(buf[0] == 0x05); // report id
     CHECK(buf[1] == 0x01); // valid flags: motors only, so a colour is untouched
@@ -92,8 +103,8 @@ TEST_CASE("DualShock 4 rumble is report 0x05 with the motors flagged valid", "[u
 
 TEST_CASE("DualSense rumble is report 0x02 with COMPATIBLE_VIBRATION", "[usb][output]") {
     Buf buf{};
-    const std::size_t n =
-        buildRumbleReport(HidParser::DualSense, 0x1200, 0x3400, /*seq=*/0, buf.data(), buf.size());
+    const std::size_t n = buildRumbleReport(HidParser::DualSense, FeedbackState{}, 0x1200, 0x3400,
+                                            /*seq=*/0, buf.data(), buf.size());
     REQUIRE(n == 63);
     CHECK(buf[0] == 0x02);
     CHECK(buf[1] == 0x01); // valid_flag0
@@ -106,8 +117,8 @@ TEST_CASE("only the top byte of a magnitude reaches an 8-bit motor", "[usb][outp
     // A caller passing 0x00FF must not produce a motor at 0xFF: the pads take
     // the high byte, so sub-256 magnitudes are silence, not full power.
     Buf buf{};
-    const std::size_t n =
-        buildRumbleReport(HidParser::DualSense, 0x00FF, 0x00FF, 0, buf.data(), buf.size());
+    const std::size_t n = buildRumbleReport(HidParser::DualSense, FeedbackState{}, 0x00FF, 0x00FF,
+                                            0, buf.data(), buf.size());
     REQUIRE(n == 63);
     CHECK(buf[3] == 0);
     CHECK(buf[4] == 0);
@@ -116,8 +127,8 @@ TEST_CASE("only the top byte of a magnitude reaches an 8-bit motor", "[usb][outp
 TEST_CASE("Switch Pro rumble encodes both motors and advances the packet counter",
           "[usb][output]") {
     Buf buf{};
-    const std::size_t n =
-        buildRumbleReport(HidParser::SwitchProUsb, 0xFFFF, 0, /*seq=*/0x35, buf.data(), buf.size());
+    const std::size_t n = buildRumbleReport(HidParser::SwitchProUsb, FeedbackState{}, 0xFFFF, 0,
+                                            /*seq=*/0x35, buf.data(), buf.size());
     REQUIRE(n == 10);
     CHECK(buf[0] == 0x10);        // rumble-only report
     CHECK(buf[1] == 0x05);        // seq masked to the low nibble
@@ -137,7 +148,8 @@ TEST_CASE("Switch Pro amplitude rounds down between table steps", "[usb][output]
     // Halfway is amp 501, which sits between the 387 and 650 codes. Rounding UP
     // would make a gentle rumble jump a step.
     Buf buf{};
-    REQUIRE(buildRumbleReport(HidParser::SwitchProUsb, 0x8000, 0, 0, buf.data(), buf.size()) == 10);
+    REQUIRE(buildRumbleReport(HidParser::SwitchProUsb, FeedbackState{}, 0x8000, 0, 0, buf.data(),
+                              buf.size()) == 10);
     CHECK(buf[3] == 0x01 + 0x70);
     CHECK(buf[4] == 0x40 + 0x00);
     CHECK(buf[5] == 0x5C);
@@ -145,10 +157,12 @@ TEST_CASE("Switch Pro amplitude rounds down between table steps", "[usb][output]
 
 TEST_CASE("families without motors build nothing rather than a wrong report", "[usb][output]") {
     Buf buf{};
-    CHECK(buildRumbleReport(HidParser::SteamController, 0xFFFF, 0xFFFF, 0, buf.data(),
+    CHECK(buildRumbleReport(HidParser::SteamController, FeedbackState{}, 0xFFFF, 0xFFFF, 0,
+                            buf.data(), buf.size()) == 0);
+    CHECK(buildRumbleReport(HidParser::GenericHid, FeedbackState{}, 0xFFFF, 0xFFFF, 0, buf.data(),
                             buf.size()) == 0);
-    CHECK(buildRumbleReport(HidParser::GenericHid, 0xFFFF, 0xFFFF, 0, buf.data(), buf.size()) == 0);
-    CHECK(buildRumbleReport(HidParser::None, 0xFFFF, 0xFFFF, 0, buf.data(), buf.size()) == 0);
+    CHECK(buildRumbleReport(HidParser::None, FeedbackState{}, 0xFFFF, 0xFFFF, 0, buf.data(),
+                            buf.size()) == 0);
 }
 
 TEST_CASE("a buffer too small builds nothing rather than a partial report", "[usb][output]") {
@@ -156,16 +170,17 @@ TEST_CASE("a buffer too small builds nothing rather than a partial report", "[us
     // on the wire; every family gets its own check because each has its own size.
     std::array<std::uint8_t, 9> tiny{};
     FeedbackState st;
-    CHECK(buildRumbleReport(HidParser::DualShock4, 1, 1, 0, tiny.data(), tiny.size()) == 0);
-    CHECK(buildRumbleReport(HidParser::DualSense, 1, 1, 0, tiny.data(), tiny.size()) == 0);
-    CHECK(buildRumbleReport(HidParser::SwitchProUsb, 1, 1, 0, tiny.data(), tiny.size()) == 0);
+    CHECK(buildRumbleReport(HidParser::DualShock4, st, 1, 1, 0, tiny.data(), tiny.size()) == 0);
+    CHECK(buildRumbleReport(HidParser::DualSense, st, 1, 1, 0, tiny.data(), tiny.size()) == 0);
+    CHECK(buildRumbleReport(HidParser::SwitchProUsb, st, 1, 1, 0, tiny.data(), tiny.size()) == 0);
     CHECK(buildLightbarReport(HidParser::DualShock4, st, 1, 2, 3, tiny.data(), tiny.size()) == 0);
     CHECK(buildLightbarReport(HidParser::DualSense, st, 1, 2, 3, tiny.data(), tiny.size()) == 0);
-    CHECK(buildPlayerLedsReport(HidParser::DualSense, 0x01, 0, tiny.data(), tiny.size()) == 0);
-    CHECK(buildPlayerLedsReport(HidParser::SwitchProUsb, 0x01, 0, tiny.data(), tiny.size()) == 0);
+    CHECK(buildPlayerLedsReport(HidParser::DualSense, st, 0x01, 0, tiny.data(), tiny.size()) == 0);
+    CHECK(buildPlayerLedsReport(HidParser::SwitchProUsb, st, 0x01, 0, tiny.data(), tiny.size()) ==
+          0);
     const std::array<std::uint8_t, kTriggerEffectBlockBytes> block{};
-    CHECK(buildTriggerEffectsReport(HidParser::DualSense, block.data(), block.data(), tiny.data(),
-                                    tiny.size()) == 0);
+    CHECK(buildTriggerEffectsReport(HidParser::DualSense, st, block.data(), block.data(),
+                                    tiny.data(), tiny.size()) == 0);
     // ...and the setup flag must NOT have been consumed by a build that failed.
     CHECK_FALSE(st.ds5LightbarSetupSent);
 }
@@ -237,8 +252,8 @@ TEST_CASE("player LEDs are masked to the LEDs a family actually has", "[usb][out
     // families, so passing 0xFF straight through would be setting flags at
     // random.
     Buf ds{};
-    const std::size_t dsLen =
-        buildPlayerLedsReport(HidParser::DualSense, 0xFF, /*seq=*/0, ds.data(), ds.size());
+    const std::size_t dsLen = buildPlayerLedsReport(HidParser::DualSense, FeedbackState{}, 0xFF,
+                                                    /*seq=*/0, ds.data(), ds.size());
     REQUIRE(dsLen == 63);
     CHECK(ds[0] == 0x02);
     CHECK(ds[2] == 0x10);  // valid_flag1 PLAYER_INDICATOR_CONTROL_ENABLE
@@ -246,8 +261,8 @@ TEST_CASE("player LEDs are masked to the LEDs a family actually has", "[usb][out
     checkZeroExcept(ds, dsLen, {0, 2, 44});
 
     Buf sw{};
-    const std::size_t swLen =
-        buildPlayerLedsReport(HidParser::SwitchProUsb, 0xFF, /*seq=*/0x21, sw.data(), sw.size());
+    const std::size_t swLen = buildPlayerLedsReport(HidParser::SwitchProUsb, FeedbackState{}, 0xFF,
+                                                    /*seq=*/0x21, sw.data(), sw.size());
     REQUIRE(swLen == 12);
     CHECK(sw[0] == 0x01);  // rumble + subcommand report
     CHECK(sw[1] == 0x01);  // seq low nibble
@@ -259,7 +274,8 @@ TEST_CASE("Switch player lights ride neutral rumble blocks", "[usb][output]") {
     // The subcommand shares its report with rumble, so the motor bytes have to
     // be the neutral code or setting a player number would stop a live rumble.
     Buf buf{};
-    REQUIRE(buildPlayerLedsReport(HidParser::SwitchProUsb, 0x01, 0, buf.data(), buf.size()) == 12);
+    REQUIRE(buildPlayerLedsReport(HidParser::SwitchProUsb, FeedbackState{}, 0x01, 0, buf.data(),
+                                  buf.size()) == 12);
     CHECK(buf[2] == 0x00);
     CHECK(buf[3] == 0x01);
     CHECK(buf[4] == 0x40);
@@ -281,8 +297,8 @@ TEST_CASE("trigger-effect blocks are copied verbatim, right block first", "[usb]
         right[i] = static_cast<std::uint8_t>(0xB0 + i);
     }
     Buf buf{};
-    const std::size_t n = buildTriggerEffectsReport(HidParser::DualSense, left.data(), right.data(),
-                                                    buf.data(), buf.size());
+    const std::size_t n = buildTriggerEffectsReport(
+        HidParser::DualSense, FeedbackState{}, left.data(), right.data(), buf.data(), buf.size());
     REQUIRE(n == 63);
     CHECK(buf[0] == 0x02);
     CHECK(buf[1] == 0x0C); // valid_flag0: right (0x04) + left (0x08)
@@ -300,12 +316,12 @@ TEST_CASE("trigger-effect blocks are copied verbatim, right block first", "[usb]
 TEST_CASE("trigger effects build nothing for a family without adaptive triggers", "[usb][output]") {
     const std::array<std::uint8_t, kTriggerEffectBlockBytes> block{};
     Buf buf{};
-    CHECK(buildTriggerEffectsReport(HidParser::DualShock4, block.data(), block.data(), buf.data(),
-                                    buf.size()) == 0);
-    CHECK(buildTriggerEffectsReport(HidParser::SwitchProUsb, block.data(), block.data(), buf.data(),
-                                    buf.size()) == 0);
-    CHECK(buildTriggerEffectsReport(HidParser::None, block.data(), block.data(), buf.data(),
-                                    buf.size()) == 0);
+    CHECK(buildTriggerEffectsReport(HidParser::DualShock4, FeedbackState{}, block.data(),
+                                    block.data(), buf.data(), buf.size()) == 0);
+    CHECK(buildTriggerEffectsReport(HidParser::SwitchProUsb, FeedbackState{}, block.data(),
+                                    block.data(), buf.data(), buf.size()) == 0);
+    CHECK(buildTriggerEffectsReport(HidParser::None, FeedbackState{}, block.data(), block.data(),
+                                    buf.data(), buf.size()) == 0);
 }
 
 TEST_CASE("lightbar and player LEDs build nothing for the wrong family", "[usb][output]") {
@@ -313,8 +329,10 @@ TEST_CASE("lightbar and player LEDs build nothing for the wrong family", "[usb][
     FeedbackState st;
     CHECK(buildLightbarReport(HidParser::SwitchProUsb, st, 1, 2, 3, buf.data(), buf.size()) == 0);
     CHECK(buildLightbarReport(HidParser::None, st, 1, 2, 3, buf.data(), buf.size()) == 0);
-    CHECK(buildPlayerLedsReport(HidParser::DualShock4, 1, 0, buf.data(), buf.size()) == 0);
-    CHECK(buildPlayerLedsReport(HidParser::GenericHid, 1, 0, buf.data(), buf.size()) == 0);
+    CHECK(buildPlayerLedsReport(HidParser::DualShock4, FeedbackState{}, 1, 0, buf.data(),
+                                buf.size()) == 0);
+    CHECK(buildPlayerLedsReport(HidParser::GenericHid, FeedbackState{}, 1, 0, buf.data(),
+                                buf.size()) == 0);
 }
 
 TEST_CASE("the scratch size fits every report a family can produce", "[usb][output]") {
@@ -323,9 +341,141 @@ TEST_CASE("the scratch size fits every report a family can produce", "[usb][outp
     Buf buf{};
     FeedbackState st;
     const std::array<std::uint8_t, kTriggerEffectBlockBytes> block{};
-    CHECK(buildRumbleReport(HidParser::DualSense, 1, 1, 0, buf.data(), buf.size()) != 0);
+    CHECK(buildRumbleReport(HidParser::DualSense, st, 1, 1, 0, buf.data(), buf.size()) != 0);
     CHECK(buildLightbarReport(HidParser::DualSense, st, 1, 1, 1, buf.data(), buf.size()) != 0);
-    CHECK(buildPlayerLedsReport(HidParser::DualSense, 1, 0, buf.data(), buf.size()) != 0);
-    CHECK(buildTriggerEffectsReport(HidParser::DualSense, block.data(), block.data(), buf.data(),
-                                    buf.size()) != 0);
+    CHECK(buildPlayerLedsReport(HidParser::DualSense, st, 1, 0, buf.data(), buf.size()) != 0);
+    CHECK(buildTriggerEffectsReport(HidParser::DualSense, st, block.data(), block.data(),
+                                    buf.data(), buf.size()) != 0);
+}
+
+// ---- The mic-mute lamp -------------------------------------------------------
+
+TEST_CASE("the mute lamp report is 0x02 with both valid flags and the amp bit", "[usb][output]") {
+    // Byte-for-byte with dish-android's buildMicMuteLedReport: valid_flag1
+    // gains MIC_MUTE_LED_CONTROL_ENABLE (0x01) + POWER_SAVE_CONTROL_ENABLE
+    // (0x02), the lamp state rides out[9], and the mic-amp power-save bit
+    // (0x10 in out[10]) follows the lamp -- a lit mute lamp over a live
+    // microphone amplifier is the one failure this feature exists to prevent.
+    Buf buf{};
+    FeedbackState st;
+    const std::size_t n =
+        buildMicMuteLedReport(HidParser::DualSense, st, kMicMuteLedOn, buf.data(), buf.size());
+    REQUIRE(n == 63);
+    CHECK(buf[0] == 0x02);
+    CHECK(buf[2] == 0x03); // 0x01 lamp + 0x02 power save
+    CHECK(buf[9] == kMicMuteLedOn);
+    CHECK(buf[10] == 0x10);
+    checkZeroExcept(buf, n, {0, 2, 9, 10});
+    CHECK(st.ds5MicMuteLedSet);
+    CHECK(st.ds5MicMuteLed == kMicMuteLedOn);
+}
+
+TEST_CASE("lamp off clears the amp bit; pulse counts as lit", "[usb][output]") {
+    Buf buf{};
+    FeedbackState st;
+    REQUIRE(buildMicMuteLedReport(HidParser::DualSense, st, kMicMuteLedOff, buf.data(),
+                                  buf.size()) == 63);
+    CHECK(buf[9] == kMicMuteLedOff);
+    CHECK(buf[10] == 0x00);
+
+    REQUIRE(buildMicMuteLedReport(HidParser::DualSense, st, kMicMuteLedPulse, buf.data(),
+                                  buf.size()) == 63);
+    CHECK(buf[9] == kMicMuteLedPulse);
+    CHECK(buf[10] == 0x10);
+}
+
+TEST_CASE("an unknown lamp state is refused, not clamped", "[usb][output]") {
+    // A state past pulse can only come from a host speaking something newer;
+    // the dispatch already dropped it, and refusing again keeps the builder
+    // honest for any other caller. The shadow must NOT record the refusal.
+    Buf buf{};
+    FeedbackState st;
+    CHECK(buildMicMuteLedReport(HidParser::DualSense, st, 3, buf.data(), buf.size()) == 0);
+    CHECK(buildMicMuteLedReport(HidParser::DualSense, st, 0xFF, buf.data(), buf.size()) == 0);
+    CHECK_FALSE(st.ds5MicMuteLedSet);
+}
+
+TEST_CASE("the lamp builds nothing for the wrong family or a short buffer", "[usb][output]") {
+    Buf buf{};
+    FeedbackState st;
+    CHECK(buildMicMuteLedReport(HidParser::DualShock4, st, kMicMuteLedOn, buf.data(), buf.size()) ==
+          0);
+    CHECK(buildMicMuteLedReport(HidParser::SwitchProUsb, st, kMicMuteLedOn, buf.data(),
+                                buf.size()) == 0);
+    CHECK(buildMicMuteLedReport(HidParser::None, st, kMicMuteLedOn, buf.data(), buf.size()) == 0);
+    std::array<std::uint8_t, 9> tiny{};
+    CHECK(buildMicMuteLedReport(HidParser::DualSense, st, kMicMuteLedOn, tiny.data(),
+                                tiny.size()) == 0);
+    CHECK_FALSE(st.ds5MicMuteLedSet);
+}
+
+TEST_CASE("every later DS5 write re-asserts the lamp instead of stomping it", "[usb][output]") {
+    // Each builder memsets a fresh 0x02 report and the firmware applies
+    // whatever the valid flags claim, so without the re-assert a colour change
+    // would be a lamp-off write. The lamp bytes must survive every sibling.
+    Buf buf{};
+    FeedbackState st;
+    REQUIRE(buildMicMuteLedReport(HidParser::DualSense, st, kMicMuteLedOn, buf.data(),
+                                  buf.size()) == 63);
+
+    Buf colour{};
+    REQUIRE(buildLightbarReport(HidParser::DualSense, st, 0x44, 0x55, 0x66, colour.data(),
+                                colour.size()) == 63);
+    CHECK((colour[2] & 0x03) == 0x03); // lamp + power-save flags ride along
+    CHECK(colour[9] == kMicMuteLedOn);
+    CHECK(colour[10] == 0x10);
+    CHECK(colour[45] == 0x44); // and the colour is intact
+    CHECK(colour[46] == 0x55);
+    CHECK(colour[47] == 0x66);
+
+    Buf rumble{};
+    REQUIRE(buildRumbleReport(HidParser::DualSense, st, 0x1200, 0x3400, 0, rumble.data(),
+                              rumble.size()) == 63);
+    CHECK(rumble[9] == kMicMuteLedOn);
+    CHECK(rumble[10] == 0x10);
+    CHECK(rumble[3] == 0x34);
+    CHECK(rumble[4] == 0x12);
+
+    Buf leds{};
+    REQUIRE(buildPlayerLedsReport(HidParser::DualSense, st, 0x1F, 0, leds.data(), leds.size()) ==
+            63);
+    CHECK(leds[9] == kMicMuteLedOn);
+    CHECK(leds[44] == 0x1F);
+
+    const std::array<std::uint8_t, kTriggerEffectBlockBytes> block{};
+    Buf effects{};
+    REQUIRE(buildTriggerEffectsReport(HidParser::DualSense, st, block.data(), block.data(),
+                                      effects.data(), effects.size()) == 63);
+    CHECK(effects[9] == kMicMuteLedOn);
+    CHECK(effects[10] == 0x10);
+}
+
+TEST_CASE("the reverse order survives too: a lamp write keeps the shadowed setup",
+          "[usb][output]") {
+    // Lightbar first (consumes the one-time handoff), then the lamp: the lamp
+    // report must not resurrect the handoff, and a following colour must carry
+    // BOTH the new colour and the lamp.
+    Buf buf{};
+    FeedbackState st;
+    REQUIRE(buildLightbarReport(HidParser::DualSense, st, 1, 2, 3, buf.data(), buf.size()) == 63);
+    REQUIRE(buildMicMuteLedReport(HidParser::DualSense, st, kMicMuteLedOn, buf.data(),
+                                  buf.size()) == 63);
+    CHECK(buf[39] == 0); // no handoff resurrection
+    CHECK(buf[42] == 0);
+    Buf second{};
+    REQUIRE(buildLightbarReport(HidParser::DualSense, st, 7, 8, 9, second.data(), second.size()) ==
+            63);
+    CHECK(second[45] == 7);
+    CHECK(second[9] == kMicMuteLedOn);
+}
+
+TEST_CASE("an undriven lamp leaves every other report untouched", "[usb][output]") {
+    // A pad whose lamp the host never drove must keep whatever it had: no
+    // flags, no zeroed field.
+    Buf buf{};
+    FeedbackState st;
+    REQUIRE(buildLightbarReport(HidParser::DualSense, st, 1, 2, 3, buf.data(), buf.size()) == 63);
+    CHECK((buf[2] & 0x03) == 0);
+    CHECK(buf[9] == 0);
+    CHECK(buf[10] == 0);
 }

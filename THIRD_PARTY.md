@@ -5,10 +5,10 @@ third-party component that is linked into `dish`, embedded in it as a resource,
 or used only to build and test it. It also states what someone redistributing
 the binary has to do.
 
-Nothing is bundled. Qt, SDL2 and libsodium are dynamically linked against the
-system copies your distribution provides, so a redistributor of a package built
-from this tree is redistributing those libraries under their own distribution's
-terms, not through this repository.
+Nothing is bundled. Qt, SDL2, libsodium and Opus are dynamically linked against
+the system copies your distribution provides, so a redistributor of a package
+built from this tree is redistributing those libraries under their own
+distribution's terms, not through this repository.
 
 The app has an in-app version of this list at Settings, Licenses, rendered from
 [`assets/licenses/licenses.json`](assets/licenses/licenses.json). That manifest
@@ -25,6 +25,7 @@ today.
 | [Qt 6](#2-qt-6) | CMake requires >= 6.7 | `LGPL-3.0-only` | Dynamically linked against the system Qt. Nothing is bundled. | Notice, license text, relink freedom. See section 2. |
 | [SDL2](#sdl2) | >= 2.0.18 | `Zlib` | Dynamically linked against the system SDL2. | Keep the notice, do not claim authorship |
 | [libsodium](#libsodium) | >= 1.0.18 | `ISC` | Dynamically linked against the system libsodium. | Keep the copyright and permission notice |
+| [Opus](#opus) | >= 1.3 | `BSD-3-Clause` | Dynamically linked against the system libopus. | Keep the copyright notice and disclaimer |
 | [Inter](#4-inter) | 4.001 | `OFL-1.1` | Four `.ttf` faces embedded in `dish` as Qt resources under `:/fonts/`. | Ship the license text with every copy. See section 4. |
 | [Catch2](#5-catch2) | 3.x | `BSL-1.0` | Test binary only. Not linked into `dish`. | None for redistributors of the app |
 | [ENet (cgutman fork)](#9-enet) | commit `4cde9cc` | `MIT` | Vendored C sources under `third_party/enet/`, compiled into `dish`. | Ship the copyright + permission notice |
@@ -130,9 +131,9 @@ obligations on redistribution.
 
 ## 3. Linked system libraries
 
-SDL2 and libsodium are found through `pkg-config` and dynamically linked against
-whatever the build host provides. Neither is vendored into this tree and neither
-is bundled with the binary.
+SDL2, libsodium and Opus are found through `pkg-config` and dynamically linked
+against whatever the build host provides. None of them is vendored into this
+tree and none is bundled with the binary.
 
 ### SDL2
 
@@ -188,6 +189,50 @@ ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
 WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
 ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+```
+
+### Opus
+
+Opus audio codec (libopus). SPDX `BSD-3-Clause`. Upstream:
+<https://opus-codec.org/>.
+
+Used for the controller-audio streams only: encoding a claimed pad's
+microphone capture and decoding host audio for the pad's own speaker
+(`src/source/audio/OpusAudioCodec.*`).
+
+```
+Copyright 2001-2023 Xiph.Org, Skype Limited, Octasic,
+                    Jean-Marc Valin, Timothy B. Terriberry,
+                    CSIRO, Gregory Maxwell, Mark Borgerding,
+                    Erik de Castro Lopo, Mozilla, Amazon
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions
+are met:
+
+- Redistributions of source code must retain the above copyright
+notice, this list of conditions and the following disclaimer.
+
+- Redistributions in binary form must reproduce the above copyright
+notice, this list of conditions and the following disclaimer in the
+documentation and/or other materials provided with the distribution.
+
+- Neither the name of Internet Society, IETF or IETF Trust, nor the
+names of specific contributors, may be used to endorse or promote
+products derived from this software without specific prior written
+permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ```
 
 
@@ -354,8 +399,8 @@ Apollo. Wolf's documentation and MIT source were sufficient.
 [`assets/licenses/licenses.json`](assets/licenses/licenses.json) is the manifest
 the in-app Licenses screen renders, parsed by `src/UI/licenses/LicenseManifest.*`.
 It is hand-authored, not generated, so it can drift. It currently lists Qt 6,
-SDL2, libsodium, Catch2 and Inter, which is the same set as this file, with the
-same licenses. One difference is worth knowing about:
+SDL2, libsodium, Opus, Catch2 and Inter, which is the same set as this file,
+with the same licenses. One difference is worth knowing about:
 
 - The manifest lists Catch2, which is test-only and is not in the shipped
   binary. Showing it to a user is harmless but inaccurate.

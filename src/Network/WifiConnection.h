@@ -109,6 +109,12 @@ class WifiConnection : public QObject {
         // live. The satellite sends 0x0010 / 0x0011 to nobody else.
         bool hasTriggerEffects = false;
         bool hasPlayerLeds = false;
+        // Controller audio (protocol 2): the pad has a usable audio route on
+        // this machine AND the user left the direction on. False everywhere
+        // until Wave 2 lands the route matching, so no descriptor advertises
+        // an audio cap yet.
+        bool hasMic = false;
+        bool hasSpeaker = false;
         bool registered = false;
     };
 
@@ -141,7 +147,8 @@ class WifiConnection : public QObject {
     // controller PUT; while idle it rides the next session PUT.
     void attachSlot(const QString& slotId, int controllerType, bool hasLightbar, bool hasMotion,
                     bool hasRumble, std::uint8_t touchpadMode = proto::kTouchpadModeOff,
-                    bool hasTriggerEffects = false, bool hasPlayerLeds = false);
+                    bool hasTriggerEffects = false, bool hasPlayerLeds = false, bool hasMic = false,
+                    bool hasSpeaker = false);
     void detachSlot();
     void detachSlot(const QString& slotId);
 
@@ -169,6 +176,11 @@ class WifiConnection : public QObject {
                       std::int16_t finger0Y, bool finger1Active, std::uint8_t finger1Id,
                       std::int16_t finger1X, std::int16_t finger1Y, bool buttonPressed,
                       std::uint32_t eventTimeMs);
+    // MSG_MIC_AUDIO for the bound slot; the capture engine calls it from the
+    // audio thread, the same cross-thread contract as sendReport from the SDL
+    // input thread. Gated on `registered` like every stream — the server drops
+    // audio for an unapplied slot anyway. Returns false when nothing was sent.
+    bool sendMicAudio(std::uint16_t seq, const std::uint8_t* opus, std::size_t opusLen);
 
     // Held here rather than on the per-session SatelliteClient so they survive a
     // reconnect; markConnected re-installs them.
@@ -184,6 +196,25 @@ class WifiConnection : public QObject {
     void setTriggerEffectsHandler(TriggerEffectsHandler handler);
     using PlayerLedsHandler = std::function<void(const SatelliteClient::PlayerLedsMessage&)>;
     void setPlayerLedsHandler(PlayerLedsHandler handler);
+    // Controller audio (protocol 2). SpeakerAudioMessage borrows the receive
+    // buffer, so a handler that queues must copy before returning.
+    using SpeakerAudioHandler = std::function<void(const SatelliteClient::SpeakerAudioMessage&)>;
+    void setSpeakerAudioHandler(SpeakerAudioHandler handler);
+    using MicLedHandler = std::function<void(const SatelliteClient::MicLedMessage&)>;
+    void setMicLedHandler(MicLedHandler handler);
+
+    // ── The host's controller-audio verdict, per session ────────────────────
+    //
+    // Probed from GET /api/server/capabilities after every session PUT (the
+    // manager owns the probe), because it is LIVE state: the host can flip its
+    // audio switches between sessions, and a reconnect is exactly when they may
+    // have moved. Conservative by construction — false until a probe says yes,
+    // and reset to false with the session, so a stale yes never outlives the
+    // host that gave it. Read by the capability model's host layer for the
+    // mic/speaker rows only; every other feature keeps its catalog-fed answer.
+    void setHostControllerAudio(bool mic, bool speaker);
+    bool hostMicAvailable() const { return hostMic_; }
+    bool hostSpeakerAvailable() const { return hostSpeaker_; }
 
   signals:
     void changed();
@@ -235,6 +266,12 @@ class WifiConnection : public QObject {
     LightbarHandler lightbarHandler_;
     TriggerEffectsHandler triggerEffectsHandler_;
     PlayerLedsHandler playerLedsHandler_;
+    SpeakerAudioHandler speakerAudioHandler_;
+    MicLedHandler micLedHandler_;
+
+    // Main-thread only, like the session state around it.
+    bool hostMic_ = false;
+    bool hostSpeaker_ = false;
 
     models::ControllerDescriptor descriptorOf(const SlotBinding& b) const;
     int lowestFreeIndex() const;
