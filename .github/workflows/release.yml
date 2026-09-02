@@ -179,19 +179,11 @@ jobs:
           desktop-file-validate packaging/dish.desktop
           appstreamcli validate --no-net packaging/com.tinkernorth.Dish.metainfo.xml
 
-      - name: Configure and build
-        run: |
-          cmake -S . -B build-release -G Ninja \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_INSTALL_PREFIX=/usr \
-            -DDISH_BUILD_TESTS=OFF
-          cmake --build build-release --parallel
-
-      - name: Package
-        run: |
-          set -euo pipefail
-          cpack --config build-release/CPackConfig.cmake -G DEB -B build-release/packages
-          mkdir -p dist && cp build-release/packages/*.deb dist/
+      # Configure + build + cpack live in scripts/build-deb.sh (the `package`
+      # preset), the same path linux-ci.yml's package job and a local
+      # `scripts/build-deb.sh` run.
+      - name: Build the .deb
+        run: ./scripts/build-deb.sh
 
       - name: lintian
         run: lintian --fail-on error --tag-display-limit 0 dist/*.deb
@@ -331,19 +323,10 @@ jobs:
         with:
           ref: ${{ inputs.tag || github.ref }}
 
-      - name: Configure and build
-        run: |
-          cmake -S . -B build-release -G Ninja \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_INSTALL_PREFIX=/usr \
-            -DDISH_BUILD_TESTS=OFF
-          cmake --build build-release --parallel
-
-      - name: Package
-        run: |
-          set -euo pipefail
-          cpack --config build-release/CPackConfig.cmake -G RPM -B build-release/packages
-          mkdir -p dist && cp build-release/packages/*.rpm dist/
+      # Same rails as the .deb: scripts/build-rpm.sh drives the `package`
+      # preset and swaps the cpack generator.
+      - name: Build the .rpm
+        run: ./scripts/build-rpm.sh
 
       - name: Assert package contents and scriptlets
         run: |

@@ -6,15 +6,24 @@ captures the conventions that aren't obvious from skimming the code.
 ## Getting set up
 
 ```bash
-# 1) Install build deps for your distro (see README "Install build dependencies")
-# 2) Generate compile_commands.json + run the test suite
+# 1) Install the toolchain CI uses (apt; --ci-qt adds CI's exact Qt 6.9.3)
+scripts/install-deps.sh
+# 2) Generate compile_commands.json + run the test suite (debug preset -> build/)
 scripts/build.sh debug test
 # 3) Point git at the in-tree pre-commit hook
 scripts/setup-hooks.sh
+# 4) Before pushing: every CI gate, in CI's order
+scripts/ci-local.sh
 ```
 
+`CMakePresets.json` is the single source of configure truth: the `debug`,
+`release` and `package` presets are what `linux-ci.yml`, `codeql.yml` and
+`release.yml` drive, and the `scripts/` wrappers drive the same ones. The
+debug preset writes to `build/` (CI's tree name; this repo used
+`build-debug/` before the presets existed).
+
 The pre-commit hook runs `clang-format -i` (autofix, re-stages) and
-`clang-tidy -p build-debug` (advisory) on staged C++ files. It skips
+`clang-tidy -p build` (advisory) on staged C++ files. It skips
 gracefully if the tools aren't installed — CI re-runs `clang-format
 --dry-run --Werror` and `clang-tidy` in strict mode, so anything that
 slips locally fails the PR.
@@ -161,11 +170,15 @@ Security gates (also blocking):
 - `codeql.yml`: CodeQL `cpp` analysis (security-extended +
   security-and-quality query packs).
 
-`scripts/ci_local.sh` runs those gates in the same order against your worktree,
-so a green run there means a green run in CI. `--no-tidy` skips the slowest step
-for a fast loop; `--with-package` adds the CPack/lintian leg. A gate whose tool
-is missing FAILS rather than printing a notice — pass `--allow-missing` if you
-really want to skip it, and know that you did.
+`scripts/ci-local.sh` runs those gates in the same order against your worktree
+(through the same presets and `scripts/check-format.sh` the workflow calls), so
+a green run there means a green run in CI. `--no-tidy` skips the slowest step
+for a fast loop; `--with-package` adds the CPack/lintian leg;
+`--with-sanitizers` adds the ASan/UBSan and TSan legs; `--compiler gcc|clang`
+sets CC/CXX so you can reproduce either side of CI's compiler matrix (one run
+covers one compiler). A gate whose tool is missing FAILS rather than printing
+a notice — pass `--allow-missing` if you really want to skip it, and know that
+you did. `scripts/ci_local.sh` remains as a forwarder for muscle memory.
 
 ## Security
 
@@ -275,8 +288,8 @@ database globally, so a second tree only re-derives the same `src/` entries and
 costs another full build:
 
 ```sh
-cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DDISH_BUILD_TESTS=ON
-cmake --build build --parallel
+cmake --preset debug
+cmake --build --preset debug --parallel
 find src -type f \( -name '*.cpp' -o -name '*.h' \) \
   ! -path 'src/UI/*' ! -path 'src/qml/*' -print0 |
   xargs -0 -n1 -P"$(nproc)" clang-tidy -p build --quiet --warnings-as-errors='*'

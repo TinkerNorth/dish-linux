@@ -72,30 +72,30 @@ jobs:
           pipx ensurepath
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
+      # The gate itself lives in scripts/check-format.sh so this workflow and
+      # scripts/ci-local.sh cannot drift on the file set or the invocation.
       - name: clang-format (check only)
         if: env.DISH_LINTS == 'true'
-        run: |
-          find src tests -type f \( -name '*.cpp' -o -name '*.h' \) \
-            -print0 | xargs -0 clang-format --dry-run --Werror
+        run: ./scripts/check-format.sh
 
+      # The configure line lives in CMakePresets.json (preset debug), shared
+      # with scripts/build.sh and scripts/ci-local.sh. The ccache launcher is
+      # layered on top here rather than in the preset because a local box need
+      # not have ccache; CC/CXX come from the matrix env, which CMake respects
+      # natively.
       - name: Configure (Debug, tests on)
         run: |
-          cmake -S . -B build -G Ninja \
-            -DCMAKE_BUILD_TYPE=Debug \
-            -DDISH_BUILD_TESTS=ON \
-            -DDISH_REQUIRE_TRANSLATIONS=ON \
+          cmake --preset debug \
             -DCMAKE_C_COMPILER_LAUNCHER=ccache \
             -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
 
       - name: Build
-        run: cmake --build build --parallel
+        run: cmake --build --preset debug --parallel
 
+      # QT_QPA_PLATFORM=offscreen comes from the test preset: no display on
+      # the runner, and the QML tests construct QGuiApplication.
       - name: Run tests (Debug)
-        working-directory: build
-        # No display on the runner; the QML tests construct QGuiApplication.
-        env:
-          QT_QPA_PLATFORM: offscreen
-        run: ctest --output-on-failure --parallel
+        run: ctest --preset debug --parallel
 
       - name: qmllint (QML static analysis)
         if: env.DISH_LINTS == 'true'
@@ -133,26 +133,22 @@ jobs:
             -print0 | xargs -0 -n1 -P"$(nproc)" \
               clang-tidy -p build --quiet --warnings-as-errors='*'
 
+      # The configure line lives in CMakePresets.json (preset release); same
+      # ccache-on-top note as the Debug configure above.
       - name: Configure (Release, tests on)
         run: |
-          cmake -S . -B build-release -G Ninja \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DDISH_BUILD_TESTS=ON \
-            -DDISH_REQUIRE_TRANSLATIONS=ON \
+          cmake --preset release \
             -DCMAKE_C_COMPILER_LAUNCHER=ccache \
             -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
 
       - name: Build release
-        run: cmake --build build-release --parallel
+        run: cmake --build --preset release --parallel
 
       # -O3 plus LTO is a different compiler: undefined behaviour that Debug
       # tolerates surfaces here, and until now nothing ever ran the suite
       # against the configuration that actually ships.
       - name: Run tests (Release)
-        working-directory: build-release
-        env:
-          QT_QPA_PLATFORM: offscreen
-        run: ctest --output-on-failure --parallel
+        run: ctest --preset release --parallel
 
       # Ubuntu patches PIE, partial RELRO and stack protection into its gcc
       # defaults, so these pass by accident on this runner and would silently
@@ -275,19 +271,11 @@ jobs:
           desktop-file-validate packaging/dish.desktop
           appstreamcli validate --no-net packaging/com.tinkernorth.Dish.metainfo.xml
 
-      - name: Configure and build
-        run: |
-          cmake -S . -B build-release -G Ninja \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_INSTALL_PREFIX=/usr \
-            -DDISH_BUILD_TESTS=OFF
-          cmake --build build-release --parallel
-
+      # Configure + build + cpack live in scripts/build-deb.sh (the `package`
+      # preset), the same path release.yml's deb job and a local
+      # `scripts/build-deb.sh` run.
       - name: Build the .deb
-        run: |
-          set -euo pipefail
-          cpack --config build-release/CPackConfig.cmake -G DEB -B build-release/packages
-          mkdir -p dist && cp build-release/packages/*.deb dist/
+        run: ./scripts/build-deb.sh
 
       # A lintian error means the package is malformed, not merely untidy.
       - name: lintian
