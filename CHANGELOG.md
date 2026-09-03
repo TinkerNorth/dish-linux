@@ -16,7 +16,15 @@ the repos share a version number.
 
 ---
 
-## [Unreleased]
+## [2.0.0] - Unreleased
+
+Everything below ships as 2.0.0. The jump from 0.2.0 is deliberate: the
+whole Dish and Satellite family aligns on one version number for this
+release, and this client is at feature parity with its siblings for
+everything protocol 2 carries. Since 0.2.0 it gained the Moonlight
+(Sunshine/Apollo/Wolf) host path, the full protocol-2 feedback set,
+controller audio for Direct-claimed pads, and the unified build story
+below.
 
 ### Added
 
