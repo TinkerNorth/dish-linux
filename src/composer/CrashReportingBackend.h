@@ -67,7 +67,10 @@ class SentryCrashReportingBackend : public CrashReportingBackend {
     // setEnabled() would inherit every throwing path in it.
     void disarm() noexcept;
 
-    std::string databaseDir_;
+    // maybe_unused because its only read is inside the SDK guard: a stub
+    // build (no DSN, so no SDK fetched) would otherwise trip clang's
+    // -Wunused-private-field, which -Wall turns on and -Werror makes fatal.
+    [[maybe_unused]] std::string databaseDir_;
     bool active_ = false;
 };
 

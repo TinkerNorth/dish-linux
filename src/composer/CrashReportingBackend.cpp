@@ -36,8 +36,12 @@ std::string envDsn() {
     return raw != nullptr ? std::string(raw) : std::string();
 }
 
+#ifdef DISH_HAS_SENTRY
 // AppLocalDataLocation is per-user and writable. Created eagerly because
 // sentry_init on a missing directory just fails.
+//
+// Inside the guard because its only caller is: a stub build would carry it
+// unused, and -Werror=unused-function is fatal here.
 std::string defaultDatabaseDir() {
     const QString base = QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation);
     if (base.isEmpty()) { return {}; }
@@ -45,6 +49,7 @@ std::string defaultDatabaseDir() {
     QDir().mkpath(dir);
     return dir.toStdString();
 }
+#endif
 } // namespace
 
 bool sentrySdkAvailable() {
