@@ -3218,12 +3218,12 @@
         <translation>Elige el aspecto de Dish. Sistema sigue el ajuste claro u oscuro de tu escritorio.</translation>
     </message>
     <message>
-        <source>Save crash reports</source>
-        <translation>Guardar informes de fallos</translation>
+        <source>Share crash reports</source>
+        <translation>Compartir informes de fallos</translation>
     </message>
     <message>
-        <source>Writes a crash report to this machine so you can read it and send it yourself. Nothing is uploaded.</source>
-        <translation>Escribe un informe de fallos en este equipo para que puedas leerlo y enviarlo tú mismo. No se sube nada.</translation>
+        <source>Anonymous crash reports help fix bugs. Opt out any time.</source>
+        <translation>Los informes de fallos anónimos ayudan a corregir errores. Puedes desactivarlos cuando quieras.</translation>
     </message>
     <message>
         <source>Dish closed unexpectedly last time. The report below has had your home folder, network addresses and any key-like values removed.</source>

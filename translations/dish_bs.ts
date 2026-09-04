@@ -3235,12 +3235,12 @@
         <translation>Odaberite kako Dish izgleda. Sustav prati postavku svijetlog ili tamnog načina vašeg desktopa.</translation>
     </message>
     <message>
-        <source>Save crash reports</source>
-        <translation>Čuvaj izvještaje o padovima</translation>
+        <source>Share crash reports</source>
+        <translation>Dijeli izvještaje o padovima</translation>
     </message>
     <message>
-        <source>Writes a crash report to this machine so you can read it and send it yourself. Nothing is uploaded.</source>
-        <translation>Zapisuje izvještaj o padu na ovaj računar da ga možete pročitati i sami poslati. Ništa se ne šalje.</translation>
+        <source>Anonymous crash reports help fix bugs. Opt out any time.</source>
+        <translation>Anonimni izvještaji o padovima pomažu u ispravljanju grešaka. Možete ih isključiti u svakom trenutku.</translation>
     </message>
     <message>
         <source>Dish closed unexpectedly last time. The report below has had your home folder, network addresses and any key-like values removed.</source>

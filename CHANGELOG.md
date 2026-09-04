@@ -28,6 +28,44 @@ below.
 
 ### Added
 
+- **Crash reports can be sent now, and the switch finally means something.**
+  It has existed since 0.1 and gated nothing: `dish::crash::install()` is the
+  first statement in `main()`, long before the preference is read, and the
+  opt-out only reached a backend whose whole body was one log line. The copy was
+  the more serious half. It said "Writes a crash report to this machine so you
+  can read it and send it yourself. Nothing is uploaded", which was true of the
+  local file and silent about the fact that the switch controlled nothing at
+  all, and it would have become flatly false the moment an uploader existed.
+  - The switch is now the same one dish-windows has, down to the two strings, so
+    the clients cannot drift on what it means: "Share crash reports" /
+    "Anonymous crash reports help fix bugs. Opt out any time." Opt-out, matching
+    dish-android and the FAQ. All six catalogues carry the translations
+    dish-windows already shipped rather than new ones invented here.
+  - It governs UPLOADING only. `UI/CrashHandler` still writes the backtrace to
+    `$XDG_STATE_HOME/dish/crash.log` on every crash, and the redacted report
+    card in Settings, with its prefilled issue link, is unchanged and available
+    either way. Opting out never costs you the local report.
+  - A build has to carry a DSN before anything transmits. `DISH_SENTRY_DSN` is
+    empty in CMake and only `release.yml` fills it in, from a repository secret
+    not exposed to forks.
+  - On this platform the DSN decides one more thing. sentry-native has no Debian
+    or Ubuntu package and upstream says there will not be one, so unlike
+    dish-windows there is nothing to `find_package`. It is fetched and built
+    from source, and only when a DSN is present: a build that cannot transmit
+    does not pay to build an SDK it will never call. That also makes the Sentry
+    environment safe to derive from the DSN rather than track separately.
+  - `SENTRY_BACKEND=inproc`, not the default crashpad. Crashpad's handler is a
+    separate executable that would have to be threaded through the `.deb`, the
+    `.rpm` and the AppImage independently, each with its own install rules.
+    inproc runs in-process and ships nothing extra. It is less robust against a
+    corrupted heap or an exhausted stack, which is a real trade, but the local
+    backtrace is unaffected and still covers exactly those cases.
+  - Session tracking is off, because it defaults on and would report every
+    launch and quit. PII is off by not touching it: sentry-native does not send
+    it by default, and the setter that would change that is Nintendo Switch
+    only. Disarming calls `sentry_close()` immediately rather than at the next
+    launch, so withdrawing consent stops the next crash being sent.
+
 - **Controller audio, wave 1: wire + capability model** `[wire-coordinated]`
   (satellite's `MSG_MIC_AUDIO`/`MSG_SPEAKER_AUDIO`/`MSG_MIC_LED`; dish-android
   shipped the client reference; dish-windows companion). This lands the
