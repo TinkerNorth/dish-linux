@@ -3218,12 +3218,12 @@
         <translation>Lege fest, wie Dish aussieht. „System“ übernimmt die Hell-/Dunkel-Einstellung deines Desktops.</translation>
     </message>
     <message>
-        <source>Save crash reports</source>
-        <translation>Absturzberichte speichern</translation>
+        <source>Share crash reports</source>
+        <translation>Absturzberichte senden</translation>
     </message>
     <message>
-        <source>Writes a crash report to this machine so you can read it and send it yourself. Nothing is uploaded.</source>
-        <translation>Schreibt einen Absturzbericht auf diesen Rechner, damit du ihn lesen und selbst versenden kannst. Es wird nichts hochgeladen.</translation>
+        <source>Anonymous crash reports help fix bugs. Opt out any time.</source>
+        <translation>Anonyme Absturzberichte helfen, Bugs zu beheben. Jederzeit deaktivierbar.</translation>
     </message>
     <message>
         <source>Dish closed unexpectedly last time. The report below has had your home folder, network addresses and any key-like values removed.</source>

@@ -183,6 +183,11 @@ jobs:
       # preset), the same path linux-ci.yml's package job and a local
       # `scripts/build-deb.sh` run.
       - name: Build the .deb
+        env:
+          # Empty for anything but a release from this repo: secrets are not
+          # exposed to forks, so a fork build carries no DSN, cannot upload,
+          # and skips building the SDK entirely.
+          DISH_SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
         run: ./scripts/build-deb.sh
 
       - name: lintian
@@ -326,6 +331,11 @@ jobs:
       # Same rails as the .deb: scripts/build-rpm.sh drives the `package`
       # preset and swaps the cpack generator.
       - name: Build the .rpm
+        env:
+          # Empty for anything but a release from this repo: secrets are not
+          # exposed to forks, so a fork build carries no DSN, cannot upload,
+          # and skips building the SDK entirely.
+          DISH_SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
         run: ./scripts/build-rpm.sh
 
       - name: Assert package contents and scriptlets
@@ -499,6 +509,11 @@ jobs:
       # smoke test, the zsync update metadata — lives in the script so a local
       # build and CI agree.
       - name: Build AppImage
+        env:
+          # Empty for anything but a release from this repo: secrets are not
+          # exposed to forks, so a fork build carries no DSN, cannot upload,
+          # and skips building the SDK entirely.
+          DISH_SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
         run: scripts/build-appimage.sh
 
       # Stable-name copy for the /releases/latest/download/ permalink.

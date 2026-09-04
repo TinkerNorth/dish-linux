@@ -478,9 +478,61 @@ set(DISH_CORE_SOURCES
     src/qml/AppSettingsMaps.h
     src/qml/AppSettingsMaps.cpp)
 
+# Crash reporting (Sentry). Two gates, and only one of them is load-bearing.
+#
+# The DSN is the real one. It is empty here and only .github/workflows/
+# release.yml fills it in, from the SENTRY_DSN repository secret. Secrets are not
+# exposed to forks, so a local build, a PR build and a build from a fork all
+# carry no DSN and cannot transmit, whatever the Settings switch says. The other
+# gate is that switch (source/store/CrashReportingStore.h), which is opt-out to
+# match dish-android and dish-windows.
+#
+# On this platform the DSN decides one more thing. sentry-native has no Debian or
+# Ubuntu package and the maintainers say there will not be one, so unlike
+# dish-windows (vcpkg) there is nothing to find_package. It is fetched and built
+# from source instead, and ONLY when a DSN is present: a build that cannot
+# transmit has no use for the SDK, so ordinary CI and local builds do not pay for
+# it. That is also why the environment is derived from the DSN rather than
+# tracked separately: one mechanism, so the label cannot drift.
+#
+# SENTRY_BACKEND=inproc deliberately. The default on Linux is crashpad, whose
+# handler is a separate executable that would then have to be threaded through
+# the .deb, the .rpm and the AppImage independently, each with its own install
+# rules. inproc runs in-process and ships nothing extra. It is less robust
+# against a corrupted heap or an exhausted stack, which is a real trade, but the
+# local backtrace in UI/CrashHandler is unaffected and still covers those.
+set(DISH_SENTRY_DSN "" CACHE STRING
+    "Sentry DSN. Empty (the default) disables crash uploading and skips building the SDK.")
+if(DISH_SENTRY_DSN STREQUAL "")
+    set(DISH_SENTRY_RELEASE "dish-linux@${PROJECT_VERSION}+dev")
+    message(STATUS "dish: no Sentry DSN; crash uploading stubbed out, SDK not fetched")
+else()
+    set(DISH_SENTRY_RELEASE "dish-linux@${PROJECT_VERSION}")
+    include(FetchContent)
+    set(SENTRY_BACKEND inproc CACHE STRING "" FORCE)
+    set(SENTRY_BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+    set(SENTRY_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+    set(SENTRY_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+    FetchContent_Declare(sentry
+        GIT_REPOSITORY https://github.com/getsentry/sentry-native.git
+        GIT_TAG 0.16.3
+        GIT_SHALLOW TRUE)
+    FetchContent_MakeAvailable(sentry)
+    message(STATUS "dish: Sentry SDK built from source, inproc backend (${DISH_SENTRY_RELEASE})")
+endif()
+
 add_library(dish_core STATIC ${DISH_CORE_SOURCES})
 target_include_directories(dish_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_compile_definitions(dish_core PUBLIC DISH_VERSION="${PROJECT_VERSION}")
+# Crash-reporting identity. PRIVATE: only the backend needs these, and a
+# PUBLIC define would leak the DSN onto every consumer's command line.
+target_compile_definitions(dish_core PRIVATE
+    DISH_SENTRY_DSN="${DISH_SENTRY_DSN}"
+    DISH_SENTRY_RELEASE="${DISH_SENTRY_RELEASE}")
+if(NOT DISH_SENTRY_DSN STREQUAL "")
+    target_compile_definitions(dish_core PRIVATE DISH_HAS_SENTRY=1)
+    target_link_libraries(dish_core PRIVATE sentry::sentry)
+endif()
 target_link_libraries(dish_core
     PUBLIC
         Qt6::Core Qt6::Network
