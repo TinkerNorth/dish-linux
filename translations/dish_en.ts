@@ -3218,12 +3218,12 @@
         <translation>Choose how Dish looks. System matches your desktop’s light or dark setting.</translation>
     </message>
     <message>
-        <source>Save crash reports</source>
-        <translation>Save crash reports</translation>
+        <source>Share crash reports</source>
+        <translation>Share crash reports</translation>
     </message>
     <message>
-        <source>Writes a crash report to this machine so you can read it and send it yourself. Nothing is uploaded.</source>
-        <translation>Writes a crash report to this machine so you can read it and send it yourself. Nothing is uploaded.</translation>
+        <source>Share anonymized crash logs and stack traces with TinkerNorth to help fix bugs. No gameplay or controller input is included.</source>
+        <translation>Share anonymized crash logs and stack traces with TinkerNorth to help fix bugs. No gameplay or controller input is included.</translation>
     </message>
     <message>
         <source>Dish closed unexpectedly last time. The report below has had your home folder, network addresses and any key-like values removed.</source>

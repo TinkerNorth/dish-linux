@@ -29,7 +29,10 @@ DIST_DIR="${DIST_DIR:-dist}"
 BUILD_DIR="build-package"
 
 echo "[*] Configuring (preset package) in ${BUILD_DIR}/"
-cmake --preset package
+# DISH_SENTRY_DSN is empty unless release.yml exported it from the repository
+# secret. A hand-run of this script therefore produces a build that cannot
+# transmit, and one that does not pay to fetch and build the SDK either.
+cmake --preset package -DDISH_SENTRY_DSN="${DISH_SENTRY_DSN:-}"
 
 echo "[*] Building"
 cmake --build --preset package --parallel

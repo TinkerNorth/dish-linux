@@ -1,18 +1,19 @@
 # Dish for Linux: Privacy Policy
 
-**Effective date:** 2026-08-04.
-**Hosted copy:** [`https://dish.tinkernorth.com/privacy/dish-linux/`](https://dish.tinkernorth.com/privacy/dish-linux/).
-The hosted copy at that URL is the canonical version; this file mirrors it
-in-repo so the code and the policy ship together. The app links to the hosted
-URL from Help.
+**Effective date:** 2026-09-06.
+**Canonical copy:** this file, at
+[`https://github.com/TinkerNorth/dish-linux/blob/main/PRIVACY.md`](https://github.com/TinkerNorth/dish-linux/blob/main/PRIVACY.md).
+The app links to it from Help, and the privacy index on
+[dish.tinkernorth.com](https://dish.tinkernorth.com/privacy/) points here, so
+the code and the policy ship together.
 
 This document describes what data the Dish Linux client collects, why, how
 long it is retained, and the choices you have over it. The product as a whole
 spans several repositories (`satellite`, `dish-android`, `dish-windows`,
 `dish-linux`, `dish-mac`); this policy is specific to the Linux desktop
-client. The server (`satellite`) runs on your own machine and does not transmit
-data off your local network. The Android client has a separate policy and
-different behaviour, so do not read one as describing the other.
+client. The server (`satellite`) runs on your own machine and has its own
+policy. The Android client has a separate policy and different behaviour, so
+do not read one as describing the other.
 
 ---
 
@@ -23,16 +24,18 @@ different behaviour, so do not read one as describing the other.
   network, to your own `satellite` host. It does not stream to any
   TinkerNorth-operated server. TinkerNorth does not operate a server for
   Dish at all.
-- **Nothing is transmitted to the authors or to any third party**, except an
-  optional update check against GitHub, described in section 2.4, which you
-  can turn off. There is no analytics SDK, no telemetry, no advertising
-  identifier, no usage reporting, and no automatic error upload in this
-  client. The update check asks GitHub for one file and sends no identifier
-  with the request.
-- Crash diagnostics are written **to your own disk only**, at
+- **Two things can leave your machine**, and you can turn both off: an
+  update check against GitHub, described in section 2.4, and, when the app
+  crashes, one crash report to Sentry, described in section 3. There is no
+  analytics SDK, no telemetry, no advertising identifier, no usage reporting
+  and no account. The update check asks GitHub for one file and sends no
+  identifier with the request.
+- Crash diagnostics are always written to your own disk, at
   `$XDG_STATE_HOME/dish/crash.log` (`~/.local/state/dish/crash.log` by
-  default). They are never uploaded. If you want a maintainer to see one, you
-  attach it to an issue yourself.
+  default). With *Share crash reports* on (the default), an official build
+  also sends one report per crash to Sentry: a stack trace and the app and
+  system versions. Never your controller input, pairings or keys. Section 3
+  has the full list.
 - Settings, remembered servers, and pairing keys live in your own home
   directory under `~/.config/`. Nothing is synced to a cloud account by the
   app.
@@ -65,7 +68,7 @@ clients are written through the app's default organisation name and land in
 | `feature_lightbar_mode` | `followGame` or `off` | Light-bar behaviour |
 | `theme_mode` | `system`, `light`, or `dark` | Appearance |
 | `onboarding_welcome_completed`, `onboarding_dashboard_hint_dismissed` | Booleans | Not showing first-run screens again |
-| `crashlytics_collection_enabled` | Boolean, default `true` | Records the state of the *Share crash reports* toggle. See section 3, which explains why this currently has no external effect. The key name is inherited from the Android client for schema continuity; there is no Crashlytics in this client. |
+| `crashlytics_collection_enabled` | Boolean, default `true` | The *Share crash reports* switch; section 3. The key name is inherited from the Android client for schema continuity; this client reports to Sentry, not Crashlytics. |
 | `ui_rail_collapsed` | Boolean | Navigation-rail width |
 
 Legacy values `wifi_list` and `wifi_shared_key/<id>` from older builds are
@@ -138,18 +141,21 @@ network. That affects your LAN only.
 
 ### 2.3 Sent to TinkerNorth or a third party
 
-Nothing goes to TinkerNorth. There is no TinkerNorth server for this app to
-talk to.
+There is no TinkerNorth server for this app to talk to. The one thing that
+reaches us is a crash report, through Sentry, and only if you leave *Share
+crash reports* on.
 
-One thing leaves your network by default, and it goes to GitHub rather than to
-us: the update check described in **section 2.4**. It is a plain HTTPS request
-for a file on the public releases page, it carries no identifier, and you can
-turn it off.
+Two things leave your network by default, and you can turn both off. The
+update check described in **section 2.4** goes to GitHub: a plain HTTPS
+request for a file on the public releases page, with no identifier. A crash
+report, described in **section 3**, goes to Sentry, which processes it for
+us, and only when the app has actually crashed.
 
-Beyond that there is no analytics library, no crash-reporting service, no
-error-tracking SDK, and no advertising identifier. Apart from the updater, the
-only component in the app that makes an outbound HTTPS request is the satellite
-API client, and it only ever addresses the IP of a satellite you selected.
+Beyond those there is no analytics library, no error tracking beyond the
+crash report, and no advertising identifier. Apart from the updater and the
+crash reporter, the only component in the app that makes an outbound HTTPS
+request is the satellite API client, and it only ever addresses the IP of a
+satellite you selected.
 
 The other way this app causes a request to a TinkerNorth or third-party
 address is if you click a link, which hands the URL to your default browser
@@ -157,7 +163,7 @@ and is then between you and that site. Those links are:
 
 | Where | Opens |
 |---|---|
-| Help, privacy policy | `https://dish.tinkernorth.com/privacy/dish-windows/` |
+| Help, privacy policy | `https://github.com/TinkerNorth/dish-linux/blob/main/PRIVACY.md` |
 | Help, project page | `https://github.com/TinkerNorth` |
 | Welcome, Connections, and the setup wizard, when you have no server yet | `https://dish.tinkernorth.com/downloads/satellite` |
 | Support links | `https://github.com/sponsors/TinkerNorth`, `https://ko-fi.com/tinkernorth`, `https://buymeacoffee.com/tinkernorth` |
@@ -204,7 +210,7 @@ The settings behind that switch are in section 2.1.
 
 This is the part most likely to be misread, so it is stated plainly.
 
-**No crash report is uploaded anywhere.** The app installs handlers for the
+**What is written locally, always.** The app installs handlers for the
 fatal signals that carry a usable stack. When the process crashes it appends a
 backtrace to `$XDG_STATE_HOME/dish/crash.log` (`~/.local/state/dish/crash.log`
 by default) and to stderr, then re-raises on the default disposition so your
@@ -221,15 +227,41 @@ Dish; treat it as sensitive before attaching it to a public issue.
 Delete `~/.local/state/dish/` at any time; the app recreates it only if it
 crashes again.
 
-**The *Share crash reports* toggle.** Settings has a *Share crash reports*
-switch, on by default. Today it records your choice in your config and hands
-it to an internal no-op backend that only writes a line to the app's debug log
-category `dish.crash`. It does not enable or disable any upload, because
-there is no upload path to enable. The switch exists so that the preference,
-its default, and the plumbing are in place before a crash backend is chosen;
-the in-app description of the switch describes that intended future behaviour
-rather than what ships today. If and when a real backend is added, this policy
-will be updated first and the change will be called out in the release notes.
+**What is uploaded, and when.** Settings has a *Share crash reports* switch,
+on by default. With it on, an official release build that crashes sends one
+report to [Sentry](https://sentry.io), a crash-reporting service operated by
+Functional Software, Inc. (San Francisco, USA), which processes it on our
+behalf. The report is produced by the Sentry native SDK, running in-process
+and armed only after reading your preference, and contains:
+
+- the stack of the crashing thread and the list of loaded modules with their
+  versions, so we can see where it failed. There is no minidump and no
+  memory image on Linux;
+- the app version and a build environment label, the kernel and distribution
+  names and versions, the CPU architecture, and a random event id.
+
+It does **not** contain your controller input, your pairings, keys or
+settings, your user name, or a device identifier, and the app never reports
+launches, sessions or usage: the crash is the only event. Sentry sees the
+public IP address of your machine when it receives the report, as any web
+service does; the app does not attach it and we do not use it. Sentry retains
+crash data for 90 days, then deletes it. We use Sentry's US region, so the
+data is stored in the United States. See Sentry's
+[privacy policy](https://sentry.io/privacy/) for its role as a processor.
+
+**Opting out.** Turn *Share crash reports* off. The switch disarms the SDK
+immediately, so it stops the very next report, not just later ones, and the
+choice persists in your config. Opting out never costs you the local log
+above, and the redacted report card in Settings works either way.
+
+**Builds that cannot upload.** Only official release builds from this
+repository (the .deb, the .rpm and the AppImage) carry the Sentry address
+(DSN) that the SDK needs. A source build, a pull-request build, a fork or the
+Flatpak carries none, does not even include the SDK, and cannot upload,
+whatever the switch says.
+
+**Symbols.** To make reports readable we upload the debug symbols of official
+builds to Sentry at release time. They describe the program, not you.
 
 ---
 
@@ -264,10 +296,10 @@ SDL.
 - **Forget a satellite.** Removing a satellite deletes its remembered row,
   its stored pairing key, and its certificate pin from your config, and
   unpairs on the server so any live session is closed there too.
-- **Turn off crash file writing.** There is no toggle for this today because
-  the file never leaves your machine. You can delete
-  `~/.local/state/dish/` whenever you like. Your system's own core-dump
-  collector is configured separately, outside Dish.
+- **Stop crash reports being sent.** Settings, *Share crash reports*, off.
+  The local log under `~/.local/state/dish/` is still written; delete it
+  whenever you like. Your system's own core-dump collector is configured
+  separately, outside Dish.
 - **Stop the update check.** Settings, Updates, *Check for updates
   automatically*. Off means no update-related request leaves your machine, at
   any time, for any reason.
@@ -298,17 +330,18 @@ that is wrong in some way we have not anticipated, contact
 
 ## 7. International transfers
 
-None. No personal data leaves your machine to us, so there is nothing to
-transfer across a border.
+Crash reports, when enabled, are stored by Sentry in the United States
+(section 3). The update check goes to GitHub, also in the United States.
+Nothing else leaves your machine to us.
 
 ---
 
 ## 8. Changes to this policy
 
 We will update the *Effective date* at the top whenever this policy changes.
-Material changes, in particular the addition of any crash-reporting or
-analytics backend, will be made here before the code ships and will be called
-out in that release's notes in [`CHANGELOG.md`](CHANGELOG.md). Previous
+Material changes, such as any new analytics backend, will be made here
+before the code ships and will be called out in that release's notes in
+[`CHANGELOG.md`](CHANGELOG.md). Previous
 versions remain in the git history of this file.
 
 ---

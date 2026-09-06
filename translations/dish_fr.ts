@@ -3218,12 +3218,12 @@
         <translation>Choisissez l&apos;apparence de Dish. Système suit le réglage clair ou sombre de votre bureau.</translation>
     </message>
     <message>
-        <source>Save crash reports</source>
-        <translation>Enregistrer les rapports de plantage</translation>
+        <source>Share crash reports</source>
+        <translation>Partager les rapports de plantage</translation>
     </message>
     <message>
-        <source>Writes a crash report to this machine so you can read it and send it yourself. Nothing is uploaded.</source>
-        <translation>Écrit un rapport de plantage sur cette machine pour que vous puissiez le lire et l&apos;envoyer vous-même. Rien n&apos;est téléversé.</translation>
+        <source>Share anonymized crash logs and stack traces with TinkerNorth to help fix bugs. No gameplay or controller input is included.</source>
+        <translation>Partagez avec TinkerNorth des journaux de plantage anonymisés et des traces de pile pour aider à corriger les bugs. Aucune partie ni entrée de manette n&apos;est incluse.</translation>
     </message>
     <message>
         <source>Dish closed unexpectedly last time. The report below has had your home folder, network addresses and any key-like values removed.</source>
