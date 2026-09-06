@@ -102,6 +102,12 @@
   <!-- Kept in step with project(Dish VERSION ...); version-consistency.yml
        fails the PR that moves one without the other. -->
   <releases>
+    <release version="2.0.0" date="2026-09-06" type="stable">
+      <url type="details">https://github.com/TinkerNorth/dish-linux/releases/tag/2.0.0</url>
+      <description>
+        <p>One version number across Dish and Satellite. Adds the controller microphone and speaker over the Satellite protocol, Moonlight hosts (Sunshine, Apollo, Wolf), controller lights and adaptive triggers that follow the game, and crash reports that are actually sent, behind the same opt-out switch every other Dish client has.</p>
+      </description>
+    </release>
     <release version="0.2.0" date="2026-08-24" type="stable">
       <url type="details">https://github.com/TinkerNorth/dish-linux/releases/tag/0.2.0</url>
       <description>
