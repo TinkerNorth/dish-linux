@@ -3218,12 +3218,12 @@
         <translation>Lege fest, wie Dish aussieht. „System“ übernimmt die Hell-/Dunkel-Einstellung deines Desktops.</translation>
     </message>
     <message>
-        <source>Save crash reports</source>
-        <translation>Absturzberichte speichern</translation>
+        <source>Share crash reports</source>
+        <translation>Absturzberichte senden</translation>
     </message>
     <message>
-        <source>Writes a crash report to this machine so you can read it and send it yourself. Nothing is uploaded.</source>
-        <translation>Schreibt einen Absturzbericht auf diesen Rechner, damit du ihn lesen und selbst versenden kannst. Es wird nichts hochgeladen.</translation>
+        <source>Share anonymized crash logs and stack traces with TinkerNorth to help fix bugs. No gameplay or controller input is included.</source>
+        <translation>Teile anonymisierte Absturzprotokolle und Stack-Traces mit TinkerNorth, um Bugs zu beheben. Spielgeschehen und Controller-Eingaben sind nicht enthalten.</translation>
     </message>
     <message>
         <source>Dish closed unexpectedly last time. The report below has had your home folder, network addresses and any key-like values removed.</source>

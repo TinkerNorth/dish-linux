@@ -446,7 +446,7 @@ class AppModel : public QObject {
     source::OnboardingPreferenceStore onboardingStore_;
     source::ThemePreferenceStore themeStore_;
     source::CrashReportingStore crashStore_;
-    composer::LocalCrashReportingBackend crashBackend_;
+    composer::SentryCrashReportingBackend crashBackend_;
     composer::ThemeController themeController_;
     composer::CrashReportingController crashController_;
 

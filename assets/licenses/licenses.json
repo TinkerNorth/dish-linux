@@ -78,6 +78,32 @@
           "url": "https://openfontlicense.org/open-font-license-official-text/"
         }
       ]
+    },
+    {
+      "group": "io.sentry",
+      "artifact": "sentry-native",
+      "version": "0.16.3",
+      "name": "sentry-native",
+      "url": "https://github.com/getsentry/sentry-native",
+      "licenses": [
+        {
+          "name": "MIT License",
+          "url": "https://github.com/getsentry/sentry-native/blob/master/LICENSE"
+        }
+      ]
+    },
+    {
+      "group": "se.curl",
+      "artifact": "libcurl",
+      "version": "system",
+      "name": "libcurl",
+      "url": "https://curl.se/",
+      "licenses": [
+        {
+          "name": "curl License",
+          "url": "https://curl.se/docs/copyright.html"
+        }
+      ]
     }
   ]
 }

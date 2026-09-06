@@ -128,6 +128,23 @@ jobs:
             echo "GPG repo-signing secrets present; APT/DNF repos will be regenerated."
           fi
 
+      - name: Report crash-reporting readiness (advisory)
+        env:
+          SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+        shell: bash
+        run: |
+          if [ -z "${SENTRY_DSN:-}" ]; then
+            echo "::warning::SENTRY_DSN not set; this release builds with no DSN, skips the SDK and uploads no crash reports."
+          else
+            echo "SENTRY_DSN present; release builds carry the DSN."
+          fi
+          if [ -z "${SENTRY_AUTH_TOKEN:-}" ]; then
+            echo "::warning::SENTRY_AUTH_TOKEN not set; debug symbols will not be uploaded and native frames stay unsymbolicated."
+          else
+            echo "SENTRY_AUTH_TOKEN present; debug symbols will be uploaded."
+          fi
+
   # =========================================================================
   # .deb — Debian 13 and derivatives.
   #
@@ -165,6 +182,7 @@ jobs:
             qt6-base-dev qt6-base-dev-tools qt6-declarative-dev qt6-svg-dev \
             qt6-tools-dev qt6-tools-dev-tools qt6-l10n-tools \
             libsodium-dev libsdl2-dev libssl-dev libopus-dev libdbus-1-dev \
+            libcurl4-openssl-dev curl \
             dpkg-dev fakeroot file gzip \
             librsvg2-bin desktop-file-utils appstream lintian
 
@@ -183,7 +201,44 @@ jobs:
       # preset), the same path linux-ci.yml's package job and a local
       # `scripts/build-deb.sh` run.
       - name: Build the .deb
+        env:
+          # Empty for anything but a release from this repo: secrets are not
+          # exposed to forks, so a fork build carries no DSN, cannot upload,
+          # and skips building the SDK entirely.
+          DISH_SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
         run: ./scripts/build-deb.sh
+
+      # Best effort: a symbol-upload hiccup must not fail a release. The org
+      # and project fall back to the numeric ids inside the DSN, which the
+      # Sentry API accepts in place of slugs. The build-tree binary is the
+      # unstripped one; packaging strips its own copy.
+      - name: Upload debug symbols to Sentry
+        continue-on-error: true
+        env:
+          SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ vars.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ vars.SENTRY_PROJECT }}
+          BUILD_TREE: build-package
+        run: |
+          set -euo pipefail
+          if [ -z "${SENTRY_AUTH_TOKEN:-}" ] || [ -z "${SENTRY_DSN:-}" ]; then
+            echo "::notice::SENTRY_AUTH_TOKEN or SENTRY_DSN unset; skipping symbol upload."
+            exit 0
+          fi
+          if [ -z "${SENTRY_ORG:-}" ]; then
+            SENTRY_ORG="$(sed -nE 's#.*@o([0-9]+)\..*#\1#p' <<<"$SENTRY_DSN")"; export SENTRY_ORG
+          fi
+          if [ -z "${SENTRY_PROJECT:-}" ]; then
+            SENTRY_PROJECT="${SENTRY_DSN##*/}"; export SENTRY_PROJECT
+          fi
+          bin="$(find "$BUILD_TREE" -maxdepth 2 -type f -name dish -perm -u+x | head -1)"
+          [ -n "$bin" ] || { echo "::warning::no dish binary under $BUILD_TREE"; exit 0; }
+          cli="${RUNNER_TEMP}/sentry-cli"
+          curl -fsSL --retry 3 -o "$cli" https://github.com/getsentry/sentry-cli/releases/download/3.7.0/sentry-cli-Linux-x86_64
+          echo "cec71d46a7cc394c94b6e75f1601985c710d457376c546ef3975567b3671563b  $cli" | sha256sum -c -
+          chmod +x "$cli"
+          "$cli" debug-files upload --include-sources "$bin"
 
       - name: lintian
         run: lintian --fail-on error --tag-display-limit 0 dist/*.deb
@@ -316,7 +371,9 @@ jobs:
             gcc-c++ cmake ninja-build pkgconf-pkg-config rpm-build \
             qt6-qtbase-devel qt6-qtdeclarative-devel qt6-qtsvg-devel qt6-qttools-devel \
             libsodium-devel SDL2-devel openssl-devel opus-devel dbus-devel \
+            libcurl-devel \
             librsvg2-tools desktop-file-utils libappstream-glib gzip
+          dnf -y install --allowerasing curl
 
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -326,7 +383,44 @@ jobs:
       # Same rails as the .deb: scripts/build-rpm.sh drives the `package`
       # preset and swaps the cpack generator.
       - name: Build the .rpm
+        env:
+          # Empty for anything but a release from this repo: secrets are not
+          # exposed to forks, so a fork build carries no DSN, cannot upload,
+          # and skips building the SDK entirely.
+          DISH_SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
         run: ./scripts/build-rpm.sh
+
+      # Best effort: a symbol-upload hiccup must not fail a release. The org
+      # and project fall back to the numeric ids inside the DSN, which the
+      # Sentry API accepts in place of slugs. The build-tree binary is the
+      # unstripped one; packaging strips its own copy.
+      - name: Upload debug symbols to Sentry
+        continue-on-error: true
+        env:
+          SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ vars.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ vars.SENTRY_PROJECT }}
+          BUILD_TREE: build-package
+        run: |
+          set -euo pipefail
+          if [ -z "${SENTRY_AUTH_TOKEN:-}" ] || [ -z "${SENTRY_DSN:-}" ]; then
+            echo "::notice::SENTRY_AUTH_TOKEN or SENTRY_DSN unset; skipping symbol upload."
+            exit 0
+          fi
+          if [ -z "${SENTRY_ORG:-}" ]; then
+            SENTRY_ORG="$(sed -nE 's#.*@o([0-9]+)\..*#\1#p' <<<"$SENTRY_DSN")"; export SENTRY_ORG
+          fi
+          if [ -z "${SENTRY_PROJECT:-}" ]; then
+            SENTRY_PROJECT="${SENTRY_DSN##*/}"; export SENTRY_PROJECT
+          fi
+          bin="$(find "$BUILD_TREE" -maxdepth 2 -type f -name dish -perm -u+x | head -1)"
+          [ -n "$bin" ] || { echo "::warning::no dish binary under $BUILD_TREE"; exit 0; }
+          cli="${RUNNER_TEMP}/sentry-cli"
+          curl -fsSL --retry 3 -o "$cli" https://github.com/getsentry/sentry-cli/releases/download/3.7.0/sentry-cli-Linux-x86_64
+          echo "cec71d46a7cc394c94b6e75f1601985c710d457376c546ef3975567b3671563b  $cli" | sha256sum -c -
+          chmod +x "$cli"
+          "$cli" debug-files upload --include-sources "$bin"
 
       - name: Assert package contents and scriptlets
         run: |
@@ -450,6 +544,7 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             build-essential cmake ninja-build pkg-config \
             libsodium-dev libssl-dev libopus-dev libpulse-dev libudev-dev libusb-1.0-0-dev \
+            libcurl4-openssl-dev \
             libxkbcommon-x11-0 libxcb-cursor0 libxcb-icccm4 libxcb-image0 \
             libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 libxcb-shape0 \
             libxcb-xinerama0 libxcb-xkb1 \
@@ -499,7 +594,44 @@ jobs:
       # smoke test, the zsync update metadata — lives in the script so a local
       # build and CI agree.
       - name: Build AppImage
+        env:
+          # Empty for anything but a release from this repo: secrets are not
+          # exposed to forks, so a fork build carries no DSN, cannot upload,
+          # and skips building the SDK entirely.
+          DISH_SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
         run: scripts/build-appimage.sh
+
+      # Best effort: a symbol-upload hiccup must not fail a release. The org
+      # and project fall back to the numeric ids inside the DSN, which the
+      # Sentry API accepts in place of slugs. The build-tree binary is the
+      # unstripped one; packaging strips its own copy.
+      - name: Upload debug symbols to Sentry
+        continue-on-error: true
+        env:
+          SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ vars.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ vars.SENTRY_PROJECT }}
+          BUILD_TREE: build-appimage
+        run: |
+          set -euo pipefail
+          if [ -z "${SENTRY_AUTH_TOKEN:-}" ] || [ -z "${SENTRY_DSN:-}" ]; then
+            echo "::notice::SENTRY_AUTH_TOKEN or SENTRY_DSN unset; skipping symbol upload."
+            exit 0
+          fi
+          if [ -z "${SENTRY_ORG:-}" ]; then
+            SENTRY_ORG="$(sed -nE 's#.*@o([0-9]+)\..*#\1#p' <<<"$SENTRY_DSN")"; export SENTRY_ORG
+          fi
+          if [ -z "${SENTRY_PROJECT:-}" ]; then
+            SENTRY_PROJECT="${SENTRY_DSN##*/}"; export SENTRY_PROJECT
+          fi
+          bin="$(find "$BUILD_TREE" -maxdepth 2 -type f -name dish -perm -u+x | head -1)"
+          [ -n "$bin" ] || { echo "::warning::no dish binary under $BUILD_TREE"; exit 0; }
+          cli="${RUNNER_TEMP}/sentry-cli"
+          curl -fsSL --retry 3 -o "$cli" https://github.com/getsentry/sentry-cli/releases/download/3.7.0/sentry-cli-Linux-x86_64
+          echo "cec71d46a7cc394c94b6e75f1601985c710d457376c546ef3975567b3671563b  $cli" | sha256sum -c -
+          chmod +x "$cli"
+          "$cli" debug-files upload --include-sources "$bin"
 
       # Stable-name copy for the /releases/latest/download/ permalink.
       # No .zsync/.sha256 alias: AppImageUpdate matches the versioned
@@ -711,7 +843,7 @@ jobs:
       # and the AppImage zsync pattern still resolve to the previous release;
       # the flip below is what makes publication atomic for every client.
       - name: Upload to GitHub Releases (as draft)
-        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
           tag_name: ${{ inputs.tag || github.ref_name }}
           prerelease: ${{ contains(inputs.tag || github.ref_name, '-') }}

@@ -319,10 +319,13 @@ Kit.Page {
                 Kit.Card {
                     Layout.fillWidth: true
                     contentItem: Kit.LabeledSwitch {
-                        // Nothing is transmitted, so the copy must not imply it is.
-                        // This switch controls whether a crash is RECORDED locally.
-                        label: qsTr("Save crash reports")
-                        description: qsTr("Writes a crash report to this machine so you can read it and send it yourself. Nothing is uploaded.")
+                        // This switch controls UPLOADING only. A crash is always
+                        // recorded locally by UI/CrashHandler, armed before this
+                        // preference is even read, and the report card below stays
+                        // available either way. Same two strings as dish-android and
+                        // dish-windows so the clients cannot drift on what the switch means.
+                        label: qsTr("Share crash reports")
+                        description: qsTr("Share anonymized crash logs and stack traces with TinkerNorth to help fix bugs. No gameplay or controller input is included.")
                         checked: App.crashReportingEnabled
                         onToggled: (checked) => App.setCrashReportingEnabled(checked)
                     }
