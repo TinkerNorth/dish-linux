@@ -449,3 +449,41 @@ jobs:
           name: coverage-lcov
           path: cov.info
           retention-days: 14
+
+  # The SDK is only fetched and built when a DSN is present, which no PR
+  # build has, so this is the one lane that compiles and links the Sentry
+  # path before a release tag does. The DSN resolves nowhere; nothing runs it.
+  sentry-sdk:
+    name: Build with the Sentry SDK (dummy DSN)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Set up build dependencies
+        uses: ./.github/actions/setup-build-deps
+        with:
+          cache-key: ci-sentry
+          extra-packages: libcurl4-openssl-dev
+
+      - name: Set up Qt
+        uses: ./.github/actions/setup-qt
+
+      - name: Configure with a DSN that resolves nowhere
+        run: |
+          cmake --preset release \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+            -DDISH_SENTRY_DSN="https://public@o0.ingest.sentry.invalid/0"
+
+      - name: Build the app
+        run: cmake --build --preset release --target Dish --parallel
+
+      - name: Verify the SDK is linked and the binary carries debug info
+        run: |
+          bin="$(find build-release -maxdepth 2 -type f -name dish -perm -u+x | head -1)"
+          [ -n "$bin" ] || { echo "::error::no dish binary built"; exit 1; }
+          nm "$bin" | grep -q 'sentry_init' || { echo "::error::sentry_init is not linked"; exit 1; }
+          readelf -S "$bin" | grep -q '\.debug_info' || { echo "::error::no debug info for the symbol upload"; exit 1; }

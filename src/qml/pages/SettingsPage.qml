@@ -322,10 +322,10 @@ Kit.Page {
                         // This switch controls UPLOADING only. A crash is always
                         // recorded locally by UI/CrashHandler, armed before this
                         // preference is even read, and the report card below stays
-                        // available either way. Same two strings as dish-windows so
-                        // the clients cannot drift on what the switch means.
+                        // available either way. Same two strings as dish-android and
+                        // dish-windows so the clients cannot drift on what the switch means.
                         label: qsTr("Share crash reports")
-                        description: qsTr("Anonymous crash reports help fix bugs. Opt out any time.")
+                        description: qsTr("Share anonymized crash logs and stack traces with TinkerNorth to help fix bugs. No gameplay or controller input is included.")
                         checked: App.crashReportingEnabled
                         onToggled: (checked) => App.setCrashReportingEnabled(checked)
                     }

@@ -21,7 +21,7 @@ Kit.Page {
     readonly property string headerTitle: qsTr("Help & FAQ")
     readonly property string headerSub: qsTr("How Dish works, and what to try when it doesn’t")
 
-    readonly property string privacyUrl: "https://dish.tinkernorth.com/privacy/dish-windows/"
+    readonly property string privacyUrl: "https://github.com/TinkerNorth/dish-linux/blob/main/PRIVACY.md"
     readonly property string githubUrl: "https://github.com/TinkerNorth"
 
     ListModel {

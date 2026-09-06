@@ -3239,8 +3239,8 @@
         <translation>Dijeli izvještaje o padovima</translation>
     </message>
     <message>
-        <source>Anonymous crash reports help fix bugs. Opt out any time.</source>
-        <translation>Anonimni izvještaji o padovima pomažu u ispravljanju grešaka. Možete ih isključiti u svakom trenutku.</translation>
+        <source>Share anonymized crash logs and stack traces with TinkerNorth to help fix bugs. No gameplay or controller input is included.</source>
+        <translation>Podijelite anonimne dnevnike padova i stack trace s TinkerNorthom kako biste pomogli u ispravljanju grešaka. Igra ni unos kontrolera nisu uključeni.</translation>
     </message>
     <message>
         <source>Dish closed unexpectedly last time. The report below has had your home folder, network addresses and any key-like values removed.</source>

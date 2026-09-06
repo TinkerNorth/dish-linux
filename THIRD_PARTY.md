@@ -30,6 +30,8 @@ today.
 | [Catch2](#5-catch2) | 3.x | `BSL-1.0` | Test binary only. Not linked into `dish`. | None for redistributors of the app |
 | [ENet (cgutman fork)](#9-enet) | commit `4cde9cc` | `MIT` | Vendored C sources under `third_party/enet/`, compiled into `dish`. | Ship the copyright + permission notice |
 | [OpenSSL libcrypto](#10-openssl-libcrypto) | system | `Apache-2.0` | Dynamically linked against the system libcrypto for the Moonlight-host crypto. | Keep the notice; nothing bundled |
+| [sentry-native](#sentry-native) | 0.16.3 | `MIT` | Official release builds only: built from the hash-pinned release bundle and statically linked into `dish`. Absent from source, PR and Flatpak builds. | Keep the copyright and permission notice |
+| [libcurl](#libcurl) | system | `curl` | Official release builds only: dynamically linked against the system libcurl as sentry-native's transport. | Keep the notice; nothing bundled |
 
 Two further items are reuse of published facts rather than of code, and are
 covered in [section 6](#6-reused-facts-not-reused-code): SDL's default Switch Pro
@@ -133,7 +135,9 @@ obligations on redistribution.
 
 SDL2, libsodium and Opus are found through `pkg-config` and dynamically linked
 against whatever the build host provides. None of them is vendored into this
-tree and none is bundled with the binary.
+tree and none is bundled with the binary. Official release builds add two
+more, described at the end of this section: sentry-native, compiled in, and
+the system libcurl it uses as its transport.
 
 ### SDL2
 
@@ -235,6 +239,72 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ```
 
+
+### sentry-native
+
+sentry-native 0.16.3. SPDX `MIT`. Upstream:
+<https://github.com/getsentry/sentry-native>.
+
+The crash reporter behind the *Share crash reports* switch. Only the official
+release lanes build it, from the hash-pinned release bundle with the
+in-process backend, and link it statically into `dish`; a source build, a
+pull-request build or the Flatpak does not include it at all, because those
+builds carry no Sentry address and would have nothing to send. See
+[`PRIVACY.md`](PRIVACY.md), section 3, for what a report contains.
+
+```
+Copyright (c) 2019 Sentry (https://sentry.io) and individual contributors.
+All rights reserved.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of
+this software and associated documentation files (the "Software"), to deal in
+the Software without restriction, including without limitation the rights to
+use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies
+of the Software, and to permit persons to whom the Software is furnished to do
+so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+### libcurl
+
+libcurl, the system copy, dynamically linked by sentry-native as its HTTPS
+transport in official release builds only. SPDX `curl`. Upstream:
+<https://curl.se/>.
+
+```
+COPYRIGHT AND PERMISSION NOTICE
+
+Copyright (c) 1996 - 2025, Daniel Stenberg, <daniel@haxx.se>, and many
+contributors, see the THANKS file.
+
+All rights reserved.
+
+Permission to use, copy, modify, and distribute this software for any purpose
+with or without fee is hereby granted, provided that the above copyright
+notice and this permission notice appear in all copies.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT OF THIRD PARTY RIGHTS. IN
+NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
+DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
+OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE
+OR OTHER DEALINGS IN THE SOFTWARE.
+
+Except as contained in this notice, the name of a copyright holder shall not
+be used in advertising or otherwise to promote the sale, use or other dealings
+in this Software without prior written authorization of the copyright holder.
+```
 
 ## 4. Inter
 
@@ -399,8 +469,8 @@ Apollo. Wolf's documentation and MIT source were sufficient.
 [`assets/licenses/licenses.json`](assets/licenses/licenses.json) is the manifest
 the in-app Licenses screen renders, parsed by `src/UI/licenses/LicenseManifest.*`.
 It is hand-authored, not generated, so it can drift. It currently lists Qt 6,
-SDL2, libsodium, Opus, Catch2 and Inter, which is the same set as this file,
-with the same licenses. One difference is worth knowing about:
+SDL2, libsodium, Opus, ENet, OpenSSL, sentry-native, libcurl, Catch2 and
+Inter, which is the same set as this file, with the same licenses. One difference is worth knowing about:
 
 - The manifest lists Catch2, which is test-only and is not in the shipped
   binary. Showing it to a user is harmless but inaccurate.

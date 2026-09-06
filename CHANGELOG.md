@@ -36,11 +36,20 @@ below.
   can read it and send it yourself. Nothing is uploaded", which was true of the
   local file and silent about the fact that the switch controlled nothing at
   all, and it would have become flatly false the moment an uploader existed.
-  - The switch is now the same one dish-windows has, down to the two strings, so
-    the clients cannot drift on what it means: "Share crash reports" /
-    "Anonymous crash reports help fix bugs. Opt out any time." Opt-out, matching
-    dish-android and the FAQ. All six catalogues carry the translations
-    dish-windows already shipped rather than new ones invented here.
+  - The switch is now the same one Dish for Android and dish-windows have,
+    down to the two strings, so the clients cannot drift on what it means:
+    "Share crash reports" / "Share anonymized crash logs and stack traces with
+    TinkerNorth to help fix bugs. No gameplay or controller input is
+    included." Opt-out, matching dish-android and the FAQ. All six catalogues
+    carry Android's translations rather than new ones invented here.
+    `PRIVACY.md` says exactly what a report contains, and the Help screen's
+    privacy link now points at it instead of a hosted page that never existed
+    (it also pointed at the Windows client's address).
+  - Official builds keep debug information and upload it to Sentry at release
+    time when the `SENTRY_AUTH_TOKEN` secret exists, so native frames arrive
+    symbolicated. The packages strip their copies, so nothing shipped carries
+    the symbols. `linux-ci.yml` now compiles the SDK path once with a DSN that
+    resolves nowhere, so a release tag is not the first thing to try it.
   - It governs UPLOADING only. `UI/CrashHandler` still writes the backtrace to
     `$XDG_STATE_HOME/dish/crash.log` on every crash, and the redacted report
     card in Settings, with its prefilled issue link, is unchanged and available

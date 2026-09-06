@@ -514,9 +514,9 @@ else()
     set(SENTRY_BUILD_TESTS OFF CACHE BOOL "" FORCE)
     set(SENTRY_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
     FetchContent_Declare(sentry
-        GIT_REPOSITORY https://github.com/getsentry/sentry-native.git
-        GIT_TAG 0.16.3
-        GIT_SHALLOW TRUE)
+        URL https://github.com/getsentry/sentry-native/releases/download/0.16.3/sentry-native.zip
+        URL_HASH SHA256=21380c182dde677794a7b6c57e8d6e03d79ec5a03eec67514ffa7522f7e161b5
+        DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
     FetchContent_MakeAvailable(sentry)
     message(STATUS "dish: Sentry SDK built from source, inproc backend (${DISH_SENTRY_RELEASE})")
 endif()
@@ -572,6 +572,13 @@ set(DISH_UI_SOURCES
 qt_add_executable(Dish ${DISH_UI_SOURCES})
 set_target_properties(Dish PROPERTIES OUTPUT_NAME dish)
 target_link_libraries(Dish PRIVATE dish_core Qt6::Gui Qt6::Svg dish_warnings dish_strict dish_hardened)
+# Debug information for the symbol upload in release.yml. Only builds that can
+# transmit carry it, the .deb and .rpm strip on packaging and linuxdeploy strips
+# the AppImage, so nothing shipped carries it.
+if(NOT DISH_SENTRY_DSN STREQUAL "")
+    target_compile_options(dish_core PRIVATE -g)
+    target_compile_options(Dish PRIVATE -g)
+endif()
 
 # --------------------------------------------------------------------------
 # Qt Quick UI: the Dish.Chrome QML module

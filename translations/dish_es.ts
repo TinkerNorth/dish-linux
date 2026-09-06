@@ -3222,8 +3222,8 @@
         <translation>Compartir informes de fallos</translation>
     </message>
     <message>
-        <source>Anonymous crash reports help fix bugs. Opt out any time.</source>
-        <translation>Los informes de fallos anónimos ayudan a corregir errores. Puedes desactivarlos cuando quieras.</translation>
+        <source>Share anonymized crash logs and stack traces with TinkerNorth to help fix bugs. No gameplay or controller input is included.</source>
+        <translation>Comparte registros de fallos anonimizados y rastreos de pila con TinkerNorth para ayudar a corregir errores. No se incluyen partidas ni entradas del mando.</translation>
     </message>
     <message>
         <source>Dish closed unexpectedly last time. The report below has had your home folder, network addresses and any key-like values removed.</source>
