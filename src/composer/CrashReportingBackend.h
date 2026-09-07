@@ -30,8 +30,6 @@
 
 #pragma once
 
-#include <string>
-
 namespace dish::composer {
 
 class CrashReportingBackend {
@@ -45,11 +43,11 @@ class CrashReportingBackend {
 // builds and behaves with no extra dependency.
 class SentryCrashReportingBackend : public CrashReportingBackend {
   public:
-    // Where the SDK keeps its run state and any pending envelope. Empty (the
-    // default) resolves to QStandardPaths::AppLocalDataLocation + "/sentry" at
-    // arm time, which is a real per-user writable location rather than a working
-    // directory Dish does not control.
-    explicit SentryCrashReportingBackend(std::string databaseDir = {});
+    // The SDK keeps its run state and any pending envelope under
+    // QStandardPaths::AppLocalDataLocation + "/sentry", resolved at arm time: a
+    // real per-user writable location rather than a working directory Dish
+    // does not control.
+    SentryCrashReportingBackend() = default;
     ~SentryCrashReportingBackend() override;
 
     // Disarming is immediate and deliberate: withdrawing consent has to stop
@@ -67,10 +65,6 @@ class SentryCrashReportingBackend : public CrashReportingBackend {
     // setEnabled() would inherit every throwing path in it.
     void disarm() noexcept;
 
-    // maybe_unused because its only read is inside the SDK guard: a stub
-    // build (no DSN, so no SDK fetched) would otherwise trip clang's
-    // -Wunused-private-field, which -Wall turns on and -Werror makes fatal.
-    [[maybe_unused]] std::string databaseDir_;
     bool active_ = false;
 };
 

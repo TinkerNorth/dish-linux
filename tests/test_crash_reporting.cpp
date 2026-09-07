@@ -187,7 +187,7 @@ TEST_CASE("SentryCrashReportingBackend stays inert without a DSN", "[crash][sent
     // The switch is opt-out, so this backend is asked to arm on nearly every
     // launch. On a build with no DSN that must be a quiet no-op, not a crash,
     // and it must never claim to be active.
-    dish::composer::SentryCrashReportingBackend backend(std::string{});
+    dish::composer::SentryCrashReportingBackend backend;
     CHECK_FALSE(backend.active());
     backend.setEnabled(true);
     CHECK_FALSE(backend.active());

@@ -8,7 +8,7 @@
 #include <QStandardPaths>
 
 #include <cstdlib>
-#include <utility>
+#include <string>
 
 // Injected by CMake. The fallback keeps this translation unit compilable on its
 // own, which is the state the unit tests build it in: an empty DSN, so a test
@@ -76,9 +76,6 @@ bool shouldArmSentry(const char* compiledDsn, const char* envOverride, bool user
     return haveCompiled || haveOverride;
 }
 
-SentryCrashReportingBackend::SentryCrashReportingBackend(std::string databaseDir)
-    : databaseDir_(std::move(databaseDir)) {}
-
 void SentryCrashReportingBackend::disarm() noexcept {
     if (!active_) { return; }
     active_ = false;
@@ -117,7 +114,7 @@ void SentryCrashReportingBackend::setEnabled(bool enabled) {
     // environment itself, and an empty string here would override it.
     if (compiledSentryDsn()[0] != '\0') { sentry_options_set_dsn(options, compiledSentryDsn()); }
 
-    const std::string dir = databaseDir_.empty() ? defaultDatabaseDir() : databaseDir_;
+    const std::string dir = defaultDatabaseDir();
     sentry_options_set_database_path(options, dir.c_str());
     sentry_options_set_release(options, DISH_SENTRY_RELEASE);
     sentry_options_set_environment(options, sentryEnvironment());
