@@ -16,7 +16,7 @@ the repos share a version number.
 
 ---
 
-## [2.0.0] - Unreleased
+## [2.0.0] - 2026-09-06
 
 Everything below ships as 2.0.0. The jump from 0.2.0 is deliberate: the
 whole Dish and Satellite family aligns on one version number for this
