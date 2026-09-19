@@ -46,6 +46,14 @@ TEST_CASE("a present block answers per direction", "[audio][hostverdict]") {
     const auto flipped = resolveHostControllerAudio(f);
     CHECK_FALSE(flipped.mic);
     CHECK(flipped.speaker);
+    CHECK_FALSE(flipped.hapticAudio); // absent from the block reads off
+
+    // Protocol 3: the haptics lane is its own field, re-ANDed with `enabled`
+    // like the other two.
+    f.hapticAudio = true;
+    CHECK(resolveHostControllerAudio(f).hapticAudio);
+    f.enabled = false;
+    CHECK_FALSE(resolveHostControllerAudio(f).hapticAudio);
 }
 
 TEST_CASE("enabled=false overrides both directions however they read", "[audio][hostverdict]") {
@@ -82,6 +90,8 @@ TEST_CASE("an absent block falls back to the backend flag, both directions at on
     const auto v = resolveHostControllerAudio(f);
     CHECK(v.mic);
     CHECK(v.speaker);
+    // Never haptics: a host too old for the block is too old for the lane.
+    CHECK_FALSE(v.hapticAudio);
 
     f.anyBackendAudio = false;
     const auto off = resolveHostControllerAudio(f);

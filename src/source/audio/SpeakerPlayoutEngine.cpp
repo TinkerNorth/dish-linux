@@ -147,12 +147,12 @@ void SpeakerPlayoutEngine::deliver(const std::string& connectionId, int controll
         const std::int16_t* out = pcm.data();
         std::size_t outCount = frames * static_cast<std::size_t>(proto::kAudioSpeakerChannels);
         if (voice.channels != proto::kAudioSpeakerChannels) {
-            voice.spread.assign(frames * static_cast<std::size_t>(voice.channels), 0);
-            const std::size_t off = static_cast<std::size_t>(laneOffset(voice.lane));
+            const auto stride = static_cast<std::size_t>(voice.channels);
+            const auto off = static_cast<std::size_t>(laneOffset(voice.lane));
+            voice.spread.assign(frames * stride, 0);
             for (std::size_t f = 0; f < frames; f++) {
-                voice.spread[f * static_cast<std::size_t>(voice.channels) + off] = pcm[f * 2];
-                voice.spread[f * static_cast<std::size_t>(voice.channels) + off + 1] =
-                    pcm[f * 2 + 1];
+                voice.spread[f * stride + off] = pcm[f * 2];
+                voice.spread[f * stride + off + 1] = pcm[f * 2 + 1];
             }
             out = voice.spread.data();
             outCount = voice.spread.size();

@@ -85,21 +85,25 @@ TEST_CASE("the host audio verdict defaults conservative and resets with the sess
     CHECK_FALSE(conn.hostSpeakerAvailable());
     CHECK_FALSE(conn.hostHapticAudioAvailable());
 
-    conn.setHostControllerAudio(/*mic=*/true, /*speaker=*/true);
+    conn.setHostControllerAudio(/*mic=*/true, /*speaker=*/true, /*hapticAudio=*/true);
     CHECK(conn.hostMicAvailable());
     CHECK(conn.hostSpeakerAvailable());
+    CHECK(conn.hostHapticAudioAvailable());
 
     // The directions move independently, as the host switches them.
     conn.setHostControllerAudio(/*mic=*/false, /*speaker=*/true);
     CHECK_FALSE(conn.hostMicAvailable());
     CHECK(conn.hostSpeakerAvailable());
+    CHECK_FALSE(conn.hostHapticAudioAvailable()); // a host that predates it reads off
 
     // A teardown is a new session next time, and the verdict was THIS
     // session's: it must not survive into one the host may have re-switched.
     // (markConnecting first: an Idle connection with no client short-circuits
     // markDisconnected, and only a session that existed can be torn down.)
+    conn.setHostControllerAudio(true, true, true);
     conn.markConnecting();
     conn.markDisconnected();
     CHECK_FALSE(conn.hostMicAvailable());
     CHECK_FALSE(conn.hostSpeakerAvailable());
+    CHECK_FALSE(conn.hostHapticAudioAvailable());
 }
