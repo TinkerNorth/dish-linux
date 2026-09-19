@@ -45,7 +45,7 @@
 namespace dish::source::audio {
 
 // Which lane pair of the endpoint a voice writes.
-enum class PlayoutLane { Speaker, Haptic };
+enum class PlayoutLane : std::uint8_t { Speaker, Haptic };
 
 // One eligible slot's voice: where its frames come from and where they play.
 struct SpeakerVoiceTarget {
