@@ -410,7 +410,20 @@ with a caller-owned seq that advances on failed encodes too;
 `SpeakerPlayoutEngine` holds one playback device per eligible slot, fed on the
 receive thread through the reorder window and the Opus decoder's FEC/PLC, with
 a two-frame start cushion that is rebuilt as silence when a suppressed-silence
-stretch drains the queue. Both talk SDL only through
+stretch drains the queue. Protocol 3 adds the DualSense's HD-haptics lanes
+(`MSG_HAPTIC_AUDIO`, cap `hapticAudio`): the same engine holds a SECOND voice
+on the same endpoint for them, because the two lanes arrive as independent
+streams (own seq, own silence suppression) and pairing their windows would
+need a clock the push model has not got. Each voice opens the endpoint at its
+own channel count (the matcher reads it off the audio stack; 4 on a DualSense)
+and writes only its lane pair, the other pair at zero, and the platform mixes
+the two streams. That is also what keeps stereo speaker audio off the actuator
+lanes of a 4-channel pad, rather than leaving them to whatever channel
+conversion SDL and the audio stack apply. The haptic cap rides the speaker toggle and the speaker route
+(`slotCarriesHapticPlayout` = speaker route AND the endpoint has the lanes AND
+the family has actuators); a slot that cannot play the waveform leaves the cap
+off and the host reduces the lanes to rumble for it instead. Both talk SDL
+only through
 [`AudioDeviceGateway`](../src/source/audio/AudioDeviceGateway.h);
 `SdlAudioGateway` owns `SDL_INIT_AUDIO`'s lifecycle — deliberately NOT the SDL
 bridge, whose gamepad subsystems stop and start without taking a live stream

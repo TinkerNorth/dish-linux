@@ -214,6 +214,9 @@ class AppModel : public QObject {
     // until Wave 2 lands the pad-to-audio-device matching.
     bool slotCarriesMicSource(const QString& slotId) const;
     bool slotCarriesSpeakerSink(const QString& slotId) const;
+    // Protocol 3: the speaker sink is the pad's 4-channel endpoint, so the
+    // haptic lanes can be played rather than reduced by the host.
+    bool slotCarriesHapticSink(const QString& slotId) const;
 
     // The host layer for the mic/speaker rows ONLY: the per-session probe's
     // verdict off the connection, conservative {false,false} for an unknown or

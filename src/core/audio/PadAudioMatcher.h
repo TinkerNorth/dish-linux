@@ -38,6 +38,8 @@
 
 #pragma once
 
+#include "core/model/Protocol.h"
+
 #include <cctype>
 #include <cstddef>
 #include <map>
@@ -45,6 +47,8 @@
 #include <vector>
 
 namespace dish::audio {
+
+using proto::kDualSenseEndpointChannels;
 
 // One Direct-claimed pad, flattened out of the claim table so the rule stays
 // pure. `productName` is the HID product string the gateway enumerated.
@@ -56,6 +60,10 @@ struct AudioPadCandidate {
     // The gate that keeps a lookalike name from lending endpoints to a pad
     // that has none.
     bool hasAudioFunction = false;
+    // Whether that function's render endpoint carries the HD-haptics lanes
+    // (DualSense only). Same gate, one level down: a 4-channel endpoint that
+    // happens to match a DualShock 4's name is not a pair of actuators.
+    bool hasHapticLanes = false;
 };
 
 // Which of a pad's own endpoints this machine can name, per direction, and the
@@ -64,13 +72,21 @@ struct AudioPadCandidate {
 struct PadAudioRoute {
     bool microphone = false;
     bool speaker = false;
+    // Protocol 3: the speaker endpoint is the DualSense's 4-channel one, so
+    // the haptic lanes have somewhere to play. Never set without `speaker`.
+    bool haptics = false;
     std::string captureDeviceName;
     std::string playbackDeviceName;
+    // The playback endpoint's own channel count as the audio stack reports it
+    // (0 = unknown). A voice opens the endpoint at this count and writes its
+    // lane into the right pair, which is what keeps stereo speaker audio off
+    // the actuator lanes of a 4-channel pad.
+    int playbackChannels = 0;
 
     bool operator==(const PadAudioRoute& o) const {
-        return microphone == o.microphone && speaker == o.speaker &&
+        return microphone == o.microphone && speaker == o.speaker && haptics == o.haptics &&
                captureDeviceName == o.captureDeviceName &&
-               playbackDeviceName == o.playbackDeviceName;
+               playbackDeviceName == o.playbackDeviceName && playbackChannels == o.playbackChannels;
     }
     bool operator!=(const PadAudioRoute& o) const { return !(*this == o); }
 };
@@ -147,10 +163,14 @@ matchDirection(const std::vector<std::string>& padNames,
 // The whole rule. Returns routes keyed by padAudioKey; a pad absent from the
 // result has no route (advertise nothing). Directions resolve independently:
 // a missing capture endpoint does not cost the pad its speaker.
+// `playbackChannels` is the audio stack's channel count per playback name
+// (absent or 0 = unknown); the haptic route needs the endpoint to actually
+// present the actuator lanes, and a name alone cannot say so.
 inline std::map<int, PadAudioRoute>
 resolvePadAudioRoutes(const std::vector<AudioPadCandidate>& pads,
                       const std::vector<std::string>& captureNames,
-                      const std::vector<std::string>& playbackNames) {
+                      const std::vector<std::string>& playbackNames,
+                      const std::map<std::string, int>& playbackChannels = {}) {
     // Group candidates by trimmed product string; a name shared by two claimed
     // pads disqualifies both.
     std::map<std::string, std::vector<const AudioPadCandidate*>> byName;
@@ -180,6 +200,11 @@ resolvePadAudioRoutes(const std::vector<AudioPadCandidate>& pads,
         if (const auto it = sinks.find(name); it != sinks.end()) {
             route.speaker = true;
             route.playbackDeviceName = it->second;
+            if (const auto ch = playbackChannels.find(it->second); ch != playbackChannels.end()) {
+                route.playbackChannels = ch->second;
+            }
+            route.haptics =
+                pad->hasHapticLanes && route.playbackChannels >= kDualSenseEndpointChannels;
         }
         if (!route.microphone && !route.speaker) { continue; }
         out[padAudioKey(pad->vendorId, pad->productId)] = route;

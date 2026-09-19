@@ -74,6 +74,10 @@ struct SlotFeedbackInputs {
     // fold below is already the single owner Wave 2 flips.
     bool padMicRoute = false;
     bool padSpeakerRoute = false;
+    // Protocol 3: the speaker route's endpoint is the DualSense's 4-channel
+    // one, so the haptic lanes have somewhere to play. Never true without
+    // padSpeakerRoute; the matcher sets them together.
+    bool padHapticRoute = false;
 };
 
 namespace detail {
@@ -127,5 +131,13 @@ inline bool slotCarriesFeedback(const SlotFeedbackInputs& in, FeedbackKind kind)
 inline bool slotCarriesMicCapture(const SlotFeedbackInputs& in) { return in.padMicRoute; }
 
 inline bool slotCarriesSpeakerPlayout(const SlotFeedbackInputs& in) { return in.padSpeakerRoute; }
+
+// kCapHapticAudio is the promise the WAVEFORM lands: only a slot whose named
+// endpoint carries the actuator lanes may claim it. Without the claim the host
+// reduces the lanes to rumble for this slot, which is the right rendering for
+// every other pad and is why a false here is a fallback rather than a loss.
+inline bool slotCarriesHapticPlayout(const SlotFeedbackInputs& in) {
+    return in.padSpeakerRoute && in.padHapticRoute;
+}
 
 } // namespace dish::reducer

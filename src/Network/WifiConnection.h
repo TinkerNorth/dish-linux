@@ -115,6 +115,9 @@ class WifiConnection : public QObject {
         // an audio cap yet.
         bool hasMic = false;
         bool hasSpeaker = false;
+        // Protocol 3: the pad's 4-channel render endpoint is named on this
+        // machine, so the haptic lanes can be played rather than reduced.
+        bool hasHapticAudio = false;
         bool registered = false;
     };
 
@@ -148,7 +151,7 @@ class WifiConnection : public QObject {
     void attachSlot(const QString& slotId, int controllerType, bool hasLightbar, bool hasMotion,
                     bool hasRumble, std::uint8_t touchpadMode = proto::kTouchpadModeOff,
                     bool hasTriggerEffects = false, bool hasPlayerLeds = false, bool hasMic = false,
-                    bool hasSpeaker = false);
+                    bool hasSpeaker = false, bool hasHapticAudio = false);
     void detachSlot();
     void detachSlot(const QString& slotId);
 
@@ -200,6 +203,8 @@ class WifiConnection : public QObject {
     // buffer, so a handler that queues must copy before returning.
     using SpeakerAudioHandler = std::function<void(const SatelliteClient::SpeakerAudioMessage&)>;
     void setSpeakerAudioHandler(SpeakerAudioHandler handler);
+    using HapticAudioHandler = std::function<void(const SatelliteClient::SpeakerAudioMessage&)>;
+    void setHapticAudioHandler(HapticAudioHandler handler);
     using MicLedHandler = std::function<void(const SatelliteClient::MicLedMessage&)>;
     void setMicLedHandler(MicLedHandler handler);
 
@@ -212,9 +217,12 @@ class WifiConnection : public QObject {
     // and reset to false with the session, so a stale yes never outlives the
     // host that gave it. Read by the capability model's host layer for the
     // mic/speaker rows only; every other feature keeps its catalog-fed answer.
-    void setHostControllerAudio(bool mic, bool speaker);
+    // `hapticAudio` is the host's haptics lane (protocol 3): false on a host
+    // that predates it, which is also a host that never sends the stream.
+    void setHostControllerAudio(bool mic, bool speaker, bool hapticAudio = false);
     bool hostMicAvailable() const { return hostMic_; }
     bool hostSpeakerAvailable() const { return hostSpeaker_; }
+    bool hostHapticAudioAvailable() const { return hostHapticAudio_; }
 
   signals:
     void changed();
@@ -267,11 +275,13 @@ class WifiConnection : public QObject {
     TriggerEffectsHandler triggerEffectsHandler_;
     PlayerLedsHandler playerLedsHandler_;
     SpeakerAudioHandler speakerAudioHandler_;
+    HapticAudioHandler hapticAudioHandler_;
     MicLedHandler micLedHandler_;
 
     // Main-thread only, like the session state around it.
     bool hostMic_ = false;
     bool hostSpeaker_ = false;
+    bool hostHapticAudio_ = false;
 
     models::ControllerDescriptor descriptorOf(const SlotBinding& b) const;
     int lowestFreeIndex() const;

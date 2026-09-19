@@ -532,6 +532,16 @@ void SatelliteClient::processIncoming(const std::uint8_t* buf, std::size_t n) {
             handler = speakerAudioHandler_;
         }
         if (handler) { handler(*sm); }
+    } else if (msgType == kMsgHapticAudio) {
+        // Same shape and the same borrowing contract as the speaker frame.
+        const auto hm = parseSpeakerAudioMessage(body, bodyLen);
+        if (!hm) { return; }
+        HapticAudioHandler handler;
+        {
+            std::lock_guard<std::mutex> lock(hapticAudioHandlerMtx_);
+            handler = hapticAudioHandler_;
+        }
+        if (handler) { handler(*hm); }
     } else if (msgType == kMsgMicLed) {
         const auto mm = parseMicLedMessage(body, bodyLen);
         if (!mm) { return; }
@@ -579,6 +589,11 @@ void SatelliteClient::setPlayerLedsHandler(PlayerLedsHandler handler) {
 void SatelliteClient::setSpeakerAudioHandler(SpeakerAudioHandler handler) {
     std::lock_guard<std::mutex> lock(speakerAudioHandlerMtx_);
     speakerAudioHandler_ = std::move(handler);
+}
+
+void SatelliteClient::setHapticAudioHandler(HapticAudioHandler handler) {
+    std::lock_guard<std::mutex> lock(hapticAudioHandlerMtx_);
+    hapticAudioHandler_ = std::move(handler);
 }
 
 void SatelliteClient::setMicLedHandler(MicLedHandler handler) {

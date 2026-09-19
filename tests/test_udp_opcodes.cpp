@@ -32,6 +32,7 @@ TEST_CASE("the protocol-2 opcodes extend the range contiguously", "[udp][opcodes
     REQUIRE(SatelliteClient::kMsgMicAudio == 0x0012);
     REQUIRE(SatelliteClient::kMsgSpeakerAudio == 0x0013);
     REQUIRE(SatelliteClient::kMsgMicLed == 0x0014);
+    REQUIRE(SatelliteClient::kMsgHapticAudio == 0x0015); // protocol 3
     // The MIC_LED state vocabulary is satellite MIC_LED_STATE_*, verbatim.
     REQUIRE(proto::kMicLedStateOff == 0);
     REQUIRE(proto::kMicLedStateOn == 1);

@@ -23,7 +23,7 @@ namespace proto = dish::proto;
 TEST_CASE("the client offers 2 and still speaks 1", "[protocol][negotiation]") {
     // Guards the rest of this file: every expectation below is written against
     // this range, so a bump has to come here first.
-    CHECK(proto::kProtocolVersion == 2);
+    CHECK(proto::kProtocolVersion == 3);
     CHECK(proto::kProtocolVersionMin == 1);
     CHECK(proto::settledSpeaksV2(2));
     CHECK_FALSE(proto::settledSpeaksV2(1));

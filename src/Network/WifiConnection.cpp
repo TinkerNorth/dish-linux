@@ -65,6 +65,7 @@ models::ControllerDescriptor WifiConnection::descriptorOf(const SlotBinding& b) 
     caps = SatelliteClient::withPlayerLedsCapability(caps, b.hasPlayerLeds);
     caps = SatelliteClient::withMicCapability(caps, b.hasMic);
     caps = SatelliteClient::withSpeakerCapability(caps, b.hasSpeaker);
+    caps = SatelliteClient::withHapticAudioCapability(caps, b.hasHapticAudio);
     d.caps = caps;
     d.touchpadMode = b.touchpadMode;
     return d;
@@ -109,6 +110,7 @@ void WifiConnection::teardownClient() {
     // audio" answer and waits for its own probe.
     hostMic_ = false;
     hostSpeaker_ = false;
+    hostHapticAudio_ = false;
     // A dropped session leaves no virtual pads applied, so streams must gate off
     // until the next PUT re-applies them.
     for (auto& [slotId, b] : slots_) { b.registered = false; }
@@ -137,6 +139,7 @@ void WifiConnection::markConnected(const std::shared_ptr<SatelliteClient>& clien
     if (triggerEffectsHandler_) { client->setTriggerEffectsHandler(triggerEffectsHandler_); }
     if (playerLedsHandler_) { client->setPlayerLedsHandler(playerLedsHandler_); }
     if (speakerAudioHandler_) { client->setSpeakerAudioHandler(speakerAudioHandler_); }
+    if (hapticAudioHandler_) { client->setHapticAudioHandler(hapticAudioHandler_); }
     if (micLedHandler_) { client->setMicLedHandler(micLedHandler_); }
     // Rumble and lightbar may fire on the receive thread because they only hand
     // off to the SDL bridge's own queue. Close-notify and the ack reconcile drive
@@ -225,7 +228,7 @@ void WifiConnection::markStale() {
 void WifiConnection::attachSlot(const QString& slotId, int controllerType, bool hasLightbar,
                                 bool hasMotion, bool hasRumble, std::uint8_t touchpadMode,
                                 bool hasTriggerEffects, bool hasPlayerLeds, bool hasMic,
-                                bool hasSpeaker) {
+                                bool hasSpeaker, bool hasHapticAudio) {
     auto it = slots_.find(slotId);
     if (it == slots_.end()) {
         SlotBinding b;
@@ -238,6 +241,7 @@ void WifiConnection::attachSlot(const QString& slotId, int controllerType, bool 
         b.hasPlayerLeds = hasPlayerLeds;
         b.hasMic = hasMic;
         b.hasSpeaker = hasSpeaker;
+        b.hasHapticAudio = hasHapticAudio;
         b.touchpadMode = touchpadMode;
         b.registered = false;
         slots_.emplace(slotId, b);
@@ -250,7 +254,7 @@ void WifiConnection::attachSlot(const QString& slotId, int controllerType, bool 
             it->second.touchpadMode != touchpadMode ||
             it->second.hasTriggerEffects != hasTriggerEffects ||
             it->second.hasPlayerLeds != hasPlayerLeds || it->second.hasMic != hasMic ||
-            it->second.hasSpeaker != hasSpeaker;
+            it->second.hasSpeaker != hasSpeaker || it->second.hasHapticAudio != hasHapticAudio;
         it->second.controllerType = controllerType;
         it->second.hasLightbar = hasLightbar;
         it->second.hasMotion = hasMotion;
@@ -259,6 +263,7 @@ void WifiConnection::attachSlot(const QString& slotId, int controllerType, bool 
         it->second.hasPlayerLeds = hasPlayerLeds;
         it->second.hasMic = hasMic;
         it->second.hasSpeaker = hasSpeaker;
+        it->second.hasHapticAudio = hasHapticAudio;
         it->second.touchpadMode = touchpadMode;
         if (changed && state_ == SessionState::Live) { emit slotChanged(slotId); }
     }
@@ -446,15 +451,21 @@ void WifiConnection::setSpeakerAudioHandler(SpeakerAudioHandler handler) {
     if (auto c = clientRef_.get()) { c->setSpeakerAudioHandler(speakerAudioHandler_); }
 }
 
+void WifiConnection::setHapticAudioHandler(HapticAudioHandler handler) {
+    hapticAudioHandler_ = std::move(handler);
+    if (auto c = clientRef_.get()) { c->setHapticAudioHandler(hapticAudioHandler_); }
+}
+
 void WifiConnection::setMicLedHandler(MicLedHandler handler) {
     micLedHandler_ = std::move(handler);
     if (auto c = clientRef_.get()) { c->setMicLedHandler(micLedHandler_); }
 }
 
-void WifiConnection::setHostControllerAudio(bool mic, bool speaker) {
-    if (hostMic_ == mic && hostSpeaker_ == speaker) { return; }
+void WifiConnection::setHostControllerAudio(bool mic, bool speaker, bool hapticAudio) {
+    if (hostMic_ == mic && hostSpeaker_ == speaker && hostHapticAudio_ == hapticAudio) { return; }
     hostMic_ = mic;
     hostSpeaker_ = speaker;
+    hostHapticAudio_ = hapticAudio;
     // The capability table's host layer reads it, so a landed probe must
     // re-render the rows.
     emit changed();

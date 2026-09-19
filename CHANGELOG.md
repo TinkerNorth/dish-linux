@@ -16,6 +16,32 @@ the repos share a version number.
 
 ---
 
+## [Unreleased]
+
+### Added
+
+- **DualSense HD haptics over Satellite.** `[wire-coordinated]` Protocol 3. A
+  DualSense game that vibrates through Sony's own pad library authors the
+  effect as audio on the pad's two actuator lanes and never writes a motor
+  byte, so a streamed DualSense stayed still in it while a local one shook.
+  With a DualSense on USB whose 4-channel endpoint this machine can name, the
+  client now advertises `hapticAudio` and plays `MSG_HAPTIC_AUDIO` (0x0015)
+  straight into that endpoint's actuator pair, as a second stream beside the
+  speaker one; the pad feels exactly what it would locally. Any other pad, or a
+  DualSense whose endpoint is not reachable, keeps advertising `rumble` alone
+  and a protocol-3 host reduces the lanes to motor strength for it. The haptic
+  lane rides the speaker toggle and the host's own haptics switch. Older hosts
+  never send the stream, and this client still settles on their version.
+
+### Changed
+
+- **The speaker voice opens the DualSense's endpoint at its own width.** It
+  used to open the pad's 4-channel endpoint as stereo and leave the channel
+  conversion to SDL and the audio stack, which on a DualSense means whatever
+  they chose to put on channels 3/4, the haptic lanes. The voice now opens the
+  endpoint at the width the stack reports and writes the speaker pair only, so
+  nothing but the haptic stream ever reaches the actuators.
+
 ## [2.0.0] - 2026-09-06
 
 Everything below ships as 2.0.0. The jump from 0.2.0 is deliberate: the

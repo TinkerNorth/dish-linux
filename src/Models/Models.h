@@ -279,6 +279,7 @@ struct CapabilitiesDto {
     bool controllerAudioEnabled = false;
     bool controllerAudioMic = false;
     bool controllerAudioSpeaker = false;
+    bool controllerAudioHapticAudio = false;
     int httpStatus = 0;
     bool reachable = false;
 

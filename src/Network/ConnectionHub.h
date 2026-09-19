@@ -95,6 +95,13 @@ class ConnectionHub : public QObject {
     using SpeakerCapabilityFn = std::function<bool(const QString& slotId)>;
     void setSpeakerCapabilityFn(SpeakerCapabilityFn fn) { speakerCapabilityFn_ = std::move(fn); }
 
+    // Protocol 3: whether the slot plays the haptic waveform itself. Unset
+    // reads as "no", which makes the host reduce the lanes to rumble instead.
+    using HapticAudioCapabilityFn = std::function<bool(const QString& slotId)>;
+    void setHapticAudioCapabilityFn(HapticAudioCapabilityFn fn) {
+        hapticAudioCapabilityFn_ = std::move(fn);
+    }
+
     // A proto CONTROLLER_TYPE_*, which is how a DualSense registers as a virtual
     // DS4 rather than an Xbox pad. Unset means CONTROLLER_TYPE_XBOX.
     using ControllerTypeFn = std::function<int(const QString& slotId)>;
@@ -128,6 +135,7 @@ class ConnectionHub : public QObject {
     PlayerLedsCapabilityFn playerLedsCapabilityFn_;
     MicCapabilityFn micCapabilityFn_;
     SpeakerCapabilityFn speakerCapabilityFn_;
+    HapticAudioCapabilityFn hapticAudioCapabilityFn_;
     ControllerTypeFn controllerTypeFn_;
     TouchpadModeFn touchpadModeFn_;
 };

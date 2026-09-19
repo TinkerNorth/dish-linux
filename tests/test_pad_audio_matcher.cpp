@@ -24,7 +24,8 @@ using dish::audio::resolvePadAudioRoutes;
 namespace {
 
 AudioPadCandidate dualSense(int pid = 0x0CE6, const std::string& name = "Wireless Controller") {
-    return AudioPadCandidate{0x054C, pid, name, /*hasAudioFunction=*/true};
+    return AudioPadCandidate{0x054C, pid, name, /*hasAudioFunction=*/true,
+                             /*hasHapticLanes=*/pid == 0x0CE6};
 }
 
 const std::vector<std::string> kNoDevices;
@@ -149,4 +150,47 @@ TEST_CASE("two distinct pads route independently", "[audio][matcher]") {
     CHECK_FALSE(routes.at(padAudioKey(0x054C, 0x0CE6)).speaker);
     CHECK(routes.at(padAudioKey(0x054C, 0x0DF2)).microphone);
     CHECK(routes.at(padAudioKey(0x054C, 0x0DF2)).speaker);
+}
+
+// ── Protocol 3: the haptic route ──────────────────────────────────────────────
+
+TEST_CASE("the haptic route needs the family's lanes AND a 4-channel endpoint",
+          "[audio][matcher][haptics]") {
+    const std::vector<std::string> sinks{"Speakers (Wireless Controller)"};
+
+    // A DualSense whose endpoint enumerated at 4 channels: the lanes are there.
+    {
+        const auto routes = resolvePadAudioRoutes({dualSense()}, kNoDevices, sinks,
+                                                  {{"Speakers (Wireless Controller)", 4}});
+        const auto& route = routes.at(padAudioKey(0x054C, 0x0CE6));
+        CHECK(route.speaker);
+        CHECK(route.haptics);
+        CHECK(route.playbackChannels == 4);
+    }
+    // The same pad with a stereo (or unknown) endpoint: speaker only. The
+    // width still rides the route so the speaker voice opens at what it saw.
+    {
+        const auto routes = resolvePadAudioRoutes({dualSense()}, kNoDevices, sinks,
+                                                  {{"Speakers (Wireless Controller)", 2}});
+        const auto& route = routes.at(padAudioKey(0x054C, 0x0CE6));
+        CHECK(route.speaker);
+        CHECK_FALSE(route.haptics);
+        CHECK(route.playbackChannels == 2);
+    }
+    {
+        const auto routes = resolvePadAudioRoutes({dualSense()}, kNoDevices, sinks);
+        const auto& route = routes.at(padAudioKey(0x054C, 0x0CE6));
+        CHECK(route.speaker);
+        CHECK_FALSE(route.haptics);
+        CHECK(route.playbackChannels == 0);
+    }
+    // A DualShock 4 v2 in front of a 4-channel endpoint is still no actuator:
+    // the family gate holds whatever the stack reports.
+    {
+        const auto routes = resolvePadAudioRoutes({dualSense(0x09CC)}, kNoDevices, sinks,
+                                                  {{"Speakers (Wireless Controller)", 4}});
+        const auto& route = routes.at(padAudioKey(0x054C, 0x09CC));
+        CHECK(route.speaker);
+        CHECK_FALSE(route.haptics);
+    }
 }

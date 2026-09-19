@@ -811,4 +811,10 @@ inline bool parserHasUsbAudio(HidParser parser) {
     return parser == HidParser::DualShock4 || parser == HidParser::DualSense;
 }
 
+// Whether that audio function's render endpoint carries the HD-haptics lanes
+// (channels 3/4 driving the voice-coil actuators). The DualSense alone: the
+// DualShock 4 v2 function is headset-only. Same candidacy rule as above — the
+// matcher still has to see a 4-channel endpoint before it names a route.
+inline bool parserHasHapticLanes(HidParser parser) { return parser == HidParser::DualSense; }
+
 } // namespace dish::input::usbparse

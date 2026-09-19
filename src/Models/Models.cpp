@@ -40,6 +40,7 @@ std::uint16_t capsWordFromJson(const QJsonObject& caps) {
     if (boolOr(caps, "playerLeds", false)) { word |= proto::kCapPlayerLeds; }
     if (boolOr(caps, "mic", false)) { word |= proto::kCapMic; }
     if (boolOr(caps, "speaker", false)) { word |= proto::kCapSpeaker; }
+    if (boolOr(caps, "hapticAudio", false)) { word |= proto::kCapHapticAudio; }
     return word;
 }
 
@@ -226,6 +227,9 @@ CapabilitiesDto CapabilitiesDto::fromJson(const QJsonObject& obj) {
         c.controllerAudioEnabled = boolOr(ao, "enabled", false);
         c.controllerAudioMic = boolOr(ao, "mic", false);
         c.controllerAudioSpeaker = boolOr(ao, "speaker", false);
+        // Protocol 3; absent on an older host, which reads false: that host
+        // never sends the stream either.
+        c.controllerAudioHapticAudio = boolOr(ao, "hapticAudio", false);
     }
     const auto host = obj.value(QLatin1String("host"));
     if (host.isObject()) {
@@ -314,6 +318,7 @@ QJsonObject ControllerDescriptor::toJson() const {
              {"playerLeds", (caps & proto::kCapPlayerLeds) != 0},
              {"mic", (caps & proto::kCapMic) != 0},
              {"speaker", (caps & proto::kCapSpeaker) != 0},
+             {"hapticAudio", (caps & proto::kCapHapticAudio) != 0},
          }},
         {"touchpadMode",
          QString::fromUtf8(proto::touchpadModeName(touchpadMode).data(),

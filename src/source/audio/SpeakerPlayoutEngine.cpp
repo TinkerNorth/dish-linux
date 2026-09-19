@@ -14,9 +14,24 @@ namespace dish::source::audio {
 
 namespace {
 
-// One decoded 20 ms stereo window, interleaved.
+// One decoded 20 ms stereo window, interleaved. Both lanes are stereo on the
+// wire.
+static_assert(proto::kAudioHapticChannels == proto::kAudioSpeakerChannels,
+              "both lanes decode to one window shape");
 constexpr std::size_t kWindowSamples = static_cast<std::size_t>(proto::kAudioFrameSamples) *
                                        static_cast<std::size_t>(proto::kAudioSpeakerChannels);
+
+// Where a lane's stereo pair sits in the endpoint's channel order: speaker
+// first, then haptics, which is the DualSense's own layout.
+constexpr int laneOffset(PlayoutLane lane) {
+    return lane == PlayoutLane::Speaker ? 0 : proto::kAudioSpeakerChannels;
+}
+
+// One window's byte size at the device's channel count, for the cushion math.
+constexpr std::size_t frameBytesFor(int channels) {
+    return static_cast<std::size_t>(proto::kAudioFrameSamples) *
+           static_cast<std::size_t>(channels) * sizeof(std::int16_t);
+}
 
 } // namespace
 
@@ -24,6 +39,8 @@ SpeakerPlayoutEngine::SpeakerPlayoutEngine(AudioDeviceGateway* gateway,
                                            DecoderFactory decoderFactory)
     : gateway_(gateway), decoderFactory_(std::move(decoderFactory)) {
     if (!decoderFactory_) {
+        // One decoder shape serves both lanes: the haptic stream is the
+        // speaker's format on the wire.
         decoderFactory_ = [] {
             return std::unique_ptr<dish::audio::IAudioDecoder>(
                 dish::audio::OpusStreamDecoder::create(dish::audio::Stream::Speaker));
@@ -47,13 +64,17 @@ void SpeakerPlayoutEngine::reconcile(const std::vector<SpeakerVoiceTarget>& targ
     for (auto it = voices_.begin(); it != voices_.end();) {
         const SpeakerVoiceTarget* wanted = nullptr;
         for (const auto& t : targets) {
-            if (t.connectionId == it->first.first && t.controllerIndex == it->first.second) {
+            if (t.connectionId == std::get<0>(it->first) &&
+                t.controllerIndex == std::get<1>(it->first) && t.lane == std::get<2>(it->first)) {
                 wanted = &t;
                 break;
             }
         }
+        // A changed channel count is a changed device (the endpoint was
+        // re-enumerated), so the stream reopens at the new width.
         if (wanted == nullptr || wanted->playbackDeviceName != it->second->deviceName ||
-            wanted->slotId != it->second->slotId) {
+            wanted->slotId != it->second->slotId ||
+            wanted->deviceChannels != it->second->channels) {
             closeLocked(*it->second);
             it = voices_.erase(it);
         } else {
@@ -63,27 +84,34 @@ void SpeakerPlayoutEngine::reconcile(const std::vector<SpeakerVoiceTarget>& targ
 
     for (const auto& t : targets) {
         if (t.connectionId.empty() || t.playbackDeviceName.empty()) { continue; }
-        const VoiceKey key{t.connectionId, t.controllerIndex};
+        // A lane needs at least its own pair to exist at the offset it writes.
+        if (t.deviceChannels < laneOffset(t.lane) + proto::kAudioSpeakerChannels) { continue; }
+        const VoiceKey key{t.connectionId, t.controllerIndex, t.lane};
         if (voices_.find(key) != voices_.end()) { continue; }
         auto voice = std::make_unique<Voice>();
         voice->slotId = t.slotId;
         voice->deviceName = t.playbackDeviceName;
+        voice->lane = t.lane;
+        voice->channels = t.deviceChannels;
         voice->decoder = decoderFactory_();
         if (voice->decoder == nullptr) { continue; } // no codec, no voice
-        voice->handle = gateway_->openPlayback(t.playbackDeviceName);
+        voice->handle = gateway_->openPlayback(t.playbackDeviceName, t.deviceChannels);
         if (voice->handle == kNoAudioDevice) { continue; }
         voices_.emplace(key, std::move(voice));
     }
 }
 
 void SpeakerPlayoutEngine::deliver(const std::string& connectionId, int controllerIndex,
-                                   std::uint16_t seq, const std::uint8_t* opus,
+                                   PlayoutLane lane, std::uint16_t seq, const std::uint8_t* opus,
                                    std::size_t opusLen) {
     if (opus == nullptr || opusLen == 0) { return; }
     std::lock_guard<std::mutex> lock(mtx_);
-    const auto it = voices_.find(VoiceKey{connectionId, controllerIndex});
+    const auto it = voices_.find(VoiceKey{connectionId, controllerIndex, lane});
     if (it == voices_.end()) { return; }
     Voice& voice = *it->second;
+    const std::size_t frameBytes = frameBytesFor(voice.channels);
+    const std::size_t deviceWindow = static_cast<std::size_t>(proto::kAudioFrameSamples) *
+                                     static_cast<std::size_t>(voice.channels);
 
     const auto result = voice.window.push(seq, opus, opusLen);
     std::array<std::int16_t, kWindowSamples> pcm{};
@@ -108,28 +136,41 @@ void SpeakerPlayoutEngine::deliver(const std::string& connectionId, int controll
         const int refill = dish::audio::playoutRefillFrames(
             voice.started, gateway_->queuedPlaybackBytes(voice.handle));
         if (refill > 0) {
-            const std::array<std::int16_t, kWindowSamples> silence{};
+            const std::vector<std::int16_t> silence(deviceWindow, 0);
             for (int f = 0; f < refill; f++) {
                 gateway_->queuePlayback(voice.handle, silence.data(), silence.size());
             }
         }
 
-        gateway_->queuePlayback(voice.handle, pcm.data(),
-                                frames * static_cast<std::size_t>(proto::kAudioSpeakerChannels));
+        // The wire's stereo into the lane's pair of the device's channels;
+        // a stereo device takes the window as it is.
+        const std::int16_t* out = pcm.data();
+        std::size_t outCount = frames * static_cast<std::size_t>(proto::kAudioSpeakerChannels);
+        if (voice.channels != proto::kAudioSpeakerChannels) {
+            voice.spread.assign(frames * static_cast<std::size_t>(voice.channels), 0);
+            const std::size_t off = static_cast<std::size_t>(laneOffset(voice.lane));
+            for (std::size_t f = 0; f < frames; f++) {
+                voice.spread[f * static_cast<std::size_t>(voice.channels) + off] = pcm[f * 2];
+                voice.spread[f * static_cast<std::size_t>(voice.channels) + off + 1] =
+                    pcm[f * 2 + 1];
+            }
+            out = voice.spread.data();
+            outCount = voice.spread.size();
+        }
+        gateway_->queuePlayback(voice.handle, out, outCount);
         if (!voice.started &&
             gateway_->queuedPlaybackBytes(voice.handle) >=
-                static_cast<std::size_t>(dish::audio::kPlayoutStartThresholdFrames) *
-                    dish::audio::kPlayoutFrameBytes) {
+                static_cast<std::size_t>(dish::audio::kPlayoutStartThresholdFrames) * frameBytes) {
             gateway_->resumePlayback(voice.handle);
             voice.started = true;
         }
     }
 }
 
-bool SpeakerPlayoutEngine::playingFor(const std::string& slotId) const {
+bool SpeakerPlayoutEngine::playingFor(const std::string& slotId, PlayoutLane lane) const {
     std::lock_guard<std::mutex> lock(mtx_);
     for (const auto& [key, voice] : voices_) {
-        if (voice->slotId == slotId) { return true; }
+        if (voice->slotId == slotId && voice->lane == lane) { return true; }
     }
     return false;
 }
