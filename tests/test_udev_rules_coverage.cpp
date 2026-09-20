@@ -72,6 +72,14 @@ std::string rulesText() {
     return buf.str();
 }
 
+// One `KERNELS=="0005:<VID>:*"` line: the Bluetooth twin of a vendor-wide USB
+// line, keyed on the hid device's name rather than a USB attribute.
+struct BluetoothRule {
+    std::string vendor; // the four hex digits between "0005:" and ":*"
+    bool grantsAccess = false;
+    int line = 0;
+};
+
 // The value of `key=="<value>"` on one line, or of `key="<value>"` for an
 // assignment. Literal only: a glob in a rule would not be recognised as
 // coverage, which fails loudly rather than passing quietly.
@@ -103,6 +111,32 @@ std::vector<Rule> readRules() {
         }
         // A line that matches but hands out nothing leaves the node root-only,
         // so coverage has to mean granted, not merely mentioned.
+        rule.grantsAccess =
+            line.find("MODE=") != std::string::npos || line.find("uaccess") != std::string::npos;
+        rule.line = number;
+        rules.push_back(rule);
+    }
+    return rules;
+}
+
+std::vector<BluetoothRule> readBluetoothRules() {
+    std::istringstream in(rulesText());
+    std::vector<BluetoothRule> rules;
+    std::string line;
+    int number = 0;
+    const std::string prefix = "0005:";
+    while (std::getline(in, line)) {
+        number++;
+        const std::size_t first = line.find_first_not_of(" \t");
+        if (first == std::string::npos || line[first] == '#') { continue; }
+        const auto kernels = quotedValue(line, "KERNELS==");
+        if (!kernels || kernels->rfind(prefix, 0) != 0) { continue; }
+        // Only the vendor-wide shape is recognised: "0005:<VID>:*".
+        const std::string rest = kernels->substr(prefix.size());
+        const std::size_t colon = rest.find(':');
+        if (colon != 4 || rest.substr(colon) != ":*") { continue; }
+        BluetoothRule rule;
+        rule.vendor = rest.substr(0, colon);
         rule.grantsAccess =
             line.find("MODE=") != std::string::npos || line.find("uaccess") != std::string::npos;
         rule.line = number;
@@ -212,6 +246,42 @@ TEST_CASE("udev rules apply to hidraw nodes only", "[udev]") {
     const auto target = quotedValue(text, "GOTO=");
     REQUIRE(target.has_value());
     CHECK(text.find("LABEL=\"" + *target + "\"") != std::string::npos);
+}
+
+TEST_CASE("udev rules open every vendor-wide USB lane over Bluetooth too", "[udev]") {
+    // The USB lines match ATTRS{idVendor}, which a Bluetooth HID device does
+    // not carry, so a vendor the file opens wholesale over USB is root-only
+    // over Bluetooth unless a KERNELS line names its bus-0005 hid device. The
+    // Direct path never claims Bluetooth; SDL's HIDAPI driver, which is the
+    // only route to a Bluetooth Sony pad's lightbar, gyro, touchpad, adaptive
+    // triggers and player LEDs, is what this opens. The tie is to the USB
+    // file itself: whatever vendor it opens wholesale, it opens over Bluetooth.
+    const auto usb = readRules();
+    const auto bluetooth = readBluetoothRules();
+    REQUIRE_FALSE(bluetooth.empty());
+
+    for (const Rule& rule : usb) {
+        if (!rule.grantsAccess || !rule.product.empty()) { continue; }
+        INFO("USB vendor-wide rule at line " << rule.line << " (" << rule.vendor << ")");
+        bool covered = false;
+        for (const BluetoothRule& bt : bluetooth) {
+            covered = covered || (bt.grantsAccess && lowerHex(bt.vendor) == lowerHex(rule.vendor));
+        }
+        CHECK(covered);
+    }
+
+    // hid device names print the ids with %04X, and KERNELS matches them
+    // literally, so a lowercase Bluetooth rule would silently never fire — the
+    // opposite convention from the sysfs attributes the USB lines match.
+    for (const BluetoothRule& bt : bluetooth) {
+        INFO("rules line " << bt.line);
+        std::string upper = bt.vendor;
+        for (char& c : upper) {
+            c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+        }
+        CHECK(bt.vendor == upper);
+        CHECK(bt.grantsAccess);
+    }
 }
 
 TEST_CASE("udev rules naming a model the code never claims only warn", "[udev]") {

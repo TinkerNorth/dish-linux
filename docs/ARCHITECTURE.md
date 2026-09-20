@@ -379,9 +379,11 @@ reports a DualSense's LED only from the HIDAPI driver, so "DualSense family and
 the same driver but its effect body is a different report with none of these
 fields, hence the family gate. The same fact is `linkStandardEffects` in the
 capability solver, so the table's Link column agrees with the wire. Whether
-SDL's HIDAPI driver gets the pad at all is a hidraw-permissions question (the
-same udev rule the Direct path needs); under evdev the Standard path carries
-rumble alone and the table says so at the Link layer. The bridge also asks SDL
+SDL's HIDAPI driver gets the pad at all is a hidraw-permissions question: the
+shipped udev rule opens the USB nodes for the Direct path and, since the
+Bluetooth clause, the Bluetooth nodes of the same vendors for exactly this
+(see PACKAGING.md); under evdev the Standard path carries rumble alone and the
+table says so at the Link layer. The bridge also asks SDL
 for enhanced reports on Bluetooth Sony pads
 (`SDL_HINT_JOYSTICK_HIDAPI_PS5_RUMBLE` / `PS4_RUMBLE`), which hid-playstation
 usually has already switched on; without it a Bluetooth DualSense in simple
