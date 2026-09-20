@@ -1,8 +1,10 @@
-# Dish USB-direct: read/write access to the hidraw nodes of supported gamepads.
+# Dish: read/write access to the hidraw nodes of supported gamepads.
 #
 # /dev/hidraw* is root-only by default. Without this file every USB-direct claim
 # fails PermissionDenied and Dish keeps the pad on the SDL path, which still
-# works but is rate-capped.
+# works but is rate-capped; and SDL's own HIDAPI driver, which is what drives a
+# Bluetooth Sony pad's lightbar, gyro, touchpad, adaptive triggers and player
+# LEDs, cannot open the pad either and SDL falls back to evdev (rumble alone).
 #
 # Install:  sudo install -m 644 70-dish-hidraw.rules /etc/udev/rules.d/
 #           sudo udevadm control --reload-rules && sudo udevadm trigger
@@ -31,5 +33,14 @@ ATTRS{idVendor}=="0e6f", ATTRS{idProduct}=="0181", MODE="0660", GROUP="input", T
 ATTRS{idVendor}=="0e6f", ATTRS{idProduct}=="0184", MODE="0660", GROUP="input", TAG+="uaccess"
 ATTRS{idVendor}=="0e6f", ATTRS{idProduct}=="0185", MODE="0660", GROUP="input", TAG+="uaccess"
 ATTRS{idVendor}=="0e6f", ATTRS{idProduct}=="0187", MODE="0660", GROUP="input", TAG+="uaccess"
+
+# The same vendors over Bluetooth. A Bluetooth HID device has no USB idVendor
+# attribute anywhere up its chain, so the lines above never match it; its hid
+# device is named <bus>:<vid>:<pid>.<n> with bus 0005 for Bluetooth, and that
+# name is what these match. Dish never claims a Bluetooth pad Direct: this is
+# for SDL's HIDAPI driver alone.
+KERNELS=="0005:054C:*", MODE="0660", GROUP="input", TAG+="uaccess"
+KERNELS=="0005:057E:*", MODE="0660", GROUP="input", TAG+="uaccess"
+KERNELS=="0005:2DC8:*", MODE="0660", GROUP="input", TAG+="uaccess"
 
 LABEL="dish_hidraw_end"
