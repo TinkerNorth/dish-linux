@@ -200,12 +200,16 @@ QtObject {
                 return qsTr("No touchpad on this controller to drive a mouse.");
             return qsTr("%1 has no %2.").arg(draft.padName).arg(draft.featureNoun(row.feature));
         case "link":
-            // Which path refuses depends on the feature: Standard has no call
-            // for the adaptive triggers or the player LEDs, and Direct is the
-            // only path that can reach them. Naming the wrong one sends the
-            // user to switch the connection the wrong way.
+            // Which path refuses depends on the feature: Standard reaches the
+            // adaptive triggers and the player LEDs only through SDL's own
+            // DualSense driver, and Direct always can. Naming the wrong one
+            // sends the user to switch the connection the wrong way — and a
+            // pad with no Direct to switch to (Bluetooth) gets the reason
+            // instead of a path it cannot take.
             if (draft.desiredPath === "direct")
                 return qsTr("Direct mode can’t drive it — switch the connection to Standard.");
+            if (!draft.padClaimable)
+                return qsTr("The driver this controller is on can’t drive it.");
             return qsTr("Standard mode can’t drive it — switch the connection to Direct.");
         case "type":
             if (draft.hostIsMoonlight)

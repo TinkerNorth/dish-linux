@@ -77,6 +77,21 @@ std::vector<std::string> SdlAudioGateway::playbackDeviceNames() {
     return out;
 }
 
+int SdlAudioGateway::playbackDeviceChannels(const std::string& deviceName) {
+    if (!audioReady_ || deviceName.empty()) { return 0; }
+    // SDL's preferred spec is the endpoint's own mix format, which on the
+    // DualSense is the 4-channel layout the actuator lanes live in.
+    const int n = SDL_GetNumAudioDevices(SDL_FALSE);
+    for (int i = 0; i < n; i++) {
+        const char* name = SDL_GetAudioDeviceName(i, SDL_FALSE);
+        if (name == nullptr || deviceName != name) { continue; }
+        SDL_AudioSpec spec{};
+        if (SDL_GetAudioDeviceSpec(i, SDL_FALSE, &spec) != 0) { return 0; }
+        return spec.channels;
+    }
+    return 0;
+}
+
 int SdlAudioGateway::openCapture(const std::string& deviceName,
                                  std::function<void(const std::int16_t*, std::size_t)> onSamples) {
     if (!audioReady_ || deviceName.empty() || !onSamples) { return kNoAudioDevice; }
@@ -133,12 +148,16 @@ void SdlAudioGateway::closeCapture(int handle) {
     SDL_CloseAudioDevice(dev);
 }
 
-int SdlAudioGateway::openPlayback(const std::string& deviceName) {
-    if (!audioReady_ || deviceName.empty()) { return kNoAudioDevice; }
+int SdlAudioGateway::openPlayback(const std::string& deviceName, int channels) {
+    if (!audioReady_ || deviceName.empty() || channels <= 0 || channels > 8) {
+        return kNoAudioDevice;
+    }
     SDL_AudioSpec want{};
     want.freq = dish::proto::kAudioSampleRateHz;
     want.format = AUDIO_S16SYS;
-    want.channels = static_cast<Uint8>(dish::proto::kAudioSpeakerChannels);
+    // allowed_changes stays 0: SDL converts to whatever the endpoint runs,
+    // so the engine's frames are always exactly `channels` wide.
+    want.channels = static_cast<Uint8>(channels);
     want.samples = static_cast<Uint16>(kPeriodSamples);
     want.callback = nullptr; // queued mode: the engine pushes whole frames
     SDL_AudioSpec have{};

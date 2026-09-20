@@ -513,7 +513,13 @@ TEST_CASE("the bundled catalog offers audio on the two Sony types only", "[model
     // is the trigger-effects precedent audio follows.
     CHECK_FALSE(cat::knownFeatureSlugs().contains(cat::kFeatureMic));
     CHECK_FALSE(cat::knownFeatureSlugs().contains(cat::kFeatureSpeaker));
-    CHECK(cat::audioFeatureSlugs() == QStringList{cat::kFeatureMic, cat::kFeatureSpeaker});
+    CHECK(cat::audioFeatureSlugs() ==
+          QStringList{cat::kFeatureMic, cat::kFeatureSpeaker, cat::kFeatureHapticAudio});
+    // Protocol 3: the haptic lanes ride the DualSense's endpoint alone; the
+    // DualShock 4 v2 function is headset-only.
+    CHECK(cat::typeFeatureSlugs(cat::kSlugDualSense)->contains(cat::kFeatureHapticAudio));
+    CHECK_FALSE(cat::typeFeatureSlugs(cat::kSlugDs4)->contains(cat::kFeatureHapticAudio));
+    CHECK_FALSE(cat::knownFeatureSlugs().contains(cat::kFeatureHapticAudio));
 }
 
 TEST_CASE("controllersJson builds the WHOLE desired array", "[models][descriptor]") {

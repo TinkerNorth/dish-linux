@@ -218,6 +218,10 @@
         <translation>%1 has no %2.</translation>
     </message>
     <message>
+        <source>The driver this controller is on can’t drive it.</source>
+        <translation>The driver this controller is on can’t drive it.</translation>
+    </message>
+    <message>
         <source>Standard mode can’t drive it — switch the connection to Direct.</source>
         <translation>Standard mode can’t drive it — switch the connection to Direct.</translation>
     </message>

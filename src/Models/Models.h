@@ -279,6 +279,7 @@ struct CapabilitiesDto {
     bool controllerAudioEnabled = false;
     bool controllerAudioMic = false;
     bool controllerAudioSpeaker = false;
+    bool controllerAudioHapticAudio = false;
     int httpStatus = 0;
     bool reachable = false;
 
@@ -395,9 +396,11 @@ struct ControllerCapabilities {
     bool hasRumble = false;
 
     // For a wireless pad this is the controller's own charge; for a wired or
-    // unknown one it is the HOST machine's battery. `batteryLevel` is 0..100 or
-    // 0xFF for unknown, `batteryStatus` a SatelliteClient::kBatteryStatus*
-    // constant. 0xFF / 0 until the first 30 s poll completes.
+    // unknown one on the SDL path it is the HOST machine's battery, and for a
+    // Direct-claimed pad it is the charge its own report carries. `batteryLevel`
+    // is 0..100 or 0xFF for unknown, `batteryStatus` a
+    // SatelliteClient::kBatteryStatus* constant. 0xFF / 0 until the first 30 s
+    // poll (or the first Direct report) completes.
     std::uint8_t batteryLevel = 0xFF;
     std::uint8_t batteryStatus = 0;
 };

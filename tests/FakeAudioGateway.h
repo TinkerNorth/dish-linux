@@ -21,6 +21,9 @@ class FakeAudioGateway : public dish::source::audio::AudioDeviceGateway {
   public:
     std::vector<std::string> captureNames;
     std::vector<std::string> playbackNames;
+    // Channel count per playback name; absent reads 0 (unknown), like a
+    // platform that cannot say.
+    std::map<std::string, int> playbackChannels;
     // Names that refuse to open.
     std::vector<std::string> refuse;
 
@@ -31,6 +34,7 @@ class FakeAudioGateway : public dish::source::audio::AudioDeviceGateway {
     };
     struct Playback {
         std::string name;
+        int channels = 2;
         std::vector<std::int16_t> queued; // everything ever queued, in order
         std::size_t queuedBytes = 0;      // the "unplayed" figure the engine reads
         bool open = true;
@@ -43,6 +47,10 @@ class FakeAudioGateway : public dish::source::audio::AudioDeviceGateway {
 
     std::vector<std::string> captureDeviceNames() override { return captureNames; }
     std::vector<std::string> playbackDeviceNames() override { return playbackNames; }
+    int playbackDeviceChannels(const std::string& deviceName) override {
+        const auto it = playbackChannels.find(deviceName);
+        return it != playbackChannels.end() ? it->second : 0;
+    }
 
     int openCapture(const std::string& deviceName,
                     std::function<void(const std::int16_t*, std::size_t)> onSamples) override {
@@ -62,12 +70,12 @@ class FakeAudioGateway : public dish::source::audio::AudioDeviceGateway {
         closes++;
     }
 
-    int openPlayback(const std::string& deviceName) override {
+    int openPlayback(const std::string& deviceName, int channels) override {
         for (const auto& r : refuse) {
             if (r == deviceName) { return dish::source::audio::kNoAudioDevice; }
         }
         const int handle = nextHandle_++;
-        playbacks[handle] = Playback{deviceName, {}, 0, true, false};
+        playbacks[handle] = Playback{deviceName, channels, {}, 0, true, false};
         return handle;
     }
 
@@ -106,6 +114,14 @@ class FakeAudioGateway : public dish::source::audio::AudioDeviceGateway {
     Playback* playbackFor(const std::string& deviceName) {
         for (auto& [handle, p] : playbacks) {
             if (p.open && p.name == deviceName) { return &p; }
+        }
+        return nullptr;
+    }
+    // The n-th open stream on a device (a 4-channel pad holds two).
+    Playback* playbackFor(const std::string& deviceName, int nth) {
+        int seen = 0;
+        for (auto& [handle, p] : playbacks) {
+            if (p.open && p.name == deviceName && seen++ == nth) { return &p; }
         }
         return nullptr;
     }

@@ -99,6 +99,19 @@ struct MicMuteLatch {
     std::atomic<bool> muted{false};
 };
 
+// The pad's own battery, for the families whose IN report carries it (the two
+// Sony pads and the Switch Pro). The level is a percent or the unknown
+// sentinel; the status is MSG_BATTERY's own value, restated here (like the
+// trigger block length in UsbOutputReports.h) so this header stays free of the
+// wire protocol: 0 unknown, 1 discharging, 2 charging, 3 full. The readings
+// are hid-playstation's and hid-nintendo's, byte for byte, so a pad shows the
+// same number here it shows on a Linux desktop.
+inline constexpr std::uint8_t kPadBatteryLevelUnknown = 0xFF;
+inline constexpr std::uint8_t kPadBatteryStatusUnknown = 0;
+inline constexpr std::uint8_t kPadBatteryStatusDischarging = 1;
+inline constexpr std::uint8_t kPadBatteryStatusCharging = 2;
+inline constexpr std::uint8_t kPadBatteryStatusFull = 3;
+
 // Normalised to the XUSB axis/trigger scale.
 struct ParsedReport {
     std::uint16_t wButtons = 0; // XUSB button bits (GamepadButtonLayouts kXusb*)
@@ -130,7 +143,25 @@ struct ParsedReport {
     std::int16_t finger1X = 0;
     std::int16_t finger1Y = 0;
     bool touchpadButton = false;
+
+    // The pad's own charge (see kPadBattery*). Valid only when the report was
+    // long enough to carry the status byte; a short report leaves the last
+    // reading standing rather than reporting unknown.
+    bool batteryValid = false;
+    std::uint8_t batteryLevel = kPadBatteryLevelUnknown;
+    std::uint8_t batteryStatus = kPadBatteryStatusUnknown;
 };
+
+namespace detail {
+
+// The Sony pads report charge in tenths (0 = 0..9 %, 1 = 10..19 %, ...), and
+// the platforms show the midpoint of each band, capped at 100.
+inline std::uint8_t sonyTenthsToPercent(std::uint8_t tenths) {
+    const unsigned pct = static_cast<unsigned>(tenths) * 10U + 5U;
+    return static_cast<std::uint8_t>(pct > 100U ? 100U : pct);
+}
+
+} // namespace detail
 
 // `invert` flips the sense: PlayStation Y axes are down-positive on the wire,
 // XUSB wants up-positive.
@@ -306,6 +337,28 @@ inline bool decodeDualShock4(const std::uint8_t* buf, std::size_t len, ParsedRep
         s.touchpadButton = len > 7 && (buf[7] & 0x02) != 0;
         s.touchpadValid = true;
     }
+
+    // Battery at buf[30] (hid-playstation's status[0]): the low nibble is the
+    // charge in tenths, bit 0x10 the cable. With the cable in, 10 is still
+    // charging, 11 is full, and 12..15 are the firmware's error states.
+    if (len >= 31) {
+        const auto tenths = static_cast<std::uint8_t>(buf[30] & 0x0F);
+        const bool cable = (buf[30] & 0x10) != 0;
+        s.batteryValid = true;
+        if (!cable) {
+            s.batteryLevel = detail::sonyTenthsToPercent(tenths);
+            s.batteryStatus = kPadBatteryStatusDischarging;
+        } else if (tenths <= 10) {
+            s.batteryLevel = detail::sonyTenthsToPercent(tenths);
+            s.batteryStatus = kPadBatteryStatusCharging;
+        } else if (tenths == 11) {
+            s.batteryLevel = 100;
+            s.batteryStatus = kPadBatteryStatusFull;
+        } else {
+            s.batteryLevel = kPadBatteryLevelUnknown;
+            s.batteryStatus = kPadBatteryStatusUnknown;
+        }
+    }
     return true;
 }
 
@@ -397,6 +450,34 @@ inline bool decodeDualSense(const std::uint8_t* buf, std::size_t len, ParsedRepo
         s.touchpadButton = len > 10 && (buf[10] & 0x02) != 0;
         s.touchpadValid = true;
     }
+
+    // Battery at buf[53] (hid-playstation's status): the low nibble is the
+    // charge in tenths, the high nibble the state -- 0 discharging, 1
+    // charging, 2 full, 0xA/0xB a temperature or voltage fault, 0xF a
+    // charging fault. A fault has no charge worth showing.
+    if (len >= 54) {
+        const auto tenths = static_cast<std::uint8_t>(buf[53] & 0x0F);
+        const auto state = static_cast<std::uint8_t>(buf[53] >> 4);
+        s.batteryValid = true;
+        switch (state) {
+        case 0x0:
+            s.batteryLevel = detail::sonyTenthsToPercent(tenths);
+            s.batteryStatus = kPadBatteryStatusDischarging;
+            break;
+        case 0x1:
+            s.batteryLevel = detail::sonyTenthsToPercent(tenths);
+            s.batteryStatus = kPadBatteryStatusCharging;
+            break;
+        case 0x2:
+            s.batteryLevel = 100;
+            s.batteryStatus = kPadBatteryStatusFull;
+            break;
+        default:
+            s.batteryLevel = kPadBatteryLevelUnknown;
+            s.batteryStatus = kPadBatteryStatusUnknown;
+            break;
+        }
+    }
     return true;
 }
 
@@ -450,6 +531,26 @@ inline bool decodeSwitchProUsb(const std::uint8_t* buf, std::size_t len, ParsedR
     s.ly = scaleSwitchStickAuto(ly, sticks.ly);
     s.rx = scaleSwitchStickAuto(rx, sticks.rx);
     s.ry = scaleSwitchStickAuto(ry, sticks.ry);
+
+    // Battery in buf[2] (hid-nintendo's bat_con): bits 7..5 the charge in
+    // five steps (empty, critical, low, medium, full), bit 4 charging, bit 0
+    // host-powered. The percent is the step's midpoint, the same coarse
+    // number the framework layers show for this pad.
+    {
+        static constexpr std::uint8_t kStepPercent[] = {5, 25, 50, 75, 100};
+        const auto step = static_cast<std::uint8_t>(buf[2] >> 5);
+        const bool charging = (buf[2] & 0x10) != 0;
+        const bool hostPowered = (buf[2] & 0x01) != 0;
+        s.batteryValid = true;
+        s.batteryLevel = step <= 4 ? kStepPercent[step] : kPadBatteryLevelUnknown;
+        if (charging) {
+            s.batteryStatus = kPadBatteryStatusCharging;
+        } else if (hostPowered && step == 4) {
+            s.batteryStatus = kPadBatteryStatusFull;
+        } else {
+            s.batteryStatus = kPadBatteryStatusDischarging;
+        }
+    }
 
     // Three 12-byte IMU frames start at byte 13 (accel int16 LE at +0/+2/+4, gyro
     // at +6/+8/+10); only the first is used. Signs may need an on-device flip.
@@ -810,5 +911,11 @@ inline bool parserHasRumble(HidParser parser) {
 inline bool parserHasUsbAudio(HidParser parser) {
     return parser == HidParser::DualShock4 || parser == HidParser::DualSense;
 }
+
+// Whether that audio function's render endpoint carries the HD-haptics lanes
+// (channels 3/4 driving the voice-coil actuators). The DualSense alone: the
+// DualShock 4 v2 function is headset-only. Same candidacy rule as above — the
+// matcher still has to see a 4-channel endpoint before it names a route.
+inline bool parserHasHapticLanes(HidParser parser) { return parser == HidParser::DualSense; }
 
 } // namespace dish::input::usbparse

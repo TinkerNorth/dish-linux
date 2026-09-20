@@ -466,11 +466,16 @@ ClaimResult UsbGamepadManager::doClaim(const UsbDeviceInfo& device) {
     // and not a startup echo. shared_ptr because the closure is copied into
     // the gateway and the edge must be tracked in one place.
     auto lastMicMuted = std::make_shared<std::atomic<bool>>(false);
+    // The last charge mirrored up, packed level<<8|status; a sentinel no
+    // report can produce (status 0xFF) marks "nothing mirrored yet", so the
+    // first valid reading is an edge and the card fills in at once.
+    auto lastBattery = std::make_shared<std::atomic<std::uint16_t>>(0xFFFF);
     UsbDirectObserver* observer = observer_;
     const int vendorId = device.vendorId;
     const int productId = device.productId;
-    const ClaimResult outcome = gateway_->claim(device, [processor, slotId, lastMicMuted, observer,
-                                                         vendorId, productId](const UsbReport& r) {
+    const ClaimResult outcome = gateway_->claim(device, [processor, slotId, lastMicMuted,
+                                                         lastBattery, observer, vendorId,
+                                                         productId](const UsbReport& r) {
         // The decoder owns the mute latch (the wire bit is folded in on the
         // read thread, with nothing in the way); the observer is told only on
         // the edge, so the mirror costs one relaxed load per report. Fires on
@@ -479,6 +484,19 @@ ClaimResult UsbGamepadManager::doClaim(const UsbDeviceInfo& device) {
             lastMicMuted->store(r.micMuted, std::memory_order_relaxed);
             if (observer != nullptr) {
                 observer->padMicMuteChanged(vendorId, productId, r.micMuted);
+            }
+        }
+        // The charge the same way: the card shows it, the wire does not (a
+        // wired pad puts the host battery on the wire, see AppModel's
+        // heartbeat), and a level in tenths moves minutes apart.
+        if (r.batteryValid) {
+            const auto packed = static_cast<std::uint16_t>((r.batteryLevel << 8) | r.batteryStatus);
+            if (packed != lastBattery->load(std::memory_order_relaxed)) {
+                lastBattery->store(packed, std::memory_order_relaxed);
+                if (observer != nullptr) {
+                    observer->padBatteryChanged(vendorId, productId, r.batteryLevel,
+                                                r.batteryStatus);
+                }
             }
         }
         if (processor == nullptr) { return; }

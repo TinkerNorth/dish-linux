@@ -27,6 +27,9 @@ struct HostAudioFacts {
     bool enabled = false;
     bool mic = false;
     bool speaker = false;
+    // Protocol 3. Absent on an older block reads false, and that is the truth:
+    // a host without the field never sends the stream.
+    bool hapticAudio = false;
     // The fallback: any backends[] entry that is available AND carries audio.
     // A satellite predating BOTH mechanisms sends no backends array either,
     // which reads as off — and is the truth there.
@@ -36,6 +39,7 @@ struct HostAudioFacts {
 struct HostAudioVerdict {
     bool mic = false;
     bool speaker = false;
+    bool hapticAudio = false;
 };
 
 // A PRESENT block wins outright, since it is the only place the two directions
@@ -44,9 +48,13 @@ struct HostAudioVerdict {
 // disabled master would otherwise advertise an endpoint that will never be
 // plugged. An absent block falls back to the per-backend flag, both directions
 // at once, because that flag cannot tell them apart.
+// Haptics never take the per-backend fallback: a host too old for the block is
+// too old for the lane, so the only honest answer there is no.
 inline HostAudioVerdict resolveHostControllerAudio(const HostAudioFacts& f) {
-    if (f.blockPresent) { return {f.enabled && f.mic, f.enabled && f.speaker}; }
-    return {f.anyBackendAudio, f.anyBackendAudio};
+    if (f.blockPresent) {
+        return {f.enabled && f.mic, f.enabled && f.speaker, f.enabled && f.hapticAudio};
+    }
+    return {f.anyBackendAudio, f.anyBackendAudio, false};
 }
 
 // The DTO-to-facts bridge, kept next to the rule so no caller re-reads the
@@ -57,6 +65,7 @@ inline HostAudioFacts hostAudioFactsFrom(const models::CapabilitiesDto& caps) {
     f.enabled = caps.controllerAudioEnabled;
     f.mic = caps.controllerAudioMic;
     f.speaker = caps.controllerAudioSpeaker;
+    f.hapticAudio = caps.controllerAudioHapticAudio;
     for (const auto& b : caps.backends) {
         if (b.available && b.audio) {
             f.anyBackendAudio = true;

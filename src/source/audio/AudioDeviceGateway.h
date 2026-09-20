@@ -33,6 +33,11 @@ class AudioDeviceGateway {
     virtual std::vector<std::string> captureDeviceNames() = 0;
     virtual std::vector<std::string> playbackDeviceNames() = 0;
 
+    // The channel count a playback device presents (the DualSense's own
+    // endpoint is 4: speaker pair then haptic pair). 0 when the platform
+    // cannot say, which downstream reads as "stereo, no haptic lanes".
+    virtual int playbackDeviceChannels(const std::string& deviceName) = 0;
+
     // Open one capture device at the wire's mic format (48 kHz mono S16).
     // `onSamples` fires on the gateway's audio thread with however many mono
     // samples the platform's period produced — the caller windows them
@@ -47,13 +52,18 @@ class AudioDeviceGateway {
     // handles.
     virtual void closeCapture(int handle) = 0;
 
-    // Open one playback device at the wire's speaker format (48 kHz stereo
-    // S16), in queued mode and PAUSED: nothing plays until resumePlayback, so
-    // the engine can build its start cushion first.
-    virtual int openPlayback(const std::string& deviceName) = 0;
+    // Open one playback device at 48 kHz S16 with `channels` interleaved
+    // channels (the wire's stereo, or the endpoint's own 4 so a voice can
+    // address one lane pair and leave the other at zero), in queued mode and
+    // PAUSED: nothing plays until resumePlayback, so the engine can build its
+    // start cushion first. The same device may be open more than once: each
+    // handle is its own stream and the platform mixes them, which is how the
+    // speaker and haptic lanes share one endpoint without sharing a clock.
+    virtual int openPlayback(const std::string& deviceName, int channels) = 0;
 
-    // Queue interleaved stereo samples (sampleCount counts individual int16
-    // values, not frames). False on an unknown handle or a failed queue.
+    // Queue interleaved samples at the handle's channel count (sampleCount
+    // counts individual int16 values, not frames). False on an unknown handle
+    // or a failed queue.
     virtual bool queuePlayback(int handle, const std::int16_t* samples,
                                std::size_t sampleCount) = 0;
 

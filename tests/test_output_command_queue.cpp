@@ -1,14 +1,16 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 // Copyright (C) 2026 Dish contributors.
 
-// OutputCommandQueue marshals rumble / lightbar commands from the SatelliteClient
-// receive thread onto the SDL thread. It carries no SDL dependency, so the
-// marshalling is testable on a host with no controller attached.
+// OutputCommandQueue marshals rumble / lightbar / effect commands from the
+// SatelliteClient receive thread onto the SDL thread. It carries no SDL
+// dependency, so the marshalling is testable on a host with no controller
+// attached.
 
 #include "Input/OutputCommandQueue.h"
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <array>
 #include <atomic>
 #include <cstdint>
 #include <thread>
@@ -17,6 +19,7 @@
 using dish::input::OutputCommand;
 using dish::input::OutputCommandQueue;
 using dish::input::OutputKind;
+using dish::input::usbout::kTriggerEffectBlockBytes;
 
 TEST_CASE("OutputCommand::rumble carries the rumble payload", "[outputqueue]") {
     const auto cmd = OutputCommand::rumble(QStringLiteral("sdl:3"), 0xAABB, 0x1122, 250);
@@ -34,6 +37,34 @@ TEST_CASE("OutputCommand::lightbar carries the RGB payload", "[outputqueue]") {
     REQUIRE(cmd.r == 0xDE);
     REQUIRE(cmd.g == 0xAD);
     REQUIRE(cmd.b == 0xBE);
+}
+
+TEST_CASE("OutputCommand::triggerEffects carries both blocks in wire order", "[outputqueue]") {
+    // The receive thread hands over what the game wrote; the SDL thread builds
+    // the report. Swapping the blocks here would swap the triggers on the pad.
+    std::array<std::uint8_t, kTriggerEffectBlockBytes> left{};
+    std::array<std::uint8_t, kTriggerEffectBlockBytes> right{};
+    for (std::size_t i = 0; i < kTriggerEffectBlockBytes; ++i) {
+        left[i] = static_cast<std::uint8_t>(0xA0 + i);
+        right[i] = static_cast<std::uint8_t>(0xB0 + i);
+    }
+    const auto cmd = OutputCommand::triggerEffects(QStringLiteral("sdl:2"), left, right);
+    REQUIRE(cmd.kind == OutputKind::TriggerEffects);
+    REQUIRE(cmd.deviceId == QStringLiteral("sdl:2"));
+    REQUIRE(cmd.leftTrigger == left);
+    REQUIRE(cmd.rightTrigger == right);
+}
+
+TEST_CASE("OutputCommand::playerLeds and ::micLed carry their one byte", "[outputqueue]") {
+    const auto leds = OutputCommand::playerLeds(QStringLiteral("sdl:4"), 0x15);
+    REQUIRE(leds.kind == OutputKind::PlayerLeds);
+    REQUIRE(leds.deviceId == QStringLiteral("sdl:4"));
+    REQUIRE(leds.ledMask == 0x15);
+
+    const auto lamp = OutputCommand::micLed(QStringLiteral("sdl:5"), 2);
+    REQUIRE(lamp.kind == OutputKind::MicLed);
+    REQUIRE(lamp.deviceId == QStringLiteral("sdl:5"));
+    REQUIRE(lamp.micLedState == 2);
 }
 
 TEST_CASE("a freshly-constructed queue is empty", "[outputqueue]") {
@@ -66,19 +97,28 @@ TEST_CASE("drain empties the queue", "[outputqueue]") {
 }
 
 TEST_CASE("the queue preserves FIFO order across mixed command kinds", "[outputqueue]") {
+    // Order matters beyond fairness for the effect kinds: a mic-lamp write
+    // followed by a player-LED write must build in that order, because the
+    // second re-asserts the lamp the first recorded.
     OutputCommandQueue q;
     q.push(OutputCommand::rumble(QStringLiteral("sdl:0"), 100, 0, 80));
     q.push(OutputCommand::lightbar(QStringLiteral("sdl:0"), 1, 2, 3));
+    q.push(OutputCommand::micLed(QStringLiteral("sdl:0"), 1));
+    q.push(OutputCommand::playerLeds(QStringLiteral("sdl:0"), 0x04));
     q.push(OutputCommand::rumble(QStringLiteral("sdl:1"), 0, 0, 0));
 
     const auto batch = q.drain();
-    REQUIRE(batch.size() == 3U);
+    REQUIRE(batch.size() == 5U);
     REQUIRE(batch[0].kind == OutputKind::Rumble);
     REQUIRE(batch[0].strongMagnitude == 100);
     REQUIRE(batch[1].kind == OutputKind::Lightbar);
     REQUIRE(batch[1].r == 1);
-    REQUIRE(batch[2].kind == OutputKind::Rumble);
-    REQUIRE(batch[2].deviceId == QStringLiteral("sdl:1"));
+    REQUIRE(batch[2].kind == OutputKind::MicLed);
+    REQUIRE(batch[2].micLedState == 1);
+    REQUIRE(batch[3].kind == OutputKind::PlayerLeds);
+    REQUIRE(batch[3].ledMask == 0x04);
+    REQUIRE(batch[4].kind == OutputKind::Rumble);
+    REQUIRE(batch[4].deviceId == QStringLiteral("sdl:1"));
 }
 
 TEST_CASE("a rumble 'stop' (all-zero magnitudes) survives the round trip", "[outputqueue]") {

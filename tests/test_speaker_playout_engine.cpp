@@ -20,6 +20,7 @@
 #include <memory>
 #include <vector>
 
+using dish::source::audio::PlayoutLane;
 using dish::source::audio::SpeakerPlayoutEngine;
 using dish::source::audio::SpeakerVoiceTarget;
 using dish::test::FakeAudioGateway;
@@ -79,18 +80,22 @@ struct Harness {
                                 [this] { return std::make_unique<FakeDecoder>(decoderState); }};
 
     static SpeakerVoiceTarget voice(const std::string& conn, int idx, const std::string& slot,
-                                    const std::string& device) {
+                                    const std::string& device,
+                                    PlayoutLane lane = PlayoutLane::Speaker, int channels = 2) {
         SpeakerVoiceTarget t;
         t.connectionId = conn;
         t.controllerIndex = idx;
         t.slotId = slot;
         t.playbackDeviceName = device;
+        t.lane = lane;
+        t.deviceChannels = channels;
         return t;
     }
 
-    void frame(const std::string& conn, int idx, std::uint16_t seq, std::uint8_t marker) {
+    void frame(const std::string& conn, int idx, std::uint16_t seq, std::uint8_t marker,
+               PlayoutLane lane = PlayoutLane::Speaker) {
         const std::uint8_t opus[4] = {marker, 1, 2, 3};
-        engine.deliver(conn, idx, seq, opus, sizeof(opus));
+        engine.deliver(conn, idx, lane, seq, opus, sizeof(opus));
     }
 };
 
@@ -227,4 +232,86 @@ TEST_CASE("two voices on one connection route by controller index", "[audio][pla
     h.frame("sat", 1, 0, 0x21);
     CHECK(h.gateway.playbackFor("spk-a")->queued.empty());
     CHECK(h.gateway.playbackFor("spk-b")->queued.size() == kWindowSamples);
+}
+
+// ── Protocol 3: the haptic lane on a 4-channel endpoint ───────────────────────
+
+TEST_CASE("on a 4-channel endpoint the speaker lane opens at 4 and leaves the actuators at zero",
+          "[audio][playout][haptics]") {
+    Harness h;
+    h.engine.reconcile({Harness::voice("sat", 0, "slot", "ds5", PlayoutLane::Speaker, 4)});
+    auto* playback = h.gateway.playbackFor("ds5");
+    REQUIRE(playback != nullptr);
+    CHECK(playback->channels == 4);
+
+    h.frame("sat", 0, 0, 0x21);
+    REQUIRE(playback->queued.size() == kFrame * 4);
+    for (std::size_t f = 0; f < kFrame; f++) {
+        if (playback->queued[f * 4] != 0x21 || playback->queued[f * 4 + 1] != 0x21) {
+            FAIL("frame " << f << " speaker pair is not the decoded window");
+        }
+        if (playback->queued[f * 4 + 2] != 0 || playback->queued[f * 4 + 3] != 0) {
+            FAIL("frame " << f << " leaked speaker audio onto the actuator lanes");
+        }
+    }
+    // The cushion counts device-width windows, not wire-width ones.
+    CHECK_FALSE(playback->resumed);
+    h.frame("sat", 0, 1, 0x22);
+    CHECK(playback->resumed);
+}
+
+TEST_CASE("the haptic lane is its own stream on the same endpoint, written to the actuator pair",
+          "[audio][playout][haptics]") {
+    Harness h;
+    h.engine.reconcile({Harness::voice("sat", 0, "slot", "ds5", PlayoutLane::Speaker, 4),
+                        Harness::voice("sat", 0, "slot", "ds5", PlayoutLane::Haptic, 4)});
+    CHECK(h.gateway.openPlaybackCount() == 2);
+    CHECK(h.engine.playingFor("slot", PlayoutLane::Speaker));
+    CHECK(h.engine.playingFor("slot", PlayoutLane::Haptic));
+    auto* speaker = h.gateway.playbackFor("ds5", 0);
+    auto* haptic = h.gateway.playbackFor("ds5", 1);
+    REQUIRE(speaker != nullptr);
+    REQUIRE(haptic != nullptr);
+
+    h.frame("sat", 0, 0, 0x31, PlayoutLane::Haptic);
+    // The haptic frame reached only the haptic stream, on channels 3/4.
+    CHECK(speaker->queued.empty());
+    REQUIRE(haptic->queued.size() == kFrame * 4);
+    for (std::size_t f = 0; f < kFrame; f++) {
+        if (haptic->queued[f * 4] != 0 || haptic->queued[f * 4 + 1] != 0) {
+            FAIL("frame " << f << " haptics leaked onto the speaker pair");
+        }
+        if (haptic->queued[f * 4 + 2] != 0x31 || haptic->queued[f * 4 + 3] != 0x31) {
+            FAIL("frame " << f << " actuator pair is not the decoded window");
+        }
+    }
+    // Each lane keeps its own seq timeline: a speaker frame numbered 0 after a
+    // haptic frame numbered 0 is not a duplicate.
+    h.frame("sat", 0, 0, 0x32, PlayoutLane::Speaker);
+    CHECK(h.decoderState->decodes == 2);
+    CHECK(speaker->queued.size() == kFrame * 4);
+}
+
+TEST_CASE("a haptic voice needs a 4-channel endpoint; a stereo one refuses it",
+          "[audio][playout][haptics]") {
+    Harness h;
+    h.engine.reconcile({Harness::voice("sat", 0, "slot", "ds4", PlayoutLane::Speaker, 2),
+                        Harness::voice("sat", 0, "slot", "ds4", PlayoutLane::Haptic, 2)});
+    CHECK(h.gateway.openPlaybackCount() == 1);
+    CHECK(h.engine.playingFor("slot", PlayoutLane::Speaker));
+    CHECK_FALSE(h.engine.playingFor("slot", PlayoutLane::Haptic));
+    // A haptic frame for the missing voice is dropped, never decoded onto the
+    // speaker stream.
+    h.frame("sat", 0, 0, 0x41, PlayoutLane::Haptic);
+    CHECK(h.decoderState->decodes == 0);
+}
+
+TEST_CASE("a changed endpoint width reopens the voice", "[audio][playout][haptics]") {
+    Harness h;
+    h.engine.reconcile({Harness::voice("sat", 0, "slot", "ds5", PlayoutLane::Speaker, 2)});
+    h.engine.reconcile({Harness::voice("sat", 0, "slot", "ds5", PlayoutLane::Speaker, 4)});
+    CHECK(h.gateway.closes == 1);
+    auto* playback = h.gateway.playbackFor("ds5");
+    REQUIRE(playback != nullptr);
+    CHECK(playback->channels == 4);
 }

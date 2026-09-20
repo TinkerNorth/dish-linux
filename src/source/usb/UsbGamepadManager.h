@@ -73,6 +73,11 @@ class UsbDirectObserver {
     // are — so an observer must marshal to its own thread before touching
     // state (AppModel queues it).
     virtual void padMicMuteChanged(int /*vendorId*/, int /*productId*/, bool /*muted*/) {}
+    // The claimed pad's own charge moved (usbparse::kPadBattery* values). Same
+    // thread and same edge rule as padMicMuteChanged: once per change, on the
+    // gateway read thread, never once per report.
+    virtual void padBatteryChanged(int /*vendorId*/, int /*productId*/, std::uint8_t /*level*/,
+                                   std::uint8_t /*status*/) {}
     // Fired once after EVERY state-changing applyEvent. This is the single
     // unidirectional "the FSM state moved, rebuild the slot list from the fresh
     // controllers() snapshot" signal — the slot list binds to this, not to the

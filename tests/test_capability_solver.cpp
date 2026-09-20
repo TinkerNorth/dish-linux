@@ -21,10 +21,11 @@ using dish::reducer::solveCapabilities;
 namespace {
 
 // Every layer carries everything; each test then breaks exactly one thing.
-// Standard is the everything-path here (SDL forwards motion, touch,
-// rumble and the lightbar wherever the driver exposes them, but has no call at
-// all for adaptive triggers or player LEDs); Direct writes OUT reports too, so
-// it carries every actuator the pad has. Both are pinned in their own cases.
+// Standard is the everything-path (SDL forwards motion, touch, rumble and the
+// lightbar wherever the driver exposes them, and reaches the adaptive triggers
+// and player LEDs through SDL_GameControllerSendEffect where its own HIDAPI
+// driver has the pad); Direct writes OUT reports too, so it carries every
+// actuator the pad has. Both are pinned in their own cases.
 CapabilityInputs everythingCarries() {
     CapabilityInputs in;
     in.padMotion = true;
@@ -34,6 +35,7 @@ CapabilityInputs everythingCarries() {
     in.linkDirect = false;
     in.linkUsb = true;
     in.padClaimable = true;
+    in.linkStandardEffects = true;
     in.typeResolved = true;
     in.typeMotion = true;
     in.typeTouchpad = true;
@@ -164,22 +166,47 @@ TEST_CASE("capability solver: a Direct claim carries every actuator the pad has"
     }
 }
 
-TEST_CASE("capability solver: the Standard path cannot carry the protocol-2 actuators",
+TEST_CASE("capability solver: the Standard path carries the protocol-2 actuators only through "
+          "SDL's own driver",
           "[capability][solver]") {
-    // SDL has a rumble call and an LED call and nothing else: no adaptive
-    // trigger API, no player-LED API. The pad still HAS the hardware, which is
-    // why the blame is Link and not Input.
+    // SDL has a rumble call and an LED call; the adaptive triggers and player
+    // LEDs ride SDL_GameControllerSendEffect, which only its HIDAPI driver
+    // answers. A DualSense under any other SDL backend cannot land them. The
+    // pad still HAS the hardware, which is why the blame is Link and not Input.
     auto in = everythingCarries();
     in.linkDirect = false;
-    const auto rows = solveCapabilities(in);
+    in.linkStandardEffects = false;
+    const auto refused = solveCapabilities(in);
     for (const auto f : {CapFeature::TriggerEffects, CapFeature::PlayerLeds}) {
-        const auto row = rowFor(rows, f);
+        const auto row = rowFor(refused, f);
         INFO("feature " << static_cast<int>(f));
         REQUIRE(row.verdict == CapVerdict::Unavailable);
         REQUIRE(row.hasFailingLayer);
         REQUIRE(row.failingLayer == CapLayer::Link);
         REQUIRE(row.inOk);
         REQUIRE_FALSE(row.linkOk);
+    }
+    // Nothing else moves with that flag.
+    for (const auto f : {CapFeature::Rumble, CapFeature::Lightbar, CapFeature::Motion,
+                         CapFeature::Mic, CapFeature::Speaker}) {
+        INFO("feature " << static_cast<int>(f));
+        REQUIRE(rowFor(refused, f).linkOk);
+    }
+
+    in.linkStandardEffects = true;
+    const auto carried = solveCapabilities(in);
+    for (const auto f : {CapFeature::TriggerEffects, CapFeature::PlayerLeds}) {
+        INFO("feature " << static_cast<int>(f));
+        REQUIRE(rowFor(carried, f).linkOk);
+        REQUIRE(rowFor(carried, f).verdict == CapVerdict::Available);
+    }
+
+    // And it is a Standard fact only: a Direct claim carries them regardless.
+    in.linkDirect = true;
+    in.linkStandardEffects = false;
+    for (const auto f : {CapFeature::TriggerEffects, CapFeature::PlayerLeds}) {
+        INFO("feature " << static_cast<int>(f));
+        REQUIRE(rowFor(solveCapabilities(in), f).verdict == CapVerdict::Available);
     }
 }
 
