@@ -46,6 +46,14 @@ the repos share a version number.
   off), and the binding table's Link column now tells the same truth, with
   the adaptive-trigger and player-LED rows finally reading the pad's hardware
   and the host's catalog instead of a flat "no".
+- **The udev rule opens Bluetooth pads too.** The shipped rule matched the
+  USB `idVendor` attribute, which a Bluetooth HID device does not carry, so
+  a Bluetooth DualSense or DualShock 4's hidraw node stayed root-only and SDL
+  fell back to evdev for it: rumble, and nothing else. The rule now also
+  names the Sony, Nintendo and 8BitDo hid devices on the Bluetooth bus, so
+  SDL's own driver gets the pad and everything above applies over Bluetooth.
+  Packages install the new rule; a from-source install re-runs the
+  `install` line in PACKAGING.md.
 - **Bluetooth Sony pads attach with everything.** SDL opens a Bluetooth
   DualSense or DualShock 4 in its simple report mode unless asked otherwise,
   and in that mode reports no rumble, lightbar, gyro, touchpad or effects.

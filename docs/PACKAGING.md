@@ -119,6 +119,14 @@ sudo udevadm control --reload-rules && sudo udevadm trigger
 The rule grants the logged-in seat through `uaccess`, with an `input`-group
 fallback for headless and non-logind sessions.
 
+The same file also opens the Bluetooth hidraw nodes of the Sony, Nintendo and
+8BitDo families. Dish never claims a Bluetooth pad Direct; those lines exist
+for SDL's own HIDAPI driver, which is the only thing that can drive a
+Bluetooth DualSense or DualShock 4's lightbar, gyro, touchpad, adaptive
+triggers and player LEDs (SDL falls back to evdev without them, which carries
+rumble alone). A Bluetooth HID device has no USB `idVendor` attribute for the
+USB lines to match, so they are keyed on the hid device's own name instead.
+
 ## Dish does not update itself
 
 The updater checks and stops. `UpdateChecker` fetches `latest.json`, compares
