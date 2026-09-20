@@ -219,7 +219,7 @@
     </message>
     <message>
         <source>The driver this controller is on can’t drive it.</source>
-        <translation type="unfinished">Drajver na kojem je ovaj kontroler ovo ne može pokrenuti.</translation>
+        <translation>Drajver na kojem je ovaj kontroler ovo ne može pokrenuti.</translation>
     </message>
     <message>
         <source>Standard mode can’t drive it — switch the connection to Direct.</source>

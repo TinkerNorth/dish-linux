@@ -219,7 +219,7 @@
     </message>
     <message>
         <source>The driver this controller is on can’t drive it.</source>
-        <translation type="unfinished">Le pilote de cette manette ne peut pas le piloter.</translation>
+        <translation>Le pilote de cette manette ne peut pas le piloter.</translation>
     </message>
     <message>
         <source>Standard mode can’t drive it — switch the connection to Direct.</source>

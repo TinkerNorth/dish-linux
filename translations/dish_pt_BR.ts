@@ -219,7 +219,7 @@
     </message>
     <message>
         <source>The driver this controller is on can’t drive it.</source>
-        <translation type="unfinished">O driver em que este controle está não consegue acioná-lo.</translation>
+        <translation>O driver em que este controle está não consegue acioná-lo.</translation>
     </message>
     <message>
         <source>Standard mode can’t drive it — switch the connection to Direct.</source>
