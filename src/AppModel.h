@@ -28,6 +28,7 @@
 #include "repository/MotionPreferenceRepository.h"
 #include "core/model/Protocol.h"
 #include "core/reducer/BindingPresence.h"
+#include "core/reducer/BatteryRouting.h"
 #include "core/reducer/FeedbackRouting.h"
 #include "core/reducer/HostAudioVerdict.h"
 #include "core/reducer/PollRateSampler.h"
@@ -316,6 +317,12 @@ class AppModel : public QObject {
     // Main thread only — it mutates the FSM.
     void pollUsbDirect();
     void onUsbDirectChanged();
+    // The read thread's battery edge, marshalled to the main thread.
+    void onPadBatteryChanged(int vendorId, int productId, std::uint8_t level, std::uint8_t status);
+    // MSG_BATTERY for the Direct slots, on the SDL bridge's 30 s cadence: the
+    // host battery, because a wired pad has no charge of its own to report
+    // (reducer::resolveBattery); the pad's reading stays on the card.
+    void heartbeatDirectBatteries();
     // Diff the SDL device list against the last-seen set and feed framework
     // up/down per VID:PID into the USB FSM, so a claim-failure or Standard pick
     // can settle on the live SDL device.
@@ -550,15 +557,26 @@ class AppModel : public QObject {
             owner_->onUsbNotice(c, n);
         }
 
-        // Fires on the GATEWAY READ THREAD (the one observer call that does);
-        // queued across so the store, the lamp and the engines are touched
-        // only on the main thread.
+        // Fires on the GATEWAY READ THREAD (as does padBatteryChanged); queued
+        // across so the store, the lamp and the engines are touched only on
+        // the main thread.
         void padMicMuteChanged(int vendorId, int productId, bool muted) override {
             AppModel* owner = owner_;
             QMetaObject::invokeMethod(
                 owner,
                 [owner, vendorId, productId, muted] {
                     owner->onPadMicMuteChanged(vendorId, productId, muted);
+                },
+                Qt::QueuedConnection);
+        }
+
+        void padBatteryChanged(int vendorId, int productId, std::uint8_t level,
+                               std::uint8_t status) override {
+            AppModel* owner = owner_;
+            QMetaObject::invokeMethod(
+                owner,
+                [owner, vendorId, productId, level, status] {
+                    owner->onPadBatteryChanged(vendorId, productId, level, status);
                 },
                 Qt::QueuedConnection);
         }
@@ -578,6 +596,13 @@ class AppModel : public QObject {
     // built from. Main-thread-only. A synthetic that leaves Direct is pruned so
     // a reused key can't show a stale rate.
     QHash<int, int> usbPollRateHz_;
+    // A Direct-claimed pad's own charge, decoded from its IN report and
+    // mirrored up on change; the synthetic slot's card reads it. Same key,
+    // same thread, same pruning as usbPollRateHz_.
+    QHash<int, reducer::BatterySample> usbPadBattery_;
+    // When each Direct slot's MSG_BATTERY heartbeat last went out (the SDL
+    // bridge keeps its own clock for its devices). Main-thread-only.
+    QHash<QString, std::chrono::steady_clock::time_point> usbBatterySentAt_;
     // The VID:PIDs seen on the last syncFrameworkPresence pass, so the next can
     // emit FrameworkUp/Down deltas to the FSM. Main-thread-only.
     QSet<int> lastFrameworkVpKeys_;

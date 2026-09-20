@@ -7,6 +7,7 @@
 // pin the OFFSETS and the present/absent gating, not a hardware-true magnitude.
 
 #include "core/input/UsbReportParsers.h"
+#include "core/reducer/BatteryRouting.h"
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -808,4 +809,148 @@ TEST_CASE("only the Sony composites are USB-audio candidates", "[usb-parsers][au
     CHECK_FALSE(parserHasUsbAudio(HidParser::SteamController));
     CHECK_FALSE(parserHasUsbAudio(HidParser::GenericHid));
     CHECK_FALSE(parserHasUsbAudio(HidParser::None));
+}
+
+// ── The pad's own battery ────────────────────────────────────────────────────
+
+TEST_CASE("DualShock4 battery reads the cable bit and the tenths nibble", "[usb-parsers][ds4]") {
+    // hid-playstation's status[0] at byte 30: tenths in the low nibble, cable
+    // in bit 4. Off the cable, 10 is the 100 % cap; on it, 10 still charges,
+    // 11 is full, and above that is a fault with no charge to show.
+    std::vector<std::uint8_t> r(64, 0);
+    r[0] = 0x01;
+    r[1] = r[2] = r[3] = r[4] = 128;
+    r[5] = 0x08;
+
+    r[30] = 0x07; // 70..79 %, no cable
+    auto out = decode(HidParser::DualShock4, r);
+    REQUIRE(out.batteryValid);
+    CHECK(out.batteryLevel == 75);
+    CHECK(out.batteryStatus == kPadBatteryStatusDischarging);
+
+    r[30] = 0x0A; // full, no cable
+    out = decode(HidParser::DualShock4, r);
+    CHECK(out.batteryLevel == 100);
+    CHECK(out.batteryStatus == kPadBatteryStatusDischarging);
+
+    r[30] = 0x13; // 30..39 %, cable in
+    out = decode(HidParser::DualShock4, r);
+    CHECK(out.batteryLevel == 35);
+    CHECK(out.batteryStatus == kPadBatteryStatusCharging);
+
+    r[30] = 0x1B; // 11 with the cable: full
+    out = decode(HidParser::DualShock4, r);
+    CHECK(out.batteryLevel == 100);
+    CHECK(out.batteryStatus == kPadBatteryStatusFull);
+
+    r[30] = 0x1D; // a fault code
+    out = decode(HidParser::DualShock4, r);
+    REQUIRE(out.batteryValid);
+    CHECK(out.batteryLevel == kPadBatteryLevelUnknown);
+    CHECK(out.batteryStatus == kPadBatteryStatusUnknown);
+
+    // A short report keeps whatever reading stood; it does not report unknown.
+    r.resize(30);
+    out = decode(HidParser::DualShock4, r);
+    CHECK_FALSE(out.batteryValid);
+}
+
+TEST_CASE("DualSense battery reads the state nibble and the tenths nibble",
+          "[usb-parsers][dualsense]") {
+    // hid-playstation's status at byte 53: tenths low, state high. States
+    // 0/1/2 are discharging/charging/full; 0xA, 0xB and 0xF are faults.
+    std::vector<std::uint8_t> r(64, 0);
+    r[0] = 0x01;
+    r[1] = r[2] = r[3] = r[4] = 128;
+    r[8] = 0x08;
+
+    r[53] = 0x04; // 40..49 %, discharging
+    auto out = decode(HidParser::DualSense, r);
+    REQUIRE(out.batteryValid);
+    CHECK(out.batteryLevel == 45);
+    CHECK(out.batteryStatus == kPadBatteryStatusDischarging);
+
+    r[53] = 0x18; // 80..89 %, charging
+    out = decode(HidParser::DualSense, r);
+    CHECK(out.batteryLevel == 85);
+    CHECK(out.batteryStatus == kPadBatteryStatusCharging);
+
+    r[53] = 0x1A; // the tenths cannot exceed 100
+    out = decode(HidParser::DualSense, r);
+    CHECK(out.batteryLevel == 100);
+
+    r[53] = 0x2F; // full: the nibble is ignored
+    out = decode(HidParser::DualSense, r);
+    CHECK(out.batteryLevel == 100);
+    CHECK(out.batteryStatus == kPadBatteryStatusFull);
+
+    for (const std::uint8_t fault : {0xA5, 0xB5, 0xF5}) {
+        r[53] = fault;
+        out = decode(HidParser::DualSense, r);
+        INFO("state byte " << static_cast<int>(fault));
+        REQUIRE(out.batteryValid);
+        CHECK(out.batteryLevel == kPadBatteryLevelUnknown);
+        CHECK(out.batteryStatus == kPadBatteryStatusUnknown);
+    }
+
+    r.resize(53);
+    out = decode(HidParser::DualSense, r);
+    CHECK_FALSE(out.batteryValid);
+}
+
+TEST_CASE("SwitchPro battery reads the five steps, the charging bit and the host bit",
+          "[usb-parsers][switch]") {
+    // hid-nintendo's bat_con at byte 2: the step in bits 7..5, charging in
+    // bit 4, host power in bit 0. Every 0x30 report is long enough to carry
+    // it, so batteryValid rides with a decoded report.
+    std::vector<std::uint8_t> r(12, 0);
+    r[0] = 0x30;
+
+    r[2] = 0x40; // step 2 (low), on battery
+    auto out = decode(HidParser::SwitchProUsb, r);
+    REQUIRE(out.batteryValid);
+    CHECK(out.batteryLevel == 50);
+    CHECK(out.batteryStatus == kPadBatteryStatusDischarging);
+
+    r[2] = 0x71; // step 3 (medium), host-powered, charging
+    out = decode(HidParser::SwitchProUsb, r);
+    CHECK(out.batteryLevel == 75);
+    CHECK(out.batteryStatus == kPadBatteryStatusCharging);
+
+    r[2] = 0x81; // step 4 (full), host-powered, not charging: full
+    out = decode(HidParser::SwitchProUsb, r);
+    CHECK(out.batteryLevel == 100);
+    CHECK(out.batteryStatus == kPadBatteryStatusFull);
+
+    r[2] = 0x80; // full on battery is just a full reading, discharging
+    out = decode(HidParser::SwitchProUsb, r);
+    CHECK(out.batteryLevel == 100);
+    CHECK(out.batteryStatus == kPadBatteryStatusDischarging);
+
+    r[2] = 0x00; // empty
+    out = decode(HidParser::SwitchProUsb, r);
+    CHECK(out.batteryLevel == 5);
+
+    r[2] = 0xA0; // a step the pad never reports
+    out = decode(HidParser::SwitchProUsb, r);
+    CHECK(out.batteryLevel == kPadBatteryLevelUnknown);
+}
+
+TEST_CASE("families without a charge in the report leave the battery untouched",
+          "[usb-parsers][generic]") {
+    std::vector<std::uint8_t> r(16, 0);
+    const auto out = decode(HidParser::GenericHid, r);
+    CHECK_FALSE(out.batteryValid);
+    CHECK(out.batteryLevel == kPadBatteryLevelUnknown);
+    CHECK(out.batteryStatus == kPadBatteryStatusUnknown);
+}
+
+TEST_CASE("the pad battery codes are MSG_BATTERY's own", "[usb-parsers][battery]") {
+    // Restated in the parser header so it stays wire-free; this is the pin
+    // that keeps the restatement honest.
+    STATIC_REQUIRE(kPadBatteryLevelUnknown == dish::reducer::kBatteryLevelUnknown);
+    STATIC_REQUIRE(kPadBatteryStatusUnknown == dish::reducer::kBatteryStatusUnknown);
+    STATIC_REQUIRE(kPadBatteryStatusDischarging == dish::reducer::kBatteryStatusDischarging);
+    STATIC_REQUIRE(kPadBatteryStatusCharging == dish::reducer::kBatteryStatusCharging);
+    STATIC_REQUIRE(kPadBatteryStatusFull == dish::reducer::kBatteryStatusFull);
 }

@@ -3,6 +3,9 @@
 
 #include "AppModel.h"
 
+#include "Util/HostBattery.h"
+#include "core/reducer/BatteryRouting.h"
+
 #include "LightbarRouting.h"
 #include "composer/StreamingSlotCount.h"
 #include "core/input/UsbOutputReports.h"
@@ -873,10 +876,77 @@ void AppModel::pollUsbDirect() {
         }
         if (changed) { rebuild(); }
     }
+    // The charge readings prune on the same rule, so a re-claimed pad starts
+    // from its own first report rather than the last pad's.
+    {
+        bool pruned = false;
+        for (auto it = usbPadBattery_.begin(); it != usbPadBattery_.end();) {
+            const auto cit = controllers.find(it.key());
+            const bool live =
+                cit != controllers.end() && cit->second.phase == reducer::UsbPhase::Direct;
+            if (live) {
+                ++it;
+            } else {
+                it = usbPadBattery_.erase(it);
+                pruned = true;
+            }
+        }
+        if (pruned) { rebuild(); }
+    }
+    heartbeatDirectBatteries();
     // Claims move on this poll, and a claimed pad is what makes an endpoint
     // matchable at all. Cheap when nothing moved: the resolve compares before
     // it publishes.
     resolveAudioRoutes();
+}
+
+void AppModel::onPadBatteryChanged(int vendorId, int productId, std::uint8_t level,
+                                   std::uint8_t status) {
+    const int key = (vendorId << 16) | (productId & 0xFFFF);
+    const reducer::BatterySample sample{level, status};
+    if (const auto it = usbPadBattery_.constFind(key);
+        it != usbPadBattery_.constEnd() && *it == sample) {
+        return;
+    }
+    usbPadBattery_.insert(key, sample);
+    rebuild();
+}
+
+void AppModel::heartbeatDirectBatteries() {
+    if (usbManager_ == nullptr) { return; }
+    const auto now = std::chrono::steady_clock::now();
+    const auto controllers = usbManager_->controllers();
+    QSet<QString> live;
+    for (const auto& [key, c] : controllers) {
+        if (c.phase != reducer::UsbPhase::Direct) { continue; }
+        const QString slotId = QString::fromStdString(std::to_string(key));
+        live.insert(slotId);
+        const auto sentAt = usbBatterySentAt_.constFind(slotId);
+        if (sentAt != usbBatterySentAt_.constEnd() &&
+            now - *sentAt < std::chrono::seconds(reducer::kBatteryReportIntervalSeconds)) {
+            continue;
+        }
+        usbBatterySentAt_.insert(slotId, now);
+        // Forwarded unconditionally on the cadence, like the SDL bridge's:
+        // MSG_BATTERY is a heartbeat, and a lost one self-heals next tick.
+        const auto host = util::readHostBattery();
+        std::optional<reducer::BatterySample> pad;
+        if (const auto it = usbPadBattery_.constFind(key); it != usbPadBattery_.constEnd()) {
+            pad = *it;
+        }
+        const auto routed = reducer::resolveBattery(
+            /*padWired=*/true, pad, reducer::BatterySample{host.level, host.status});
+        processor_.publishBattery(slotId.toStdString(), input::GamepadInputProcessor::BatterySample{
+                                                            routed.wire.level, routed.wire.status});
+    }
+    // A slot that left Direct sends again from its first tick if it comes back.
+    for (auto it = usbBatterySentAt_.begin(); it != usbBatterySentAt_.end();) {
+        if (live.contains(it.key())) {
+            ++it;
+        } else {
+            it = usbBatterySentAt_.erase(it);
+        }
+    }
 }
 
 void AppModel::onUsbDirectChanged() {
@@ -1026,6 +1096,12 @@ void AppModel::rebuild() {
             usbGateway_ != nullptr && usbGateway_->isKnownFastLaneModel(c.vendorId, c.productId);
         s.usbDirect = true;
         s.liveRates.directPollHz = usbPollRateHz_.value(key, 0);
+        // The pad's own charge from its IN report; unknown until the first
+        // report with the status byte lands. The wire carries the host
+        // battery for this slot (heartbeatDirectBatteries), not this.
+        const auto battery = usbPadBattery_.value(key, reducer::kUnknownBatterySample);
+        s.capabilities.batteryLevel = battery.level;
+        s.capabilities.batteryStatus = battery.status;
         // A synthetic IS a USB-direct controller, so it is always
         // path-supported; the mapper reads phase/desired/failure off its own
         // entry, keyed by vid/pid, which round-trips to this key.

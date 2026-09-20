@@ -52,6 +52,13 @@ the repos share a version number.
   The bridge now asks for enhanced reports at startup, so a Bluetooth Sony
   pad carries the same surfaces as a wired one even where the kernel driver
   had not already switched it.
+- **A Direct-claimed pad shows its own charge.** The DualShock 4, DualSense
+  and Switch Pro carry their battery in every input report, and the Direct
+  decoder now reads it (the same bytes hid-playstation and hid-nintendo
+  read), so the slot card shows the pad's charge and whether it is charging
+  instead of nothing. A Direct slot also sends `MSG_BATTERY` now; it used to
+  send none at all. On the wire it carries the host battery, the rule every
+  Dish client applies to a wired pad, while the card keeps the pad's own.
 - **Controller audio on the Standard path.** The pad's microphone, speaker
   and (DualSense) haptics used to require Direct: the endpoint matcher only
   looked at claimed pads. The audio function is a separate USB interface the
