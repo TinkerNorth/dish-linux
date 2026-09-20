@@ -13,6 +13,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -160,18 +161,24 @@ TEST_CASE("the haptic route needs the family's lanes AND a 4-channel endpoint",
 
     // A DualSense whose endpoint enumerated at 4 channels: the lanes are there.
     {
-        const auto routes = resolvePadAudioRoutes({dualSense()}, kNoDevices, sinks,
-                                                  {{"Speakers (Wireless Controller)", 4}});
+        int asked = 0;
+        const auto routes =
+            resolvePadAudioRoutes({dualSense()}, kNoDevices, sinks, [&](const std::string& name) {
+                asked++;
+                return name == sinks.front() ? 4 : 0;
+            });
         const auto& route = routes.at(padAudioKey(0x054C, 0x0CE6));
         CHECK(route.speaker);
         CHECK(route.haptics);
         CHECK(route.playbackChannels == 4);
+        // Asked exactly once, for the endpoint that matched.
+        CHECK(asked == 1);
     }
     // The same pad with a stereo (or unknown) endpoint: speaker only. The
     // width still rides the route so the speaker voice opens at what it saw.
     {
         const auto routes = resolvePadAudioRoutes({dualSense()}, kNoDevices, sinks,
-                                                  {{"Speakers (Wireless Controller)", 2}});
+                                                  [](const std::string&) { return 2; });
         const auto& route = routes.at(padAudioKey(0x054C, 0x0CE6));
         CHECK(route.speaker);
         CHECK_FALSE(route.haptics);
@@ -188,9 +195,22 @@ TEST_CASE("the haptic route needs the family's lanes AND a 4-channel endpoint",
     // the family gate holds whatever the stack reports.
     {
         const auto routes = resolvePadAudioRoutes({dualSense(0x09CC)}, kNoDevices, sinks,
-                                                  {{"Speakers (Wireless Controller)", 4}});
+                                                  [](const std::string&) { return 4; });
         const auto& route = routes.at(padAudioKey(0x054C, 0x09CC));
         CHECK(route.speaker);
         CHECK_FALSE(route.haptics);
     }
+}
+
+TEST_CASE("the channel query is asked only for endpoints that matched a pad",
+          "[audio][matcher][haptics]") {
+    int asked = 0;
+    const auto routes = resolvePadAudioRoutes({dualSense()}, kNoDevices,
+                                              {"Speakers (Realtek Audio)", "Speakers (USB Dongle)"},
+                                              [&](const std::string&) {
+                                                  asked++;
+                                                  return 8;
+                                              });
+    CHECK(routes.empty());
+    CHECK(asked == 0);
 }

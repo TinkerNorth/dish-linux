@@ -110,9 +110,7 @@ class WifiConnection : public QObject {
         bool hasTriggerEffects = false;
         bool hasPlayerLeds = false;
         // Controller audio (protocol 2): the pad has a usable audio route on
-        // this machine AND the user left the direction on. False everywhere
-        // until Wave 2 lands the route matching, so no descriptor advertises
-        // an audio cap yet.
+        // this machine AND the user left the direction on.
         bool hasMic = false;
         bool hasSpeaker = false;
         // Protocol 3: the pad's 4-channel render endpoint is named on this

@@ -277,9 +277,9 @@ AppModel::AppModel(std::unique_ptr<source::WakeInhibitor> inhibitor, QObject* pa
         return reducer::slotCarriesFeedback(feedbackInputs(slotId), reducer::FeedbackKind::Rumble);
     });
 
-    // CAP_MIC / CAP_SPEAKER: the audio route (a Wave-2 seam that answers false
-    // for every slot today) gated by the per-binding toggle, same shape as
-    // CAP_MOTION above. The mic gate matters doubly — CAP_MIC is also what
+    // CAP_MIC / CAP_SPEAKER: the audio route (the matcher's answer for the
+    // slot's USB pad, on either HID path) gated by the per-binding toggle,
+    // same shape as CAP_MOTION above. The mic gate matters doubly — CAP_MIC is also what
     // invites the MIC_LED return path, and a lamp for a microphone the user
     // switched off would report a stream that cannot exist.
     hub_->setMicCapabilityFn([this](const QString& slotId) {
@@ -1254,14 +1254,17 @@ reducer::SlotFeedbackInputs AppModel::feedbackInputs(const QString& slotId) cons
             const auto parser = input::usbparse::parserForDevice(vp->first, vp->second);
             in.padMicLed = input::usbout::parserHasMicMuteLed(parser);
         }
-        // The matcher's live answer: whether THIS pad's own endpoints were
-        // confidently named on this machine. The single fold both the
-        // descriptor caps and the engines read.
-        const auto route = audioRouteForSlot(slotId);
-        in.padMicRoute = route.microphone;
-        in.padSpeakerRoute = route.speaker;
-        in.padHapticRoute = route.haptics;
     }
+    // The matcher's live answer: whether THIS pad's own endpoints were
+    // confidently named on this machine. Outside the Direct branch on purpose:
+    // the audio function is a separate USB interface the OS keeps whichever
+    // path owns HID, so a Standard (SDL) pad on USB routes exactly like a
+    // claimed one. The single fold both the descriptor caps and the engines
+    // read.
+    const auto route = audioRouteForSlot(slotId);
+    in.padMicRoute = route.microphone;
+    in.padSpeakerRoute = route.speaker;
+    in.padHapticRoute = route.haptics;
     return in;
 }
 
@@ -1365,10 +1368,30 @@ void AppModel::actuateMicLed(const QString& slotId, std::uint8_t state) {
 }
 
 audio::PadAudioRoute AppModel::audioRouteForSlot(const QString& slotId) const {
-    const auto vp = reducer::parseSyntheticSlotId(slotId.toStdString());
-    if (!vp.has_value()) { return {}; }
+    // A synthetic id packs its own (vid, pid); an SDL slot's pad is looked up
+    // in the bridge, which also says whether the link is Bluetooth. A BT pad
+    // never routes: it has no audio function, and its VID:PID is the same as a
+    // USB twin's, so keying it would hand it that twin's endpoint.
+    int vendorId = 0;
+    int productId = 0;
+    if (const auto vp = reducer::parseSyntheticSlotId(slotId.toStdString()); vp.has_value()) {
+        vendorId = vp->first;
+        productId = vp->second;
+    } else {
+        bool found = false;
+        for (const auto& d : bridge_->devices()) {
+            if (d.id != slotId) { continue; }
+            if (d.bluetooth) { return {}; }
+            vendorId = d.vendorId;
+            productId = d.productId;
+            found = true;
+            break;
+        }
+        if (!found) { return {}; }
+    }
+    if (vendorId == 0 && productId == 0) { return {}; }
     std::lock_guard<std::mutex> lock(audioRoutesMtx_);
-    const auto it = padAudioRoutes_.find(audio::padAudioKey(vp->first, vp->second));
+    const auto it = padAudioRoutes_.find(audio::padAudioKey(vendorId, productId));
     if (it == padAudioRoutes_.end()) { return {}; }
     return it->second;
 }
@@ -1377,37 +1400,35 @@ void AppModel::resolveAudioRoutes() {
     if (usbManager_ == nullptr) { return; }
     std::vector<audio::AudioPadCandidate> pads;
     for (const auto& [key, c] : usbManager_->controllers()) {
-        // Claimed pads only: the physical-pad audio path is the Direct claim's
-        // (the SDL twin never carries the iProduct string to match on).
-        if (c.phase != reducer::UsbPhase::Direct || !c.syntheticId.has_value()) { continue; }
+        // Every USB pad the raw-HID gateway enumerated, whichever path owns
+        // its HID interface: the record carries the pad's own iProduct string
+        // read off the device, and the audio function it is matched against
+        // belongs to the OS on both paths. Bluetooth pads never get a record
+        // (the gateway skips them), so nothing here can name a BT pad.
+        if (!c.usbPresent) { continue; }
         const auto parser = input::usbparse::parserForDevice(c.vendorId, c.productId);
         pads.push_back(audio::AudioPadCandidate{c.vendorId, c.productId, c.name,
                                                 input::usbparse::parserHasUsbAudio(parser),
                                                 input::usbparse::parserHasHapticLanes(parser)});
     }
-    const auto playbackNames = audioGateway_.playbackDeviceNames();
-    std::map<std::string, int> playbackChannels;
-    for (const auto& name : playbackNames) {
-        playbackChannels[name] = audioGateway_.playbackDeviceChannels(name);
-    }
-    auto routes = audio::resolvePadAudioRoutes(pads, audioGateway_.captureDeviceNames(),
-                                               playbackNames, playbackChannels);
+    // The channel query is per matched endpoint, not per device: this runs on
+    // every USB poll, and asking the audio stack about every sound card each
+    // time would be the expensive part of an otherwise cheap compare.
+    auto routes = audio::resolvePadAudioRoutes(
+        pads, audioGateway_.captureDeviceNames(), audioGateway_.playbackDeviceNames(),
+        [this](const std::string& name) { return audioGateway_.playbackDeviceChannels(name); });
     {
         std::lock_guard<std::mutex> lock(audioRoutesMtx_);
         if (routes == padAudioRoutes_) { return; }
         padAudioRoutes_ = std::move(routes);
     }
-    // The caps fold reads the routes, so every bound synthetic slot's
-    // descriptor has to re-fold and re-PUT — this is the "an endpoint
-    // appeared/vanished re-declares the slot" edge, and re-binding is the
-    // machinery that already exists for it (attachSlot detects the change and
-    // converges via the per-controller PUT).
+    // The caps fold reads the routes, so every bound slot's descriptor has to
+    // re-fold and re-PUT — this is the "an endpoint appeared/vanished
+    // re-declares the slot" edge, and re-binding is the machinery that
+    // already exists for it (attachSlot detects the change and converges via
+    // the per-controller PUT; an unchanged fold is a no-op there).
     const auto bindings = hub_->bindings();
-    for (auto it = bindings.cbegin(); it != bindings.cend(); ++it) {
-        if (reducer::parseSyntheticSlotId(it.key().toStdString()).has_value()) {
-            republishSlotCaps(it.key());
-        }
-    }
+    for (auto it = bindings.cbegin(); it != bindings.cend(); ++it) { republishSlotCaps(it.key()); }
     rebuild();
 }
 
@@ -1455,7 +1476,11 @@ void AppModel::reconcileAudioEngines() {
     std::vector<source::audio::SpeakerVoiceTarget> speakerVoices;
 
     for (const auto& s : state_.slotList) {
-        if (!s.usbDirect || !s.boundConnectionId.has_value()) { continue; }
+        // Any bound USB pad, Direct or Standard: the engines talk to the pad's
+        // audio endpoints, which the OS presents whichever path owns HID. A
+        // Bluetooth pad has no route to find, so it is skipped before the
+        // lookup rather than after.
+        if (s.bluetooth || !s.boundConnectionId.has_value()) { continue; }
         auto* conn = wifi_->get(*s.boundConnectionId);
         if (conn == nullptr) { continue; }
         const auto route = audioRouteForSlot(s.id);
@@ -1482,34 +1507,47 @@ void AppModel::reconcileAudioEngines() {
             }
         }
 
+        // The endpoint's own width when the stack reported one, so a 4-channel
+        // pad gets its stereo on the speaker pair and not spread across the
+        // actuators.
+        const int channels =
+            route.playbackChannels > 0 ? route.playbackChannels : proto::kAudioSpeakerChannels;
+        const auto voiceFor = [&](source::audio::PlayoutLane lane)
+            -> std::optional<source::audio::SpeakerVoiceTarget> {
+            const auto descriptor = conn->descriptorFor(s.id);
+            if (!descriptor.has_value()) { return std::nullopt; }
+            source::audio::SpeakerVoiceTarget voice;
+            voice.connectionId = s.boundConnectionId->toStdString();
+            voice.controllerIndex = descriptor->ctrlIdx;
+            voice.slotId = slotId;
+            voice.playbackDeviceName = route.playbackDeviceName;
+            voice.lane = lane;
+            voice.deviceChannels = channels;
+            return voice;
+        };
+
         audio::AudioSlotFacts speaker;
         speaker.streaming = streaming;
         speaker.toggleOn = speakerEnabledStore_.isEnabled(slotId);
         speaker.routeMatched = route.speaker;
         speaker.hostCarries = conn->hostSpeakerAvailable();
         if (audio::speakerPlayoutEligible(speaker)) {
-            const auto descriptor = conn->descriptorFor(s.id);
-            if (descriptor.has_value()) {
-                // The endpoint's own width when the stack reported one, so a
-                // 4-channel pad gets its stereo on the speaker pair and not
-                // spread across the actuators.
-                const int channels = route.playbackChannels > 0 ? route.playbackChannels
-                                                                : proto::kAudioSpeakerChannels;
-                source::audio::SpeakerVoiceTarget voice;
-                voice.connectionId = s.boundConnectionId->toStdString();
-                voice.controllerIndex = descriptor->ctrlIdx;
-                voice.slotId = slotId;
-                voice.playbackDeviceName = route.playbackDeviceName;
-                voice.lane = source::audio::PlayoutLane::Speaker;
-                voice.deviceChannels = channels;
-                speakerVoices.push_back(voice);
-                // The haptic lanes: same gate as the speaker (one toggle, one
-                // endpoint), plus the route naming the lanes and the host
-                // carrying the stream.
-                if (route.haptics && conn->hostHapticAudioAvailable()) {
-                    voice.lane = source::audio::PlayoutLane::Haptic;
-                    speakerVoices.push_back(std::move(voice));
-                }
+            if (auto voice = voiceFor(source::audio::PlayoutLane::Speaker)) {
+                speakerVoices.push_back(std::move(*voice));
+            }
+        }
+
+        // The haptic lanes share the speaker's toggle (one endpoint, one
+        // switch) but have their own route fact and their own host verdict:
+        // a host with the speaker off and haptics on still streams them.
+        audio::AudioSlotFacts haptic;
+        haptic.streaming = streaming;
+        haptic.toggleOn = speakerEnabledStore_.isEnabled(slotId);
+        haptic.routeMatched = route.haptics;
+        haptic.hostCarries = conn->hostHapticAudioAvailable();
+        if (audio::speakerPlayoutEligible(haptic)) {
+            if (auto voice = voiceFor(source::audio::PlayoutLane::Haptic)) {
+                speakerVoices.push_back(std::move(*voice));
             }
         }
     }

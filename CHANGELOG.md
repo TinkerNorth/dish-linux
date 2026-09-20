@@ -35,6 +35,14 @@ the repos share a version number.
 
 ### Changed
 
+- **Controller audio on the Standard path.** The pad's microphone, speaker
+  and (DualSense) haptics used to require Direct: the endpoint matcher only
+  looked at claimed pads. The audio function is a separate USB interface the
+  OS keeps whichever path owns HID, so a DualSense or DualShock 4 left on the
+  Standard (SDL) path now gets the same routes, caps and engines as a claimed
+  one. Bluetooth pads have no audio function and are unchanged. The haptic
+  lanes need the pad's PipeWire card on its 4-channel profile; on the default
+  stereo profile the host keeps reducing them to rumble.
 - **The speaker voice opens the DualSense's endpoint at its own width.** It
   used to open the pad's 4-channel endpoint as stereo and leave the channel
   conversion to SDL and the audio stack, which on a DualSense means whatever

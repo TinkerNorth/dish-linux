@@ -1263,8 +1263,7 @@ QVariantList AppViewModel::capabilityForCandidate(const QString& slotId, int typ
         in.padTouchpad = slot->capabilities.hasTouchpad;
         in.padLightbar = slot->capabilities.hasLightbar;
         in.padRumble = slot->capabilities.hasRumble;
-        // The audio-route seam, one owner with the descriptor caps. Answers
-        // false for everything until Wave 2 lands the route matching.
+        // The audio-route seam, one owner with the descriptor caps.
         in.padMic = model_->slotCarriesMicSource(slotId);
         in.padSpeaker = model_->slotCarriesSpeakerSink(slotId);
         // A Bluetooth pad has no USB path to claim, so Direct is unreachable

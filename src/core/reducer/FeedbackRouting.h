@@ -65,13 +65,11 @@ struct SlotFeedbackInputs {
     // cannot address is a lamp this client does not have.
     bool padMicLed = false;
 
-    // Controller-audio routes: does the claimed pad have a usable audio path on
-    // THIS machine (its own USB-audio endpoints matched to a Windows audio
-    // device)? Deliberately independent of the HID path above — the pad's audio
+    // Controller-audio routes: does the pad have a usable audio path on THIS
+    // machine (its own USB-audio endpoints matched to an audio device)?
+    // Deliberately independent of the HID path above — the pad's audio
     // function is a separate USB interface, reachable whether input rides
-    // Standard or Direct. Both stay false until Wave 2 lands the device
-    // enumeration and matching, so nothing advertises an audio cap yet; the
-    // fold below is already the single owner Wave 2 flips.
+    // Standard or Direct — and false for a Bluetooth pad, which has none.
     bool padMicRoute = false;
     bool padSpeakerRoute = false;
     // Protocol 3: the speaker route's endpoint is the DualSense's 4-channel

@@ -42,6 +42,7 @@
 
 #include <cctype>
 #include <cstddef>
+#include <functional>
 #include <map>
 #include <string>
 #include <vector>
@@ -163,14 +164,16 @@ matchDirection(const std::vector<std::string>& padNames,
 // The whole rule. Returns routes keyed by padAudioKey; a pad absent from the
 // result has no route (advertise nothing). Directions resolve independently:
 // a missing capture endpoint does not cost the pad its speaker.
-// `playbackChannels` is the audio stack's channel count per playback name
-// (absent or 0 = unknown); the haptic route needs the endpoint to actually
-// present the actuator lanes, and a name alone cannot say so.
+// `playbackChannelsFor` answers the audio stack's channel count for a playback
+// name (0 = unknown). It is asked only for the endpoints that matched a pad,
+// because on some stacks the answer is a device query, not a table lookup; the
+// haptic route needs the endpoint to actually present the actuator lanes, and
+// a name alone cannot say so.
 inline std::map<int, PadAudioRoute>
 resolvePadAudioRoutes(const std::vector<AudioPadCandidate>& pads,
                       const std::vector<std::string>& captureNames,
                       const std::vector<std::string>& playbackNames,
-                      const std::map<std::string, int>& playbackChannels = {}) {
+                      const std::function<int(const std::string&)>& playbackChannelsFor = {}) {
     // Group candidates by trimmed product string; a name shared by two claimed
     // pads disqualifies both.
     std::map<std::string, std::vector<const AudioPadCandidate*>> byName;
@@ -200,9 +203,7 @@ resolvePadAudioRoutes(const std::vector<AudioPadCandidate>& pads,
         if (const auto it = sinks.find(name); it != sinks.end()) {
             route.speaker = true;
             route.playbackDeviceName = it->second;
-            if (const auto ch = playbackChannels.find(it->second); ch != playbackChannels.end()) {
-                route.playbackChannels = ch->second;
-            }
+            if (playbackChannelsFor) { route.playbackChannels = playbackChannelsFor(it->second); }
             route.haptics =
                 pad->hasHapticLanes && route.playbackChannels >= kDualSenseEndpointChannels;
         }

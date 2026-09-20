@@ -210,8 +210,8 @@ class AppModel : public QObject {
     // The pad layer of the controller-audio fold: does this slot have a usable
     // audio route on this machine? One owner with the descriptor caps — both
     // read reducer::slotCarriesMicCapture over feedbackInputs(), so the
-    // capability table and the wire can never disagree. False for every slot
-    // until Wave 2 lands the pad-to-audio-device matching.
+    // capability table and the wire can never disagree. Answers for any USB
+    // pad, Direct or Standard; never for a Bluetooth one.
     bool slotCarriesMicSource(const QString& slotId) const;
     bool slotCarriesSpeakerSink(const QString& slotId) const;
     // Protocol 3: the speaker sink is the pad's 4-channel endpoint, so the
@@ -371,10 +371,10 @@ class AppModel : public QObject {
     // share the FeedbackState shadow, so whichever wrote last owns the lamp.
     void actuateMicLed(const QString& slotId, std::uint8_t state);
 
-    // ── Controller audio (Wave 2 engines) ───────────────────────────────────
+    // ── Controller audio engines ────────────────────────────────────────────
 
-    // Re-run the pad-to-endpoint matcher over the claimed pads and the live
-    // audio device lists; on a change, re-publish the affected bound slots'
+    // Re-run the pad-to-endpoint matcher over every enumerated USB pad and
+    // the live audio device lists; on a change, re-publish the bound slots'
     // descriptors (the caps fold reads the routes) and rebuild.
     void resolveAudioRoutes();
 
@@ -388,8 +388,9 @@ class AppModel : public QObject {
     // capability fns re-run on bind). No-op for an unbound slot.
     void republishSlotCaps(const QString& slotId);
 
-    // The matcher's answer for a synthetic slot's pad, NONE for everything
-    // else. Takes audioRoutesMtx_ — callable from the receive threads via
+    // The matcher's answer for the slot's USB pad (a synthetic's own vid:pid,
+    // or an SDL slot's from the bridge), NONE for a Bluetooth or unknown slot.
+    // Takes audioRoutesMtx_ — callable from the receive threads via
     // feedbackInputs().
     audio::PadAudioRoute audioRouteForSlot(const QString& slotId) const;
 

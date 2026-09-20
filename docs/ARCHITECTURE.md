@@ -384,16 +384,27 @@ The controller-audio caps (`mic`/`speaker`) go through the same "advertised iff
 it lands" rule but are keyed on the pad's AUDIO routes
 (`slotCarriesMicCapture` / `slotCarriesSpeakerPlayout`) rather than the HID
 path: the streams ride the pad's own USB-audio endpoints, a separate USB
-interface the OS keeps while this client claims only HID. The routes come from
-[`PadAudioMatcher`](../src/core/audio/PadAudioMatcher.h), which matches the
-claimed pad's USB product string (iProduct, read from sysfs at enumeration —
+interface the OS keeps whichever path owns HID, so a Standard (SDL) pad on USB
+routes exactly like a Direct-claimed one and only a Bluetooth pad has no route.
+The routes come from [`PadAudioMatcher`](../src/core/audio/PadAudioMatcher.h),
+which matches the pad's USB product string (iProduct, read from sysfs by the
+hidraw gateway's enumeration, which lists every USB pad, not just claimed ones;
 the same string pipewire and pulse embed in the pad's audio device names)
 against the endpoint names SDL enumerates, and resolves EVERY ambiguity to "no
 route" (two DualSenses share a string; so does a DS4 — a wrong route is worse
-than none). `AppModel::resolveAudioRoutes` re-runs it on claim changes and on
-SDL's audio hotplug events (pumped by the bridge's event loop, forwarded as
-`audioDevicesChanged`), and a changed route re-binds the affected slots so
-their descriptors re-fold and re-PUT.
+than none). `AppModel::resolveAudioRoutes` re-runs it on USB and claim changes
+and on SDL's audio hotplug events (pumped by the bridge's event loop, forwarded
+as `audioDevicesChanged`), and a changed route re-binds the bound slots so
+their descriptors re-fold and re-PUT. An SDL slot resolves its pad through the
+bridge's vendor:product, refusing a Bluetooth link first so a BT pad can never
+borrow a USB twin's endpoint.
+
+The haptic lanes have a PipeWire-side precondition the app does not manage:
+the pad's card must be on a 4-channel profile ("Analog Surround 4.0 Output" in
+pavucontrol / `wpctl`). On the default stereo profile the node SDL sees is
+2-channel, the matcher finds no lanes, the slot advertises no `hapticAudio`,
+and the host reduces the lanes to rumble instead; switch the profile and the
+next audio hotplug event re-resolves.
 
 The host's live verdict is a third layer: `WifiConnectionManager::probeHostAudio`
 reads `GET /api/server/capabilities` after every session PUT and folds it via

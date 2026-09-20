@@ -63,8 +63,7 @@ struct CapabilityInputs {
     bool padPlayerLeds = false;
     // Controller audio: does the pad have a usable audio route on this machine
     // (core/reducer/FeedbackRouting.h answers it). Default false for the same
-    // reason as the two above — and false everywhere until Wave 2 lands the
-    // route matching, so no binding shows audio as carried yet.
+    // reason as the two above.
     bool padMic = false;
     bool padSpeaker = false;
 

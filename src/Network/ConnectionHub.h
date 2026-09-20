@@ -87,8 +87,8 @@ class ConnectionHub : public QObject {
 
     // Controller audio. Unset reads as "no", same as the other actuators, so
     // the satellite neither expects MIC_AUDIO nor sends SPEAKER_AUDIO for a
-    // slot this build cannot route. AppModel folds the audio route (a Wave-2
-    // seam, false today) with the per-binding user toggle.
+    // slot this build cannot route. AppModel folds the audio route with the
+    // per-binding user toggle.
     using MicCapabilityFn = std::function<bool(const QString& slotId)>;
     void setMicCapabilityFn(MicCapabilityFn fn) { micCapabilityFn_ = std::move(fn); }
 
