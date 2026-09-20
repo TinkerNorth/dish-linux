@@ -218,6 +218,10 @@
         <translation>%1 verfügt nicht über %2.</translation>
     </message>
     <message>
+        <source>The driver this controller is on can’t drive it.</source>
+        <translation type="unfinished">Der Treiber, auf dem dieser Controller läuft, kann das nicht ansteuern.</translation>
+    </message>
+    <message>
         <source>Standard mode can’t drive it — switch the connection to Direct.</source>
         <translation>Der Standardmodus kann das nicht ansteuern — wechsle die Verbindung zu Direkt.</translation>
     </message>

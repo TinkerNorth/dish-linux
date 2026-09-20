@@ -247,9 +247,10 @@ AppModel::AppModel(std::unique_ptr<source::WakeInhibitor> inhibitor, QObject* pa
                                             reducer::FeedbackKind::Lightbar);
     });
 
-    // Protocol 2. Direct-path only by construction: the router knows SDL has no
-    // call for either, so a Standard slot never advertises them and the
-    // satellite never sends 0x0010 / 0x0011 into a path that would drop them.
+    // Protocol 2. The router's answer: a live Direct claim, or a Standard slot
+    // whose SDL driver takes the DualSense effect body. Any other Standard
+    // slot never advertises them, so the satellite never sends 0x0010 /
+    // 0x0011 into a path that would drop them.
     hub_->setTriggerEffectsCapabilityFn([this](const QString& slotId) {
         return reducer::slotCarriesFeedback(feedbackInputs(slotId),
                                             reducer::FeedbackKind::TriggerEffects);
@@ -1214,6 +1215,7 @@ AppModel::SlotHardware AppModel::slotHardware(const QString& slotId) const {
         hw.hasLightbar = input::usbout::parserHasLightbar(parser);
         hw.hasTriggerEffects = input::usbout::parserHasTriggerEffects(parser);
         hw.hasPlayerLeds = input::usbout::parserHasPlayerLeds(parser);
+        hw.hasMicLed = input::usbout::parserHasMicMuteLed(parser);
         return hw;
     }
     for (const auto& d : bridge_->devices()) {
@@ -1222,8 +1224,22 @@ AppModel::SlotHardware AppModel::slotHardware(const QString& slotId) const {
         hw.hasLightbar = d.hasLightbar;
         hw.hasTouchpad = d.hasTouchpad;
         hw.hasRumble = d.hasRumble;
-        // Left false: SDL has no adaptive-trigger or player-LED call, so a pad
-        // on the Standard path cannot land either however good its hardware is.
+        // The protocol-2 actuators and the mic lamp are the model's whichever
+        // path carries it, and SDL has no probe for them, so the parser family
+        // answers from the pad's USB identity (which a Bluetooth pad reports
+        // too). Whether the SDL layer can land them is the next fact.
+        const auto parser = input::usbparse::parserForDevice(d.vendorId, d.productId);
+        hw.hasTriggerEffects = input::usbout::parserHasTriggerEffects(parser);
+        hw.hasPlayerLeds = input::usbout::parserHasPlayerLeds(parser);
+        hw.hasMicLed = input::usbout::parserHasMicMuteLed(parser);
+        // SDL_GameControllerSendEffect lands only in SDL's own HIDAPI drivers;
+        // XInput, DirectInput and evdev refuse it. SDL names no driver, but it
+        // reports a DualSense's lightbar only from that driver (the others have
+        // no LED call for it), so a DualSense with an LED is one whose driver
+        // takes the effect body -- on USB or Bluetooth alike. The family gate
+        // matters: a DualShock 4 has an LED from the same driver, but its
+        // effect body is a different report with none of these surfaces.
+        hw.sdlEffects = parser == input::usbparse::HidParser::DualSense && d.hasLightbar;
         return hw;
     }
     return hw;
@@ -1246,14 +1262,12 @@ reducer::SlotFeedbackInputs AppModel::feedbackInputs(const QString& slotId) cons
     in.padLightbar = hw.hasLightbar;
     in.padTriggerEffects = hw.hasTriggerEffects;
     in.padPlayerLeds = hw.hasPlayerLeds;
+    in.padMicLed = hw.hasMicLed;
+    in.standardEffects = hw.sdlEffects;
     if (hw.usbDirect) {
         const auto vp = reducer::parseSyntheticSlotId(slotId.toStdString());
         in.directClaimLive = vp.has_value() && usbManager_ != nullptr &&
                              usbManager_->isDirectClaimed(vp->first, vp->second);
-        if (vp.has_value()) {
-            const auto parser = input::usbparse::parserForDevice(vp->first, vp->second);
-            in.padMicLed = input::usbout::parserHasMicMuteLed(parser);
-        }
     }
     // The matcher's live answer: whether THIS pad's own endpoints were
     // confidently named on this machine. Outside the Direct branch on purpose:
@@ -1333,37 +1347,57 @@ void AppModel::actuateTriggerEffects(
     const QString& slotId, const std::array<std::uint8_t, proto::kTriggerEffectBlockBytes>& left,
     const std::array<std::uint8_t, proto::kTriggerEffectBlockBytes>& right) {
     const auto in = feedbackInputs(slotId);
-    if (reducer::resolveFeedbackTarget(in, reducer::FeedbackKind::TriggerEffects) !=
-        reducer::FeedbackTarget::DirectUsb) {
+    switch (reducer::resolveFeedbackTarget(in, reducer::FeedbackKind::TriggerEffects)) {
+    case reducer::FeedbackTarget::Standard:
+        // The same report the Direct branch writes, built on the SDL thread
+        // and handed to SDL's driver instead of the device.
+        bridge_->applyTriggerEffects(slotId, left, right);
+        return;
+    case reducer::FeedbackTarget::DirectUsb: {
+        const auto vp = reducer::parseSyntheticSlotId(slotId.toStdString());
+        if (vp.has_value() && usbManager_ != nullptr) {
+            usbManager_->applyTriggerEffects(vp->first, vp->second, left.data(), right.data());
+        }
         return;
     }
-    const auto vp = reducer::parseSyntheticSlotId(slotId.toStdString());
-    if (vp.has_value() && usbManager_ != nullptr) {
-        usbManager_->applyTriggerEffects(vp->first, vp->second, left.data(), right.data());
+    case reducer::FeedbackTarget::None:
+        return;
     }
 }
 
 void AppModel::actuatePlayerLeds(const QString& slotId, std::uint8_t ledMask) {
     const auto in = feedbackInputs(slotId);
-    if (reducer::resolveFeedbackTarget(in, reducer::FeedbackKind::PlayerLeds) !=
-        reducer::FeedbackTarget::DirectUsb) {
+    switch (reducer::resolveFeedbackTarget(in, reducer::FeedbackKind::PlayerLeds)) {
+    case reducer::FeedbackTarget::Standard:
+        bridge_->applyPlayerLeds(slotId, ledMask);
+        return;
+    case reducer::FeedbackTarget::DirectUsb: {
+        const auto vp = reducer::parseSyntheticSlotId(slotId.toStdString());
+        if (vp.has_value() && usbManager_ != nullptr) {
+            usbManager_->applyPlayerLeds(vp->first, vp->second, ledMask);
+        }
         return;
     }
-    const auto vp = reducer::parseSyntheticSlotId(slotId.toStdString());
-    if (vp.has_value() && usbManager_ != nullptr) {
-        usbManager_->applyPlayerLeds(vp->first, vp->second, ledMask);
+    case reducer::FeedbackTarget::None:
+        return;
     }
 }
 
 void AppModel::actuateMicLed(const QString& slotId, std::uint8_t state) {
     const auto in = feedbackInputs(slotId);
-    if (reducer::resolveFeedbackTarget(in, reducer::FeedbackKind::MicLed) !=
-        reducer::FeedbackTarget::DirectUsb) {
+    switch (reducer::resolveFeedbackTarget(in, reducer::FeedbackKind::MicLed)) {
+    case reducer::FeedbackTarget::Standard:
+        bridge_->applyMicLed(slotId, state);
+        return;
+    case reducer::FeedbackTarget::DirectUsb: {
+        const auto vp = reducer::parseSyntheticSlotId(slotId.toStdString());
+        if (vp.has_value() && usbManager_ != nullptr) {
+            usbManager_->applyMicMuteLed(vp->first, vp->second, state);
+        }
         return;
     }
-    const auto vp = reducer::parseSyntheticSlotId(slotId.toStdString());
-    if (vp.has_value() && usbManager_ != nullptr) {
-        usbManager_->applyMicMuteLed(vp->first, vp->second, state);
+    case reducer::FeedbackTarget::None:
+        return;
     }
 }
 

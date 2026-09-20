@@ -41,6 +41,12 @@ inline const QString kFeatureSpeaker = QStringLiteral("speaker");
 // gate as the two above; the solver has no row for it, since it rides the
 // speaker toggle and the speaker route's endpoint.
 inline const QString kFeatureHapticAudio = QStringLiteral("hapticAudio");
+// The protocol-2 feedback surfaces a live catalog reports per type. Also
+// outside knownFeatureSlugs(), and deliberately absent from typeFeatureSlugs()
+// below: a satellite old enough to serve no catalog predates the messages
+// that carry them, so the legacy translation must not claim them.
+inline const QString kFeatureTriggerEffects = QStringLiteral("triggerEffects");
+inline const QString kFeaturePlayerLeds = QStringLiteral("playerLeds");
 
 // The `known` whitelist reducer::isFeatureOffered gates on, owned here so every
 // caller passes the same vocabulary instead of re-listing it.
@@ -54,6 +60,9 @@ inline QStringList knownFeatureSlugs() {
 inline QStringList audioFeatureSlugs() {
     return {kFeatureMic, kFeatureSpeaker, kFeatureHapticAudio};
 }
+
+// The same for the solver's feedback type-layer reads.
+inline QStringList feedbackFeatureSlugs() { return {kFeatureTriggerEffects, kFeaturePlayerLeds}; }
 
 // Order is fixed (triggers, rumble, extras) so the list is ==-comparable in tests
 // and downstream snapshots.

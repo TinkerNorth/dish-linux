@@ -355,19 +355,38 @@ and `AppModel::actuate*` go through it. The two paths carry different amounts:
 
 | Path | Rumble | Lightbar | Adaptive triggers | Player LEDs | Mic-mute lamp |
 |---|---|---|---|---|---|
-| Standard (SDL) | yes | yes | **no** | **no** | **no** |
+| Standard (SDL) | yes | yes | DualSense under SDL's HIDAPI driver† | same† | same† |
 | Direct (raw HID) | yes | yes | yes | yes | yes* |
 
-SDL has a rumble call and an LED call and nothing else, so the last three
-columns are structurally out of reach there however good the pad is. The Direct
-path reaches them because the claim writes OUT reports as well as reading IN
-ones; the bytes are built by
-[`UsbOutputReports`](../src/core/input/UsbOutputReports.h), which is pure and
-host-tested, and the gateway adds only the framing the platform itself demands
-(on hidraw, none: the builder's length is the transfer length). A Direct claim
-that has gone away carries nothing — there is deliberately no fallback to
-Standard, because a pad on the Direct path is not open on the SDL path at the
-same time.
+SDL has a rumble call and an LED call, and one more: `SDL_GameControllerSendEffect`,
+a raw effect body that only SDL's own HIDAPI drivers implement (the evdev
+backend refuses it). For a DualSense that body is its OUT report 0x02 minus
+the report id, so the last three columns are reachable on Standard exactly
+when SDL's HIDAPI driver owns the pad, on USB or Bluetooth alike. The bytes
+are built by [`UsbOutputReports`](../src/core/input/UsbOutputReports.h), which
+is pure and host-tested, and serve both paths: the Direct claim writes the
+whole report and the gateway adds only the framing the platform itself demands
+(on hidraw, none: the builder's length is the transfer length); the SDL bridge
+builds the same report on the SDL thread (its `FeedbackState` shadow lives
+there) and hands SDL the body, which SDL frames for the link, including the
+Bluetooth report id and CRC. A Direct claim that has gone away carries nothing
+— there is deliberately no fallback to Standard, because a pad on the Direct
+path is not open on the SDL path at the same time.
+
+† `SlotFeedbackInputs::standardEffects`. SDL names no driver publicly, but it
+reports a DualSense's LED only from the HIDAPI driver, so "DualSense family and
+`SDL_GameControllerHasLED`" is the honest answer; a DualShock 4 has the LED from
+the same driver but its effect body is a different report with none of these
+fields, hence the family gate. The same fact is `linkStandardEffects` in the
+capability solver, so the table's Link column agrees with the wire. Whether
+SDL's HIDAPI driver gets the pad at all is a hidraw-permissions question (the
+same udev rule the Direct path needs); under evdev the Standard path carries
+rumble alone and the table says so at the Link layer. The bridge also asks SDL
+for enhanced reports on Bluetooth Sony pads
+(`SDL_HINT_JOYSTICK_HIDAPI_PS5_RUMBLE` / `PS4_RUMBLE`), which hid-playstation
+usually has already switched on; without it a Bluetooth DualSense in simple
+mode is buttons and sticks to SDL, with no rumble, LED, gyro, touchpad or
+effects reported.
 
 \* `MSG_MIC_LED` (0x0014) resolves through the same router into the DS5
 mute-lamp builder, whose state lives in the per-claim `FeedbackState` shadow:

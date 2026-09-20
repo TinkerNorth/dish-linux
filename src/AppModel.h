@@ -218,6 +218,30 @@ class AppModel : public QObject {
     // haptic lanes can be played rather than reduced by the host.
     bool slotCarriesHapticSink(const QString& slotId) const;
 
+    // Per-slot hardware truth read from the source layer that owns the slot:
+    // the parser family for a synthetic (USB-direct) id, the SDL probe for a
+    // framework id. The bind capability seams and the capability table read
+    // through this so a Direct claim advertises the motion/touchpad it
+    // decodes — and never the rumble/lightbar it cannot drive.
+    struct SlotHardware {
+        bool usbDirect = false;
+        bool hasMotion = false;
+        bool hasLightbar = false;
+        bool hasTouchpad = false;
+        bool hasRumble = false;
+        // Protocol-2 actuators and the DualSense mic lamp. Hardware facts only,
+        // read from the parser family on either path: whether the path can
+        // drive them is the feedback router's answer, not this struct's.
+        bool hasTriggerEffects = false;
+        bool hasPlayerLeds = false;
+        bool hasMicLed = false;
+        // The SDL layer takes this pad's raw effect body
+        // (SDL_GameControllerSendEffect lands), which is the Standard path's
+        // route to the three above. Only ever true for an SDL slot.
+        bool sdlEffects = false;
+    };
+    SlotHardware slotHardware(const QString& slotId) const;
+
     // The host layer for the mic/speaker rows ONLY: the per-session probe's
     // verdict off the connection, conservative {false,false} for an unknown or
     // never-probed host. Every other feature keeps its catalog-fed host layer.
@@ -325,24 +349,6 @@ class AppModel : public QObject {
     // itself, which packs its own vid/pid. nullopt means nothing on this machine
     // accounts for the slot — the pad is gone.
     std::optional<std::pair<int, int>> boundPadIdentity(const QString& slotId) const;
-
-    // Per-slot hardware truth read from the source layer that owns the slot:
-    // the parser family for a synthetic (USB-direct) id, the SDL probe for a
-    // framework id. The bind capability seams read through this so a Direct
-    // claim advertises the motion/touchpad it decodes — and never the rumble/
-    // lightbar it cannot drive.
-    struct SlotHardware {
-        bool usbDirect = false;
-        bool hasMotion = false;
-        bool hasLightbar = false;
-        bool hasTouchpad = false;
-        bool hasRumble = false;
-        // Protocol-2 actuators. Hardware facts only: whether the path can drive
-        // them is the feedback router's answer, not this struct's.
-        bool hasTriggerEffects = false;
-        bool hasPlayerLeds = false;
-    };
-    SlotHardware slotHardware(const QString& slotId) const;
 
     // The pad's last reported charge, or kBatteryLevelUnknown. A pad that has
     // never published one has nothing to declare to a Moonlight host.

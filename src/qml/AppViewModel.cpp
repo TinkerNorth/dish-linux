@@ -1263,6 +1263,12 @@ QVariantList AppViewModel::capabilityForCandidate(const QString& slotId, int typ
         in.padTouchpad = slot->capabilities.hasTouchpad;
         in.padLightbar = slot->capabilities.hasLightbar;
         in.padRumble = slot->capabilities.hasRumble;
+        // The protocol-2 actuators and the SDL effect route, from the same
+        // per-slot facts the descriptor caps fold over.
+        const auto hw = model_->slotHardware(slotId);
+        in.padTriggerEffects = hw.hasTriggerEffects;
+        in.padPlayerLeds = hw.hasPlayerLeds;
+        in.linkStandardEffects = hw.sdlEffects;
         // The audio-route seam, one owner with the descriptor caps.
         in.padMic = model_->slotCarriesMicSource(slotId);
         in.padSpeaker = model_->slotCarriesSpeakerSink(slotId);
@@ -1354,6 +1360,14 @@ QVariantList AppViewModel::capabilityForCandidate(const QString& slotId, int typ
         const auto audioSlugs = catalog::audioFeatureSlugs();
         in.typeMic = reducer::isFeatureOffered(*typeDto, catalog::kFeatureMic, audioSlugs);
         in.typeSpeaker = reducer::isFeatureOffered(*typeDto, catalog::kFeatureSpeaker, audioSlugs);
+        // The feedback surfaces the same way: a live catalog reports them per
+        // type, and the legacy translation of a pre-catalog satellite never
+        // claims them (BundledCatalog.h), so an old host refuses here.
+        const auto feedbackSlugs = catalog::feedbackFeatureSlugs();
+        in.typeTriggerEffects =
+            reducer::isFeatureOffered(*typeDto, catalog::kFeatureTriggerEffects, feedbackSlugs);
+        in.typePlayerLeds =
+            reducer::isFeatureOffered(*typeDto, catalog::kFeaturePlayerLeds, feedbackSlugs);
     }
 
     in.userMotionOn = motionOn;

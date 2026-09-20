@@ -8,9 +8,16 @@
 //
 // Two paths can carry feedback, and they carry different amounts of it:
 //
-//   Standard  the SDL layer. Rumble and a single lightbar colour, because that
-//             is the whole of SDL's output API for a gamepad. There is no
-//             adaptive-trigger or player-LED call to make.
+//   Standard  the SDL layer. Rumble and a single lightbar colour, which is the
+//             whole of SDL's typed output API for a gamepad -- plus
+//             SDL_GameControllerSendEffect, a raw effect body that only SDL's
+//             own HIDAPI drivers accept. For a DualSense that body is its OUT
+//             report minus the id, so a HIDAPI-owned DualSense takes the
+//             adaptive triggers, player LEDs and mic lamp too, on USB or
+//             Bluetooth alike; `standardEffects` says whether this pad's
+//             driver is that one. Every other SDL backend (XInput,
+//             DirectInput, evdev) refuses the call, and for every other family
+//             the body would be the wrong report.
 //   Direct    a raw-HID claim. Everything the family's OUT report has, built by
 //             core/input/UsbOutputReports.h -- but only while the claim is
 //             actually live. A slot the user moved back to Standard, or whose
@@ -60,10 +67,14 @@ struct SlotFeedbackInputs {
     bool padLightbar = false;
     bool padTriggerEffects = false;
     bool padPlayerLeds = false;
-    // The model has a mic-mute lamp (DualSense only). False until the Wave-2
-    // USB output-report builder exists to drive it — a lamp the report builder
-    // cannot address is a lamp this client does not have.
+    // The model has a mic-mute lamp (DualSense only).
     bool padMicLed = false;
+
+    // The SDL layer takes this pad's raw effect body: SDL's own HIDAPI driver
+    // owns it, so SDL_GameControllerSendEffect lands, and the body it takes is
+    // the family's OUT report that core/input/UsbOutputReports.h builds. Only
+    // meaningful when !usbDirect; a Direct claim writes the report itself.
+    bool standardEffects = false;
 
     // Controller-audio routes: does the pad have a usable audio path on THIS
     // machine (its own USB-audio endpoints matched to an audio device)?
@@ -96,11 +107,22 @@ inline bool padHas(const SlotFeedbackInputs& in, FeedbackKind kind) {
     return false;
 }
 
-// What the SDL layer can drive, whatever the pad has. The mic-mute lamp is
-// with the triggers and player LEDs: SDL has no call for it, so only a Direct
-// claim's OUT report path can ever land one.
-inline bool standardPathCarries(FeedbackKind kind) {
-    return kind == FeedbackKind::Rumble || kind == FeedbackKind::Lightbar;
+// What the SDL layer can drive, whatever the pad has. Rumble and the lightbar
+// always: they are SDL's own calls. The triggers, player LEDs and mic lamp only
+// through SendEffect, so only where SDL's HIDAPI driver has the pad; the bytes
+// are the same OUT report the Direct path writes, from the same builders,
+// handed to SDL instead of the device.
+inline bool standardPathCarries(const SlotFeedbackInputs& in, FeedbackKind kind) {
+    switch (kind) {
+    case FeedbackKind::Rumble:
+    case FeedbackKind::Lightbar:
+        return true;
+    case FeedbackKind::TriggerEffects:
+    case FeedbackKind::PlayerLeds:
+    case FeedbackKind::MicLed:
+        return in.standardEffects;
+    }
+    return false;
 }
 
 } // namespace detail
@@ -112,7 +134,7 @@ inline FeedbackTarget resolveFeedbackTarget(const SlotFeedbackInputs& in, Feedba
     if (in.usbDirect) {
         return in.directClaimLive ? FeedbackTarget::DirectUsb : FeedbackTarget::None;
     }
-    return detail::standardPathCarries(kind) ? FeedbackTarget::Standard : FeedbackTarget::None;
+    return detail::standardPathCarries(in, kind) ? FeedbackTarget::Standard : FeedbackTarget::None;
 }
 
 // Whether the descriptor may claim this actuator. Exactly "some path carries

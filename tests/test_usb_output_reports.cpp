@@ -25,6 +25,8 @@ using dish::input::usbout::buildPlayerLedsReport;
 using dish::input::usbout::buildRumbleReport;
 using dish::input::usbout::buildTriggerEffectsReport;
 using dish::input::usbout::FeedbackState;
+using dish::input::usbout::kDs5EffectBodyBytes;
+using dish::input::usbout::kDs5EffectBodyOffset;
 using dish::input::usbout::kMaxOutputReportBytes;
 using dish::input::usbout::kMicMuteLedOff;
 using dish::input::usbout::kMicMuteLedOn;
@@ -478,4 +480,58 @@ TEST_CASE("an undriven lamp leaves every other report untouched", "[usb][output]
     CHECK((buf[2] & 0x03) == 0);
     CHECK(buf[9] == 0);
     CHECK(buf[10] == 0);
+}
+
+// ── The SDL effect body ──────────────────────────────────────────────────────
+
+TEST_CASE("the SDL effect body is the DualSense report after its id, in SDL's own layout",
+          "[usb][output][sdl]") {
+    // SDL_GameControllerSendEffect takes SDL's DS5EffectsState_t: 47 bytes,
+    // valid flags at 0 and 1, the mic lamp at 8 and its mute bit at 9, the
+    // right and left trigger blocks at 10 and 21, the player LEDs at 43. That
+    // is exactly our report with the id stripped, which is the whole reason the
+    // Direct builders can serve the SDL path. Every DS5 builder must cover the
+    // body, and the offsets below are SDL's, not ours.
+    REQUIRE(kDs5EffectBodyOffset == 1);
+    REQUIRE(kDs5EffectBodyBytes == 47);
+    REQUIRE(kDs5EffectBodyOffset + kDs5EffectBodyBytes <= kMaxOutputReportBytes);
+
+    std::array<std::uint8_t, kTriggerEffectBlockBytes> left{};
+    std::array<std::uint8_t, kTriggerEffectBlockBytes> right{};
+    for (std::size_t i = 0; i < kTriggerEffectBlockBytes; ++i) {
+        left[i] = static_cast<std::uint8_t>(0xA0 + i);
+        right[i] = static_cast<std::uint8_t>(0xB0 + i);
+    }
+    FeedbackState st;
+    Buf buf{};
+
+    std::size_t n = buildTriggerEffectsReport(HidParser::DualSense, st, left.data(), right.data(),
+                                              buf.data(), buf.size());
+    REQUIRE(n >= kDs5EffectBodyOffset + kDs5EffectBodyBytes);
+    const std::uint8_t* body = buf.data() + kDs5EffectBodyOffset;
+    CHECK(body[0] == 0x0C); // ucEnableBits1: both trigger blocks
+    for (std::size_t i = 0; i < kTriggerEffectBlockBytes; ++i) {
+        INFO("block byte " << i);
+        CHECK(body[10 + i] == right[i]); // rgucRightTriggerEffect
+        CHECK(body[21 + i] == left[i]);  // rgucLeftTriggerEffect
+    }
+
+    n = buildPlayerLedsReport(HidParser::DualSense, st, 0x15, 0, buf.data(), buf.size());
+    REQUIRE(n >= kDs5EffectBodyOffset + kDs5EffectBodyBytes);
+    CHECK(body[1] == 0x10);  // ucEnableBits2: player indicator
+    CHECK(body[43] == 0x15); // ucPadLights
+
+    n = buildMicMuteLedReport(HidParser::DualSense, st, kMicMuteLedOn, buf.data(), buf.size());
+    REQUIRE(n >= kDs5EffectBodyOffset + kDs5EffectBodyBytes);
+    CHECK((body[1] & 0x03) == 0x03); // ucEnableBits2: mic light + power save
+    CHECK(body[8] == kMicMuteLedOn); // ucMicLightMode
+    CHECK(body[9] == 0x10);          // ucAudioMuteBits: the amplifier
+
+    // And the re-assert rides the body too: a later player-LED write keeps
+    // the lamp in SDL's fields.
+    n = buildPlayerLedsReport(HidParser::DualSense, st, 0x01, 0, buf.data(), buf.size());
+    REQUIRE(n >= kDs5EffectBodyOffset + kDs5EffectBodyBytes);
+    CHECK((body[1] & 0x13) == 0x13);
+    CHECK(body[8] == kMicMuteLedOn);
+    CHECK(body[43] == 0x01);
 }

@@ -7,13 +7,15 @@
 //     available = input n link n type n host
 //
 //   Input  what the pad itself reports
-//   Link   the USB path. Standard (SDL) carries everything the pad's driver
+//   Link   the path. Standard (SDL) carries everything the pad's driver
 //          exposes — the input layer's per-pad probe is what constrains it —
-//          but SDL has no adaptive-trigger or player-LED call, so those two
-//          never fire there. Direct reads everything the pad sends AND writes
-//          its OUT reports, so it carries every actuator its family has.
-//          Mirrors dish-android's per-path rule: a capability shows only where
-//          it fires.
+//          and the adaptive triggers and player LEDs only where SDL's own
+//          HIDAPI driver has the pad, since SDL_GameControllerSendEffect is
+//          the one call that reaches them and no other SDL backend implements
+//          it (`linkStandardEffects`). Direct reads everything the pad sends
+//          AND writes its OUT reports, so it carries every actuator its
+//          family has. Mirrors dish-android's per-path rule: a capability
+//          shows only where it fires.
 //   Type   the catalog type's features: an Xbox 360 type carries no gyro however
 //          good the pad is
 //   Host   the satellite's hostFeatures. A Bluetooth host is the system gamepad
@@ -70,6 +72,10 @@ struct CapabilityInputs {
     bool linkDirect = false;   // usb && directCapable && the draft wants Direct
     bool linkUsb = false;      // false means Bluetooth transport
     bool padClaimable = false; // pathSupported
+    // The SDL layer takes this pad's raw effect body (FeedbackRouting's
+    // standardEffects): the Standard path's route to the adaptive triggers
+    // and player LEDs. Irrelevant under linkDirect.
+    bool linkStandardEffects = false;
 
     bool typeResolved = false; // false means the type layer refuses nothing
     bool typeMotion = false, typeTouchpad = false, typeRumble = false, typeLightbar = false;
@@ -151,12 +157,16 @@ inline bool linkCarries(const CapabilityInputs& in, CapFeature f) {
     }
     // Standard (SDL) forwards motion, touch, rumble and the lightbar wherever
     // the pad's driver exposes them; the input layer's probe constrains it. The
-    // adaptive triggers and the player LEDs have no SDL call at all, so they
-    // are the one thing the Standard path structurally cannot carry. Audio is
+    // adaptive triggers and the player LEDs have no typed SDL call: they ride
+    // SDL_GameControllerSendEffect, which only SDL's HIDAPI driver answers, so
+    // they are the one thing the Standard path carries conditionally. Audio is
     // NOT with them: the streams ride the pad's own USB-audio endpoints, a
     // separate interface reachable from either HID path, so the link layer
     // never refuses it — the input layer's route facts are what constrain it.
-    return f != CapFeature::TriggerEffects && f != CapFeature::PlayerLeds;
+    if (f == CapFeature::TriggerEffects || f == CapFeature::PlayerLeds) {
+        return in.linkStandardEffects;
+    }
+    return true;
 }
 
 inline bool typeCarries(const CapabilityInputs& in, CapFeature f) {
