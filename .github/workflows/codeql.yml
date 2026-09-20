@@ -3,7 +3,7 @@ name: CodeQL
 # Source-level static analysis for dish-linux (C++ / Qt6 / SDL2).
 #
 # Pin map (verify with `gh api repos/<owner>/<repo>/git/ref/tags/<tag>`):
-#   actions/checkout         @ v6.0.2  → de0fac2e4500dabe0009e67214ff5f5447ce83dd
+#   actions/checkout         @ v7.0.1  → 3d3c42e5aac5ba805825da76410c181273ba90b1
 #   github/codeql-action/*   @ v4.35.4 → 68bde559dea0fdcac2102bfdf6230c5f70eb485e
 
 on:
@@ -35,7 +35,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install build dependencies
         run: |
@@ -63,7 +63,7 @@ jobs:
         uses: ./.github/actions/setup-qt
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
+        uses: github/codeql-action/init@b96794f015dfd88f77b49b1c93e0fa7110f94c63 # v4.38.0
         with:
           languages: ${{ matrix.language }}
           queries: security-extended,security-and-quality
@@ -85,7 +85,7 @@ jobs:
         # findings in the logs while GHAS enablement is still pending —
         # see HANDOFF.md item 5.
         continue-on-error: true
-        uses: github/codeql-action/analyze@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
+        uses: github/codeql-action/analyze@b96794f015dfd88f77b49b1c93e0fa7110f94c63 # v4.38.0
         with:
           category: "/language:${{ matrix.language }}"
           upload: failure-only

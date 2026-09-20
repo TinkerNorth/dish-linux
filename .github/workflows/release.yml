@@ -57,7 +57,7 @@ on:
 # flow is reachable (id-token: write).
 #
 # Pin map (verify with `gh api repos/<owner>/<repo>/git/ref/tags/<tag>`):
-#   actions/checkout                @ v7.0.0  → 9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+#   actions/checkout                @ v7.0.1  → 3d3c42e5aac5ba805825da76410c181273ba90b1
 #   actions/upload-artifact         @ v7.0.1  → 043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
 #   actions/download-artifact       @ v8.0.1  → 3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
 #   softprops/action-gh-release     @ v3.0.2  → 3d0d9888cb7fd7b750713d6e236d1fcb99157228
@@ -187,7 +187,7 @@ jobs:
             librsvg2-bin desktop-file-utils appstream lintian
 
       - name: Checkout
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.tag || github.ref }}
 
@@ -376,7 +376,7 @@ jobs:
           dnf -y install --allowerasing curl
 
       - name: Checkout
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.tag || github.ref }}
 
@@ -525,7 +525,7 @@ jobs:
     timeout-minutes: 45
     steps:
       - name: Checkout
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.tag || github.ref }}
 
@@ -675,7 +675,7 @@ jobs:
             org.kde.Platform//6.9 org.kde.Sdk//6.9
 
       - name: Checkout
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.tag || github.ref }}
 
@@ -725,7 +725,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Checkout
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.tag || github.ref }}
 
@@ -870,7 +870,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.tag || github.ref }}
           fetch-depth: 0
@@ -924,7 +924,7 @@ jobs:
     if: ${{ github.ref_type == 'tag' && !contains(github.ref_name, '-') }}
     steps:
       - name: Checkout main (for build scripts)
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.tag || github.ref }}
           path: main
@@ -1032,7 +1032,7 @@ jobs:
     if: ${{ github.ref_type == 'tag' && !contains(github.ref_name, '-') }}
     steps:
       - name: Checkout main (for build scripts)
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.tag || github.ref }}
           path: main
@@ -1150,7 +1150,7 @@ jobs:
 
       - name: Checkout main (for the PKGBUILD)
         if: steps.gate.outputs.skip != 'true'
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.tag || github.ref }}
           path: main
