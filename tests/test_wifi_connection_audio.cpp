@@ -40,6 +40,7 @@ TEST_CASE("an attach without audio facts advertises neither audio cap", "[wifi][
     REQUIRE(d.has_value());
     CHECK((d->caps & proto::kCapMic) == 0);
     CHECK((d->caps & proto::kCapSpeaker) == 0);
+    CHECK((d->caps & proto::kCapHapticAudio) == 0);
     // The rest of the fold is untouched by the audio additions.
     CHECK((d->caps & proto::kCapTriggerEffects) != 0);
     CHECK((d->caps & proto::kCapRumble) != 0);
@@ -64,6 +65,16 @@ TEST_CASE("the attach facts fold each audio cap independently", "[wifi][audio]")
     REQUIRE(d.has_value());
     CHECK((d->caps & proto::kCapMic) == 0);
     CHECK((d->caps & proto::kCapSpeaker) != 0);
+    CHECK((d->caps & proto::kCapHapticAudio) == 0);
+
+    // Protocol 3: the haptic claim is a fact of its own beside the speaker's.
+    conn.attachSlot(QStringLiteral("sdl:1"), proto::kControllerTypeDualSense, false, false, false,
+                    proto::kTouchpadModeOff, false, false, /*hasMic=*/false, /*hasSpeaker=*/true,
+                    /*hasHapticAudio=*/true);
+    d = conn.descriptorFor(QStringLiteral("sdl:1"));
+    REQUIRE(d.has_value());
+    CHECK((d->caps & proto::kCapSpeaker) != 0);
+    CHECK((d->caps & proto::kCapHapticAudio) != 0);
 }
 
 TEST_CASE("the host audio verdict defaults conservative and resets with the session",
@@ -72,22 +83,27 @@ TEST_CASE("the host audio verdict defaults conservative and resets with the sess
     // No probe has landed: no audio, in either direction.
     CHECK_FALSE(conn.hostMicAvailable());
     CHECK_FALSE(conn.hostSpeakerAvailable());
+    CHECK_FALSE(conn.hostHapticAudioAvailable());
 
-    conn.setHostControllerAudio(/*mic=*/true, /*speaker=*/true);
+    conn.setHostControllerAudio(/*mic=*/true, /*speaker=*/true, /*hapticAudio=*/true);
     CHECK(conn.hostMicAvailable());
     CHECK(conn.hostSpeakerAvailable());
+    CHECK(conn.hostHapticAudioAvailable());
 
     // The directions move independently, as the host switches them.
     conn.setHostControllerAudio(/*mic=*/false, /*speaker=*/true);
     CHECK_FALSE(conn.hostMicAvailable());
     CHECK(conn.hostSpeakerAvailable());
+    CHECK_FALSE(conn.hostHapticAudioAvailable()); // a host that predates it reads off
 
     // A teardown is a new session next time, and the verdict was THIS
     // session's: it must not survive into one the host may have re-switched.
     // (markConnecting first: an Idle connection with no client short-circuits
     // markDisconnected, and only a session that existed can be torn down.)
+    conn.setHostControllerAudio(true, true, true);
     conn.markConnecting();
     conn.markDisconnected();
     CHECK_FALSE(conn.hostMicAvailable());
     CHECK_FALSE(conn.hostSpeakerAvailable());
+    CHECK_FALSE(conn.hostHapticAudioAvailable());
 }

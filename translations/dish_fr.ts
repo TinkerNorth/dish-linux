@@ -218,6 +218,10 @@
         <translation>%1 n&apos;a pas de %2.</translation>
     </message>
     <message>
+        <source>The driver this controller is on can’t drive it.</source>
+        <translation>Le pilote de cette manette ne peut pas le piloter.</translation>
+    </message>
+    <message>
         <source>Standard mode can’t drive it — switch the connection to Direct.</source>
         <translation>Le Mode standard ne peut pas le piloter — passez la connexion en Direct.</translation>
     </message>

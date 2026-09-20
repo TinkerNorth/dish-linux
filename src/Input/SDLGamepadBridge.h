@@ -10,6 +10,7 @@
 #include <QObject>
 #include <QString>
 
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <cstdint>
@@ -123,6 +124,19 @@ class SDLGamepadBridge : public QObject {
     // onto the SDL thread exactly like applyRumble.
     void applyLightbar(const QString& deviceId, std::uint8_t r, std::uint8_t g, std::uint8_t b);
 
+    // The DualSense surfaces SDL has no typed call for. Each is built into the
+    // family's own OUT report by core/input/UsbOutputReports.h on the SDL
+    // thread (the per-pad FeedbackState shadow lives there) and handed to
+    // SDL_GameControllerSendEffect, which only SDL's HIDAPI drivers implement:
+    // every other backend refuses it, and AppModel never routes here for one
+    // of those (SlotFeedbackInputs::standardEffects). Queued like applyRumble.
+    void
+    applyTriggerEffects(const QString& deviceId,
+                        const std::array<std::uint8_t, usbout::kTriggerEffectBlockBytes>& left,
+                        const std::array<std::uint8_t, usbout::kTriggerEffectBlockBytes>& right);
+    void applyPlayerLeds(const QString& deviceId, std::uint8_t ledMask);
+    void applyMicLed(const QString& deviceId, std::uint8_t state);
+
   signals:
     void devicesChanged();
 
@@ -144,8 +158,12 @@ class SDLGamepadBridge : public QObject {
   private:
     void runLoop();
     // Drain the pending-command queue and execute each SDL output call
-    // (rumble / SetLED) on the SDL thread. Called once per runLoop iteration.
+    // (rumble / SetLED / SendEffect) on the SDL thread. Called once per
+    // runLoop iteration.
     void drainOutputCommands();
+    // Build one effect command's DualSense report and hand its body to
+    // SDL_GameControllerSendEffect. SDL thread only.
+    void sendEffect(SDL_GameController* gc, int iid, const OutputCommand& cmd);
     void rebuildState(int iid);
     // RAW-joystick twin of rebuildState: reads an open SDL_Joystick's current
     // raw axis/button/hat state, runs the SDL-free JoystickMapping default
@@ -218,6 +236,11 @@ class SDLGamepadBridge : public QObject {
         int productId = 0;
     };
     std::unordered_map<int, UsbIdentity> usbIdentity_;
+
+    // Per-pad shadow for the effect builders (the DS5 lamp re-assert), the
+    // twin of UsbGamepadManager's per-claim one. SDL-thread only: written at
+    // drain, dropped at detach, never read under mtx_.
+    std::unordered_map<int, usbout::FeedbackState> effectState_;
 
     // The set of device ids whose SDL input is twin-suppressed because a
     // USB-direct claim of the same model is streaming (see setSuppressedDeviceIds

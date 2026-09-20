@@ -50,6 +50,7 @@ class SatelliteClient {
     static constexpr std::uint16_t kMsgPlayerLeds = proto::kMsgPlayerLeds;
     static constexpr std::uint16_t kMsgMicAudio = proto::kMsgMicAudio;
     static constexpr std::uint16_t kMsgSpeakerAudio = proto::kMsgSpeakerAudio;
+    static constexpr std::uint16_t kMsgHapticAudio = proto::kMsgHapticAudio;
     static constexpr std::uint16_t kMsgMicLed = proto::kMsgMicLed;
 
     // Carried in the REST descriptor's caps object.
@@ -61,6 +62,7 @@ class SatelliteClient {
     static constexpr std::uint16_t kCapPlayerLeds = proto::kCapPlayerLeds;
     static constexpr std::uint16_t kCapMic = proto::kCapMic;
     static constexpr std::uint16_t kCapSpeaker = proto::kCapSpeaker;
+    static constexpr std::uint16_t kCapHapticAudio = proto::kCapHapticAudio;
 
     // Wire values, mirroring satellite/src/core/types.h.
     static constexpr std::uint8_t kBatteryLevelUnknown = 0xFF;
@@ -143,6 +145,13 @@ class SatelliteClient {
 
     static std::uint16_t withSpeakerCapability(std::uint16_t base, bool hasSpeaker) {
         return static_cast<std::uint16_t>(base | (hasSpeaker ? kCapSpeaker : 0));
+    }
+
+    // Protocol 3. kCapHapticAudio promises the client plays 0x0015 into the
+    // pad's own actuator lanes; without it the host reduces those lanes to
+    // 0x0009 rumble, so the bit is set only where the 4-channel route exists.
+    static std::uint16_t withHapticAudioCapability(std::uint16_t base, bool hasHapticAudio) {
+        return static_cast<std::uint16_t>(base | (hasHapticAudio ? kCapHapticAudio : 0));
     }
 
     // Axes are the satellite's right-handed frame (+X right, +Y up, +Z toward
@@ -252,6 +261,12 @@ class SatelliteClient {
 
     using SpeakerAudioHandler = std::function<void(const SpeakerAudioMessage&)>;
     void setSpeakerAudioHandler(SpeakerAudioHandler handler);
+
+    // kMsgHapticAudio has the speaker message's exact shape (one stereo Opus
+    // packet behind ctrlIdx + seq), so it shares the struct, the parser and
+    // the borrowing contract; only the handler differs.
+    using HapticAudioHandler = std::function<void(const SpeakerAudioMessage&)>;
+    void setHapticAudioHandler(HapticAudioHandler handler);
 
     // Header already stripped. Floor kAudioWireMinPayloadLen (header + at least
     // one Opus byte); everything past the header is the packet.
@@ -428,6 +443,8 @@ class SatelliteClient {
     PlayerLedsHandler playerLedsHandler_;
     std::mutex speakerAudioHandlerMtx_;
     SpeakerAudioHandler speakerAudioHandler_;
+    std::mutex hapticAudioHandlerMtx_;
+    HapticAudioHandler hapticAudioHandler_;
     std::mutex micLedHandlerMtx_;
     MicLedHandler micLedHandler_;
     // One log line per client for an oversize send, not one per frame: at 50

@@ -57,18 +57,60 @@ TEST_CASE("a Direct claim carries every actuator the pad has", "[feedback][routi
     }
 }
 
-TEST_CASE("the Standard path carries rumble and the lightbar and nothing else",
+TEST_CASE("the Standard path carries rumble and the lightbar, and the effect surfaces only "
+          "where SDL's driver takes them",
           "[feedback][routing]") {
-    // SDL has a rumble call and an LED call. It has no adaptive-trigger or
-    // player-LED call at all, so those two are structurally out of reach however
-    // good the pad is -- which is why the pad flags being true here is the point.
-    const auto in = standardDualSense();
+    // SDL has a rumble call and an LED call. The adaptive triggers, player LEDs
+    // and mic lamp ride SDL_GameControllerSendEffect, which only SDL's own
+    // HIDAPI driver answers: a DualSense under XInput/DirectInput/evdev cannot
+    // land them however good the pad is -- which is why the pad flags being
+    // true here is the point.
+    auto in = standardDualSense();
     CHECK(resolveFeedbackTarget(in, FeedbackKind::Rumble) == FeedbackTarget::Standard);
     CHECK(resolveFeedbackTarget(in, FeedbackKind::Lightbar) == FeedbackTarget::Standard);
     CHECK(resolveFeedbackTarget(in, FeedbackKind::TriggerEffects) == FeedbackTarget::None);
     CHECK(resolveFeedbackTarget(in, FeedbackKind::PlayerLeds) == FeedbackTarget::None);
-    // The mic-mute lamp is with them: SDL has no call for it either.
     CHECK(resolveFeedbackTarget(in, FeedbackKind::MicLed) == FeedbackTarget::None);
+
+    // The same pad under SDL's HIDAPI driver (USB or Bluetooth): every surface.
+    in.standardEffects = true;
+    for (const auto kind : kAllKinds) {
+        INFO("kind " << static_cast<int>(kind));
+        CHECK(resolveFeedbackTarget(in, kind) == FeedbackTarget::Standard);
+    }
+}
+
+TEST_CASE("the effect route never invents hardware the pad lacks", "[feedback][routing]") {
+    // A DualShock 4 under the same HIDAPI driver: its effect body is a
+    // different report with no trigger, player-LED or lamp fields, and the
+    // family gate upstream keeps standardEffects false for it anyway. Either
+    // way the pad flags are what decide, so a stray true carries nothing.
+    SlotFeedbackInputs in;
+    in.padRumble = true;
+    in.padLightbar = true;
+    in.standardEffects = true;
+    CHECK(resolveFeedbackTarget(in, FeedbackKind::Lightbar) == FeedbackTarget::Standard);
+    CHECK(resolveFeedbackTarget(in, FeedbackKind::TriggerEffects) == FeedbackTarget::None);
+    CHECK(resolveFeedbackTarget(in, FeedbackKind::PlayerLeds) == FeedbackTarget::None);
+    CHECK(resolveFeedbackTarget(in, FeedbackKind::MicLed) == FeedbackTarget::None);
+}
+
+TEST_CASE("the effect route is a Standard fact and changes nothing for a Direct slot",
+          "[feedback][routing]") {
+    // A synthetic slot is not open on the SDL path, so a stale true must not
+    // turn a dead claim into a write to a handle that does not exist, nor
+    // redirect a live one away from its own OUT endpoint.
+    SlotFeedbackInputs in = directDualSense();
+    in.standardEffects = true;
+    for (const auto kind : kAllKinds) {
+        INFO("kind " << static_cast<int>(kind));
+        CHECK(resolveFeedbackTarget(in, kind) == FeedbackTarget::DirectUsb);
+    }
+    in.directClaimLive = false;
+    for (const auto kind : kAllKinds) {
+        INFO("kind " << static_cast<int>(kind));
+        CHECK(resolveFeedbackTarget(in, kind) == FeedbackTarget::None);
+    }
 }
 
 TEST_CASE("a synthetic slot whose claim is gone carries nothing", "[feedback][routing]") {
@@ -134,8 +176,8 @@ TEST_CASE("a live claim flag on a Standard slot changes nothing", "[feedback][ro
 
 TEST_CASE("advertising and dispatching are the same answer", "[feedback][routing]") {
     // The invariant the whole file exists for, over every combination of the
-    // six inputs: slotCarriesFeedback is true exactly when a target exists.
-    for (int bits = 0; bits < 64; ++bits) {
+    // seven inputs: slotCarriesFeedback is true exactly when a target exists.
+    for (int bits = 0; bits < 128; ++bits) {
         SlotFeedbackInputs in;
         in.usbDirect = (bits & 1) != 0;
         in.directClaimLive = (bits & 2) != 0;
@@ -144,6 +186,7 @@ TEST_CASE("advertising and dispatching are the same answer", "[feedback][routing
         in.padTriggerEffects = (bits & 16) != 0;
         in.padPlayerLeds = (bits & 16) != 0;
         in.padMicLed = (bits & 32) != 0;
+        in.standardEffects = (bits & 64) != 0;
         for (const auto kind : kAllKinds) {
             INFO("bits " << bits << " kind " << static_cast<int>(kind));
             const bool carries = slotCarriesFeedback(in, kind);
@@ -155,12 +198,16 @@ TEST_CASE("advertising and dispatching are the same answer", "[feedback][routing
 
 // ── The mic-mute lamp and the audio routes ───────────────────────────────────
 
-TEST_CASE("the mute lamp routes like the other Direct-only actuators", "[feedback][routing]") {
-    // A DualSense with a lamp: Direct-and-live lands it, Standard cannot (no
-    // SDL call), and a dead claim carries nothing — exactly the trigger/LED
-    // matrix, because a delivered MIC_LED is a write into the same OUT report.
+TEST_CASE("the mute lamp routes like the triggers and the player LEDs", "[feedback][routing]") {
+    // A DualSense with a lamp: Direct-and-live lands it, Standard only through
+    // SDL's effect call, and a dead claim carries nothing — exactly the
+    // trigger/LED matrix, because a delivered MIC_LED is a write into the same
+    // OUT report.
     SlotFeedbackInputs in = standardDualSense();
     CHECK(resolveFeedbackTarget(in, FeedbackKind::MicLed) == FeedbackTarget::None);
+    in.standardEffects = true;
+    CHECK(resolveFeedbackTarget(in, FeedbackKind::MicLed) == FeedbackTarget::Standard);
+    in.standardEffects = false;
 
     in.usbDirect = true;
     in.directClaimLive = true;

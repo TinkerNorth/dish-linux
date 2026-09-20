@@ -20,10 +20,10 @@ using dish::reducer::settleRejected;
 
 namespace proto = dish::proto;
 
-TEST_CASE("the client offers 2 and still speaks 1", "[protocol][negotiation]") {
+TEST_CASE("the client offers 3 and still speaks 1", "[protocol][negotiation]") {
     // Guards the rest of this file: every expectation below is written against
     // this range, so a bump has to come here first.
-    CHECK(proto::kProtocolVersion == 2);
+    CHECK(proto::kProtocolVersion == 3);
     CHECK(proto::kProtocolVersionMin == 1);
     CHECK(proto::settledSpeaksV2(2));
     CHECK_FALSE(proto::settledSpeaksV2(1));
@@ -75,7 +75,8 @@ TEST_CASE("an echo above our version is clamped down, never trusted", "[protocol
 }
 
 TEST_CASE("a 409 whose floor is above us means update the app", "[protocol][negotiation]") {
-    const auto out = settleRejected(/*supported=*/4, /*supportedMin=*/3);
+    const auto out = settleRejected(/*supported=*/proto::kProtocolVersion + 2,
+                                    /*supportedMin=*/proto::kProtocolVersion + 1);
     CHECK(out.verdict == ProtocolVerdict::UpdateDish);
     CHECK(protocolVerdictTerminal(out.verdict));
 }

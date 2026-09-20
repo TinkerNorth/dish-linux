@@ -887,7 +887,7 @@ void WifiConnectionManager::probeHostAudio(const QString& id,
             if (c == nullptr || c->state() != SessionState::Live) { return; }
             if (!caps.reachable || caps.httpStatus < 200 || caps.httpStatus > 299) { return; }
             const auto verdict = reducer::resolveHostControllerAudio(caps);
-            c->setHostControllerAudio(verdict.mic, verdict.speaker);
+            c->setHostControllerAudio(verdict.mic, verdict.speaker, verdict.hapticAudio);
         });
 }
 

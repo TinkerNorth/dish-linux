@@ -355,19 +355,38 @@ and `AppModel::actuate*` go through it. The two paths carry different amounts:
 
 | Path | Rumble | Lightbar | Adaptive triggers | Player LEDs | Mic-mute lamp |
 |---|---|---|---|---|---|
-| Standard (SDL) | yes | yes | **no** | **no** | **no** |
+| Standard (SDL) | yes | yes | DualSense under SDL's HIDAPI driver† | same† | same† |
 | Direct (raw HID) | yes | yes | yes | yes | yes* |
 
-SDL has a rumble call and an LED call and nothing else, so the last three
-columns are structurally out of reach there however good the pad is. The Direct
-path reaches them because the claim writes OUT reports as well as reading IN
-ones; the bytes are built by
-[`UsbOutputReports`](../src/core/input/UsbOutputReports.h), which is pure and
-host-tested, and the gateway adds only the framing the platform itself demands
-(on hidraw, none: the builder's length is the transfer length). A Direct claim
-that has gone away carries nothing — there is deliberately no fallback to
-Standard, because a pad on the Direct path is not open on the SDL path at the
-same time.
+SDL has a rumble call and an LED call, and one more: `SDL_GameControllerSendEffect`,
+a raw effect body that only SDL's own HIDAPI drivers implement (the evdev
+backend refuses it). For a DualSense that body is its OUT report 0x02 minus
+the report id, so the last three columns are reachable on Standard exactly
+when SDL's HIDAPI driver owns the pad, on USB or Bluetooth alike. The bytes
+are built by [`UsbOutputReports`](../src/core/input/UsbOutputReports.h), which
+is pure and host-tested, and serve both paths: the Direct claim writes the
+whole report and the gateway adds only the framing the platform itself demands
+(on hidraw, none: the builder's length is the transfer length); the SDL bridge
+builds the same report on the SDL thread (its `FeedbackState` shadow lives
+there) and hands SDL the body, which SDL frames for the link, including the
+Bluetooth report id and CRC. A Direct claim that has gone away carries nothing
+— there is deliberately no fallback to Standard, because a pad on the Direct
+path is not open on the SDL path at the same time.
+
+† `SlotFeedbackInputs::standardEffects`. SDL names no driver publicly, but it
+reports a DualSense's LED only from the HIDAPI driver, so "DualSense family and
+`SDL_GameControllerHasLED`" is the honest answer; a DualShock 4 has the LED from
+the same driver but its effect body is a different report with none of these
+fields, hence the family gate. The same fact is `linkStandardEffects` in the
+capability solver, so the table's Link column agrees with the wire. Whether
+SDL's HIDAPI driver gets the pad at all is a hidraw-permissions question (the
+same udev rule the Direct path needs); under evdev the Standard path carries
+rumble alone and the table says so at the Link layer. The bridge also asks SDL
+for enhanced reports on Bluetooth Sony pads
+(`SDL_HINT_JOYSTICK_HIDAPI_PS5_RUMBLE` / `PS4_RUMBLE`), which hid-playstation
+usually has already switched on; without it a Bluetooth DualSense in simple
+mode is buttons and sticks to SDL, with no rumble, LED, gyro, touchpad or
+effects reported.
 
 \* `MSG_MIC_LED` (0x0014) resolves through the same router into the DS5
 mute-lamp builder, whose state lives in the per-claim `FeedbackState` shadow:
@@ -384,16 +403,27 @@ The controller-audio caps (`mic`/`speaker`) go through the same "advertised iff
 it lands" rule but are keyed on the pad's AUDIO routes
 (`slotCarriesMicCapture` / `slotCarriesSpeakerPlayout`) rather than the HID
 path: the streams ride the pad's own USB-audio endpoints, a separate USB
-interface the OS keeps while this client claims only HID. The routes come from
-[`PadAudioMatcher`](../src/core/audio/PadAudioMatcher.h), which matches the
-claimed pad's USB product string (iProduct, read from sysfs at enumeration —
+interface the OS keeps whichever path owns HID, so a Standard (SDL) pad on USB
+routes exactly like a Direct-claimed one and only a Bluetooth pad has no route.
+The routes come from [`PadAudioMatcher`](../src/core/audio/PadAudioMatcher.h),
+which matches the pad's USB product string (iProduct, read from sysfs by the
+hidraw gateway's enumeration, which lists every USB pad, not just claimed ones;
 the same string pipewire and pulse embed in the pad's audio device names)
 against the endpoint names SDL enumerates, and resolves EVERY ambiguity to "no
 route" (two DualSenses share a string; so does a DS4 — a wrong route is worse
-than none). `AppModel::resolveAudioRoutes` re-runs it on claim changes and on
-SDL's audio hotplug events (pumped by the bridge's event loop, forwarded as
-`audioDevicesChanged`), and a changed route re-binds the affected slots so
-their descriptors re-fold and re-PUT.
+than none). `AppModel::resolveAudioRoutes` re-runs it on USB and claim changes
+and on SDL's audio hotplug events (pumped by the bridge's event loop, forwarded
+as `audioDevicesChanged`), and a changed route re-binds the bound slots so
+their descriptors re-fold and re-PUT. An SDL slot resolves its pad through the
+bridge's vendor:product, refusing a Bluetooth link first so a BT pad can never
+borrow a USB twin's endpoint.
+
+The haptic lanes have a PipeWire-side precondition the app does not manage:
+the pad's card must be on a 4-channel profile ("Analog Surround 4.0 Output" in
+pavucontrol / `wpctl`). On the default stereo profile the node SDL sees is
+2-channel, the matcher finds no lanes, the slot advertises no `hapticAudio`,
+and the host reduces the lanes to rumble instead; switch the profile and the
+next audio hotplug event re-resolves.
 
 The host's live verdict is a third layer: `WifiConnectionManager::probeHostAudio`
 reads `GET /api/server/capabilities` after every session PUT and folds it via
@@ -410,7 +440,20 @@ with a caller-owned seq that advances on failed encodes too;
 `SpeakerPlayoutEngine` holds one playback device per eligible slot, fed on the
 receive thread through the reorder window and the Opus decoder's FEC/PLC, with
 a two-frame start cushion that is rebuilt as silence when a suppressed-silence
-stretch drains the queue. Both talk SDL only through
+stretch drains the queue. Protocol 3 adds the DualSense's HD-haptics lanes
+(`MSG_HAPTIC_AUDIO`, cap `hapticAudio`): the same engine holds a SECOND voice
+on the same endpoint for them, because the two lanes arrive as independent
+streams (own seq, own silence suppression) and pairing their windows would
+need a clock the push model has not got. Each voice opens the endpoint at its
+own channel count (the matcher reads it off the audio stack; 4 on a DualSense)
+and writes only its lane pair, the other pair at zero, and the platform mixes
+the two streams. That is also what keeps stereo speaker audio off the actuator
+lanes of a 4-channel pad, rather than leaving them to whatever channel
+conversion SDL and the audio stack apply. The haptic cap rides the speaker toggle and the speaker route
+(`slotCarriesHapticPlayout` = speaker route AND the endpoint has the lanes AND
+the family has actuators); a slot that cannot play the waveform leaves the cap
+off and the host reduces the lanes to rumble for it instead. Both talk SDL
+only through
 [`AudioDeviceGateway`](../src/source/audio/AudioDeviceGateway.h);
 `SdlAudioGateway` owns `SDL_INIT_AUDIO`'s lifecycle — deliberately NOT the SDL
 bridge, whose gamepad subsystems stop and start without taking a live stream

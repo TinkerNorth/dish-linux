@@ -218,6 +218,10 @@
         <translation>%1 nema podršku za %2.</translation>
     </message>
     <message>
+        <source>The driver this controller is on can’t drive it.</source>
+        <translation>Drajver na kojem je ovaj kontroler ovo ne može pokrenuti.</translation>
+    </message>
+    <message>
         <source>Standard mode can’t drive it — switch the connection to Direct.</source>
         <translation>Standardni način ovo ne može pokrenuti — prebacite vezu na Brzi.</translation>
     </message>

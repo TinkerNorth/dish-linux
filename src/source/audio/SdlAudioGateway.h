@@ -41,10 +41,11 @@ class SdlAudioGateway : public AudioDeviceGateway {
 
     std::vector<std::string> captureDeviceNames() override;
     std::vector<std::string> playbackDeviceNames() override;
+    int playbackDeviceChannels(const std::string& deviceName) override;
     int openCapture(const std::string& deviceName,
                     std::function<void(const std::int16_t*, std::size_t)> onSamples) override;
     void closeCapture(int handle) override;
-    int openPlayback(const std::string& deviceName) override;
+    int openPlayback(const std::string& deviceName, int channels) override;
     bool queuePlayback(int handle, const std::int16_t* samples, std::size_t sampleCount) override;
     std::size_t queuedPlaybackBytes(int handle) override;
     void resumePlayback(int handle) override;

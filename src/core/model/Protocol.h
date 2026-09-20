@@ -18,7 +18,9 @@ namespace dish::proto {
 // [supportedMin, supported] range, settles each session on the client's offer
 // and echoes the settled version back; an offer outside its range is refused
 // with 409 + `supported`/`supportedMin` (see reducer/ProtocolNegotiation.h).
-inline constexpr int kProtocolVersion = 2;
+// 3 added the HAPTIC_AUDIO return path (kMsgHapticAudio + kCapHapticAudio); no
+// frame shape changed, so a session settled on 2 is byte-identical on the wire.
+inline constexpr int kProtocolVersion = 3;
 
 // The oldest version this client still speaks end to end. A session that
 // settles on 1 streams the 16-byte TOUCHPAD frame and gets no feedback return
@@ -57,6 +59,12 @@ inline constexpr std::uint16_t kMsgSpeakerAudio = 0x0013; // s→c the pad's spe
 // last-value-wins server-side like the lightbar. Gated on kCapMic rather than a
 // cap of its own: a mute lamp without a microphone behind it is dead metal.
 inline constexpr std::uint16_t kMsgMicLed = 0x0014;
+// HD haptics (s→c, protocol 3): channels 3/4 of the DualSense's 4-channel OUT
+// stream, the two voice-coil actuators, as their own stereo Opus stream with
+// the speaker's exact shape and cadence and its own seq (left actuator on
+// channel 1). Gated on kCapHapticAudio: a client that never advertises it
+// gets the host's reduction of the same lanes to kMsgRumble instead.
+inline constexpr std::uint16_t kMsgHapticAudio = 0x0015;
 
 // After the 4-byte inner type+len header: backendAvailable(1) +
 // totalActiveControllers(1) + epoch(u16 BE) + activeBitmap(u16 BE).
@@ -122,9 +130,15 @@ inline constexpr int kAudioSampleRateHz = 48000;
 inline constexpr int kAudioFrameMs = 20;
 inline constexpr int kAudioFrameSamples = kAudioSampleRateHz / 1000 * kAudioFrameMs; // per channel
 // Mic is the pad's headset microphone (mono); speaker is channels 1/2 of the
-// DualSense 4-channel OUT stream, its speaker and headset jack (stereo).
+// DualSense 4-channel OUT stream, its speaker and headset jack (stereo);
+// haptics are channels 3/4 of that same stream, carried apart.
 inline constexpr int kAudioMicChannels = 1;
 inline constexpr int kAudioSpeakerChannels = 2;
+inline constexpr int kAudioHapticChannels = 2;
+// The DualSense's own render endpoint: speaker pair then haptic pair. A voice
+// that plays into it writes its lane and leaves the other pair at zero, so two
+// independent streams share one endpoint without either touching the other.
+inline constexpr int kDualSenseEndpointChannels = 4;
 
 // Both audio messages: ctrlIdx(1) + seq(u16 BE) ahead of the Opus bytes.
 inline constexpr int kAudioWireHeaderBytes = 3;
@@ -168,6 +182,11 @@ inline constexpr std::uint16_t kCapPlayerLeds = 0x0020;
 // kMsgSpeakerAudio. Independent directions; neither implies the other.
 inline constexpr std::uint16_t kCapMic = 0x0040;
 inline constexpr std::uint16_t kCapSpeaker = 0x0080;
+// Protocol 3. Advertised only when this client can play the haptic WAVEFORM
+// into the pad's own audio function (a DualSense on USB whose 4-channel render
+// endpoint this machine can name). A client that would only ever reduce it to
+// motor strength leaves this off and lets the host do that.
+inline constexpr std::uint16_t kCapHapticAudio = 0x0100;
 
 // ── Controller types (catalog ids / descriptor `type`) ──────────────────────
 inline constexpr std::uint8_t kControllerTypeXbox = 0;

@@ -45,10 +45,23 @@ inline constexpr std::size_t kMaxOutputReportBytes = 63;
 // not protocol fields the hardware happens to take.
 inline constexpr std::size_t kTriggerEffectBlockBytes = 11;
 
+// The slice of a DualSense report 0x02 that SDL_GameControllerSendEffect
+// takes: the 47 bytes after the report id, SDL's own DS5EffectsState_t (the
+// valid flags at 0 and 1, the mic lamp at 8, the trigger blocks at 10 and 21,
+// the player LEDs at 43, the colour at 44). SDL's HIDAPI PS5 driver puts the
+// id back in front on USB and, on Bluetooth, re-frames the same body as
+// report 0x31 with the CRC that link needs -- which is how one set of builders
+// serves both the Direct claim (the whole report, written raw) and the SDL
+// path (this body, handed to SDL) on either transport. The 15 bytes past the
+// body are the report's reserved tail and carry nothing.
+inline constexpr std::size_t kDs5EffectBodyOffset = 1;
+inline constexpr std::size_t kDs5EffectBodyBytes = 47;
+
 // -- Which families carry which actuator ------------------------------------
-// Only the Direct claim path reaches any of these. SDL exposes rumble and a
-// single LED colour and nothing else, and neither platform's framework layer
-// has a player-LED or trigger-effect API at all.
+// The Direct claim path reaches all of these. The SDL path reaches the
+// DualSense's through SDL_GameControllerSendEffect (kDs5EffectBody* below);
+// neither platform's framework layer has a player-LED or trigger-effect API
+// of its own.
 
 inline bool parserHasLightbar(HidParser p) {
     return p == HidParser::DualShock4 || p == HidParser::DualSense;

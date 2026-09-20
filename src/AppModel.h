@@ -28,6 +28,7 @@
 #include "repository/MotionPreferenceRepository.h"
 #include "core/model/Protocol.h"
 #include "core/reducer/BindingPresence.h"
+#include "core/reducer/BatteryRouting.h"
 #include "core/reducer/FeedbackRouting.h"
 #include "core/reducer/HostAudioVerdict.h"
 #include "core/reducer/PollRateSampler.h"
@@ -210,10 +211,37 @@ class AppModel : public QObject {
     // The pad layer of the controller-audio fold: does this slot have a usable
     // audio route on this machine? One owner with the descriptor caps — both
     // read reducer::slotCarriesMicCapture over feedbackInputs(), so the
-    // capability table and the wire can never disagree. False for every slot
-    // until Wave 2 lands the pad-to-audio-device matching.
+    // capability table and the wire can never disagree. Answers for any USB
+    // pad, Direct or Standard; never for a Bluetooth one.
     bool slotCarriesMicSource(const QString& slotId) const;
     bool slotCarriesSpeakerSink(const QString& slotId) const;
+    // Protocol 3: the speaker sink is the pad's 4-channel endpoint, so the
+    // haptic lanes can be played rather than reduced by the host.
+    bool slotCarriesHapticSink(const QString& slotId) const;
+
+    // Per-slot hardware truth read from the source layer that owns the slot:
+    // the parser family for a synthetic (USB-direct) id, the SDL probe for a
+    // framework id. The bind capability seams and the capability table read
+    // through this so a Direct claim advertises the motion/touchpad it
+    // decodes — and never the rumble/lightbar it cannot drive.
+    struct SlotHardware {
+        bool usbDirect = false;
+        bool hasMotion = false;
+        bool hasLightbar = false;
+        bool hasTouchpad = false;
+        bool hasRumble = false;
+        // Protocol-2 actuators and the DualSense mic lamp. Hardware facts only,
+        // read from the parser family on either path: whether the path can
+        // drive them is the feedback router's answer, not this struct's.
+        bool hasTriggerEffects = false;
+        bool hasPlayerLeds = false;
+        bool hasMicLed = false;
+        // The SDL layer takes this pad's raw effect body
+        // (SDL_GameControllerSendEffect lands), which is the Standard path's
+        // route to the three above. Only ever true for an SDL slot.
+        bool sdlEffects = false;
+    };
+    SlotHardware slotHardware(const QString& slotId) const;
 
     // The host layer for the mic/speaker rows ONLY: the per-session probe's
     // verdict off the connection, conservative {false,false} for an unknown or
@@ -289,6 +317,12 @@ class AppModel : public QObject {
     // Main thread only — it mutates the FSM.
     void pollUsbDirect();
     void onUsbDirectChanged();
+    // The read thread's battery edge, marshalled to the main thread.
+    void onPadBatteryChanged(int vendorId, int productId, std::uint8_t level, std::uint8_t status);
+    // MSG_BATTERY for the Direct slots, on the SDL bridge's 30 s cadence: the
+    // host battery, because a wired pad has no charge of its own to report
+    // (reducer::resolveBattery); the pad's reading stays on the card.
+    void heartbeatDirectBatteries();
     // Diff the SDL device list against the last-seen set and feed framework
     // up/down per VID:PID into the USB FSM, so a claim-failure or Standard pick
     // can settle on the live SDL device.
@@ -323,24 +357,6 @@ class AppModel : public QObject {
     // accounts for the slot — the pad is gone.
     std::optional<std::pair<int, int>> boundPadIdentity(const QString& slotId) const;
 
-    // Per-slot hardware truth read from the source layer that owns the slot:
-    // the parser family for a synthetic (USB-direct) id, the SDL probe for a
-    // framework id. The bind capability seams read through this so a Direct
-    // claim advertises the motion/touchpad it decodes — and never the rumble/
-    // lightbar it cannot drive.
-    struct SlotHardware {
-        bool usbDirect = false;
-        bool hasMotion = false;
-        bool hasLightbar = false;
-        bool hasTouchpad = false;
-        bool hasRumble = false;
-        // Protocol-2 actuators. Hardware facts only: whether the path can drive
-        // them is the feedback router's answer, not this struct's.
-        bool hasTriggerEffects = false;
-        bool hasPlayerLeds = false;
-    };
-    SlotHardware slotHardware(const QString& slotId) const;
-
     // The pad's last reported charge, or kBatteryLevelUnknown. A pad that has
     // never published one has nothing to declare to a Moonlight host.
     std::uint8_t slotBatteryLevel(const QString& slotId) const;
@@ -368,10 +384,10 @@ class AppModel : public QObject {
     // share the FeedbackState shadow, so whichever wrote last owns the lamp.
     void actuateMicLed(const QString& slotId, std::uint8_t state);
 
-    // ── Controller audio (Wave 2 engines) ───────────────────────────────────
+    // ── Controller audio engines ────────────────────────────────────────────
 
-    // Re-run the pad-to-endpoint matcher over the claimed pads and the live
-    // audio device lists; on a change, re-publish the affected bound slots'
+    // Re-run the pad-to-endpoint matcher over every enumerated USB pad and
+    // the live audio device lists; on a change, re-publish the bound slots'
     // descriptors (the caps fold reads the routes) and rebuild.
     void resolveAudioRoutes();
 
@@ -385,8 +401,9 @@ class AppModel : public QObject {
     // capability fns re-run on bind). No-op for an unbound slot.
     void republishSlotCaps(const QString& slotId);
 
-    // The matcher's answer for a synthetic slot's pad, NONE for everything
-    // else. Takes audioRoutesMtx_ — callable from the receive threads via
+    // The matcher's answer for the slot's USB pad (a synthetic's own vid:pid,
+    // or an SDL slot's from the bridge), NONE for a Bluetooth or unknown slot.
+    // Takes audioRoutesMtx_ — callable from the receive threads via
     // feedbackInputs().
     audio::PadAudioRoute audioRouteForSlot(const QString& slotId) const;
 
@@ -540,15 +557,26 @@ class AppModel : public QObject {
             owner_->onUsbNotice(c, n);
         }
 
-        // Fires on the GATEWAY READ THREAD (the one observer call that does);
-        // queued across so the store, the lamp and the engines are touched
-        // only on the main thread.
+        // Fires on the GATEWAY READ THREAD (as does padBatteryChanged); queued
+        // across so the store, the lamp and the engines are touched only on
+        // the main thread.
         void padMicMuteChanged(int vendorId, int productId, bool muted) override {
             AppModel* owner = owner_;
             QMetaObject::invokeMethod(
                 owner,
                 [owner, vendorId, productId, muted] {
                     owner->onPadMicMuteChanged(vendorId, productId, muted);
+                },
+                Qt::QueuedConnection);
+        }
+
+        void padBatteryChanged(int vendorId, int productId, std::uint8_t level,
+                               std::uint8_t status) override {
+            AppModel* owner = owner_;
+            QMetaObject::invokeMethod(
+                owner,
+                [owner, vendorId, productId, level, status] {
+                    owner->onPadBatteryChanged(vendorId, productId, level, status);
                 },
                 Qt::QueuedConnection);
         }
@@ -568,6 +596,13 @@ class AppModel : public QObject {
     // built from. Main-thread-only. A synthetic that leaves Direct is pruned so
     // a reused key can't show a stale rate.
     QHash<int, int> usbPollRateHz_;
+    // A Direct-claimed pad's own charge, decoded from its IN report and
+    // mirrored up on change; the synthetic slot's card reads it. Same key,
+    // same thread, same pruning as usbPollRateHz_.
+    QHash<int, reducer::BatterySample> usbPadBattery_;
+    // When each Direct slot's MSG_BATTERY heartbeat last went out (the SDL
+    // bridge keeps its own clock for its devices). Main-thread-only.
+    QHash<QString, std::chrono::steady_clock::time_point> usbBatterySentAt_;
     // The VID:PIDs seen on the last syncFrameworkPresence pass, so the next can
     // emit FrameworkUp/Down deltas to the FSM. Main-thread-only.
     QSet<int> lastFrameworkVpKeys_;

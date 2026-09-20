@@ -4,6 +4,8 @@
 #include "SDLGamepadBridge.h"
 
 #include "core/input/HidTransport.h"
+#include "core/input/UsbOutputReports.h"
+#include "core/input/UsbReportParsers.h"
 #include "JoystickMapping.h"
 #include "SdlMotionConvert.h"
 #include "Util/HostBattery.h"
@@ -134,6 +136,17 @@ void SDLGamepadBridge::runLoop() {
     // the app ignored SIGTERM entirely and a logout sat through systemd's full
     // 90 s wait before the SIGKILL. Packaging CI is what caught it.
     SDL_SetHint(SDL_HINT_NO_SIGNAL_HANDLERS, "1");
+    // A Sony pad on Bluetooth wakes in its simple report mode, where SDL's
+    // HIDAPI driver sees buttons and sticks and nothing else: no rumble, no
+    // lightbar, no gyro, no touchpad, no effects, and SDL reports none of them
+    // as capabilities either. These hints open the pad in enhanced mode
+    // instead, so a Bluetooth DualSense or DualShock 4 attaches with the same
+    // surfaces as a wired one. The kernel's hid-playstation usually has the
+    // pad there already, so this mostly costs nothing; where it does not, the
+    // cost SDL documents is that the pad stays in that mode until it is
+    // power-cycled.
+    SDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI_PS5_RUMBLE, "1");
+    SDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI_PS4_RUMBLE, "1");
     if (SDL_InitSubSystem(SDL_INIT_GAMECONTROLLER | SDL_INIT_JOYSTICK) != 0) {
         running_.store(false);
         return;
@@ -242,6 +255,7 @@ void SDLGamepadBridge::runLoop() {
                 lastBattery_.erase(iid);
                 touchState_.erase(iid);
             }
+            effectState_.erase(iid);
             if (!deviceId.empty()) { processor_->remove(deviceId); }
             QMetaObject::invokeMethod(this, "devicesChanged", Qt::QueuedConnection);
             break;
@@ -609,6 +623,20 @@ void SDLGamepadBridge::applyLightbar(const QString& deviceId, std::uint8_t r, st
     outputQueue_.push(OutputCommand::lightbar(deviceId, r, g, b));
 }
 
+void SDLGamepadBridge::applyTriggerEffects(
+    const QString& deviceId, const std::array<std::uint8_t, usbout::kTriggerEffectBlockBytes>& left,
+    const std::array<std::uint8_t, usbout::kTriggerEffectBlockBytes>& right) {
+    outputQueue_.push(OutputCommand::triggerEffects(deviceId, left, right));
+}
+
+void SDLGamepadBridge::applyPlayerLeds(const QString& deviceId, std::uint8_t ledMask) {
+    outputQueue_.push(OutputCommand::playerLeds(deviceId, ledMask));
+}
+
+void SDLGamepadBridge::applyMicLed(const QString& deviceId, std::uint8_t state) {
+    outputQueue_.push(OutputCommand::micLed(deviceId, state));
+}
+
 void SDLGamepadBridge::drainOutputCommands() {
     // drain() takes the batch atomically so the receive thread can keep
     // enqueueing while this executes.
@@ -617,26 +645,79 @@ void SDLGamepadBridge::drainOutputCommands() {
         // command was enqueued is absent from openControllers_, so gc stays null
         // and the command is dropped rather than used after close.
         SDL_GameController* gc = nullptr;
+        int iid = -1;
         {
             std::lock_guard<std::mutex> lock(mtx_);
-            for (const auto& [iid, did] : deviceIds_) {
+            for (const auto& [candidate, did] : deviceIds_) {
                 if (did == cmd.deviceId) {
-                    if (auto it = openControllers_.find(iid); it != openControllers_.end()) {
+                    if (auto it = openControllers_.find(candidate); it != openControllers_.end()) {
                         gc = it->second;
+                        iid = candidate;
                     }
                     break;
                 }
             }
         }
         if (gc == nullptr) { continue; }
-        if (cmd.kind == OutputKind::Rumble) {
+        switch (cmd.kind) {
+        case OutputKind::Rumble:
             // Return value ignored: -1 just means the pad has no rumble, and
             // neither the caller nor the satellite-side game has any recourse.
             SDL_GameControllerRumble(gc, cmd.strongMagnitude, cmd.weakMagnitude, cmd.durationMs);
-        } else {
+            break;
+        case OutputKind::Lightbar:
             SDL_GameControllerSetLED(gc, cmd.r, cmd.g, cmd.b);
+            break;
+        case OutputKind::TriggerEffects:
+        case OutputKind::PlayerLeds:
+        case OutputKind::MicLed:
+            sendEffect(gc, iid, cmd);
+            break;
         }
     }
+}
+
+void SDLGamepadBridge::sendEffect(SDL_GameController* gc, int iid, const OutputCommand& cmd) {
+    // The family from the pad's USB identity, which a Bluetooth pad reports
+    // too. The builders answer 0 for any family without the surface, and the
+    // router upstream only sends a DualSense here, so a 0 is a pad that
+    // changed identity under us rather than a wrong report on the wire.
+    usbparse::HidParser parser = usbparse::HidParser::None;
+    {
+        std::lock_guard<std::mutex> lock(mtx_);
+        if (auto it = usbIdentity_.find(iid); it != usbIdentity_.end()) {
+            parser = usbparse::parserForDevice(it->second.vendorId, it->second.productId);
+        }
+    }
+    usbout::FeedbackState& st = effectState_[iid];
+    std::array<std::uint8_t, usbout::kMaxOutputReportBytes> report{};
+    std::size_t n = 0;
+    switch (cmd.kind) {
+    case OutputKind::TriggerEffects:
+        n = usbout::buildTriggerEffectsReport(parser, st, cmd.leftTrigger.data(),
+                                              cmd.rightTrigger.data(), report.data(),
+                                              report.size());
+        break;
+    case OutputKind::PlayerLeds:
+        // The Switch Pro's counter is unused: only the DualSense reaches here.
+        n = usbout::buildPlayerLedsReport(parser, st, cmd.ledMask, /*seq=*/0, report.data(),
+                                          report.size());
+        break;
+    case OutputKind::MicLed:
+        n = usbout::buildMicMuteLedReport(parser, st, cmd.micLedState, report.data(),
+                                          report.size());
+        break;
+    case OutputKind::Rumble:
+    case OutputKind::Lightbar:
+        break;
+    }
+    if (n < usbout::kDs5EffectBodyOffset + usbout::kDs5EffectBodyBytes) { return; }
+    // The body without its report id: SDL's driver frames it for the link
+    // (see kDs5EffectBodyBytes). Return value ignored for the same reason as
+    // rumble's: a refusal is a pad whose driver changed under us, and nothing
+    // downstream has a recourse.
+    SDL_GameControllerSendEffect(gc, report.data() + usbout::kDs5EffectBodyOffset,
+                                 static_cast<int>(usbout::kDs5EffectBodyBytes));
 }
 
 void SDLGamepadBridge::rebuildState(int iid) {

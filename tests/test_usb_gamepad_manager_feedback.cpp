@@ -335,6 +335,11 @@ class MuteObserver : public UsbDirectObserver {
     void padMicMuteChanged(int vendorId, int productId, bool muted) override {
         edges.emplace_back(vendorId, productId, muted);
     }
+    std::vector<std::tuple<int, int, std::uint8_t, std::uint8_t>> batteries;
+    void padBatteryChanged(int vendorId, int productId, std::uint8_t level,
+                           std::uint8_t status) override {
+        batteries.emplace_back(vendorId, productId, level, status);
+    }
 };
 
 } // namespace
@@ -368,4 +373,46 @@ TEST_CASE("the pad's mute latch reaches the observer on the edge only",
     gateway.lastOnReport(report);
     REQUIRE(observer.edges.size() == 2U);
     CHECK_FALSE(std::get<2>(observer.edges[1]));
+}
+
+TEST_CASE("the pad's own charge reaches the observer on change, from the first reading",
+          "[usb][manager][battery]") {
+    // Same edge rule as the mute latch, with one difference: there is no
+    // "initial state" to match, so the first valid reading is itself an edge
+    // and the card fills in at once. A report without the status byte (short)
+    // moves nothing.
+    RecordingGateway gateway;
+    MuteObserver observer;
+    gateway.devices.push_back(device(kSonyVid, kDualSensePid));
+    UsbGamepadManager manager(&gateway, nullptr, nullptr, &observer);
+    manager.reconcile();
+    REQUIRE(gateway.lastOnReport);
+
+    UsbReport report{};
+    gateway.lastOnReport(report); // no battery in this report
+    CHECK(observer.batteries.empty());
+
+    report.batteryValid = true;
+    report.batteryLevel = 75;
+    report.batteryStatus = 2;
+    gateway.lastOnReport(report);
+    gateway.lastOnReport(report); // unchanged: still one edge
+    REQUIRE(observer.batteries.size() == 1U);
+    CHECK(std::get<0>(observer.batteries[0]) == kSonyVid);
+    CHECK(std::get<1>(observer.batteries[0]) == kDualSensePid);
+    CHECK(std::get<2>(observer.batteries[0]) == 75);
+    CHECK(std::get<3>(observer.batteries[0]) == 2);
+
+    report.batteryStatus = 3; // same level, new state: an edge
+    gateway.lastOnReport(report);
+    REQUIRE(observer.batteries.size() == 2U);
+    CHECK(std::get<3>(observer.batteries[1]) == 3);
+
+    // An unknown reading is a reading too (a fault code), and it is mirrored
+    // so the card stops showing a stale number.
+    report.batteryLevel = 0xFF;
+    report.batteryStatus = 0;
+    gateway.lastOnReport(report);
+    REQUIRE(observer.batteries.size() == 3U);
+    CHECK(std::get<2>(observer.batteries[2]) == 0xFF);
 }

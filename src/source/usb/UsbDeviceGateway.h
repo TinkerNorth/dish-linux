@@ -99,6 +99,12 @@ struct UsbReport {
     // exists so the driver can mirror the state up as an edge without
     // re-reading button bits.
     bool micMuted = false;
+
+    // The pad's own charge, where the family's report carries it
+    // (usbparse::kPadBattery*). Mirrored up on change like the mute latch.
+    bool batteryValid = false;
+    std::uint8_t batteryLevel = 0xFF;
+    std::uint8_t batteryStatus = 0;
 };
 
 class UsbDeviceGateway {

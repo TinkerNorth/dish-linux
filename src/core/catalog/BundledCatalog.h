@@ -37,6 +37,16 @@ inline const QString kFeatureTouchpad = QStringLiteral("touchpad");
 // untouched. The capability solver's type layer reads these two directly.
 inline const QString kFeatureMic = QStringLiteral("mic");
 inline const QString kFeatureSpeaker = QStringLiteral("speaker");
+// Protocol 3: the DualSense's HD-haptics lanes. Reads through the same audio
+// gate as the two above; the solver has no row for it, since it rides the
+// speaker toggle and the speaker route's endpoint.
+inline const QString kFeatureHapticAudio = QStringLiteral("hapticAudio");
+// The protocol-2 feedback surfaces a live catalog reports per type. Also
+// outside knownFeatureSlugs(), and deliberately absent from typeFeatureSlugs()
+// below: a satellite old enough to serve no catalog predates the messages
+// that carry them, so the legacy translation must not claim them.
+inline const QString kFeatureTriggerEffects = QStringLiteral("triggerEffects");
+inline const QString kFeaturePlayerLeds = QStringLiteral("playerLeds");
 
 // The `known` whitelist reducer::isFeatureOffered gates on, owned here so every
 // caller passes the same vocabulary instead of re-listing it.
@@ -47,7 +57,12 @@ inline QStringList knownFeatureSlugs() {
 
 // The whitelist for the solver's audio type-layer reads, so the same
 // isFeatureOffered gate serves them without widening the protocol-1 list.
-inline QStringList audioFeatureSlugs() { return {kFeatureMic, kFeatureSpeaker}; }
+inline QStringList audioFeatureSlugs() {
+    return {kFeatureMic, kFeatureSpeaker, kFeatureHapticAudio};
+}
+
+// The same for the solver's feedback type-layer reads.
+inline QStringList feedbackFeatureSlugs() { return {kFeatureTriggerEffects, kFeaturePlayerLeds}; }
 
 // Order is fixed (triggers, rumble, extras) so the list is ==-comparable in tests
 // and downstream snapshots.
@@ -61,9 +76,13 @@ inline QStringList audioFeatureSlugs() { return {kFeatureMic, kFeatureSpeaker}; 
 inline std::optional<QStringList> typeFeatureSlugs(const QString& slug) {
     QStringList base{kFeatureAnalogTriggers, kFeatureRumble};
     if (slug == kSlugXbox360) { return base; }
-    if (slug == kSlugDs4 || slug == kSlugDualSense) {
+    if (slug == kSlugDs4) {
         return base + QStringList{kFeatureMotion, kFeatureTouchpad, kFeatureLightbar, kFeatureMic,
                                   kFeatureSpeaker};
+    }
+    if (slug == kSlugDualSense) {
+        return base + QStringList{kFeatureMotion, kFeatureTouchpad, kFeatureLightbar,
+                                  kFeatureMic,    kFeatureSpeaker,  kFeatureHapticAudio};
     }
     if (slug == kSlugSwitchPro) { return base + QStringList{kFeatureMotion}; }
     return std::nullopt;

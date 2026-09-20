@@ -168,6 +168,8 @@ TEST_CASE("the controller-audio opcodes and caps are the contract's values", "[a
     CHECK(SatelliteClient::kMsgMicLed == 0x0014);
     CHECK(SatelliteClient::kCapMic == 0x0040);
     CHECK(SatelliteClient::kCapSpeaker == 0x0080);
+    CHECK(SatelliteClient::kMsgHapticAudio == 0x0015);
+    CHECK(SatelliteClient::kCapHapticAudio == 0x0100);
     // ...and neither collides with any cap that already existed.
     constexpr std::uint16_t kPrior =
         SatelliteClient::kCapAnalogTriggers | SatelliteClient::kCapRumble |
@@ -176,6 +178,8 @@ TEST_CASE("the controller-audio opcodes and caps are the contract's values", "[a
     CHECK((SatelliteClient::kCapMic & kPrior) == 0);
     CHECK((SatelliteClient::kCapSpeaker & kPrior) == 0);
     CHECK((SatelliteClient::kCapMic & SatelliteClient::kCapSpeaker) == 0);
+    CHECK((SatelliteClient::kCapHapticAudio &
+           (kPrior | SatelliteClient::kCapMic | SatelliteClient::kCapSpeaker)) == 0);
     // The mic-mute state bit satellite-side consumes; pinned so the input
     // layout and this file cannot drift apart.
     CHECK(dish::input::layout::kXusbMicMute == 0x0800);
@@ -196,6 +200,11 @@ TEST_CASE("the audio caps helpers fold only their own bit", "[audio][wire]") {
     CHECK((both & SatelliteClient::kCapSpeaker) != 0);
     const auto micOnly = SatelliteClient::withMicCapability(base, true);
     CHECK((micOnly & SatelliteClient::kCapSpeaker) == 0);
+    // The haptic bit is its own: neither the speaker's nor implied by it.
+    CHECK(SatelliteClient::withHapticAudioCapability(base, false) == base);
+    CHECK(SatelliteClient::withHapticAudioCapability(base, true) ==
+          (base | SatelliteClient::kCapHapticAudio));
+    CHECK((both & SatelliteClient::kCapHapticAudio) == 0);
 }
 
 // ── The 3-byte header ────────────────────────────────────────────────────────
@@ -408,6 +417,39 @@ TEST_CASE("a SPEAKER_AUDIO datagram dispatches to the registered handler", "[aud
     const auto bad = serverPacket(0x0013, audioBody(1, 514, {}), /*counter=*/2);
     SatelliteClientTestAccess::processIncoming(c, bad.data(), bad.size());
     CHECK(calls == 1);
+}
+
+TEST_CASE("a HAPTIC_AUDIO datagram dispatches to its own handler, never the speaker's",
+          "[audio][wire]") {
+    SatelliteClient c;
+    c.setConnectionParams(kToken, key32(0xA5), proto::kProtocolVersion);
+
+    int hapticCalls = 0;
+    int speakerCalls = 0;
+    int gotIdx = -1;
+    std::uint16_t gotSeq = 0;
+    std::vector<std::uint8_t> gotOpus;
+    c.setHapticAudioHandler([&](const SatelliteClient::SpeakerAudioMessage& hm) {
+        hapticCalls++;
+        gotIdx = hm.controllerIndex;
+        gotSeq = hm.seq;
+        gotOpus.assign(hm.opus, hm.opus + hm.opusLen);
+    });
+    c.setSpeakerAudioHandler([&](const SatelliteClient::SpeakerAudioMessage&) { speakerCalls++; });
+
+    const std::vector<std::uint8_t> opus{0xA1, 0xB2, 0xC3};
+    const auto pkt = serverPacket(0x0015, audioBody(2, 7, opus), /*counter=*/1);
+    SatelliteClientTestAccess::processIncoming(c, pkt.data(), pkt.size());
+    REQUIRE(hapticCalls == 1);
+    CHECK(speakerCalls == 0);
+    CHECK(gotIdx == 2);
+    CHECK(gotSeq == 7);
+    CHECK(gotOpus == opus);
+
+    // Same framing floor as the speaker: a header-only frame is malformed.
+    const auto bad = serverPacket(0x0015, audioBody(2, 8, {}), /*counter=*/2);
+    SatelliteClientTestAccess::processIncoming(c, bad.data(), bad.size());
+    CHECK(hapticCalls == 1);
 }
 
 TEST_CASE("a full-size 1500-byte datagram decrypts and dispatches whole", "[audio][wire]") {
