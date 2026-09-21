@@ -87,6 +87,7 @@ set(DISH_TEST_SOURCES
     test_session_reconcile.cpp
     test_satellite_link_state.cpp
     test_connection_rows.cpp
+    test_link_tier.cpp
     test_carried_pads.cpp
     test_resend_pacer.cpp
     test_late_slot_converge.cpp
@@ -123,6 +124,7 @@ set(DISH_TEST_SOURCES
     test_latency_window.cpp
     test_slot_live_stats.cpp
     test_motion_indicator_state.cpp
+    test_mic_indicator_state.cpp
     test_freedesktop_wake_inhibitor.cpp
     test_satellite_client_rumble.cpp
     test_satellite_client_motion.cpp

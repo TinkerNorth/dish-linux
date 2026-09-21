@@ -38,6 +38,10 @@ Kit.Page {
     // The host whose overflow menu is open, mirrored as plain values so nothing
     // reads a property off a delegate that may already be recycled.
     property string currentConnectionId: ""
+
+    // The rank and protocol words, shared with the wizard and the Moonlight
+    // page so the same token reads the same everywhere.
+    LinkVocabulary { id: linkVocab }
     property string currentLabel: ""
 
     // The shell owns the detail stack the Moonlight inventory is pushed onto.
@@ -192,6 +196,11 @@ Kit.Page {
                         Layout.alignment: Qt.AlignVCenter
                     }
                     Kit.CapabilityChip {
+                        text: linkVocab.tierText(foundRow.modelData.tier)
+                        tone: linkVocab.tierTone(foundRow.modelData.tier)
+                        Layout.alignment: Qt.AlignVCenter
+                    }
+                    Kit.CapabilityChip {
                         text: qsTr("Found")
                         tone: Kit.CapabilityChip.Neutral
                         Layout.alignment: Qt.AlignVCenter
@@ -256,6 +265,8 @@ Kit.Page {
                 required property bool liveLink
                 required property string latencyText
                 required property int latencySamples
+                required property string tier
+                required property string compat
 
                 readonly property bool needsPairing: chip === "needsPairing"
                 readonly property bool connecting: linkState === "connecting"
@@ -268,7 +279,10 @@ Kit.Page {
 
                 Accessible.role: Accessible.ListItem
                 Accessible.name: qsTr("%1, %2").arg(host.label).arg(page.chipText(host.chip))
+                                 + " · " + linkVocab.tierText(host.tier)
                                  + (host.showLatency ? " · " + host.latencyText : "")
+                                 + (linkVocab.compatText(host.compat).length > 0
+                                    ? " · " + linkVocab.compatText(host.compat) : "")
 
                 contentItem: ColumnLayout {
                     spacing: Tokens.s5
@@ -310,6 +324,21 @@ Kit.Page {
                             live: true
                             text: qsTr("%1 · last %2 pings")
                                       .arg(host.latencyText).arg(host.latencySamples)
+                            Layout.alignment: Qt.AlignVCenter
+                        }
+                        // The rank cue and, when the negotiation said so,
+                        // the protocol chip: soft for a satellite that still
+                        // works at an older version, red when a side must
+                        // update. Nothing for current or never-negotiated.
+                        Kit.CapabilityChip {
+                            text: linkVocab.tierText(host.tier)
+                            tone: linkVocab.tierTone(host.tier)
+                            Layout.alignment: Qt.AlignVCenter
+                        }
+                        Kit.CapabilityChip {
+                            visible: text.length > 0
+                            text: linkVocab.compatText(host.compat)
+                            tone: linkVocab.compatTone(host.compat)
                             Layout.alignment: Qt.AlignVCenter
                         }
                         Kit.CapabilityChip {
