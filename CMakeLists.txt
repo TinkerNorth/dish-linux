@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.21)
 project(Dish
-    VERSION 2.0.0
+    VERSION 2.1.0
     DESCRIPTION "Dish Linux client for the Satellite gamepad-over-LAN protocol"
     # C for the vendored ENet fork (third_party/enet), the transport under the
     # Moonlight-host control stream.

@@ -16,7 +16,7 @@ the repos share a version number.
 
 ---
 
-## [Unreleased]
+## [2.1.0] - 2026-09-21
 
 ### Added
 
@@ -60,9 +60,6 @@ the repos share a version number.
   and a protocol-3 host reduces the lanes to motor strength for it. The haptic
   lane rides the speaker toggle and the host's own haptics switch. Older hosts
   never send the stream, and this client still settles on their version.
-
-### Changed
-
 - **Adaptive triggers, player LEDs and the mic lamp on the Standard path.**
   A DualSense left on the Standard (SDL) path, or attached over Bluetooth,
   now takes `MSG_TRIGGER_EFFECTS`, `MSG_PLAYER_LEDS` and `MSG_MIC_LED` like a
