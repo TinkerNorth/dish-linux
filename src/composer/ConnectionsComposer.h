@@ -11,6 +11,8 @@
 #include "architecture/Composer.h"
 #include "architecture/Observable.h"
 #include "core/reducer/ConnectionRows.h"
+#include "core/reducer/LinkTier.h"
+#include "core/reducer/ProtocolNegotiation.h"
 #include "core/reducer/SatelliteLinkState.h"
 
 #include <cstdint>
@@ -31,11 +33,13 @@ struct SessionSnapshot {
     // poll — so exact == here keys distinct-until-changed on display moves.
     double latencyOneWayMs = 0.0;
     int latencySamples = 0;
+    // What the last session negotiation said about this satellite's version.
+    reducer::ProtocolCompat compat = reducer::ProtocolCompat::Unknown;
 
     bool operator==(const SessionSnapshot& o) const {
         return id == o.id && presence == o.presence && name == o.name && ip == o.ip &&
                udpPort == o.udpPort && latencyOneWayMs == o.latencyOneWayMs &&
-               latencySamples == o.latencySamples;
+               latencySamples == o.latencySamples && compat == o.compat;
     }
     bool operator!=(const SessionSnapshot& o) const { return !(*this == o); }
 };
@@ -74,13 +78,17 @@ struct ConnectionRow {
     // 0 / 0 for a remembered-only row.
     double latencyOneWayMs = 0.0;
     int latencySamples = 0;
+    // The link-tier cue (LinkTier.h), from the kind.
+    reducer::LinkTier tier = reducer::LinkTier::Fastest;
+    // The protocol chip; Unknown for a remembered-only row (nothing negotiated).
+    reducer::ProtocolCompat compat = reducer::ProtocolCompat::Unknown;
 
     bool operator==(const ConnectionRow& o) const {
         return id == o.id && label == o.label && live == o.live && kind == o.kind &&
                detailKey == o.detailKey && ip == o.ip && udpPort == o.udpPort &&
                boundSlotId == o.boundSlotId && glyph == o.glyph && dotColor == o.dotColor &&
                chip == o.chip && latencyOneWayMs == o.latencyOneWayMs &&
-               latencySamples == o.latencySamples;
+               latencySamples == o.latencySamples && tier == o.tier && compat == o.compat;
     }
     bool operator!=(const ConnectionRow& o) const { return !(*this == o); }
 };

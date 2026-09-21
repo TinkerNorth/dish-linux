@@ -207,6 +207,11 @@ Kit.Page {
                             elide: Text.ElideRight
                             Layout.alignment: Qt.AlignVCenter
                         }
+                        Kit.CapabilityChip {
+                            text: linkVocab.tierText(host.modelData.tier)
+                            tone: linkVocab.tierTone(host.modelData.tier)
+                            Layout.alignment: Qt.AlignVCenter
+                        }
                         // Trust, not liveness. Three words, and never a dot.
                         Kit.CapabilityChip {
                             text: page.trustText(host.trust)
@@ -593,6 +598,9 @@ Kit.Page {
             return qsTr("Check that the code went into the right host, then try again.");
         }
     }
+
+    // The rank words, shared with the Connections page and the wizard.
+    LinkVocabulary { id: linkVocab }
 
     function trustText(token) {
         switch (token) {

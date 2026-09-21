@@ -84,6 +84,7 @@ void ConnectionCoordinator::refreshSessions() {
         // distinct-until-changed on visible moves only.
         s.latencyOneWayMs = conn->latencyOneWayMs();
         s.latencySamples = conn->latencySamples();
+        s.compat = conn->protocolCompat();
         next.push_back(std::move(s));
         // Mark the id stale too, so a remembered row at the same id keeps
         // reading "Needs pairing" after the live row is gone.

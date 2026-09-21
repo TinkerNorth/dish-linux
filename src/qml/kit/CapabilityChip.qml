@@ -10,7 +10,9 @@ import Dish.Chrome
 Rectangle {
     id: chip
 
-    enum Tone { Present, Absent, Low, Ok, Warn, Neutral }
+    // Error is for a state that blocks (a session that cannot open), never for
+    // a warning: the app reserves that colour for what demands attention.
+    enum Tone { Present, Absent, Low, Ok, Warn, Neutral, Error }
 
     property string text: ""
     property int tone: CapabilityChip.Present
@@ -24,6 +26,7 @@ Rectangle {
          : chip.tone === CapabilityChip.Ok ? Theme.successFill
          : chip.tone === CapabilityChip.Warn ? Theme.warningFill
          : chip.tone === CapabilityChip.Neutral ? Theme.surfaceDim
+         : chip.tone === CapabilityChip.Error ? Theme.errorFill
          : Theme.primaryFill
 
     // Only the absent tone carries a border; a 1px transparent border would cut
@@ -45,6 +48,7 @@ Rectangle {
              : chip.tone === CapabilityChip.Ok ? Theme.success
              : chip.tone === CapabilityChip.Warn ? Theme.warning
              : chip.tone === CapabilityChip.Neutral ? Theme.mutedStrong
+             : chip.tone === CapabilityChip.Error ? Theme.error
              : Theme.primary
     }
 }

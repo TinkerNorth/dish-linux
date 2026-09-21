@@ -72,6 +72,22 @@
         <translation>Configure keep-awake</translation>
     </message>
     <message>
+        <source>Microphone is live. Click to mute it.</source>
+        <translation>Microphone is live. Click to mute it.</translation>
+    </message>
+    <message>
+        <source>Microphone muted. Click to unmute it.</source>
+        <translation>Microphone muted. Click to unmute it.</translation>
+    </message>
+    <message>
+        <source>Mic live</source>
+        <translation>Mic live</translation>
+    </message>
+    <message>
+        <source>Mic muted</source>
+        <translation>Mic muted</translation>
+    </message>
+    <message>
         <source>Update available: Dish %1. See Settings for the release.</source>
         <translation>Update available: Dish %1. See Settings for the release.</translation>
     </message>
@@ -306,8 +322,8 @@
 <context>
     <name>CapabilityTable</name>
     <message>
-        <source>Available</source>
-        <translation>Available</translation>
+        <source>Supported</source>
+        <translation>Supported</translation>
     </message>
     <message>
         <source>Unavailable</source>
@@ -2661,6 +2677,33 @@
     <message>
         <source>Dish %1 · TinkerNorth · LGPL-3.0</source>
         <translation>Dish %1 · TinkerNorth · LGPL-3.0</translation>
+    </message>
+</context>
+<context>
+    <name>LinkVocabulary</name>
+    <message>
+        <source>Fastest</source>
+        <translation>Fastest</translation>
+    </message>
+    <message>
+        <source>Fast</source>
+        <translation>Fast</translation>
+    </message>
+    <message>
+        <source>Basic</source>
+        <translation>Basic</translation>
+    </message>
+    <message>
+        <source>Satellite update recommended</source>
+        <translation>Satellite update recommended</translation>
+    </message>
+    <message>
+        <source>Satellite update required</source>
+        <translation>Satellite update required</translation>
+    </message>
+    <message>
+        <source>Dish update required</source>
+        <translation>Dish update required</translation>
     </message>
 </context>
 <context>

@@ -31,6 +31,7 @@
 #include "core/reducer/BatteryRouting.h"
 #include "core/reducer/FeedbackRouting.h"
 #include "core/reducer/HostAudioVerdict.h"
+#include "core/reducer/MicIndicatorState.h"
 #include "core/reducer/PollRateSampler.h"
 #include "core/audio/PadAudioMatcher.h"
 #include "source/audio/MicCaptureEngine.h"
@@ -148,6 +149,16 @@ class AppModel : public QObject {
     // UI keeps showing this local truth — and re-runs the engine reconcile.
     void setSlotMicMuted(const QString& slotId, bool muted);
     void toggleSlotMicMute(const QString& slotId);
+    // The app-wide microphone surface (the shell header's chip, on every page):
+    // one state folded over every bound slot's audio facts, derived inside
+    // reconcileAudioEngines so it can never disagree with the capture engine.
+    // Read after stateChanged.
+    reducer::MicIndicatorState micIndicator() const { return micIndicator_; }
+    // Mute every armed slot, or unmute every armed slot, whichever the state
+    // says (Live mutes, Muted unmutes). A no-op with nothing armed. Each slot
+    // goes through setSlotMicMuted, so the wire latch, the pad's lamp and the
+    // engine reconcile all follow, exactly as a click on the slot card would.
+    void toggleAllMics();
     source::JoystickRemapStore* joystickRemapStore() { return &joystickRemapStore_; }
 
     // The stored override if any, else the default layout.
@@ -504,6 +515,12 @@ class AppModel : public QObject {
     source::MicEnabledStore micEnabledStore_{&micPrefRepo_};
     source::SpeakerEnabledStore speakerEnabledStore_{&speakerPrefRepo_};
     source::MicMuteStore micMuteStore_;
+    // Derived in reconcileAudioEngines: the fold behind micIndicator() and the
+    // slots toggleAllMics() acts on. Armed = every fact but mute; capturing =
+    // armed and unmuted, which is the engine's own eligibility.
+    reducer::MicIndicatorState micIndicator_ = reducer::MicIndicatorState::Hidden;
+    std::vector<std::string> armedMicSlotIds_;
+    int capturingMicSlots_ = 0;
 
     // Declaration order: the gateway must outlive the engines that borrow it
     // (members destroy in reverse order, so it is declared first). The gateway

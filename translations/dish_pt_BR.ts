@@ -72,6 +72,22 @@
         <translation>Configurar a opção de manter ativo</translation>
     </message>
     <message>
+        <source>Microphone is live. Click to mute it.</source>
+        <translation>O microfone está ativo. Clique para silenciar.</translation>
+    </message>
+    <message>
+        <source>Microphone muted. Click to unmute it.</source>
+        <translation>Microfone mudo. Clique para reativar.</translation>
+    </message>
+    <message>
+        <source>Mic live</source>
+        <translation>Microfone ativo</translation>
+    </message>
+    <message>
+        <source>Mic muted</source>
+        <translation>Microfone mudo</translation>
+    </message>
+    <message>
         <source>Update available: Dish %1. See Settings for the release.</source>
         <translation>Atualização disponível: Dish %1. Veja a versão em Configurações.</translation>
     </message>
@@ -306,8 +322,8 @@
 <context>
     <name>CapabilityTable</name>
     <message>
-        <source>Available</source>
-        <translation>Disponível</translation>
+        <source>Supported</source>
+        <translation>Suportado</translation>
     </message>
     <message>
         <source>Unavailable</source>
@@ -2661,6 +2677,33 @@
     <message>
         <source>Dish %1 · TinkerNorth · LGPL-3.0</source>
         <translation>Dish %1 · TinkerNorth · LGPL-3.0</translation>
+    </message>
+</context>
+<context>
+    <name>LinkVocabulary</name>
+    <message>
+        <source>Fastest</source>
+        <translation>Mais rápida</translation>
+    </message>
+    <message>
+        <source>Fast</source>
+        <translation>Rápida</translation>
+    </message>
+    <message>
+        <source>Basic</source>
+        <translation>Básica</translation>
+    </message>
+    <message>
+        <source>Satellite update recommended</source>
+        <translation>Atualização do Satellite recomendada</translation>
+    </message>
+    <message>
+        <source>Satellite update required</source>
+        <translation>Atualização do Satellite obrigatória</translation>
+    </message>
+    <message>
+        <source>Dish update required</source>
+        <translation>Atualização do Dish obrigatória</translation>
     </message>
 </context>
 <context>

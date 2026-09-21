@@ -13,6 +13,10 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+using dish::reducer::compatForOutcome;
+using dish::reducer::ProtocolCompat;
+using dish::reducer::protocolCompatBlocks;
+using dish::reducer::ProtocolOutcome;
 using dish::reducer::ProtocolVerdict;
 using dish::reducer::protocolVerdictTerminal;
 using dish::reducer::settleAccepted;
@@ -122,4 +126,50 @@ TEST_CASE("a 409 with no usable bounds picks no side", "[protocol][negotiation]"
 
 TEST_CASE("a settled verdict is never terminal", "[protocol][negotiation]") {
     CHECK_FALSE(protocolVerdictTerminal(ProtocolVerdict::Settled));
+}
+
+// ── The compat chip ──────────────────────────────────────────────────────────
+// The same five states dish-android's DishProtocol.Compat draws, keyed here on
+// the negotiation rather than an advertised number: red only when the session
+// cannot open, amber when it opened on an older version, nothing otherwise.
+
+TEST_CASE("compat: a session settled at this build's version is Current", "[protocol][compat]") {
+    CHECK(compatForOutcome(settleAccepted(proto::kProtocolVersion)) == ProtocolCompat::Current);
+    // A satellite that echoes above us settled on our version too.
+    CHECK(compatForOutcome(settleAccepted(proto::kProtocolVersion + 1)) == ProtocolCompat::Current);
+}
+
+TEST_CASE("compat: a session settled below this build is the soft satellite hint",
+          "[protocol][compat]") {
+    const auto c = compatForOutcome(settleAccepted(proto::kProtocolVersionMin));
+    CHECK(c == ProtocolCompat::SatelliteUpdateAvailable);
+    CHECK_FALSE(protocolCompatBlocks(c));
+}
+
+TEST_CASE("compat: a 409 whose floor is above us is Dish update required", "[protocol][compat]") {
+    const auto c =
+        compatForOutcome(settleRejected(proto::kProtocolVersion + 2, proto::kProtocolVersion + 1));
+    CHECK(c == ProtocolCompat::DishUpdateRequired);
+    CHECK(protocolCompatBlocks(c));
+}
+
+TEST_CASE("compat: a 409 whose ceiling is below our floor is Satellite update required",
+          "[protocol][compat]") {
+    // Only reachable once kProtocolVersionMin > 1; build the outcome directly so
+    // the mapping is pinned regardless of the floor this build ships.
+    ProtocolOutcome out;
+    out.verdict = ProtocolVerdict::UpdateSatellite;
+    const auto c = compatForOutcome(out);
+    CHECK(c == ProtocolCompat::SatelliteUpdateRequired);
+    CHECK(protocolCompatBlocks(c));
+}
+
+TEST_CASE("compat: a retry and an unreadable 409 both say nothing yet", "[protocol][compat]") {
+    // Overlapping ranges: the re-offer decides one round trip later.
+    CHECK(compatForOutcome(settleRejected(proto::kProtocolVersionMin,
+                                          proto::kProtocolVersionMin)) == ProtocolCompat::Unknown);
+    // No usable bounds: the chip must not pick a side the wire did not name.
+    CHECK(compatForOutcome(settleRejected(0, 0)) == ProtocolCompat::Unknown);
+    CHECK_FALSE(protocolCompatBlocks(ProtocolCompat::Unknown));
+    CHECK_FALSE(protocolCompatBlocks(ProtocolCompat::Current));
 }

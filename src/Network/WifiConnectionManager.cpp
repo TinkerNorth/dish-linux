@@ -670,6 +670,9 @@ void WifiConnectionManager::openSession(WifiConnection* conn,
                     scheduleRetry(server, intent, resp.failure);
                     return;
                 }
+                // The row keeps saying which end must update after the attempt
+                // is torn down; an unreadable 409 leaves the chip alone.
+                conn->setProtocolCompat(reducer::compatForOutcome(negotiated));
                 conn->markDisconnected();
                 emitErrorIfUserInitiated(intent, versionMsgFor(negotiated.verdict));
                 return;
@@ -726,6 +729,7 @@ void WifiConnectionManager::openSession(WifiConnection* conn,
             // shape follows the echo.
             const auto negotiated = reducer::settleAccepted(resp.protocolVersion);
             conn->setSettledProtocolVersion(negotiated.settledVersion, negotiated.satelliteBehind);
+            conn->setProtocolCompat(reducer::compatForOutcome(negotiated));
             client->setConnectionParams(token, sessionKey, negotiated.settledVersion);
             store_->remember(server);
             retryAttempts_.remove(id);
@@ -867,6 +871,7 @@ void WifiConnectionManager::rekey(WifiConnection* conn, const models::Discovered
             // it just gave, not the one it gave at connect.
             const auto negotiated = reducer::settleAccepted(resp.protocolVersion);
             c->setSettledProtocolVersion(negotiated.settledVersion, negotiated.satelliteBehind);
+            c->setProtocolCompat(reducer::compatForOutcome(negotiated));
             client->setConnectionParams(token, sessionKey, negotiated.settledVersion);
             // Otherwise the next enriched ack would read as drift.
             c->adoptEpoch(resp.epoch);

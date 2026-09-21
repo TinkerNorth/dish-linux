@@ -110,4 +110,53 @@ inline bool protocolVerdictTerminal(ProtocolVerdict v) {
            v == ProtocolVerdict::Unusable;
 }
 
+// The compatibility chip a host row carries, the same five states as
+// dish-android's DishProtocol.Compat, so the two clients say the same thing
+// about the same satellite:
+//
+//   Unknown                   nothing negotiated yet (this client learns a
+//                             satellite's version from the session PUT; there
+//                             is no earlier probe), or a 409 nobody could read
+//   Current                   the session speaks this build's version
+//   SatelliteUpdateAvailable  the link works, the satellite is older: the soft
+//                             amber "update for the newest features" hint
+//   SatelliteUpdateRequired   the satellite's ceiling is below our floor: red
+//   DishUpdateRequired        the satellite's floor is above our ceiling: red
+//
+// Unlike a chip keyed on the satellite's ADVERTISED version, a newer satellite
+// that still accepts this build reads Current here: the negotiation settled,
+// so nothing is required of the user. Red is reserved for a session that
+// cannot open.
+enum class ProtocolCompat : std::uint8_t {
+    Unknown,
+    Current,
+    SatelliteUpdateAvailable,
+    SatelliteUpdateRequired,
+    DishUpdateRequired,
+};
+
+inline ProtocolCompat compatForOutcome(const ProtocolOutcome& out) {
+    switch (out.verdict) {
+    case ProtocolVerdict::Settled:
+        return out.satelliteBehind ? ProtocolCompat::SatelliteUpdateAvailable
+                                   : ProtocolCompat::Current;
+    case ProtocolVerdict::UpdateDish:
+        return ProtocolCompat::DishUpdateRequired;
+    case ProtocolVerdict::UpdateSatellite:
+        return ProtocolCompat::SatelliteUpdateRequired;
+    // Not settled yet: the re-offer decides, one round trip later.
+    case ProtocolVerdict::RetryLower:
+    // Neither end can be blamed from the wire, and the chip must not guess.
+    case ProtocolVerdict::Unusable:
+    default:
+        return ProtocolCompat::Unknown;
+    }
+}
+
+// The soft chip is a hint; the two Required states mean the session cannot
+// open at all.
+inline bool protocolCompatBlocks(ProtocolCompat c) {
+    return c == ProtocolCompat::SatelliteUpdateRequired || c == ProtocolCompat::DishUpdateRequired;
+}
+
 } // namespace dish::reducer

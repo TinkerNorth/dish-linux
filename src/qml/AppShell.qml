@@ -576,6 +576,52 @@ Item {
                             shell.selectDestination(4);
                         })
                     }
+                    // The app-wide microphone chip: the shell's, like the
+                    // streaming pill, so it reads the same on every page and
+                    // shows ONE state for the whole machine. Hidden with no
+                    // armed microphone; a click mutes every armed slot or
+                    // unmutes every armed slot, whichever the state says. Live
+                    // wears the error tone: the one colour this app reserves
+                    // for what demands attention, and an open microphone is
+                    // exactly that. Muted stays visible but calm, so the mic
+                    // can still be found and the mute undone.
+                    AbstractButton {
+                        id: micChip
+                        readonly property bool live: App.micIndicator === "live"
+                        visible: App.micIndicator !== "hidden"
+                        implicitWidth: micChipText.implicitWidth + Tokens.s8
+                        implicitHeight: micChipText.implicitHeight + Tokens.s3
+                        hoverEnabled: true
+                        focusPolicy: Qt.StrongFocus
+                        Layout.alignment: Qt.AlignVCenter
+
+                        Accessible.role: Accessible.Button
+                        Accessible.name: micChip.live
+                                         ? qsTr("Microphone is live. Click to mute it.")
+                                         : qsTr("Microphone muted. Click to unmute it.")
+
+                        onClicked: App.toggleAllMics()
+
+                        background: Rectangle {
+                            radius: Tokens.radiusChip
+                            color: micChip.live ? Theme.errorFill : Theme.surfaceDim
+                            border.width: micChip.visualFocus ? 2 : 1
+                            border.color: micChip.visualFocus ? Theme.focusRing : Theme.outline
+
+                            HoverHandler { cursorShape: Qt.PointingHandCursor }
+                        }
+                        contentItem: Text {
+                            id: micChipText
+                            text: micChip.live ? qsTr("Mic live") : qsTr("Mic muted")
+                            font.family: Tokens.monoFamily
+                            font.pixelSize: Tokens.textChip
+                            font.letterSpacing: Tokens.sectionLetterSpacing
+                            font.capitalization: Font.AllUppercase
+                            color: micChip.live ? Theme.error : Theme.mutedStrong
+                            horizontalAlignment: Text.AlignHCenter
+                            verticalAlignment: Text.AlignVCenter
+                        }
+                    }
                     Item { Layout.fillWidth: true }
 
                     UpdatePill {

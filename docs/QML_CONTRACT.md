@@ -63,6 +63,7 @@ It adds no behaviour of its own.
 | `firstOnlineName` | `string` | `stateChanged` | Label of the first `Connected` connection; empty when none. |
 | `foundCount` | `int` | `discoveredChanged` | Size of the FOUND list, after the one-spot exclusion below. |
 | `keepAwakeReach` | `string` | `stateChanged` | How far the hold currently reaches: `off`, `system` (the machine only), `display` (machine and screen). Derived by `composer::WakeStateComposer` from the preferences, the streaming count and controller activity, so it reports what is actually being asked for. Drives the streaming pill's suffix and the quit confirm's body. |
+| `micIndicator` | `string` | `stateChanged` | The app-wide microphone chip: `hidden` (no bound pad has an armed mic), `live` (at least one armed mic is delivering), `muted` (armed, and every armed mic is muted). Folded by `core/reducer/MicIndicatorState.h` from the same `AudioSlotFacts` the capture engine reads, so it cannot disagree with the engine. The shell renders it beside the streaming pill on every page. |
 | `busy` | `bool` | `stateChanged` | A controller is registering. |
 
 Header sub-lines are assembled in QML from these primitives, so the wording
@@ -93,7 +94,7 @@ moc strips it.
 
 | Property | Type | NOTIFY | Meaning |
 |---|---|---|---|
-| `discoveredServers` | `list` | `discoveredChanged` | The FOUND list, as JS objects `{ name, ip, udpPort, pairPort, httpPort, machineId, source, id }`. `source` is the discovery-source label ("UDP broadcast", "mDNS", "mDNS + broadcast"). |
+| `discoveredServers` | `list` | `discoveredChanged` | The FOUND list, as JS objects `{ name, ip, udpPort, pairPort, httpPort, machineId, source, id, tier }`. `source` is the discovery-source label ("UDP broadcast", "mDNS", "mDNS + broadcast"). |
 | `scanning` | `bool` | `scanningChanged` | A discovery scan is in flight. Gate the Scan button on it. |
 | `pairingActive` | `bool` | `stateChanged` | The model parked a pairing target. Open the pairing sheet on the rising edge, and call `clearPairingTarget()` before showing it. |
 | `pairingServerName` | `string` | `stateChanged` | Display name of the parked target; empty when `!pairingActive`. |
@@ -227,6 +228,7 @@ because the slot-keyed reads vend nothing before a binding exists.
 | `startDiscovery()` | | Begin a satellite discovery scan. |
 | `isScanning()` | → `bool` | Point-in-time scan flag. Prefer the reactive `scanning` property for bindings. |
 | `discoveredServers()` | → `list` | The FOUND list as an explicit re-pull. Prefer the reactive property. |
+| `toggleAllMics()` | | The mic chip's click: mutes every armed slot when `micIndicator` is `live`, unmutes every armed slot when it is `muted`, a no-op when `hidden`. All-or-nothing, like the chip's one state; each slot goes through the same door as `toggleSlotMicMute`. |
 | `discoverySourceFor(serverId)` | `string` → `string` | The discovery-source label, addressable by id. |
 | `connectByServerId(serverId)` | `string` | Connect to the discovered server with that stable id. Resolved out of the live list, so it cannot act on a stale index; a no-op when not found. |
 | `reconnectConnection(connectionId)` | `string` | Reconnect a **remembered** satellite without a rescan and without re-pairing; the key persists. If the id is in the current scan it connects the fresh endpoint, otherwise it kicks a discovery relearn and tries the last-known endpoint now. Gate on the row **not** being `liveLink`. |
@@ -510,6 +512,8 @@ Same minimal-signal behaviour as the slot model.
 | `liveLink` | `bool` | The link is actively streaming (`Connected` or `Unstable`). **Gates the per-row buttons**: enable `disconnectConnection` only when `liveLink`, and `reconnectConnection` only when not. |
 | `latencyText` | `string` | Pre-formatted one-way latency, for example `"~3.4 ms"`. Median heartbeat RTT halved, over a sliding 64-ping window, refreshed about 1 Hz. `""` until a live session has samples, and `"<1 ms"` below the millisecond, never `"~0.0 ms"`. |
 | `latencySamples` | `int` | RTT samples in the window, 0 to 64. Gate the latency caption on `linkState === "connected" && latencySamples > 0`. |
+| `tier` | `string` | The link-tier token, `fastest` for every satellite row (`core/reducer/LinkTier.h`). Resolve the word and tone through `LinkVocabulary.tierText/tierTone`. |
+| `compat` | `string` | The protocol chip token from the last session negotiation: `unknown` (never negotiated), `current` (settled at this build's version), `satelliteUpdateAvailable` (works at an older protocol, amber), `satelliteUpdateRequired` / `dishUpdateRequired` (the ranges do not overlap, red). `unknown` and `current` render no chip; resolve the rest through `LinkVocabulary.compatText/compatTone`. |
 
 The token vocabularies above are produced by
 [`RenderTokens.h`](../src/qml/RenderTokens.h), one switch per enum, shared by

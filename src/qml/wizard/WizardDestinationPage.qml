@@ -146,6 +146,10 @@ ColumnLayout {
         return parts.join(" · ");
     }
 
+    // The rank and protocol words, shared with the Connections and Moonlight
+    // pages so the same token reads the same everywhere.
+    LinkVocabulary { id: linkVocab }
+
     function trustText(token) {
         switch (token) {
         case "paired":     return qsTr("Paired");
@@ -250,6 +254,8 @@ ColumnLayout {
             required property string ip
             required property string chip
             required property string dotColor
+            required property string tier
+            required property string compat
 
             readonly property bool needsPin: rememberedRow.chip === "needsPairing"
                                              || rememberedRow.chip === "found"
@@ -264,6 +270,21 @@ ColumnLayout {
 
             onPicked: page.pick(rememberedRow.connectionId, rememberedRow.label,
                                 rememberedRow.needsPin)
+
+            // The rank cue, and the protocol chip when the last negotiation
+            // had something to say about this satellite.
+            Row {
+                spacing: Tokens.s2
+                Kit.CapabilityChip {
+                    text: linkVocab.tierText(rememberedRow.tier)
+                    tone: linkVocab.tierTone(rememberedRow.tier)
+                }
+                Kit.CapabilityChip {
+                    visible: text.length > 0
+                    text: linkVocab.compatText(rememberedRow.compat)
+                    tone: linkVocab.compatTone(rememberedRow.compat)
+                }
+            }
         }
     }
 
@@ -286,6 +307,11 @@ ColumnLayout {
             chipTone: Kit.CapabilityChip.Warn
 
             onPicked: page.pick(foundRow.modelData.id, foundRow.modelData.name, true)
+
+            Kit.CapabilityChip {
+                text: linkVocab.tierText(foundRow.modelData.tier)
+                tone: linkVocab.tierTone(foundRow.modelData.tier)
+            }
         }
     }
 
@@ -331,6 +357,11 @@ ColumnLayout {
             chipTone: page.trustTone(moonRow.modelData.trust)
 
             onPicked: page.pickMoonlight(moonRow.modelData.uuid, moonRow.modelData.name)
+
+            Kit.CapabilityChip {
+                text: linkVocab.tierText(moonRow.modelData.tier)
+                tone: linkVocab.tierTone(moonRow.modelData.tier)
+            }
         }
     }
 

@@ -85,8 +85,10 @@ QVariant roleOf(const ConnectionListModel& model, int row, int role) {
 TEST_CASE("ConnectionListModel: roleNames covers every Roles enumerator", "[connmodel][roles]") {
     ConnectionListModel model;
     const auto names = model.roleNames();
-    REQUIRE(names.size() == 12);
+    REQUIRE(names.size() == 14);
     REQUIRE(names.value(ConnectionListModel::IdRole) == QByteArray("connectionId"));
+    REQUIRE(names.value(ConnectionListModel::TierRole) == QByteArray("tier"));
+    REQUIRE(names.value(ConnectionListModel::CompatRole) == QByteArray("compat"));
     REQUIRE(names.value(ConnectionListModel::ChipRole) == QByteArray("chip"));
     REQUIRE(names.value(ConnectionListModel::LiveLinkRole) == QByteArray("liveLink"));
     REQUIRE(names.value(ConnectionListModel::LatencyTextRole) == QByteArray("latencyText"));
@@ -208,4 +210,37 @@ TEST_CASE("ConnectionListModel: countChanged fires on a row-count delta, not a s
     model.setRows({patched});
     REQUIRE(countEmissions == 2);
     REQUIRE(model.count() == 1);
+}
+
+TEST_CASE("ConnectionListModel: tier and compat vend their tokens", "[connmodel][data]") {
+    ConnectionListModel model;
+    auto row = connectedRow();
+    row.tier = rd::LinkTier::Fastest;
+    row.compat = rd::ProtocolCompat::SatelliteUpdateAvailable;
+    auto saved = savedRow();
+    saved.compat = rd::ProtocolCompat::Unknown;
+    model.setRows({row, saved});
+
+    CHECK(roleOf(model, 0, ConnectionListModel::TierRole).toString() == "fastest");
+    CHECK(roleOf(model, 0, ConnectionListModel::CompatRole).toString() ==
+          "satelliteUpdateAvailable");
+    CHECK(roleOf(model, 1, ConnectionListModel::CompatRole).toString() == "unknown");
+
+    const auto names = model.roleNames();
+    CHECK(names.value(ConnectionListModel::TierRole) == "tier");
+    CHECK(names.value(ConnectionListModel::CompatRole) == "compat");
+}
+
+TEST_CASE("ConnectionListModel: a compat move on the same rows is a dataChanged, not a reset",
+          "[connmodel][signals]") {
+    ConnectionListModel model;
+    auto row = connectedRow();
+    model.setRows({row});
+    RowSpy spy(&model);
+    row.compat = rd::ProtocolCompat::DishUpdateRequired;
+    model.setRows({row});
+    CHECK(spy.inserts == 0);
+    CHECK(spy.removes == 0);
+    CHECK(spy.changes == 1);
+    CHECK(roleOf(model, 0, ConnectionListModel::CompatRole).toString() == "dishUpdateRequired");
 }
