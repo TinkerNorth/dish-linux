@@ -72,6 +72,22 @@
         <translation>Podesi držanje budnim</translation>
     </message>
     <message>
+        <source>Microphone is live. Click to mute it.</source>
+        <translation>Mikrofon je uključen. Kliknite da ga utišate.</translation>
+    </message>
+    <message>
+        <source>Microphone muted. Click to unmute it.</source>
+        <translation>Mikrofon je utišan. Kliknite da ga ponovo uključite.</translation>
+    </message>
+    <message>
+        <source>Mic live</source>
+        <translation>Mikrofon aktivan</translation>
+    </message>
+    <message>
+        <source>Mic muted</source>
+        <translation>Mikrofon utišan</translation>
+    </message>
+    <message>
         <source>Update available: Dish %1. See Settings for the release.</source>
         <translation>Dostupno ažuriranje: Dish %1. Izdanje potražite u Podešavanjima.</translation>
     </message>
@@ -307,8 +323,8 @@
 <context>
     <name>CapabilityTable</name>
     <message>
-        <source>Available</source>
-        <translation>Dostupno</translation>
+        <source>Supported</source>
+        <translation>Podržano</translation>
     </message>
     <message>
         <source>Unavailable</source>
@@ -2673,6 +2689,33 @@
     <message>
         <source>Dish %1 · TinkerNorth · LGPL-3.0</source>
         <translation>Dish %1 · TinkerNorth · LGPL-3.0</translation>
+    </message>
+</context>
+<context>
+    <name>LinkVocabulary</name>
+    <message>
+        <source>Fastest</source>
+        <translation>Najbrži</translation>
+    </message>
+    <message>
+        <source>Fast</source>
+        <translation>Brz</translation>
+    </message>
+    <message>
+        <source>Basic</source>
+        <translation>Osnovni</translation>
+    </message>
+    <message>
+        <source>Satellite update recommended</source>
+        <translation>Preporučeno ažuriranje Satellitea</translation>
+    </message>
+    <message>
+        <source>Satellite update required</source>
+        <translation>Obavezno ažuriranje Satellitea</translation>
+    </message>
+    <message>
+        <source>Dish update required</source>
+        <translation>Obavezno ažuriranje Disha</translation>
     </message>
 </context>
 <context>

@@ -72,6 +72,22 @@
         <translation>Wachhalten konfigurieren</translation>
     </message>
     <message>
+        <source>Microphone is live. Click to mute it.</source>
+        <translation>Das Mikrofon ist an. Zum Stummschalten klicken.</translation>
+    </message>
+    <message>
+        <source>Microphone muted. Click to unmute it.</source>
+        <translation>Mikrofon stumm. Klicken, um die Stummschaltung aufzuheben.</translation>
+    </message>
+    <message>
+        <source>Mic live</source>
+        <translation>Mikrofon aktiv</translation>
+    </message>
+    <message>
+        <source>Mic muted</source>
+        <translation>Mikrofon stumm</translation>
+    </message>
+    <message>
         <source>Update available: Dish %1. See Settings for the release.</source>
         <translation>Update verfügbar: Dish %1. Die Version findest du in den Einstellungen.</translation>
     </message>
@@ -306,8 +322,8 @@
 <context>
     <name>CapabilityTable</name>
     <message>
-        <source>Available</source>
-        <translation>Verfügbar</translation>
+        <source>Supported</source>
+        <translation>Unterstützt</translation>
     </message>
     <message>
         <source>Unavailable</source>
@@ -2661,6 +2677,33 @@
     <message>
         <source>Dish %1 · TinkerNorth · LGPL-3.0</source>
         <translation>Dish %1 · TinkerNorth · LGPL-3.0</translation>
+    </message>
+</context>
+<context>
+    <name>LinkVocabulary</name>
+    <message>
+        <source>Fastest</source>
+        <translation>Am schnellsten</translation>
+    </message>
+    <message>
+        <source>Fast</source>
+        <translation>Schnell</translation>
+    </message>
+    <message>
+        <source>Basic</source>
+        <translation>Einfach</translation>
+    </message>
+    <message>
+        <source>Satellite update recommended</source>
+        <translation>Satellite-Update empfohlen</translation>
+    </message>
+    <message>
+        <source>Satellite update required</source>
+        <translation>Satellite-Update erforderlich</translation>
+    </message>
+    <message>
+        <source>Dish update required</source>
+        <translation>Dish-Update erforderlich</translation>
     </message>
 </context>
 <context>
