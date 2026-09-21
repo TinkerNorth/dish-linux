@@ -102,6 +102,12 @@
   <!-- Kept in step with project(Dish VERSION ...); version-consistency.yml
        fails the PR that moves one without the other. -->
   <releases>
+    <release version="2.1.0" date="2026-09-21" type="stable">
+      <url type="details">https://github.com/TinkerNorth/dish-linux/releases/tag/2.1.0</url>
+      <description>
+        <p>Protocol 3: a DualSense's HD haptics reach the pad over Satellite, and adaptive triggers, player LEDs and the mic lamp now work on the Standard path too. Bluetooth Sony pads attach with everything SDL can drive, a Direct-claimed pad shows its own battery, controller audio works on the Standard path, and every host row carries the link-tier, protocol and microphone cues Dish for Android has.</p>
+      </description>
+    </release>
     <release version="2.0.0" date="2026-09-06" type="stable">
       <url type="details">https://github.com/TinkerNorth/dish-linux/releases/tag/2.0.0</url>
       <description>
