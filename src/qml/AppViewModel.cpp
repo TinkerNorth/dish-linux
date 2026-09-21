@@ -3,6 +3,8 @@
 
 #include "qml/AppViewModel.h"
 
+#include "qml/RenderTokens.h"
+
 #include "AppModel.h"
 #include "FeatureSettings.h"
 #include "Input/GamepadInputProcessor.h"
@@ -780,6 +782,10 @@ QVariantList AppViewModel::moonlightHosts() const {
         m[QStringLiteral("appName")] = row.lastAppName;
         m[QStringLiteral("lastAppName")] = row.lastAppName;
         m[QStringLiteral("controllerType")] = row.controllerType;
+        // The link-tier cue, vended like every other token so the page never
+        // decides a Moonlight host's rank on its own.
+        m[QStringLiteral("tier")] =
+            tokens::tierToken(reducer::linkTierFor(reducer::ConnectionKind::Moonlight));
         out.append(m);
     }
     return out;
@@ -932,6 +938,8 @@ QVariantList AppViewModel::discoveredServers() const {
         m[QStringLiteral("machineId")] = s.machineId;
         m[QStringLiteral("source")] = models::discoverySourceLabel(s.source);
         m[QStringLiteral("id")] = s.id();
+        m[QStringLiteral("tier")] =
+            tokens::tierToken(reducer::linkTierFor(reducer::ConnectionKind::Satellite));
         out.append(m);
     }
     return out;
@@ -1522,6 +1530,12 @@ void AppViewModel::setSpeakerEnabled(const QString& slotId, bool on) {
 void AppViewModel::toggleSlotMicMute(const QString& slotId) {
     if (slotId.isEmpty()) { return; }
     model_->toggleSlotMicMute(slotId);
+}
+
+void AppViewModel::toggleAllMics() { model_->toggleAllMics(); }
+
+QString AppViewModel::micIndicator() const {
+    return tokens::micIndicatorToken(model_->micIndicator());
 }
 
 QString AppViewModel::discoverySourceFor(const QString& serverId) const {

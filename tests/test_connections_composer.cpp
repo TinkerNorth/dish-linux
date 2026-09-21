@@ -20,6 +20,8 @@ using dish::composer::ConnectionRow;
 using dish::composer::ConnectionsComposer;
 using dish::composer::RememberedSnapshot;
 using dish::composer::SessionSnapshot;
+using dish::reducer::LinkTier;
+using dish::reducer::ProtocolCompat;
 using dish::reducer::SessionPresence;
 using dish::reducer::UiLinkState;
 using dish::test::ComposerProbe;
@@ -260,4 +262,55 @@ TEST_CASE("ConnectionsComposer recomputes when a stale id arrives for an idle ro
     stale.set({"mid:a"});
     REQUIRE(probe.count() == 2);
     REQUIRE(probe.latest()[0].live == UiLinkState::Stale);
+}
+
+TEST_CASE("composer transform: every satellite row carries the Fastest tier",
+          "[composer][transform][tier]") {
+    const auto rows = buildConnectionSummaries({session("a", SessionPresence::Live, "10.0.0.2")},
+                                               {rememberedSat("b", "10.0.0.3")}, {}, {}, {});
+    REQUIRE(rows.size() == 2);
+    for (const auto& row : rows) {
+        CHECK(row.kind == dish::reducer::ConnectionKind::Satellite);
+        CHECK(row.tier == LinkTier::Fastest);
+    }
+}
+
+TEST_CASE("composer transform: the session's protocol compat lands on its row",
+          "[composer][transform][compat]") {
+    auto live = session("a", SessionPresence::Live, "10.0.0.2");
+    live.compat = ProtocolCompat::SatelliteUpdateAvailable;
+    const auto rows =
+        buildConnectionSummaries({live}, {rememberedSat("b", "10.0.0.3")}, {}, {}, {});
+    REQUIRE(rows.size() == 2);
+    // Rows sort by label (the ip here), so "a" comes first.
+    CHECK(rows[0].id == "a");
+    CHECK(rows[0].compat == ProtocolCompat::SatelliteUpdateAvailable);
+    // A remembered-only row has negotiated nothing.
+    CHECK(rows[1].id == "b");
+    CHECK(rows[1].compat == ProtocolCompat::Unknown);
+}
+
+TEST_CASE("composer transform: a torn-down session keeps its Required verdict on the row",
+          "[composer][transform][compat]") {
+    // The manager leaves the verdict on the connection after markDisconnected,
+    // so the row keeps saying which end must update.
+    auto idle = session("a", SessionPresence::Idle, "10.0.0.2");
+    idle.compat = ProtocolCompat::DishUpdateRequired;
+    const auto rows =
+        buildConnectionSummaries({idle}, {rememberedSat("a", "10.0.0.2")}, {}, {}, {});
+    REQUIRE(rows.size() == 1);
+    CHECK(rows[0].live == UiLinkState::Saved);
+    CHECK(rows[0].compat == ProtocolCompat::DishUpdateRequired);
+}
+
+TEST_CASE("composer transform: compat is part of row identity", "[composer][transform][compat]") {
+    ConnectionRow a;
+    a.id = "x";
+    ConnectionRow b = a;
+    CHECK(a == b);
+    b.compat = ProtocolCompat::SatelliteUpdateRequired;
+    CHECK(a != b);
+    ConnectionRow c = a;
+    c.tier = LinkTier::Fast;
+    CHECK(a != c);
 }

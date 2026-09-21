@@ -5,6 +5,7 @@
 
 #include "Models/Models.h"
 #include "SatelliteClient.h"
+#include "core/reducer/ProtocolNegotiation.h"
 
 #include <QObject>
 #include <QString>
@@ -142,6 +143,16 @@ class WifiConnection : public QObject {
         satelliteBehindProtocol_ = satelliteBehind;
         emit changed();
     }
+    // The chip the connection row shows (reducer::ProtocolCompat): Unknown until
+    // a session PUT has negotiated, then whatever the last negotiation said. A
+    // terminal 409 leaves its Required verdict here, so a remembered satellite
+    // keeps saying which end must update after the attempt has been torn down.
+    reducer::ProtocolCompat protocolCompat() const { return protocolCompat_; }
+    void setProtocolCompat(reducer::ProtocolCompat compat) {
+        if (protocolCompat_ == compat) { return; }
+        protocolCompat_ = compat;
+        emit changed();
+    }
 
     // The type and touchpad mode travel with the attach, so there is no
     // default-then-correct phase. While live the manager converges it via a
@@ -267,6 +278,7 @@ class WifiConnection : public QObject {
     int offeredProtocolVersion_ = proto::kProtocolVersion;
     int settledProtocolVersion_ = proto::kProtocolVersionMin;
     bool satelliteBehindProtocol_ = false;
+    reducer::ProtocolCompat protocolCompat_ = reducer::ProtocolCompat::Unknown;
 
     RumbleHandler rumbleHandler_;
     LightbarHandler lightbarHandler_;

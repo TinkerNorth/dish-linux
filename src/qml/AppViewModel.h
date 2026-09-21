@@ -146,6 +146,9 @@ class AppViewModel : public QObject {
     Q_PROPERTY(int foundCount READ foundCount NOTIFY discoveredChanged)
     // How far the hold currently reaches: "off" | "system" | "display".
     Q_PROPERTY(QString keepAwakeReach READ keepAwakeReach NOTIFY stateChanged)
+    // The app-wide microphone chip: "hidden" | "live" | "muted", folded over
+    // every bound slot (core/reducer/MicIndicatorState.h).
+    Q_PROPERTY(QString micIndicator READ micIndicator NOTIFY stateChanged)
     Q_PROPERTY(
         bool railCollapsed READ railCollapsed WRITE setRailCollapsed NOTIFY railCollapsedChanged)
     Q_PROPERTY(bool lightbarFollowGame READ lightbarFollowGame WRITE setLightbarFollowGame NOTIFY
@@ -501,6 +504,11 @@ class AppViewModel : public QObject {
     // button reaches the same state through the report decoder). State reads
     // ride the slot model's micArmed/micMuted roles, so there is no getter.
     Q_INVOKABLE void toggleSlotMicMute(const QString& slotId);
+    // The app-wide chip's click: mute every armed slot, or unmute every armed
+    // slot, whichever micIndicator says. All-or-nothing, like the chip's one
+    // state.
+    Q_INVOKABLE void toggleAllMics();
+    QString micIndicator() const;
 
     // ── Apply ────────────────────────────────────────────────────────────────
     // The one write the binding surfaces make. Terminates in exactly one

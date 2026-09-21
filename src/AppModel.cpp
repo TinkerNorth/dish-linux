@@ -1571,6 +1571,16 @@ void AppModel::toggleSlotMicMute(const QString& slotId) {
     setSlotMicMuted(slotId, !micMuteStore_.isMuted(slotId.toStdString()));
 }
 
+void AppModel::toggleAllMics() {
+    // The order is decided against the fold as it stands before the first
+    // write: setSlotMicMuted rebuilds, and the rebuild moves the fold.
+    const auto order = reducer::micToggleAllFor(armedMicSlotIds_, capturingMicSlots_);
+    if (!order.has_value()) { return; }
+    for (const auto& slotId : order->slotIds) {
+        setSlotMicMuted(QString::fromStdString(slotId), order->muted);
+    }
+}
+
 void AppModel::onPadMicMuteChanged(int vendorId, int productId, bool muted) {
     // The synthetic slot id IS the model key's string form.
     const QString slotId =
@@ -1584,6 +1594,8 @@ void AppModel::onPadMicMuteChanged(int vendorId, int productId, bool muted) {
 void AppModel::reconcileAudioEngines() {
     std::vector<source::audio::MicCaptureTarget> micTargets;
     std::vector<source::audio::SpeakerVoiceTarget> speakerVoices;
+    std::vector<std::string> armedMicSlotIds;
+    int capturingMicSlots = 0;
 
     for (const auto& s : state_.slotList) {
         // Any bound USB pad, Direct or Standard: the engines talk to the pad's
@@ -1607,6 +1619,14 @@ void AppModel::reconcileAudioEngines() {
         mic.routeMatched = route.microphone;
         mic.hostCarries = conn->hostMicAvailable();
         mic.muted = micMuteStore_.isMuted(slotId);
+        // The app-wide indicator folds the same facts with mute set aside: a
+        // muted slot still has a microphone the user must be able to find.
+        audio::AudioSlotFacts armed = mic;
+        armed.muted = false;
+        if (audio::micCaptureEligible(armed)) {
+            armedMicSlotIds.push_back(slotId);
+            if (audio::micCaptureEligible(mic)) { ++capturingMicSlots; }
+        }
         if (audio::micCaptureEligible(mic)) {
             source::audio::MicCaptureTarget target;
             target.slotId = slotId;
@@ -1664,6 +1684,11 @@ void AppModel::reconcileAudioEngines() {
 
     micEngine_.reconcile(micTargets);
     speakerEngine_.reconcile(speakerVoices);
+
+    armedMicSlotIds_ = std::move(armedMicSlotIds);
+    capturingMicSlots_ = capturingMicSlots;
+    micIndicator_ =
+        reducer::micIndicatorFor(static_cast<int>(armedMicSlotIds_.size()), capturingMicSlots_);
 }
 
 void AppModel::applyBindingPresence() {

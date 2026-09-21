@@ -40,6 +40,8 @@ class ConnectionListModel : public QAbstractListModel {
         LiveLinkRole,
         LatencyTextRole,
         LatencySamplesRole,
+        TierRole,
+        CompatRole,
     };
     Q_ENUM(Roles)
 

@@ -35,9 +35,12 @@ Item {
 
     // "Off" means the user turned it off and nothing else — a pad with no gyro
     // reading "Off" sends them hunting for a switch.
+    // "Supported" rather than "Available": the row says what the path can
+    // carry, not what is happening right now, and it is the word dish-android
+    // uses for the same row.
     function verdictText(v) {
         if (v === "available")
-            return qsTr("Available");
+            return qsTr("Supported");
         if (v === "unavailable")
             return qsTr("Unavailable");
         if (v === "off")

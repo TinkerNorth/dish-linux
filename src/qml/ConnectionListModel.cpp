@@ -13,9 +13,11 @@ namespace {
 
 namespace rd = dish::reducer;
 using tokens::chipToken;
+using tokens::compatToken;
 using tokens::dotToken;
 using tokens::glyphToken;
 using tokens::linkStateToken;
+using tokens::tierToken;
 
 } // namespace
 
@@ -59,6 +61,10 @@ QVariant ConnectionListModel::data(const QModelIndex& index, int role) const {
                                     : QString();
     case LatencySamplesRole:
         return r.latencySamples;
+    case TierRole:
+        return tierToken(r.tier);
+    case CompatRole:
+        return compatToken(r.compat);
     default:
         return {};
     }
@@ -78,6 +84,8 @@ QHash<int, QByteArray> ConnectionListModel::roleNames() const {
         {LiveLinkRole, "liveLink"},
         {LatencyTextRole, "latencyText"},
         {LatencySamplesRole, "latencySamples"},
+        {TierRole, "tier"},
+        {CompatRole, "compat"},
     };
 }
 

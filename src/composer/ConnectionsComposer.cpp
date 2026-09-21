@@ -84,7 +84,9 @@ std::vector<ConnectionRow> buildConnectionSummaries(
         if (conn != nullptr) {
             row.latencyOneWayMs = conn->latencyOneWayMs;
             row.latencySamples = conn->latencySamples;
+            row.compat = conn->compat;
         }
+        row.tier = reducer::linkTierFor(row.kind);
         row.glyph = reducer::glyphForConnection(row.kind, live);
         row.dotColor = reducer::dotColorForState(live);
         row.chip = reducer::statusChipKey(live);
