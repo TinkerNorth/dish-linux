@@ -295,11 +295,17 @@ find src -type f \( -name '*.cpp' -o -name '*.h' \) \
   xargs -0 -n1 -P"$(nproc)" clang-tidy -p build --quiet --warnings-as-errors='*'
 ```
 
-When a check is a genuine false positive — two switch arms that share an answer
-for different documented reasons, an SDL struct tag whose leading underscore is
-not ours — suppress it with a `NOLINTBEGIN`/`NOLINTEND` pair naming the check
-**and** a comment saying why. A bare `NOLINT` with no reason will be asked about
-in review.
+`src/` and `tests/` carry no `NOLINT` of any kind, and a change that adds one
+will be asked to fix what the check points at instead. Every finding met so
+far had a source answer: two switch arms with the same body become one arm
+with both reasons in its comment; a reserved struct tag that is not ours goes
+away by including the upstream header, or by keeping the type out of the
+header entirely when that header cannot reach the dependency; a demarshalling
+operator that returns its own parameter deletes its rvalue overload, so the
+dangling case stops compiling; and a pointer handed to a size-aware callee is
+spelled with its length at the call. Third-party and generated code stays off
+the lint wall by target rather than by markers in the source: see the vendored
+ENet library and the qmlcachegen carve-out in `CMakeLists.txt`.
 
 Suppressions intentionally enabled in `.clang-tidy`:
 
