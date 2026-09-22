@@ -124,7 +124,12 @@ rm -f "${out}" "${out}.zsync"
 # beside the AppImage; the draft-then-flip publish keeps `releases/latest` atomic,
 # so the pattern never resolves to a half-uploaded release.
 export LDAI_UPDATE_INFORMATION="${DISH_APPIMAGE_UPDATE_INFO:-gh-releases-zsync|TinkerNorth|dish-linux|latest|Dish-*-${arch}.AppImage.zsync}"
-OUTPUT="${out}" "${tools_dir}/linuxdeploy" --appdir "${appdir}" --output appimage
+# LDAI_OUTPUT, the appimage plugin's own variable, not the OUTPUT it still
+# honours but names as deprecated. The desktop file is named again so this
+# pass does not have to guess it from the AppDir and say so.
+LDAI_OUTPUT="${out}" "${tools_dir}/linuxdeploy" --appdir "${appdir}" \
+    --desktop-file "${appdir}/usr/share/applications/com.tinkernorth.Dish.desktop" \
+    --output appimage
 
 # appimagetool drops the .zsync next to the AppImage or in the CWD depending
 # on version; normalise into dist/ and fail soft (the AppImage itself is fine
