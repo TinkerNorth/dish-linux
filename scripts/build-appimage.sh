@@ -143,19 +143,79 @@ fi
 
 # A Qt Quick bundle missing one QML module builds perfectly and fails on the
 # user's machine. Offscreen catches that here instead.
+#
+# Unpacked first, and started through the unpacked AppRun rather than through
+# the AppImage: a runner has no FUSE, so the runtime unpacks to a temp
+# directory and forks the app anyway, and the process this script could signal
+# would be the runtime rather than the app. Unpacking here makes the app the
+# child, which is what lets the checks below mean anything, and it fails with
+# the runtime's own message if the artifact cannot be read at all.
 echo "==> Smoke test"
-set +e
-QT_QPA_PLATFORM=offscreen timeout 25 "${out}" --appimage-extract-and-run \
-    >"${build_dir}/smoke.log" 2>&1
-rc=$?
-set -e
-if grep -qE 'is not installed|Cannot load library|failed to load component|No such file or directory' \
-        "${build_dir}/smoke.log"; then
-    echo "::error::AppImage could not load its Qt/QML runtime:" >&2
-    cat "${build_dir}/smoke.log" >&2
+smoke_dir="${build_dir}/smoke"
+smoke_log="${build_dir}/smoke.log"
+rm -rf "${smoke_dir}"
+mkdir -p "${smoke_dir}"
+(cd "${smoke_dir}" && "${out}" --appimage-extract >/dev/null)
+apprun="${smoke_dir}/squashfs-root/AppRun"
+if [ ! -x "${apprun}" ]; then
+    echo "::error::the AppImage unpacked without a runnable AppRun" >&2
     exit 1
 fi
-echo "    exited ${rc} with no loader error"
+
+export XDG_RUNTIME_DIR="${build_dir}/xdg-runtime"
+mkdir -p "${XDG_RUNTIME_DIR}"
+# Signalled by hand rather than run under `timeout`, which reports 124 whether
+# the app shut down cleanly or had to be killed, and which cannot tell either
+# from an app that never started. Every wait is bounded.
+set +e
+QT_QPA_PLATFORM=offscreen "${apprun}" >"${smoke_log}" 2>&1 &
+app=$!
+sleep 20
+started=0
+kill -0 "${app}" 2>/dev/null && started=1
+needed_kill=0
+if [ "${started}" = 1 ]; then
+    kill -TERM "${app}" 2>/dev/null
+    waited=0
+    while [ "${waited}" -lt 15 ] && kill -0 "${app}" 2>/dev/null; do
+        sleep 1
+        waited=$((waited + 1))
+    done
+    if kill -0 "${app}" 2>/dev/null; then
+        kill -KILL "${app}" 2>/dev/null
+        needed_kill=1
+    fi
+fi
+wait "${app}"
+rc=$?
+set -e
+
+# Printed either way: an exit code on its own says nothing about why.
+echo "--- smoke log ---"
+cat "${smoke_log}"
+echo "--- end smoke log ---"
+if grep -qE 'is not installed|Cannot load library|failed to load component|No such file or directory' \
+        "${smoke_log}"; then
+    echo "::error::the AppImage cannot load its Qt/QML runtime" >&2
+    exit 1
+fi
+if [ "${started}" != 1 ]; then
+    echo "::error::the AppImage exited on its own (${rc}) instead of staying up" >&2
+    exit 1
+fi
+# SIGTERM is what a logout sends. Ignoring it means ~AppModel never runs, so
+# the input thread is not stopped and QSettings never writes what the session
+# changed.
+if [ "${needed_kill}" = 1 ]; then
+    echo "::error::the AppImage did not exit on SIGTERM; it needed SIGKILL" >&2
+    exit 1
+fi
+if [ "${rc}" != 0 ]; then
+    echo "::error::the AppImage shut down on SIGTERM but exited ${rc}" >&2
+    exit 1
+fi
+rm -rf "${smoke_dir}"
+echo "    came up, shut down on SIGTERM and exited 0"
 
 sha256sum "${out}" | tee "${out}.sha256"
 
