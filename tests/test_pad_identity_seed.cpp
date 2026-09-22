@@ -42,11 +42,20 @@ PresentSlot present(const std::string& id, int vid, int pid) {
     return s;
 }
 
-CatalogTypeDto typeRow(int id, const QString& name, std::optional<CatalogEmulatesDto> emulates) {
+// A row with no emulates hint. Its own overload rather than a defaulted
+// std::nullopt argument: the disengaged temporary that would pass through the
+// other one is what GCC 13's -fsanitize=thread build misreads as reading the
+// hint's QList members uninitialized in the temporary's destructor.
+CatalogTypeDto typeRow(int id, const QString& name) {
     CatalogTypeDto t;
     t.id = id;
     t.name = name;
     t.shortName = name;
+    return t;
+}
+
+CatalogTypeDto typeRow(int id, const QString& name, CatalogEmulatesDto emulates) {
+    CatalogTypeDto t = typeRow(id, name);
     t.emulates = std::move(emulates);
     return t;
 }
@@ -67,8 +76,7 @@ CatalogDto playStationFirstCatalog() {
     c.controllerTypes.push_back(typeRow(proto::kControllerTypeSwitchPro,
                                         QStringLiteral("Switch Pro"),
                                         usbHint(QStringLiteral("057e:2009"))));
-    c.controllerTypes.push_back(
-        typeRow(proto::kControllerTypeXbox, QStringLiteral("Xbox 360"), std::nullopt));
+    c.controllerTypes.push_back(typeRow(proto::kControllerTypeXbox, QStringLiteral("Xbox 360")));
     return c;
 }
 

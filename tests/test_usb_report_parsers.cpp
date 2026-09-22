@@ -11,6 +11,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <array>
 #include <cstdint>
 #include <vector>
 
@@ -884,7 +885,7 @@ TEST_CASE("DualSense battery reads the state nibble and the tenths nibble",
     CHECK(out.batteryLevel == 100);
     CHECK(out.batteryStatus == kPadBatteryStatusFull);
 
-    for (const std::uint8_t fault : {0xA5, 0xB5, 0xF5}) {
+    for (const std::uint8_t fault : std::array<std::uint8_t, 3>{0xA5, 0xB5, 0xF5}) {
         r[53] = fault;
         out = decode(HidParser::DualSense, r);
         INFO("state byte " << static_cast<int>(fault));
