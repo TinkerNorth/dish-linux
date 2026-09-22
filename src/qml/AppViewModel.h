@@ -4,7 +4,7 @@
 // The single QML-facing adapter over dish::AppModel: it derives nothing, it
 // only maps stores and composers onto Q_PROPERTY + role models. It lives in
 // dish_core so the mapping helpers stay testable without the Quick stack, and
-// the QmlEntryPoint registers it as a context property outliving the engine.
+// the QmlEntryPoint registers it as the `App` singleton, outliving the engine.
 
 #pragma once
 

@@ -76,7 +76,7 @@ int main(int argc, char* argv[]) {
     }
 
     // runQmlApp owns the engine and exposes the model to QML as the `App`
-    // context property.
+    // singleton.
     dish::AppModel model;
     model.start();
     return dish::qml::runQmlApp(model);

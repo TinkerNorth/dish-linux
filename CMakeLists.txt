@@ -554,6 +554,15 @@ target_link_libraries(dish_core
         OpenSSL::Crypto
         dish_enet)
 
+# AppViewModel and the two role models live here, but their QML identities are
+# declared from the Dish target (src/qml/chrome/ForeignTypes.h). qmltyperegistrar
+# can only expand a QML_FOREIGN declaration when it can read the foreign class's
+# meta-object, which reaches it as a --foreign-types argument: this call writes
+# dish_core's metatypes .json and puts it on Dish's SOURCES through the
+# INTERFACE_SOURCES genex that qt_add_qml_module's QT_CONSUMES_METATYPES enables.
+# Without it the App singleton lands in the qmltypes with no properties at all.
+qt_extract_metatypes(dish_core)
+
 # --------------------------------------------------------------------------
 # UI executable
 # --------------------------------------------------------------------------
@@ -586,7 +595,9 @@ target_sources(Dish PRIVATE
     src/qml/chrome/ThemeBridge.h
     src/qml/chrome/ThemeBridge.cpp
     src/qml/chrome/TokensBridge.h
-    src/qml/chrome/TokensBridge.cpp)
+    src/qml/chrome/TokensBridge.cpp
+    # QML_FOREIGN declarations for dish_core's view-model types; see the header.
+    src/qml/chrome/ForeignTypes.h)
 
 # DISH_KIT_QML_FILES: the canonical design-kit file list, kept in its own file
 # so the kit reads as a unit rather than as lines lost in this one.

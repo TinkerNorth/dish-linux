@@ -69,10 +69,11 @@ which still renders and silently stops tracking the palette. It errors for
 `src/qml/wizard/**` and `src/qml/shared/**` and warns elsewhere.
 
 Anything QML reads or calls on `App` is listed in
-[`docs/QML_CONTRACT.md`](docs/QML_CONTRACT.md). That document is a compensating
-control, not documentation: `App` is a runtime context property that `qmllint`
-cannot see, so a reference to it is checked against that table rather than by
-the linter. Add new surface there in the same commit.
+[`docs/QML_CONTRACT.md`](docs/QML_CONTRACT.md). `App` is a `Dish.Chrome`
+singleton, so `qmllint` does check every reference to it and a typo fails CI;
+the document is the readable index of the same surface, and the place a
+reviewer looks to see whether a new property belongs there at all. Add new
+surface there in the same commit.
 
 ## Translations
 

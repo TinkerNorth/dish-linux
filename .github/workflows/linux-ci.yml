@@ -102,7 +102,10 @@ jobs:
         run: |
           # git's * crosses directory levels; 'src/qml/**/*.qml' would miss the
           # top-level Main and AppShell.
-          qmllint -I build -I "${QT_ROOT_DIR}/qml" --unqualified info \
+          # Every category at its default level, `unqualified` included: App,
+          # Theme and Tokens are all module singletons the generated qmltypes
+          # describes, so every name a page reads resolves statically.
+          qmllint -I build -I "${QT_ROOT_DIR}/qml" \
             $(git ls-files 'src/qml/*.qml')
 
       # qmllint checks a QML file RESOLVES; this checks it used the design

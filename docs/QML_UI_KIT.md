@@ -38,10 +38,10 @@ pixels, and a token defined in terms of itself is not a token.
 
 **qmllint.** The module declares `DEPENDENCIES QtQuick`, so `Theme`'s `QColor`
 properties resolve statically and `unresolved-type` is a real error again. Keep
-QML warning-clean: `missing-property`, `unused-imports` and `unresolved-type`
-all gate CI. The one accepted downgrade is `unqualified`, because `App` is a
-runtime context property the linter cannot see; see
-[`QML_CONTRACT.md`](QML_CONTRACT.md).
+QML warning-clean: every category gates CI at its default level, nothing is
+downgraded, so `missing-property`, `unused-imports`, `unresolved-type` and
+`unqualified` are all errors. A file that reads `App`, `Theme` or `Tokens` has
+to `import Dish.Chrome`; see [`QML_CONTRACT.md`](QML_CONTRACT.md).
 
 ## Library rules
 
