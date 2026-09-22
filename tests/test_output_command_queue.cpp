@@ -91,7 +91,7 @@ TEST_CASE("drain empties the queue", "[outputqueue]") {
     OutputCommandQueue q;
     q.push(OutputCommand::rumble(QStringLiteral("sdl:0"), 1, 2, 3));
     REQUIRE(q.size() == 1U);
-    (void)q.drain();
+    REQUIRE(q.drain().size() == 1U);
     REQUIRE(q.size() == 0U);
     REQUIRE(q.drain().empty());
 }

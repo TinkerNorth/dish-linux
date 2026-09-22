@@ -72,7 +72,6 @@ std::optional<DiscoveredMoonlightHost> parseMoonlightResponse(const std::uint8_t
 
     std::string instance;
     std::string srvTarget;
-    int srvPort = 0;
     // A GameStream reply packs the SRV (with the host's target name) and that
     // target's A record; resolve one against the other by name.
     std::unordered_map<std::string, std::string> aRecords;
@@ -97,7 +96,8 @@ std::optional<DiscoveredMoonlightHost> parseMoonlightResponse(const std::uint8_t
                 aRecords.emplace(owner, buf);
             }
         } else if (type == kTypeSrv && rdlen >= 7) {
-            srvPort = read16(p + rdata + 4);
+            // priority(2) weight(2) port(2), then the target name. The port is
+            // the HTTPS one, which the host mapping below does not use.
             std::string target;
             if (net::detail::readName(p, len, rdata + 6, target)) { srvTarget = target; }
         } else if (type == kTypePtr && instance.empty()) {
@@ -119,10 +119,9 @@ std::optional<DiscoveredMoonlightHost> parseMoonlightResponse(const std::uint8_t
     host.name =
         instance.empty() ? QString::fromStdString(address) : QString::fromStdString(instance);
     host.address = QString::fromStdString(address);
-    // The SRV port advertises the HTTPS port; the plain HTTP port is the
+    // The SRV record advertises the HTTPS port; the plain HTTP port is the
     // GameStream default. Hosts do not advertise it, so keep the default.
     host.httpPort = 47989;
-    (void)srvPort;
     return host;
 }
 

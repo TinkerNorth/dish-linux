@@ -74,9 +74,9 @@ TEST_CASE("rows: every state has a chip, a dot color, and a glyph", "[rows][exha
     for (const auto state : kAllStates) {
         // Every mapper has a default arm, so this only proves totality; the
         // values themselves are pinned in the cases above.
-        (void)statusChipKey(state);
-        (void)dotColorForState(state);
-        (void)glyphForConnection(ConnectionKind::Satellite, state);
+        statusChipKey(state);
+        dotColorForState(state);
+        glyphForConnection(ConnectionKind::Satellite, state);
     }
     SUCCEED();
 }

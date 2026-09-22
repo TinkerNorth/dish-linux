@@ -562,8 +562,11 @@ jobs:
       # the audio subsystem controller audio opens the pads' own endpoints
       # through (libpulse-dev above is what lets its pulse backend configure;
       # SDL dlopen's the host's libpulse at run time, so nothing extra is
-      # bundled). linuxdeploy bundles the resulting library into the AppImage.
-      # Runs
+      # bundled). Pulse is the one audio backend this build carries, so ALSA
+      # is switched off by name: left at its default, SDL's configure looks
+      # for the ALSA headers this job never installs and warns that it cannot
+      # find them, for a library that comes out the same either way.
+      # linuxdeploy bundles the resulting library into the AppImage. Runs
       # after setup-qt because that action overwrites CMAKE_PREFIX_PATH and
       # this step prepends to it.
       - name: Build SDL2 (jammy's predates SDL_GameControllerPath)
@@ -580,7 +583,7 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_INSTALL_PREFIX="${RUNNER_TEMP}/sdl-prefix" \
             -DSDL_STATIC=OFF -DSDL_SHARED=ON -DSDL_TEST=OFF \
-            -DSDL_RENDER=OFF -DSDL_AUDIO=ON \
+            -DSDL_RENDER=OFF -DSDL_AUDIO=ON -DSDL_ALSA=OFF \
             -DSDL_HIDAPI=ON -DSDL_JOYSTICK=ON -DSDL_HAPTIC=ON
           cmake --build "${RUNNER_TEMP}/sdl-build" --parallel
           cmake --install "${RUNNER_TEMP}/sdl-build"

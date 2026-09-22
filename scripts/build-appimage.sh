@@ -43,7 +43,8 @@ cmake -S . -B "${build_dir}/cmake" -G Ninja \
     -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_INSTALL_PREFIX=/usr \
     -DDISH_BUILD_TESTS=OFF \
-    -DDISH_INSTALL_UDEV_RULES=OFF \n    -DDISH_SENTRY_DSN="${DISH_SENTRY_DSN:-}"
+    -DDISH_INSTALL_UDEV_RULES=OFF \
+    -DDISH_SENTRY_DSN="${DISH_SENTRY_DSN:-}"
 cmake --build "${build_dir}/cmake" --parallel
 DESTDIR="${appdir}" cmake --install "${build_dir}/cmake" --component Runtime
 
@@ -79,7 +80,12 @@ export QML_SOURCES_PATHS="${repo_root}/src/qml"
 # Qt6::Svg is linked, but the image-format plugin that renders the window icon
 # is loaded at run time and has no DT_NEEDED to be found by.
 export EXTRA_QT_MODULES="svg"
-export EXTRA_PLATFORM_PLUGINS="libqwayland-generic.so;libqwayland-egl.so"
+# libqoffscreen.so is not a plugin a desktop ever selects (Qt picks wayland or
+# xcb from the session), and it is what lets the bundle be launched with no
+# display at all, which is the only way the smoke test below can run the
+# shipped artifact rather than a build tree. The .deb and .rpm lanes get it
+# from the distribution; nothing but this line puts it in the AppImage.
+export EXTRA_PLATFORM_PLUGINS="libqwayland-generic.so;libqwayland-egl.so;libqoffscreen.so"
 export QMAKE="${QMAKE:-$(command -v qmake6 || command -v qmake)}"
 
 "${tools_dir}/linuxdeploy" \
@@ -103,10 +109,11 @@ fi
 for must in \
     "platforms/libqwayland-egl.so" \
     "platforms/libqxcb.so" \
+    "platforms/libqoffscreen.so" \
     "wayland-graphics-integration-client" \
     "wayland-shell-integration"; do
     if [ ! -e "${appdir}/usr/plugins/${must}" ]; then
-        echo "::error::AppImage is missing usr/plugins/${must}; a Wayland desktop crashes at startup without it" >&2
+        echo "::error::AppImage is missing usr/plugins/${must}; a Wayland desktop crashes at startup without it, and the smoke test below cannot run at all" >&2
         exit 1
     fi
 done
@@ -123,7 +130,12 @@ rm -f "${out}" "${out}.zsync"
 # beside the AppImage; the draft-then-flip publish keeps `releases/latest` atomic,
 # so the pattern never resolves to a half-uploaded release.
 export LDAI_UPDATE_INFORMATION="${DISH_APPIMAGE_UPDATE_INFO:-gh-releases-zsync|TinkerNorth|dish-linux|latest|Dish-*-${arch}.AppImage.zsync}"
-OUTPUT="${out}" "${tools_dir}/linuxdeploy" --appdir "${appdir}" --output appimage
+# LDAI_OUTPUT, the appimage plugin's own variable, not the OUTPUT it still
+# honours but names as deprecated. The desktop file is named again so this
+# pass does not have to guess it from the AppDir and say so.
+LDAI_OUTPUT="${out}" "${tools_dir}/linuxdeploy" --appdir "${appdir}" \
+    --desktop-file "${appdir}/usr/share/applications/com.tinkernorth.Dish.desktop" \
+    --output appimage
 
 # appimagetool drops the .zsync next to the AppImage or in the CWD depending
 # on version; normalise into dist/ and fail soft (the AppImage itself is fine
@@ -137,19 +149,117 @@ fi
 
 # A Qt Quick bundle missing one QML module builds perfectly and fails on the
 # user's machine. Offscreen catches that here instead.
+#
+# Unpacked first, and started through the unpacked AppRun rather than through
+# the AppImage: a runner has no FUSE, so the runtime unpacks to a temp
+# directory and forks the app anyway, and the process this script could signal
+# would be the runtime rather than the app. Unpacking here makes the app the
+# child, which is what lets the checks below mean anything, and it fails with
+# the runtime's own message if the artifact cannot be read at all.
 echo "==> Smoke test"
-set +e
-QT_QPA_PLATFORM=offscreen timeout 25 "${out}" --appimage-extract-and-run \
-    >"${build_dir}/smoke.log" 2>&1
-rc=$?
-set -e
-if grep -qE 'is not installed|Cannot load library|failed to load component|No such file or directory' \
-        "${build_dir}/smoke.log"; then
-    echo "::error::AppImage could not load its Qt/QML runtime:" >&2
-    cat "${build_dir}/smoke.log" >&2
+smoke_dir="${build_dir}/smoke"
+smoke_log="${build_dir}/smoke.log"
+rm -rf "${smoke_dir}"
+mkdir -p "${smoke_dir}"
+(cd "${smoke_dir}" && "${out}" --appimage-extract >/dev/null)
+apprun="${smoke_dir}/squashfs-root/AppRun"
+if [ ! -x "${apprun}" ]; then
+    echo "::error::the AppImage unpacked without a runnable AppRun" >&2
     exit 1
 fi
-echo "    exited ${rc} with no loader error"
+# AppRun is a symlink to usr/bin/dish. It has to land inside the unpacked tree:
+# an absolute one would point back at the AppDir this build made, so the smoke
+# test would run the build's binary and prove nothing about the artifact, and
+# on a user's machine it would not resolve at all.
+apprun_target="$(readlink -f "${apprun}")"
+case "${apprun_target}" in
+"${smoke_dir}/squashfs-root/"*) ;;
+*)
+    echo "::error::AppRun resolves to ${apprun_target}, outside the unpacked AppImage" >&2
+    exit 1
+    ;;
+esac
+
+# 0700 because Qt reports any other mode on the runtime directory as a warning.
+# A HOME of its own as well, so a hand-run leaves no QSettings file behind in
+# the developer's, and so the run starts from the same blank state every time.
+xdg_runtime="${build_dir}/xdg-runtime"
+smoke_home="${build_dir}/smoke-home"
+mkdir -p "${xdg_runtime}" "${smoke_home}"
+chmod 700 "${xdg_runtime}"
+
+# `env -i` with a named few, because the build environment is exactly what this
+# has to be kept away from: release.yml puts the Qt it built against and the
+# SDL it just installed on LD_LIBRARY_PATH, and LD_LIBRARY_PATH wins over the
+# DT_RUNPATH linuxdeploy writes, so an inherited environment loads the build
+# tree's libraries and the bundle is never tested. Whatever the app needs has
+# to come from the AppDir, which is the point.
+#
+# Signalled by hand rather than run under `timeout`, which reports 124 whether
+# the app shut down cleanly or had to be killed, and which cannot tell either
+# from an app that never started. Every wait is bounded.
+set +e
+env -i \
+    HOME="${smoke_home}" \
+    PATH="/usr/bin:/bin" \
+    XDG_RUNTIME_DIR="${xdg_runtime}" \
+    QT_QPA_PLATFORM=offscreen \
+    "${apprun}" >"${smoke_log}" 2>&1 &
+app=$!
+sleep 20
+started=0
+kill -0 "${app}" 2>/dev/null && started=1
+needed_kill=0
+if [ "${started}" = 1 ]; then
+    kill -TERM "${app}" 2>/dev/null
+    waited=0
+    while [ "${waited}" -lt 15 ] && kill -0 "${app}" 2>/dev/null; do
+        sleep 1
+        waited=$((waited + 1))
+    done
+    if kill -0 "${app}" 2>/dev/null; then
+        kill -KILL "${app}" 2>/dev/null
+        needed_kill=1
+    fi
+fi
+wait "${app}"
+rc=$?
+set -e
+
+# Printed either way: an exit code on its own says nothing about why.
+echo "--- smoke log ---"
+cat "${smoke_log}"
+echo "--- end smoke log ---"
+if grep -qE 'is not installed|Cannot load library|failed to load component|No such file or directory' \
+        "${smoke_log}"; then
+    echo "::error::the AppImage cannot load its Qt/QML runtime" >&2
+    exit 1
+fi
+# The same line the .deb and .rpm lanes treat as fatal. The SVG handler is a
+# run-time plugin deployed through EXTRA_QT_MODULES, a list kept by hand, and
+# its absence shows up as a decode failure per glyph rather than as any of the
+# loader phrases above.
+if grep -q 'Error decoding:' "${smoke_log}"; then
+    echo "::error::the AppImage cannot decode its brand SVGs; the Qt SVG image plugin is missing or unloadable" >&2
+    exit 1
+fi
+if [ "${started}" != 1 ]; then
+    echo "::error::the AppImage exited on its own (${rc}) instead of staying up" >&2
+    exit 1
+fi
+# SIGTERM is what a logout sends. Ignoring it means ~AppModel never runs, so
+# the input thread is not stopped and QSettings never writes what the session
+# changed.
+if [ "${needed_kill}" = 1 ]; then
+    echo "::error::the AppImage did not exit on SIGTERM; it needed SIGKILL" >&2
+    exit 1
+fi
+if [ "${rc}" != 0 ]; then
+    echo "::error::the AppImage shut down on SIGTERM but exited ${rc}" >&2
+    exit 1
+fi
+rm -rf "${smoke_dir}"
+echo "    came up, shut down on SIGTERM and exited 0"
 
 sha256sum "${out}" | tee "${out}.sha256"
 

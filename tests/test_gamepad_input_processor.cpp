@@ -569,7 +569,7 @@ TEST_CASE("remove resets a device's input counters so a re-attach re-baselines",
     GamepadInputProcessor::DeviceState s;
     p.publish("pad", s);
     p.publish("pad", s);
-    (void)p.publishMotionAt("pad", GamepadInputProcessor::MotionSample{}, 0);
+    REQUIRE(p.publishMotionAt("pad", GamepadInputProcessor::MotionSample{}, 0));
     REQUIRE(p.inputCounters("pad").gamepadEvents == 2);
     REQUIRE(p.inputCounters("pad").motionEvents == 1);
 

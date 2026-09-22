@@ -145,8 +145,9 @@ class GamepadInputProcessor {
     void setDeadzones(const DeviceId& id, const Deadzones& dz);
     void publish(const DeviceId& id, const DeviceState& state);
 
-    // Samples inside the rate-limit window drop silently.
-    void publishMotion(const DeviceId& id, const MotionSample& sample);
+    // False when the rate limiter dropped the sample. The device threads that
+    // call this have nothing to do about a drop, so they do not look.
+    bool publishMotion(const DeviceId& id, const MotionSample& sample);
 
     // Test seam taking an explicit `now` (microseconds, any monotonic basis).
     // Returns false when the rate limiter dropped the sample.

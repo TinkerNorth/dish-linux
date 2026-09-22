@@ -100,7 +100,7 @@ TEST_CASE("the input scan list is never mutated", "[reducer][found][pure]") {
                                                     sat(QStringLiteral("m2"), "10.0.0.3")};
     const auto before = ids(discovered);
 
-    (void)serversVisibleInFound(discovered, {QStringLiteral("mid:m1")});
+    serversVisibleInFound(discovered, {QStringLiteral("mid:m1")});
 
     CHECK(ids(discovered) == before);
 }

@@ -5,6 +5,7 @@
 
 #include <QPointer>
 
+#include <cerrno>
 #include <csignal>
 #include <fcntl.h>
 #include <unistd.h>
@@ -26,16 +27,26 @@ std::size_t g_watchedCount = 0;
 void handler(int number) {
     const int fd = g_writeFd.load(std::memory_order_relaxed);
     if (fd < 0) { return; }
-    // A second one has to still kill: a graceful shutdown that wedges would
-    // otherwise leave the user nothing but SIGKILL.
-    (void)::signal(number, SIG_DFL);
+    // SA_RESETHAND has already put the default disposition back, so a second
+    // one still kills: a graceful shutdown that wedges would otherwise leave
+    // the user nothing but SIGKILL.
     const auto byte = static_cast<unsigned char>(number);
-    const ssize_t written = ::write(fd, &byte, 1);
-    (void)written; // Nothing a handler is allowed to call could report it.
+    // The byte either lands or the pipe is gone, and nothing a handler may call
+    // could report either. Only an interruption is worth retrying, and errno
+    // is restored so the interrupted code sees its own.
+    const int savedErrno = errno;
+    while (::write(fd, &byte, 1) < 0 && errno == EINTR) {}
+    errno = savedErrno;
 }
 
 void detachHandlers() {
-    for (std::size_t i = 0; i < g_watchedCount; ++i) { (void)::signal(g_watched[i], SIG_DFL); }
+    // The default disposition back on every number this watcher took over.
+    // sigaction refuses only a number it does not know, and each of these was
+    // accepted when it was installed, so there is no result to act on.
+    struct sigaction dfl{};
+    dfl.sa_handler = SIG_DFL;
+    sigemptyset(&dfl.sa_mask);
+    for (std::size_t i = 0; i < g_watchedCount; ++i) { ::sigaction(g_watched[i], &dfl, nullptr); }
     g_watchedCount = 0;
     g_writeFd.store(-1, std::memory_order_relaxed);
     g_installed.store(false, std::memory_order_release);
@@ -87,8 +98,12 @@ std::unique_ptr<UnixSignalWatcher> installSignalWatcher(std::initializer_list<in
     sa.sa_handler = handler;
     sigemptyset(&sa.sa_mask);
     // SA_RESTART so a signal during a read on the HID or socket threads is not
-    // seen there as an EINTR failure.
-    sa.sa_flags = SA_RESTART;
+    // seen there as an EINTR failure. SA_RESETHAND so the kernel restores the
+    // default disposition on the way into the handler: the first signal asks
+    // for a graceful shutdown, a second one kills. SA_RESETHAND is the top bit,
+    // which glibc spells as an unsigned literal while sa_flags is an int; the
+    // cast carries the bit pattern across.
+    sa.sa_flags = static_cast<int>(SA_RESTART | SA_RESETHAND);
     for (const int number : numbers) {
         if (::sigaction(number, &sa, nullptr) == 0) { g_watched[g_watchedCount++] = number; }
     }

@@ -7,12 +7,17 @@
 #include "core/model/Protocol.h"
 #include "source/audio/OpusAudioCodec.h"
 
+#include <QLoggingCategory>
+
 #include <array>
+#include <exception>
 #include <utility>
 
 namespace dish::source::audio {
 
 namespace {
+
+Q_LOGGING_CATEGORY(lcDishAudio, "dish.audio")
 
 // One decoded 20 ms stereo window, interleaved. Both lanes are stereo on the
 // wire.
@@ -51,10 +56,12 @@ SpeakerPlayoutEngine::SpeakerPlayoutEngine(AudioDeviceGateway* gateway,
 SpeakerPlayoutEngine::~SpeakerPlayoutEngine() {
     try {
         reconcile({});
-    } catch (...) { // NOLINT(bugprone-empty-catch)
+    } catch (const std::exception& e) {
         // Same rule as the capture engine: nowhere to report a teardown
-        // failure, and the handles die with the process anyway.
-    }
+        // failure, and the handles die with the process anyway; logged so a
+        // repeating one is visible.
+        qCWarning(lcDishAudio) << "speaker playout teardown failed:" << e.what();
+    } catch (...) { qCWarning(lcDishAudio) << "speaker playout teardown failed"; }
 }
 
 void SpeakerPlayoutEngine::reconcile(const std::vector<SpeakerVoiceTarget>& targets) {

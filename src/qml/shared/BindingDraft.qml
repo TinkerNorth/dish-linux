@@ -13,6 +13,8 @@
 // (the type catalog, the radio) moves.
 
 import QtQml
+// For the App singleton whyFor() consults; see capabilityRows() below.
+import Dish.Chrome
 
 QtObject {
     id: draft
