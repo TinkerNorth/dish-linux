@@ -1,0 +1,79 @@
+name: TEMP verify AppImage lane (jammy GCC 11, C++20)
+
+# Throwaway, removed before this PR is merged: release.yml's AppImage job is
+# the one lane that compiles with jammy's GCC 11.4, and it only runs on a
+# release tag. This runs the same steps on the PR so the C++20 switch and the
+# build-appimage.sh fix are exercised on that toolchain before a tag is cut.
+#
+# Pin map (verify with `gh api repos/<owner>/<repo>/git/ref/tags/<tag>`):
+#   actions/checkout         @ v7.0.1 -> 3d3c42e5aac5ba805825da76410c181273ba90b1
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  appimage-gcc11:
+    name: Build AppImage on ubuntu-22.04
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install build dependencies
+        run: |
+          set -eux
+          sudo tee /etc/apt/apt.conf.d/99-dish-acquire >/dev/null <<'CONF'
+          Acquire::http::Timeout "15";
+          Acquire::https::Timeout "15";
+          Acquire::Retries "2";
+          CONF
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake ninja-build pkg-config \
+            libsodium-dev libssl-dev libopus-dev libpulse-dev libudev-dev libusb-1.0-0-dev \
+            libcurl4-openssl-dev \
+            libxkbcommon-x11-0 libxcb-cursor0 libxcb-icccm4 libxcb-image0 \
+            libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 libxcb-shape0 \
+            libxcb-xinerama0 libxcb-xkb1 \
+            file fakeroot rsync wget curl librsvg2-bin gzip
+
+      - name: Set up Qt
+        uses: ./.github/actions/setup-qt
+
+      - name: Build SDL2 (jammy's predates SDL_GameControllerPath)
+        env:
+          SDL_VERSION: "2.30.9"
+          SDL_SHA256: "24b574f71c87a763f50704bbb630cbe38298d544a1f890f099a4696b1d6beba4" # SDL2-2.30.9.tar.gz
+        run: |
+          set -euo pipefail
+          curl -fsSL -o sdl2.tar.gz \
+            "https://github.com/libsdl-org/SDL/releases/download/release-${SDL_VERSION}/SDL2-${SDL_VERSION}.tar.gz"
+          echo "${SDL_SHA256}  sdl2.tar.gz" | sha256sum -c -
+          tar xzf sdl2.tar.gz
+          cmake -S "SDL2-${SDL_VERSION}" -B "${RUNNER_TEMP}/sdl-build" -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX="${RUNNER_TEMP}/sdl-prefix" \
+            -DSDL_STATIC=OFF -DSDL_SHARED=ON -DSDL_TEST=OFF \
+            -DSDL_RENDER=OFF -DSDL_AUDIO=ON -DSDL_ALSA=OFF \
+            -DSDL_HIDAPI=ON -DSDL_JOYSTICK=ON -DSDL_HAPTIC=ON
+          cmake --build "${RUNNER_TEMP}/sdl-build" --parallel
+          cmake --install "${RUNNER_TEMP}/sdl-build"
+          {
+            echo "CMAKE_PREFIX_PATH=${RUNNER_TEMP}/sdl-prefix:${CMAKE_PREFIX_PATH:-}"
+            echo "PKG_CONFIG_PATH=${RUNNER_TEMP}/sdl-prefix/lib/pkgconfig:${PKG_CONFIG_PATH:-}"
+            echo "LD_LIBRARY_PATH=${RUNNER_TEMP}/sdl-prefix/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+          } >> "$GITHUB_ENV"
+
+      - name: Build AppImage
+        run: scripts/build-appimage.sh
+
+      - name: Report compiler and warnings
+        run: |
+          set -euo pipefail
+          g++ --version | head -1
+          ls -la dist/
