@@ -38,8 +38,8 @@ class QtAppSingleton {
         // handlers. Owning the QCoreApplication in a unique_ptr that the
         // first test creates would tear it down in the middle of a later
         // test's teardown if Catch2 reorders cases.
-        static auto* app = new QCoreApplication(argc, argv);
-        (void)app;
+        static auto* const app = new QCoreApplication(argc, argv);
+        REQUIRE(QCoreApplication::instance() == app);
     }
 };
 

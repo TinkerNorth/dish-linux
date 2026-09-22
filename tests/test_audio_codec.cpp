@@ -275,7 +275,7 @@ TEST_CASE("garbage and truncated packets leave a usable decoder", "[audio][codec
     const std::uint8_t garbage[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
     // Not asserting failure: some byte strings ARE valid Opus. Asserting only
     // that nothing reads out of bounds and the decoder survives.
-    (void)dec->decode(garbage, sizeof(garbage), out.data(), kMicFrame);
+    dec->decode(garbage, sizeof(garbage), out.data(), kMicFrame);
     CHECK(dec->decode(nullptr, 4, out.data(), kMicFrame) == 0U);
     CHECK(dec->decode(garbage, 0, out.data(), kMicFrame) == 0U);
     CHECK(dec->decode(garbage, sizeof(garbage), nullptr, kMicFrame) == 0U);
@@ -286,7 +286,7 @@ TEST_CASE("garbage and truncated packets leave a usable decoder", "[audio][codec
     std::uint8_t packet[kMaxPacket];
     const std::size_t bytes = enc->encode(src.data(), kMicFrame, packet, sizeof(packet));
     REQUIRE(bytes > 4U);
-    (void)dec->decode(packet, bytes / 2, out.data(), kMicFrame); // truncated
+    dec->decode(packet, bytes / 2, out.data(), kMicFrame); // truncated
     // Whatever the malformed input did, a real packet still decodes.
     CHECK(dec->decode(packet, bytes, out.data(), kMicFrame) == kMicFrame);
 }

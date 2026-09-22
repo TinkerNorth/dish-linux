@@ -17,7 +17,7 @@
 #include <sodium.h>
 
 #include <csignal>
-#include <cstdio>
+#include <iostream>
 
 int main(int argc, char* argv[]) {
     // FIRST, before any other subsystem can fault, so a crash still leaves a
@@ -25,9 +25,9 @@ int main(int argc, char* argv[]) {
     dish::crash::install();
 
     if (sodium_init() < 0) {
-        // Discarded deliberately: this runs before any logger exists, so a
-        // failed write to stderr is unactionable. The exit code is the report.
-        (void)std::fprintf(stderr, "dish: libsodium initialisation failed\n");
+        // Before any logger exists, so stderr is the only channel; the exit
+        // code is the report.
+        std::cerr << "dish: libsodium initialisation failed\n";
         return 1;
     }
 

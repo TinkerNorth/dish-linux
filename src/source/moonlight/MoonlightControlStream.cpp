@@ -17,10 +17,11 @@ std::int64_t steadyNowMs() {
         .count();
 }
 
-// One process-wide ENet runtime, alive from first use to exit.
-void ensureEnetInitialized() {
+// One process-wide ENet runtime, alive from first use to exit. False when it
+// never came up, which every start then reports as its own failure.
+bool ensureEnetInitialized() {
     static const bool initialized = [] { return enet_initialize() == 0; }();
-    (void)initialized;
+    return initialized;
 }
 
 constexpr std::int64_t kPingIntervalMs = 500;
@@ -45,7 +46,7 @@ bool MoonlightControlStream::start(const std::string& hostAddress, std::uint16_t
                                    std::uint32_t connectData,
                                    const std::array<std::uint8_t, 16>& rikey) {
     stop(false);
-    ensureEnetInitialized();
+    if (!ensureEnetInitialized()) { return false; }
 
     ENetAddress address{};
     if (enet_address_set_host(&address, hostAddress.c_str()) != 0) { return false; }

@@ -7,8 +7,8 @@
 
 #include <algorithm>
 #include <cctype>
-#include <cstdio>
 #include <cstring>
+#include <string>
 
 namespace dish::moonpair {
 namespace {
@@ -29,12 +29,9 @@ std::optional<Bytes> fromHex(const std::string& hex) { return util::fromHex(hex)
 } // namespace
 
 std::string pinFromRandom(std::uint32_t random) {
-    char buf[5];
-    // Discarded deliberately: "%04u" of a value below 10000 always writes
-    // exactly four digits into this five-byte buffer, so the length it returns
-    // is a constant and truncation cannot occur.
-    (void)std::snprintf(buf, sizeof(buf), "%04u", random % 10000U);
-    return buf;
+    // Four digits, zero-padded: 10000 plus a value below 10000 is always five
+    // digits, and the leading 1 is dropped.
+    return std::to_string(10000U + random % 10000U).substr(1);
 }
 
 PairingSession::PairingSession(std::string clientCertPem, std::string clientKeyPem,
