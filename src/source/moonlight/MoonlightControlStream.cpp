@@ -31,16 +31,16 @@ constexpr std::size_t kChannelCount = 1;
 
 } // namespace
 
-MoonlightControlStream::MoonlightControlStream() = default;
+// Guarded by linkMtx_ like the rest of the link state; see the header for why
+// the ENet types are kept out of it.
+struct MoonlightControlStream::Link {
+    ENetHost* host = nullptr;
+    ENetPeer* peer = nullptr;
+};
+
+MoonlightControlStream::MoonlightControlStream() : link_(std::make_unique<Link>()) {}
 
 MoonlightControlStream::~MoonlightControlStream() { stop(false); }
-
-void MoonlightControlStream::releaseSlot(ENetPacket* packet) {
-    // Runs inside an enet call, which this class only makes under linkMtx_,
-    // so the flag flip is already serialized.
-    auto* slot = static_cast<Slot*>(packet->userData);
-    if (slot != nullptr) { slot->inUse = false; }
-}
 
 bool MoonlightControlStream::start(const std::string& hostAddress, std::uint16_t port,
                                    std::uint32_t connectData,
@@ -59,12 +59,12 @@ bool MoonlightControlStream::start(const std::string& hostAddress, std::uint16_t
         for (auto& slot : slots_) { slot.inUse = false; }
         nextSlot_ = 0;
 
-        host_ = enet_host_create(address.address.ss_family, nullptr, 1, kChannelCount, 0, 0);
-        if (host_ == nullptr) { return false; }
-        peer_ = enet_host_connect(host_, &address, kChannelCount, connectData);
-        if (peer_ == nullptr) {
-            enet_host_destroy(host_);
-            host_ = nullptr;
+        link_->host = enet_host_create(address.address.ss_family, nullptr, 1, kChannelCount, 0, 0);
+        if (link_->host == nullptr) { return false; }
+        link_->peer = enet_host_connect(link_->host, &address, kChannelCount, connectData);
+        if (link_->peer == nullptr) {
+            enet_host_destroy(link_->host);
+            link_->host = nullptr;
             return false;
         }
         lastPingMs_ = steadyNowMs();
@@ -87,9 +87,9 @@ void MoonlightControlStream::stop(bool sendTermination) {
         }
         {
             std::lock_guard<std::mutex> lock(linkMtx_);
-            if (peer_ != nullptr) {
-                enet_peer_disconnect_now(peer_, 0);
-                peer_ = nullptr;
+            if (link_->peer != nullptr) {
+                enet_peer_disconnect_now(link_->peer, 0);
+                link_->peer = nullptr;
             }
         }
         stopRequested_.store(true, std::memory_order_relaxed);
@@ -97,11 +97,11 @@ void MoonlightControlStream::stop(bool sendTermination) {
         thread_.join();
     }
     std::lock_guard<std::mutex> lock(linkMtx_);
-    if (host_ != nullptr) {
-        enet_host_destroy(host_);
-        host_ = nullptr;
+    if (link_->host != nullptr) {
+        enet_host_destroy(link_->host);
+        link_->host = nullptr;
     }
-    peer_ = nullptr;
+    link_->peer = nullptr;
     connected_.store(false, std::memory_order_relaxed);
 }
 
@@ -120,11 +120,11 @@ void MoonlightControlStream::serviceLoop() {
 
         {
             std::lock_guard<std::mutex> lock(linkMtx_);
-            if (host_ == nullptr) { break; }
+            if (link_->host == nullptr) { break; }
 
             ENetEvent event;
             int guard = 32; // bound one pass; the loop resumes in 2 ms anyway
-            while (guard-- > 0 && enet_host_service(host_, &event, 0) > 0) {
+            while (guard-- > 0 && enet_host_service(link_->host, &event, 0) > 0) {
                 switch (event.type) {
                 case ENET_EVENT_TYPE_CONNECT:
                     connected_.store(true, std::memory_order_relaxed);
@@ -205,7 +205,12 @@ bool MoonlightControlStream::queuePacket(const std::uint8_t* sealed, std::size_t
             packet->data = slot->buffer.data();
             packet->dataLength = sealedLen;
             packet->userData = slot;
-            packet->freeCallback = &MoonlightControlStream::releaseSlot;
+            // Runs inside an enet call, which this class only makes under
+            // linkMtx_, so the flag flip is already serialized.
+            packet->freeCallback = [](ENetPacket* freed) {
+                auto* released = static_cast<Slot*>(freed->userData);
+                if (released != nullptr) { released->inUse = false; }
+            };
             slot->inUse = true;
         }
     } else {
@@ -215,19 +220,20 @@ bool MoonlightControlStream::queuePacket(const std::uint8_t* sealed, std::size_t
                                     static_cast<enet_uint32>(ENET_PACKET_FLAG_RELIABLE));
     }
     if (packet == nullptr) { return false; }
-    if (enet_peer_send(peer_, kChannel, packet) < 0) {
+    if (enet_peer_send(link_->peer, kChannel, packet) < 0) {
         enet_packet_destroy(packet);
         return false;
     }
     // Push the datagram out on THIS thread: input latency stays flat instead
     // of waiting for the next service tick.
-    enet_host_flush(host_);
+    enet_host_flush(link_->host);
     return true;
 }
 
 void MoonlightControlStream::sealAndSend(const std::uint8_t* plaintext, std::size_t len) {
     std::lock_guard<std::mutex> lock(linkMtx_);
-    if (host_ == nullptr || peer_ == nullptr || !connected_.load(std::memory_order_relaxed)) {
+    if (link_->host == nullptr || link_->peer == nullptr ||
+        !connected_.load(std::memory_order_relaxed)) {
         return;
     }
 

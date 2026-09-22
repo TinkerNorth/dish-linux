@@ -63,16 +63,15 @@ QDBusArgument& operator<<(QDBusArgument& arg, const SecretValue& s) {
     return arg;
 }
 
+// Returning the const reference parameter is the shape QtDBus documents for a
+// demarshalling operator, and the one its own container operators chain on.
+// A temporary argument would leave that reference dangling, so the rvalue
+// overload is deleted: streaming from anything but an lvalue does not compile.
+const QDBusArgument& operator>>(QDBusArgument&& arg, SecretValue& s) = delete;
 const QDBusArgument& operator>>(const QDBusArgument& arg, SecretValue& s) {
     arg.beginStructure();
     arg >> s.session >> s.parameters >> s.value >> s.contentType;
     arg.endStructure();
-    // Returning the const reference parameter is the signature QtDBus REQUIRES
-    // for a demarshalling operator — qDBusRegisterMetaType will not accept any
-    // other shape. The lifetime concern the check flags cannot arise here: every
-    // caller is QtDBus itself, streaming from an argument it owns for the whole
-    // call, and no caller binds the result to a longer-lived reference.
-    // NOLINTNEXTLINE(bugprone-return-const-ref-from-parameter)
     return arg;
 }
 
