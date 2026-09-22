@@ -122,9 +122,9 @@ if have qmllint; then
   if [ -n "${QT_ROOT_DIR:-}" ] && [ -d "${QT_ROOT_DIR}/qml" ]; then
     qt_qml_args=(-I "${QT_ROOT_DIR}/qml")
   fi
-  # shellcheck disable=SC2046
+  mapfile -t qml_files < <(git ls-files 'src/qml/*.qml')
   qmllint -I build "${qt_qml_args[@]+"${qt_qml_args[@]}"}" --unqualified info \
-    $(git ls-files 'src/qml/*.qml')
+    "${qml_files[@]}"
 fi
 
 step "QML literal scanner"

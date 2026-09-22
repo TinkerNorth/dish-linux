@@ -1,7 +1,13 @@
 version: 2
 updates:
   - package-ecosystem: "github-actions"
-    directory: "/"
+    # "/" covers .github/workflows only. The composite actions pin their own
+    # `uses:` lines (actions/cache in both), and those sat two majors behind
+    # the workflows, into a Node 20 deprecation notice on every job, until
+    # their directories were listed here too.
+    directories:
+      - "/"
+      - "/.github/actions/*"
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5

@@ -43,7 +43,8 @@ cmake -S . -B "${build_dir}/cmake" -G Ninja \
     -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_INSTALL_PREFIX=/usr \
     -DDISH_BUILD_TESTS=OFF \
-    -DDISH_INSTALL_UDEV_RULES=OFF \n    -DDISH_SENTRY_DSN="${DISH_SENTRY_DSN:-}"
+    -DDISH_INSTALL_UDEV_RULES=OFF \
+    -DDISH_SENTRY_DSN="${DISH_SENTRY_DSN:-}"
 cmake --build "${build_dir}/cmake" --parallel
 DESTDIR="${appdir}" cmake --install "${build_dir}/cmake" --component Runtime
 

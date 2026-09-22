@@ -31,14 +31,14 @@ runs:
         Acquire::Retries "2";
         CONF
         sudo apt-get update
-        # shellcheck disable=SC2086
+        read -ra extra_packages <<< "${EXTRA_PACKAGES}"
         sudo apt-get install -y --no-install-recommends \
           build-essential cmake ninja-build pkg-config ccache \
           libsodium-dev libsdl2-dev libssl-dev libopus-dev \
-          catch2 clang-tidy ${EXTRA_PACKAGES}
+          catch2 clang-tidy "${extra_packages[@]}"
 
     - name: Restore compiler cache
-      uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: ~/.cache/ccache
         key: ccache-${{ inputs.cache-key }}-${{ github.sha }}
