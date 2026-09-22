@@ -9,7 +9,10 @@ project(Dish
 # --------------------------------------------------------------------------
 # Global build settings
 # --------------------------------------------------------------------------
-set(CMAKE_CXX_STANDARD 17)
+# C++20: a variadic macro invoked with no variadic arguments is standard
+# (P0306), which is exactly what Qt's streaming qC* logging form does; under
+# C++17 -Wpedantic reported it and the build carried a -Wno- flag for it.
+set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
@@ -89,13 +92,7 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
         -Wshadow -Wnon-virtual-dtor -Wold-style-cast
         -Wcast-align -Wunused -Woverloaded-virtual
         -Wconversion -Wsign-conversion -Wnull-dereference
-        -Wdouble-promotion -Wformat=2
-        # Qt's qC{Debug,Info,Warning,Critical} logging macros are declared
-        # as `(category, ...)`. The streaming form `qCInfo(cat) << "msg"`
-        # passes zero variadic args, which -Wpedantic flags as
-        # gnu-zero-variadic-macro-arguments (an error under clang-tidy's
-        # frontend). The streaming form is the standard Qt idiom; suppress.
-        -Wno-gnu-zero-variadic-macro-arguments)
+        -Wdouble-promotion -Wformat=2)
     if(DISH_ENABLE_WARNINGS)
         target_compile_options(dish_strict INTERFACE -Werror)
     endif()
