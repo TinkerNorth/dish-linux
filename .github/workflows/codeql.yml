@@ -62,8 +62,16 @@ jobs:
       - name: Set up Qt
         uses: ./.github/actions/setup-qt
 
+      # Overlay (incremental) analysis exists only for build-mode "none", and
+      # C++ here is a traced build, so left to its own defaults the action
+      # tries overlay on every PR and default-branch run, warns that it cannot,
+      # and falls back to the full database it was always going to build.
+      # Saying so up front is the action's documented manual-control mode for
+      # exactly this: the same full database, without the warning.
       - name: Initialize CodeQL
         uses: github/codeql-action/init@b96794f015dfd88f77b49b1c93e0fa7110f94c63 # v4.38.0
+        env:
+          CODEQL_OVERLAY_DATABASE_MODE: none
         with:
           languages: ${{ matrix.language }}
           queries: security-extended,security-and-quality

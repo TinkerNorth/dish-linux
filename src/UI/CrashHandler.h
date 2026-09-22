@@ -32,20 +32,29 @@ inline void appendPath(char* dst, std::size_t cap, const char* part) {
     std::strncat(dst + used, part, cap - used - 1);
 }
 
+// A bounded copy that always terminates. strncpy's pad-to-capacity contract is
+// what -Wstringop-truncation objects to; this copies at most cap - 1 bytes and
+// stops. Both calls are async-signal-safe, like everything else the handler
+// touches.
+inline void copyBounded(char* dst, std::size_t cap, const char* src) {
+    if (cap == 0) { return; }
+    const std::size_t n = ::strnlen(src, cap - 1);
+    std::memcpy(dst, src, n);
+    dst[n] = '\0';
+}
+
 // $XDG_STATE_HOME/dish, else $HOME/.local/state/dish. Empty when neither is an
 // absolute path, which leaves the handler writing to stderr only.
 inline void logDirFor(char* dst, std::size_t cap, const char* xdgStateHome, const char* home) {
     if (cap == 0) { return; }
     dst[0] = '\0';
     if (xdgStateHome != nullptr && xdgStateHome[0] == '/') {
-        std::strncpy(dst, xdgStateHome, cap - 1);
-        dst[cap - 1] = '\0';
+        copyBounded(dst, cap, xdgStateHome);
     } else {
         // A relative setting is unusable: by the time the handler runs, nothing
         // guarantees the working directory it was written against.
         if (home == nullptr || home[0] != '/') { return; }
-        std::strncpy(dst, home, cap - 1);
-        dst[cap - 1] = '\0';
+        copyBounded(dst, cap, home);
         appendPath(dst, cap, "/.local/state");
     }
     appendPath(dst, cap, "/dish");

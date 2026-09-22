@@ -69,10 +69,11 @@ which still renders and silently stops tracking the palette. It errors for
 `src/qml/wizard/**` and `src/qml/shared/**` and warns elsewhere.
 
 Anything QML reads or calls on `App` is listed in
-[`docs/QML_CONTRACT.md`](docs/QML_CONTRACT.md). That document is a compensating
-control, not documentation: `App` is a runtime context property that `qmllint`
-cannot see, so a reference to it is checked against that table rather than by
-the linter. Add new surface there in the same commit.
+[`docs/QML_CONTRACT.md`](docs/QML_CONTRACT.md). `App` is a `Dish.Chrome`
+singleton, so `qmllint` does check every reference to it and a typo fails CI;
+the document is the readable index of the same surface, and the place a
+reviewer looks to see whether a new property belongs there at all. Add new
+surface there in the same commit.
 
 ## Translations
 
@@ -295,11 +296,17 @@ find src -type f \( -name '*.cpp' -o -name '*.h' \) \
   xargs -0 -n1 -P"$(nproc)" clang-tidy -p build --quiet --warnings-as-errors='*'
 ```
 
-When a check is a genuine false positive — two switch arms that share an answer
-for different documented reasons, an SDL struct tag whose leading underscore is
-not ours — suppress it with a `NOLINTBEGIN`/`NOLINTEND` pair naming the check
-**and** a comment saying why. A bare `NOLINT` with no reason will be asked about
-in review.
+`src/` and `tests/` carry no `NOLINT` of any kind, and a change that adds one
+will be asked to fix what the check points at instead. Every finding met so
+far had a source answer: two switch arms with the same body become one arm
+with both reasons in its comment; a reserved struct tag that is not ours goes
+away by including the upstream header, or by keeping the type out of the
+header entirely when that header cannot reach the dependency; a demarshalling
+operator that returns its own parameter deletes its rvalue overload, so the
+dangling case stops compiling; and a pointer handed to a size-aware callee is
+spelled with its length at the call. Third-party and generated code stays off
+the lint wall by target rather than by markers in the source: see the vendored
+ENet library and the qmlcachegen carve-out in `CMakeLists.txt`.
 
 Suppressions intentionally enabled in `.clang-tidy`:
 

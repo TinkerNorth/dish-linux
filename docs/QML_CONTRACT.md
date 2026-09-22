@@ -14,34 +14,40 @@ Three names are in scope for QML:
 
 | Name | What it is | Import |
 |---|---|---|
-| `App` | [`AppViewModel`](../src/qml/AppViewModel.h), the one model surface | none, it is a context property |
+| `App` | [`AppViewModel`](../src/qml/AppViewModel.h), the one model surface | `import Dish.Chrome` |
 | `Theme` | the colour palette | `import Dish.Chrome` |
 | `Tokens` | the non-colour design tokens | `import Dish.Chrome` |
 
-`App` is registered on the root context by
-[`QmlEntryPoint::runQmlApp`](../src/qml/QmlEntryPoint.cpp), so it is visible in
-every QML scope with no import. `Theme` and `Tokens` are registered by instance
-into the `Dish.Chrome` module. There is no window-chrome bridge: the window
-manager draws the decorations, and the shell's own header is the only chrome
-Dish paints.
+All three are singletons of the `Dish.Chrome` module.
+[`QmlEntryPoint::runQmlApp`](../src/qml/QmlEntryPoint.cpp) registers each one by
+instance, because this target's LTO strips the generated
+`QQmlModuleRegistration` initializer and a declarative-only name would never
+reach the engine. There is no window-chrome bridge: the window manager draws
+the decorations, and the shell's own header is the only chrome Dish paints.
 
 `SlotListModel` and `ConnectionListModel` are also registered uncreatable under
 `Dish.Chrome`, so a delegate can name the type. You rarely need to: bind
 `App.slotModel` or `App.connectionModel` straight into a `ListView.model`.
 
-### The one accepted lint gap
+### How the names reach the tooling
 
-`App` is a runtime context property. Static analysis cannot see it, so every
-`App.foo` reference is an unqualified lookup as far as `qmllint` is concerned.
-CI therefore runs `qmllint` with `--unqualified info` and gates every other
-category at error, including `missing-property`, `unused-imports` and
-`unresolved-type`. This is the only downgrade, and this document is the
-compensating control: a reference to `App` is checked against the table below
-rather than by the linter.
+Registering by instance is a runtime act, so on its own it tells `qmllint`
+nothing. Every name is therefore also declared declaratively, which is what puts
+it in the module's generated `qmltypes`. `Theme` and `Tokens` carry
+`QML_NAMED_ELEMENT` on the bridge classes themselves. `App`, `SlotListModel` and
+`ConnectionListModel` are declared from
+[`ForeignTypes.h`](../src/qml/chrome/ForeignTypes.h) with `QML_FOREIGN` instead,
+because those three live in `dish_core`, which links no Qml;
+`qt_extract_metatypes(dish_core)` is what lets `qmltyperegistrar` read their
+meta-objects. The result is that `App.statusText` is a statically resolved
+property read rather than an unqualified lookup. `App`'s `create()` hands back
+the instance `runQmlApp` registered, so the two registrations vend one object
+however the engine resolves the name.
 
-The gap closes when `AppViewModel` becomes a compiled QML singleton instead of
-a context property. Until then, do not add a second context property; anything
-new goes on `App`.
+Nothing is downgraded: CI runs `qmllint` with every category at its default
+level, `unqualified` included. Any name a page reads has to exist in the
+`qmltypes`, and a page that reads `App` has to `import Dish.Chrome` for it.
+Do not add a context property; anything new goes on `App`.
 
 ## `App` properties
 

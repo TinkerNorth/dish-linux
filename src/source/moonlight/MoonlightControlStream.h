@@ -22,25 +22,10 @@
 #include <atomic>
 #include <cstdint>
 #include <functional>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <thread>
-
-// Mirrors ENet's typedefs so <enet/enet.h> stays out of this header, the same
-// way SDLGamepadBridge.h mirrors SDL2's. Including the real header is not an
-// option here: dish_enet is linked PRIVATE to dish_core (its include directory
-// therefore does not reach the library's consumers), and this header is pulled
-// in by MoonlightSession.h -> MoonlightManager.h -> AppModel.h, so it would
-// drag <sys/socket.h>, <netinet/in.h> and every ENET_ macro into the whole
-// tree. The leading underscores are ENet's struct tags, not our choice.
-extern "C" {
-// NOLINTNEXTLINE(bugprone-reserved-identifier,cert-dcl37-c,cert-dcl51-cpp)
-using ENetHost = struct _ENetHost;
-// NOLINTNEXTLINE(bugprone-reserved-identifier,cert-dcl37-c,cert-dcl51-cpp)
-using ENetPeer = struct _ENetPeer;
-// NOLINTNEXTLINE(bugprone-reserved-identifier,cert-dcl37-c,cert-dcl51-cpp)
-using ENetPacket = struct _ENetPacket;
-}
 
 namespace dish::source::moon {
 
@@ -102,7 +87,14 @@ class MoonlightControlStream {
     };
     static constexpr std::size_t kSlotCount = 32;
 
-    static void releaseSlot(ENetPacket* packet);
+    // The ENet host and peer handles. Defined in the .cpp so <enet/enet.h>
+    // stays out of this header: dish_enet is linked PRIVATE to dish_core (its
+    // include directory therefore does not reach the library's consumers), and
+    // this header is pulled in by MoonlightSession.h -> MoonlightManager.h ->
+    // AppModel.h, so it would drag <sys/socket.h>, <netinet/in.h> and every
+    // ENET_ macro into the whole tree. Mirroring ENet's typedefs here instead
+    // would mean spelling its reserved struct tags.
+    struct Link;
 
     void serviceLoop();
     void notifyLink(bool connected);
@@ -115,8 +107,7 @@ class MoonlightControlStream {
     LinkHandler linkHandler_;
 
     mutable std::mutex linkMtx_; // guards everything below
-    ENetHost* host_ = nullptr;
-    ENetPeer* peer_ = nullptr;
+    std::unique_ptr<Link> link_;
     mooncrypto::ControlCipher cipher_;
     std::uint32_t seq_ = 0;
     std::array<Slot, kSlotCount> slots_{};

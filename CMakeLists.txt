@@ -9,7 +9,10 @@ project(Dish
 # --------------------------------------------------------------------------
 # Global build settings
 # --------------------------------------------------------------------------
-set(CMAKE_CXX_STANDARD 17)
+# C++20: a variadic macro invoked with no variadic arguments is standard
+# (P0306), which is exactly what Qt's streaming qC* logging form does; under
+# C++17 -Wpedantic reported it and the build carried a -Wno- flag for it.
+set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
@@ -89,13 +92,7 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
         -Wshadow -Wnon-virtual-dtor -Wold-style-cast
         -Wcast-align -Wunused -Woverloaded-virtual
         -Wconversion -Wsign-conversion -Wnull-dereference
-        -Wdouble-promotion -Wformat=2
-        # Qt's qC{Debug,Info,Warning,Critical} logging macros are declared
-        # as `(category, ...)`. The streaming form `qCInfo(cat) << "msg"`
-        # passes zero variadic args, which -Wpedantic flags as
-        # gnu-zero-variadic-macro-arguments (an error under clang-tidy's
-        # frontend). The streaming form is the standard Qt idiom; suppress.
-        -Wno-gnu-zero-variadic-macro-arguments)
+        -Wdouble-promotion -Wformat=2)
     if(DISH_ENABLE_WARNINGS)
         target_compile_options(dish_strict INTERFACE -Werror)
     endif()
@@ -557,6 +554,15 @@ target_link_libraries(dish_core
         OpenSSL::Crypto
         dish_enet)
 
+# AppViewModel and the two role models live here, but their QML identities are
+# declared from the Dish target (src/qml/chrome/ForeignTypes.h). qmltyperegistrar
+# can only expand a QML_FOREIGN declaration when it can read the foreign class's
+# meta-object, which reaches it as a --foreign-types argument: this call writes
+# dish_core's metatypes .json and puts it on Dish's SOURCES through the
+# INTERFACE_SOURCES genex that qt_add_qml_module's QT_CONSUMES_METATYPES enables.
+# Without it the App singleton lands in the qmltypes with no properties at all.
+qt_extract_metatypes(dish_core)
+
 # --------------------------------------------------------------------------
 # UI executable
 # --------------------------------------------------------------------------
@@ -589,7 +595,9 @@ target_sources(Dish PRIVATE
     src/qml/chrome/ThemeBridge.h
     src/qml/chrome/ThemeBridge.cpp
     src/qml/chrome/TokensBridge.h
-    src/qml/chrome/TokensBridge.cpp)
+    src/qml/chrome/TokensBridge.cpp
+    # QML_FOREIGN declarations for dish_core's view-model types; see the header.
+    src/qml/chrome/ForeignTypes.h)
 
 # DISH_KIT_QML_FILES: the canonical design-kit file list, kept in its own file
 # so the kit reads as a unit rather than as lines lost in this one.

@@ -83,7 +83,7 @@ TEST_CASE("picker: Stale is not available (needs re-pairing)", "[picker]") {
 TEST_CASE("picker: every LinkState resolves through the predicate without throwing", "[picker]") {
     for (auto s : {LinkState::Found, LinkState::Stale, LinkState::Saved, LinkState::Ready,
                    LinkState::Connecting, LinkState::Connected, LinkState::Unstable}) {
-        (void)isAvailableForPicker(s);
+        isAvailableForPicker(s);
     }
     SUCCEED();
 }

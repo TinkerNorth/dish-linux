@@ -28,8 +28,8 @@ TEST_CASE("AtomicCounter::next returns the previous value and increments", "[ato
 
 TEST_CASE("AtomicCounter::reset rewinds the counter", "[atomic_counter]") {
     AtomicCounter c;
-    (void)c.next();
-    (void)c.next();
+    REQUIRE(c.next() == 0U);
+    REQUIRE(c.next() == 1U);
     c.reset(7);
     REQUIRE(c.load() == 7U);
     REQUIRE(c.next() == 7U);
@@ -44,7 +44,7 @@ TEST_CASE("AtomicCounter increments are atomic across threads", "[atomic_counter
     workers.reserve(kThreads);
     for (int i = 0; i < kThreads; ++i) {
         workers.emplace_back([&] {
-            for (int j = 0; j < kPerThread; ++j) { (void)c.next(); }
+            for (int j = 0; j < kPerThread; ++j) { c.next(); }
         });
     }
     for (auto& t : workers) { t.join(); }

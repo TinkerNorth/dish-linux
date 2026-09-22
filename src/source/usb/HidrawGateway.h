@@ -78,15 +78,14 @@ inline std::optional<HidIds> parseHidIds(std::string_view uevent) {
     const auto next = [&rest](std::uint32_t& out) {
         const std::size_t sep = rest.find(':');
         const std::string_view token = rest.substr(0, sep);
-        const char* const last = token.data() + token.size();
-        // from_chars takes a (first, last) pair, so the length IS being passed —
-        // `last` two lines up is exactly the bound the check asks for. It simply
-        // does not model from_chars as a size-aware callee, and nothing here ever
-        // treats token.data() as a C string.
-        // NOLINTNEXTLINE(bugprone-suspicious-stringview-data-usage)
-        const auto res = std::from_chars(token.data(), last, out, 16);
+        // The end of the token is spelled out at the call rather than through a
+        // local: from_chars takes a (first, last) pair, so the token's size is
+        // what bounds the parse, and nothing here ever treats token.data() as a
+        // C string. Reading the two together is also what tells a reader (and
+        // the linter) that the pointer never travels without its length.
+        const auto res = std::from_chars(token.data(), token.data() + token.size(), out, 16);
         rest = sep == std::string_view::npos ? std::string_view{} : rest.substr(sep + 1);
-        return res.ec == std::errc{} && res.ptr == last;
+        return res.ec == std::errc{} && res.ptr == token.data() + token.size();
     };
     HidIds ids;
     if (!next(ids.bus) || !next(ids.vendorId) || !next(ids.productId)) { return std::nullopt; }

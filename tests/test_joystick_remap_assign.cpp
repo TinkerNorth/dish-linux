@@ -10,6 +10,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <array>
+#include <cstddef>
 #include <cstdint>
 
 using dish::input::captureAxisPasses;
@@ -31,7 +32,7 @@ namespace hat = dish::input::hat;
 namespace {
 
 int kindOf(CaptureKind k) { return static_cast<int>(k); }
-int btn(const JoystickRemap& r, RemapButton b) { return r.buttons[static_cast<int>(b)]; }
+int btn(const JoystickRemap& r, RemapButton b) { return r.buttons[static_cast<std::size_t>(b)]; }
 
 // The caller-owned arrays must outlive every read of the snapshot.
 JoystickSnapshot makeSnap(std::int16_t* axes, int axisCount, bool* buttons, int buttonCount,

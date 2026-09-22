@@ -121,11 +121,11 @@ bool GamepadInputProcessor::publishMotionAt(const DeviceId& id, const MotionSamp
     return true;
 }
 
-void GamepadInputProcessor::publishMotion(const DeviceId& id, const MotionSample& sample) {
+bool GamepadInputProcessor::publishMotion(const DeviceId& id, const MotionSample& sample) {
     const auto now = std::chrono::steady_clock::now();
     const auto us = static_cast<std::uint64_t>(
         std::chrono::duration_cast<std::chrono::microseconds>(now.time_since_epoch()).count());
-    (void)publishMotionAt(id, sample, us);
+    return publishMotionAt(id, sample, us);
 }
 
 void GamepadInputProcessor::publishBattery(const DeviceId& id, const BatterySample& sample) {

@@ -122,9 +122,12 @@ if have qmllint; then
   if [ -n "${QT_ROOT_DIR:-}" ] && [ -d "${QT_ROOT_DIR}/qml" ]; then
     qt_qml_args=(-I "${QT_ROOT_DIR}/qml")
   fi
-  # shellcheck disable=SC2046
-  qmllint -I build "${qt_qml_args[@]+"${qt_qml_args[@]}"}" --unqualified info \
-    $(git ls-files 'src/qml/*.qml')
+  mapfile -t qml_files < <(git ls-files 'src/qml/*.qml')
+  # Every category at its default level, `unqualified` included: App, Theme and
+  # Tokens are all module singletons the generated qmltypes describes, so every
+  # name a page reads resolves statically.
+  qmllint -I build "${qt_qml_args[@]+"${qt_qml_args[@]}"}" \
+    "${qml_files[@]}"
 fi
 
 step "QML literal scanner"

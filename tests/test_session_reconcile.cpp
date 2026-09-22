@@ -86,7 +86,11 @@ TEST_CASE("appliedMatchesDesired: a touchpad-mode drift forces re-PUT", "[reconc
     std::vector<DesiredSlot> desired = {{0, 1, /*touchpadMode=*/0}};       // want ds4
     std::vector<AppliedSlot> applied = {{0, 1, true, /*touchpadMode=*/2}}; // got off
     REQUIRE_FALSE(reducer::appliedMatchesDesired(desired, applied));
-    applied = {{0, 1, true, /*touchpadMode=*/0}};
+    // Assigned from a temporary vector, not an initializer list: GCC 13's
+    // -fsanitize=address,undefined build (-O2) misreads the list assignment's
+    // element copy of a 5-byte struct holding a std::optional as an
+    // out-of-bounds memmove.
+    applied = std::vector<AppliedSlot>{{0, 1, true, /*touchpadMode=*/0}};
     REQUIRE(reducer::appliedMatchesDesired(desired, applied));
 }
 

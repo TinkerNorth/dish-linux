@@ -276,6 +276,10 @@ inline SessionReduction reduce(const SessionModel& s, const SessionEvent& event)
         const int delay = static_cast<int>(backoffDelayMs(next.retryAttempt));
         SessionReduction r;
         r.next = next;
+        // Reserved for the most it can hold: one allocation for the list, and
+        // the growth path never runs here. GCC 13's LTO build reports a bogus
+        // overflow inside that path when it is left reachable.
+        r.effects.reserve(3);
         if (live) { r.effects.push_back(fx::StopHeartbeat{}); }
         r.effects.push_back(fx::ScheduleRetry{delay});
         if (emitNotify) { r.effects.push_back(fx::Notify{cause, loud}); }
@@ -289,6 +293,7 @@ inline SessionReduction reduce(const SessionModel& s, const SessionEvent& event)
         next.nextRetryAtMs = 0;
         SessionReduction r;
         r.next = next;
+        r.effects.reserve(3); // same reason as in toReconnecting
         if (live) { r.effects.push_back(fx::StopHeartbeat{}); }
         if (dropKey) { r.effects.push_back(fx::DropKey{}); }
         r.effects.push_back(fx::Notify{cause, loud});
@@ -479,6 +484,7 @@ inline SessionReduction reduce(const SessionModel& s, const SessionEvent& event)
             else if constexpr (std::is_same_v<E, Forget>) {
                 SessionReduction r;
                 r.next = std::nullopt;
+                r.effects.reserve(2); // same reason as in toReconnecting
                 if (live) { r.effects.push_back(fx::StopHeartbeat{}); }
                 r.effects.push_back(fx::DropKey{});
                 return r;

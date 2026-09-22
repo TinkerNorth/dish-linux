@@ -6,9 +6,16 @@
 #include "core/model/Protocol.h"
 #include "source/audio/OpusAudioCodec.h"
 
+#include <QLoggingCategory>
+
+#include <exception>
 #include <utility>
 
 namespace dish::source::audio {
+
+namespace {
+Q_LOGGING_CATEGORY(lcDishAudio, "dish.audio")
+} // namespace
 
 MicCaptureEngine::MicCaptureEngine(AudioDeviceGateway* gateway, EncoderFactory encoderFactory)
     : gateway_(gateway), encoderFactory_(std::move(encoderFactory)) {
@@ -23,10 +30,12 @@ MicCaptureEngine::MicCaptureEngine(AudioDeviceGateway* gateway, EncoderFactory e
 MicCaptureEngine::~MicCaptureEngine() {
     try {
         reconcile({});
-    } catch (...) { // NOLINT(bugprone-empty-catch)
-        // A teardown IO failure has nowhere to go; the devices are closing
-        // with the process either way, and a throwing destructor terminates.
-    }
+    } catch (const std::exception& e) {
+        // A teardown IO failure has nowhere to go: the devices are closing with
+        // the process either way, and a throwing destructor terminates. It is
+        // still logged, so a repeating one is visible.
+        qCWarning(lcDishAudio) << "mic capture teardown failed:" << e.what();
+    } catch (...) { qCWarning(lcDishAudio) << "mic capture teardown failed"; }
 }
 
 void MicCaptureEngine::reconcile(const std::vector<MicCaptureTarget>& targets) {

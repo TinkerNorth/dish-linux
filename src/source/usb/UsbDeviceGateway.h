@@ -151,11 +151,7 @@ class UsbDeviceGateway {
     // decoder folds onto the wire), so the app's mute control and the pad's
     // own button stay one state. False for an unknown id or a family with no
     // latch. Default no-op so fakes that never touch audio need no override.
-    virtual bool setPadMicMuted(int syntheticId, bool muted) {
-        (void)syntheticId;
-        (void)muted;
-        return false;
-    }
+    virtual bool setPadMicMuted(int /*syntheticId*/, bool /*muted*/) { return false; }
 };
 
 } // namespace dish::source::usb

@@ -22,20 +22,11 @@
 #include <unordered_set>
 #include <utility>
 
-// Mirrors SDL2's typedefs so <SDL.h> stays out of this header. The leading
-// underscores are SDL's struct tags, not our choice.
-extern "C" {
-// NOLINTNEXTLINE(bugprone-reserved-identifier,cert-dcl37-c,cert-dcl51-cpp)
-struct _SDL_GameController;
-// NOLINTNEXTLINE(bugprone-reserved-identifier,cert-dcl37-c,cert-dcl51-cpp)
-using SDL_GameController = struct _SDL_GameController;
-// NOLINTNEXTLINE(bugprone-reserved-identifier,cert-dcl37-c,cert-dcl51-cpp)
-struct _SDL_Joystick;
-// NOLINTNEXTLINE(bugprone-reserved-identifier,cert-dcl37-c,cert-dcl51-cpp)
-using SDL_Joystick = struct _SDL_Joystick;
-struct SDL_ControllerSensorEvent;
-struct SDL_ControllerTouchpadEvent;
-}
+// SDL's own declarations of the handle and event types named below.
+// SDL_events.h is the smallest SDL header that declares both event structs; it
+// brings the game-controller and joystick headers with it. Every consumer of
+// this header already compiles against SDL.
+#include <SDL2/SDL_events.h>
 
 namespace dish::input {
 

@@ -69,14 +69,22 @@ struct DbusMenuItemProperties {
 };
 using DbusMenuItemPropertiesList = QList<DbusMenuItemProperties>;
 
+// The demarshalling operators return the const reference they were given: the
+// shape QtDBus documents, and the one its own container operators chain on. A
+// temporary argument would leave that reference dangling, so each rvalue
+// overload is deleted: streaming from anything but an lvalue does not compile.
 QDBusArgument& operator<<(QDBusArgument& argument, const SniIconPixmap& pixmap);
 const QDBusArgument& operator>>(const QDBusArgument& argument, SniIconPixmap& pixmap);
+const QDBusArgument& operator>>(QDBusArgument&& argument, SniIconPixmap& pixmap) = delete;
 QDBusArgument& operator<<(QDBusArgument& argument, const SniToolTip& tip);
 const QDBusArgument& operator>>(const QDBusArgument& argument, SniToolTip& tip);
+const QDBusArgument& operator>>(QDBusArgument&& argument, SniToolTip& tip) = delete;
 QDBusArgument& operator<<(QDBusArgument& argument, const DbusMenuLayoutItem& item);
 const QDBusArgument& operator>>(const QDBusArgument& argument, DbusMenuLayoutItem& item);
+const QDBusArgument& operator>>(QDBusArgument&& argument, DbusMenuLayoutItem& item) = delete;
 QDBusArgument& operator<<(QDBusArgument& argument, const DbusMenuItemProperties& entry);
 const QDBusArgument& operator>>(const QDBusArgument& argument, DbusMenuItemProperties& entry);
+const QDBusArgument& operator>>(QDBusArgument&& argument, DbusMenuItemProperties& entry) = delete;
 
 class StatusNotifierTrayIcon final : public TrayIcon {
     Q_OBJECT

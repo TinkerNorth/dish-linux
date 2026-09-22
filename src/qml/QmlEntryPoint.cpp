@@ -7,6 +7,7 @@
 #include "qml/AppViewModel.h"
 #include "qml/ConnectionListModel.h"
 #include "qml/SlotListModel.h"
+#include "qml/chrome/ForeignTypes.h"
 #include "qml/chrome/ThemeBridge.h"
 #include "qml/chrome/TokensBridge.h"
 #include "UI/common/ExternalLink.h"
@@ -15,7 +16,6 @@
 
 #include <QGuiApplication>
 #include <QQmlApplicationEngine>
-#include <QQmlContext>
 #include <QQuickStyle>
 #include <QQuickWindow>
 #include <QWindow>
@@ -34,6 +34,9 @@ int runQmlApp(dish::AppModel& model) {
 
     // Uncreatable: instances are only ever vended through App.slotModel /
     // App.connectionModel, but QML must be able to name the type in a delegate.
+    // By instance for the same LTO reason the singletons below are; the matching
+    // QML_FOREIGN declarations in ForeignTypes.h are what put the two names into
+    // the module's qmltypes for qmllint.
     qmlRegisterUncreatableType<dish::qml::SlotListModel>(
         "Dish.Chrome", 1, 0, "SlotListModel",
         QStringLiteral("SlotListModel is owned by AppViewModel"));
@@ -66,8 +69,19 @@ int runQmlApp(dish::AppModel& model) {
     qmlRegisterSingletonInstance("Dish.Chrome", 1, 0, "Theme", themeBridge);
     qmlRegisterSingletonInstance("Dish.Chrome", 1, 0, "Tokens", tokensBridge);
 
+    // `App` is a module singleton, not a context property: a context property
+    // is invisible to qmllint, so every `App.x` in the QML read as an
+    // unqualified access and the whole category had to be downgraded. It is
+    // registered by instance like the two above, and ForeignTypes.h declares
+    // the same name declaratively so it reaches the qmltypes; that declaration
+    // vends THIS object too, so the two registrations cannot disagree. appVm
+    // outlives the engine (declared above it), and CppOwnership keeps QML from
+    // ever deleting a stack object.
+    QQmlEngine::setObjectOwnership(&appVm, QQmlEngine::CppOwnership);
+    dish::chrome::AppViewModelForeign::setInstance(&appVm);
+    qmlRegisterSingletonInstance("Dish.Chrome", 1, 0, "App", &appVm);
+
     QQmlApplicationEngine engine;
-    engine.rootContext()->setContextProperty(QStringLiteral("App"), &appVm);
 
     QObject::connect(
         &engine, &QQmlApplicationEngine::objectCreated, qApp,

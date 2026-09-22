@@ -13,7 +13,7 @@ class AppModel;
 namespace dish::qml {
 
 // Returns the exec() code. `model` must already be started, and must outlive
-// the engine — the AppViewModel wrapping it is a context property.
+// the engine: the AppViewModel wrapping it is the `App` singleton.
 int runQmlApp(dish::AppModel& model);
 
 } // namespace dish::qml

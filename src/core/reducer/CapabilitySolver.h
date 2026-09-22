@@ -125,14 +125,11 @@ inline bool inputCarries(const CapabilityInputs& in, CapFeature f) {
     case CapFeature::Motion:
         return in.padMotion;
     // Touchpad and Mouse deliberately share one answer: Mouse is a routing OF
-    // the touchpad, so the pad needs one to drive it. They stay separate cases
-    // because every other layer treats them as distinct features.
-    // NOLINTBEGIN(bugprone-branch-clone)
+    // the touchpad, so the pad needs one to drive it. One arm here; every
+    // other layer still treats them as distinct features.
     case CapFeature::Touchpad:
-        return in.padTouchpad;
     case CapFeature::Mouse:
         return in.padTouchpad;
-    // NOLINTEND(bugprone-branch-clone)
     case CapFeature::Rumble:
         return in.padRumble;
     case CapFeature::Lightbar:
