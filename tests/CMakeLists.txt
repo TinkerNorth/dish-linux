@@ -75,6 +75,7 @@ set(DISH_TEST_SOURCES
     test_physical_motion_source.cpp
     test_pairing_client_classify.cpp
     test_pairing_client_wire.cpp
+    test_reverse_pairing_flow.cpp
     test_rest_control_plane.cpp
     test_reverse_pairing.cpp
     test_battery_ui.cpp

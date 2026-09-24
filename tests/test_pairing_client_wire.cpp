@@ -22,7 +22,7 @@
 #include "Network/PairingClient.h"
 #include "core/model/Protocol.h"
 
-#include "MoonlightFakeHost.h"
+#include "FakePairingListener.h"
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -48,107 +48,11 @@
 #include <vector>
 
 using dish::net::PairingClient;
-using dish::test::fixtureHostIdentity;
+using dish::test::FakePairingListener;
+using dish::test::PairingAnswer;
 using dish::test::spinFor;
 
 namespace {
-
-// One request as the listener received it.
-struct SeenRequest {
-    QByteArray method;
-    QString path;
-    QUrlQuery query;
-    QJsonObject body;
-};
-
-// A satellite's pairing endpoint, reduced to what the client can observe: it
-// records each request and answers every one with the same status and body.
-class FakePairingListener : public QObject {
-  public:
-    FakePairingListener() {
-        const auto& identity = fixtureHostIdentity();
-        const auto certs =
-            QSslCertificate::fromData(QByteArray::fromStdString(identity.certPem), QSsl::Pem);
-        if (certs.isEmpty()) { return; }
-        cert_ = certs.first();
-        QSslConfiguration ssl = QSslConfiguration::defaultConfiguration();
-        ssl.setLocalCertificate(cert_);
-        ssl.setPrivateKey(QSslKey(QByteArray::fromStdString(identity.privateKeyPem), QSsl::Rsa,
-                                  QSsl::Pem, QSsl::PrivateKey));
-        ssl.setPeerVerifyMode(QSslSocket::VerifyNone);
-        server_.setSslConfiguration(ssl);
-        QObject::connect(&server_, &QTcpServer::pendingConnectionAvailable, this,
-                         &FakePairingListener::acceptAll);
-        listening_ = server_.listen(QHostAddress::LocalHost, 0);
-    }
-
-    bool listening() const { return listening_; }
-    int port() const { return static_cast<int>(server_.serverPort()); }
-    QByteArray certDer() const { return cert_.toDer(); }
-
-    // Read on the listener's thread, which is the test's.
-    const std::vector<SeenRequest>& requests() const { return requests_; }
-    int handshakes() const { return handshakes_; }
-
-    // What every request is answered with.
-    int status = 200;
-    QJsonObject reply{{QStringLiteral("ok"), true},
-                      {QStringLiteral("sharedKey"), QStringLiteral("00112233")}};
-
-  private:
-    void acceptAll() {
-        while (auto* sock = server_.nextPendingConnection()) {
-            ++handshakes_;
-            auto pending = std::make_shared<QByteArray>();
-            QObject::connect(sock, &QTcpSocket::readyRead, sock,
-                             [this, sock, pending] { onBytes(sock, *pending); });
-            QObject::connect(sock, &QTcpSocket::disconnected, sock, &QObject::deleteLater);
-        }
-    }
-
-    // Answers once the whole request, headers and Content-Length body, has arrived.
-    void onBytes(QTcpSocket* sock, QByteArray& pending) {
-        pending.append(sock->readAll());
-        const qsizetype headerEnd = pending.indexOf("\r\n\r\n");
-        if (headerEnd < 0) { return; }
-        const QByteArray head = pending.left(headerEnd);
-        const qsizetype bodyStart = headerEnd + 4;
-        const qsizetype bodyLength = contentLength(head);
-        if (pending.size() - bodyStart < bodyLength) { return; }
-
-        const QList<QByteArray> requestLine = head.split('\n').first().trimmed().split(' ');
-        const QUrl target(QString::fromLatin1(requestLine.value(1)));
-        SeenRequest seen;
-        seen.method = requestLine.value(0);
-        seen.path = target.path();
-        seen.query = QUrlQuery(target);
-        seen.body = QJsonDocument::fromJson(pending.mid(bodyStart, bodyLength)).object();
-        requests_.push_back(seen);
-
-        const QByteArray payload = QJsonDocument(reply).toJson(QJsonDocument::Compact);
-        sock->write("HTTP/1.1 " + QByteArray::number(status) + " X\r\n" +
-                    "Content-Type: application/json\r\n" +
-                    "Content-Length: " + QByteArray::number(payload.size()) + "\r\n" +
-                    "Connection: close\r\n\r\n" + payload);
-        sock->disconnectFromHost();
-    }
-
-    static qsizetype contentLength(const QByteArray& head) {
-        for (const QByteArray& line : head.split('\n')) {
-            const QByteArray trimmed = line.trimmed();
-            if (trimmed.toLower().startsWith("content-length:")) {
-                return trimmed.mid(15).trimmed().toLongLong();
-            }
-        }
-        return 0;
-    }
-
-    QSslServer server_;
-    QSslCertificate cert_;
-    bool listening_ = false;
-    int handshakes_ = 0;
-    std::vector<SeenRequest> requests_;
-};
 
 // What a verifier was shown, from the worker thread it runs on.
 struct VerifierLog {
@@ -311,9 +215,11 @@ TEST_CASE("pairing wire: the transport status is stamped onto the parsed reply",
     // protocol skew only because the status says so.
     FakePairingListener listener;
     REQUIRE(listener.listening());
-    listener.status = 409;
-    listener.reply = QJsonObject{{QStringLiteral("ok"), false},
-                                 {QStringLiteral("error"), QStringLiteral("protocol")}};
+    listener.respond = [](const dish::test::SeenRequest&) {
+        return PairingAnswer{409,
+                             QJsonObject{{QStringLiteral("ok"), false},
+                                         {QStringLiteral("error"), QStringLiteral("protocol")}}};
+    };
     const PairingClient client(recordingVerifier(std::make_shared<VerifierLog>(), true));
 
     const auto reply = onWorker([&] {
@@ -329,7 +235,10 @@ TEST_CASE("pairing wire: the transport status is stamped onto the parsed reply",
 TEST_CASE("pairing wire: the status poll percent-encodes the device id", "[pairing][wire]") {
     FakePairingListener listener;
     REQUIRE(listener.listening());
-    listener.reply = QJsonObject{{QStringLiteral("status"), QStringLiteral("pending")}};
+    listener.respond = [](const dish::test::SeenRequest&) {
+        return PairingAnswer{200,
+                             QJsonObject{{QStringLiteral("status"), QStringLiteral("pending")}}};
+    };
     const PairingClient client(recordingVerifier(std::make_shared<VerifierLog>(), true));
     const QString awkwardId = QStringLiteral("a b&c=d");
 

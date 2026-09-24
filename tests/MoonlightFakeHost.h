@@ -26,6 +26,9 @@
 
 #pragma once
 
+#include "FixtureIdentity.h"
+#include "TestEventLoop.h"
+
 #include "Util/Hex.h"
 #include "core/moonlight/MoonlightControlCipher.h"
 #include "core/moonlight/MoonlightPairingCrypto.h"
@@ -67,22 +70,6 @@
 
 namespace dish::test {
 
-// A self-signed RSA identity, minted once for the whole run. The prime search
-// behind a 2048-bit key takes a variable and occasionally long time, and
-// neither end of this handshake gains anything from a fresh one per case; an
-// install has exactly one identity anyway.
-inline const mooncrypto::ClientIdentity& fixtureHostIdentity() {
-    static const mooncrypto::ClientIdentity id =
-        mooncrypto::generateClientIdentity().value_or(mooncrypto::ClientIdentity{});
-    return id;
-}
-
-inline const mooncrypto::ClientIdentity& fixtureClientIdentity() {
-    static const mooncrypto::ClientIdentity id =
-        mooncrypto::generateClientIdentity().value_or(mooncrypto::ClientIdentity{});
-    return id;
-}
-
 // Writes the identity a MoonlightManager over `settings` will find, so it does
 // not stop to mint one of its own before the first call it makes.
 inline void seedClientIdentity(QSettings& settings) {
@@ -94,24 +81,6 @@ inline void seedClientIdentity(QSettings& settings) {
     settings.setValue(QLatin1String(repository::keys::kMoonlightUniqueIdKey),
                       QStringLiteral("7b5d0738cbb54d3e"));
     settings.sync();
-}
-
-// Catch2 owns no event loop, and everything below is asynchronous by nature.
-// Spin the suite's QCoreApplication until the condition holds, with a ceiling
-// so a stall fails the case instead of hanging the run.
-inline bool spinFor(const std::function<bool()>& ready, int timeoutMs = 20000) {
-    QElapsedTimer clock;
-    clock.start();
-    while (!ready() && clock.elapsed() < timeoutMs) {
-        QCoreApplication::processEvents(QEventLoop::AllEvents, 5);
-    }
-    return ready();
-}
-
-// Let pending work land when there is no signal to wait on, which is the shape
-// every "and nothing else happened" assertion needs.
-inline void settle(int ms = 300) {
-    spinFor([] { return false; }, ms);
 }
 
 // One HTTP request, split the way the assertions read it.
