@@ -45,13 +45,10 @@ struct BlockingReply {
 };
 
 BlockingReply blockingRequest(const QString& url, const QByteArray& method, const QByteArray& body,
-                              const QString& deviceId, const QString& hmacProof,
                               const PairingClient::PinVerifier& pinVerify) {
     const QUrl parsed(url);
     QNetworkRequest req(parsed);
     req.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
-    if (!deviceId.isEmpty()) { req.setRawHeader("X-Device-Id", deviceId.toUtf8()); }
-    if (!hmacProof.isEmpty()) { req.setRawHeader("X-Hmac-Proof", hmacProof.toUtf8()); }
 
     // Qt chain verification stays off because the cert is self-signed by design;
     // the real gate is the TOFU pin check on the `encrypted` edge below. The
@@ -111,6 +108,18 @@ QJsonObject parseObject(const QByteArray& body) {
     return doc.object();
 }
 
+// A reply that never arrived is "connect failed" whatever the endpoint; one that
+// did is read by the endpoint's own parser and stamped with the transport status,
+// which the body cannot carry. The pin flag rides along either way: an aborted
+// handshake is exactly the reply that never arrived.
+PairingClient::Reply toReply(const BlockingReply& reply,
+                             models::PairResponse (*parse)(const QJsonObject&)) {
+    if (!reply.reachable) { return {makeError("connect failed"), reply.pinMismatch}; }
+    auto r = parse(parseObject(reply.body));
+    r.httpStatus = reply.status;
+    return {r, reply.pinMismatch};
+}
+
 } // namespace
 
 PairingClient::Outcome PairingClient::classify(const models::PairResponse& response,
@@ -145,7 +154,7 @@ PairingClient::Outcome PairingClient::classify(const models::PairResponse& respo
 
 PairingClient::Reply PairingClient::pair(const QString& ip, int port, const QString& deviceId,
                                          const QString& deviceName, const QString& pin,
-                                         const QString& clientPin) {
+                                         const QString& clientPin) const {
     const QString url = QStringLiteral("https://%1:%2/api/pair").arg(ip).arg(port);
     const QJsonObject reqObj{
         {"deviceId", deviceId},
@@ -155,49 +164,16 @@ PairingClient::Reply PairingClient::pair(const QString& ip, int port, const QStr
         {"clientPin", clientPin},
     };
     const auto body = QJsonDocument(reqObj).toJson(QJsonDocument::Compact);
-    const auto reply = blockingRequest(url, "POST", body, {}, {}, pinVerifier());
-    if (!reply.reachable) { return {makeError("connect failed"), reply.pinMismatch}; }
-    auto r = models::PairResponse::fromJson(parseObject(reply.body));
-    r.httpStatus = reply.status;
-    return {r, reply.pinMismatch};
-}
-
-PairingClient::Reply PairingClient::rotateKey(const QString& ip, int port, const QString& deviceId,
-                                              const QString& deviceName, const QString& hmacProof) {
-    const QString url = QStringLiteral("https://%1:%2/api/pair").arg(ip).arg(port);
-    const QJsonObject reqObj{
-        {"deviceId", deviceId},
-        {"deviceName", deviceName},
-        {"protocolVersion", proto::kProtocolVersion},
-        {"hmacProof", hmacProof},
-    };
-    const auto body = QJsonDocument(reqObj).toJson(QJsonDocument::Compact);
-    const auto reply = blockingRequest(url, "POST", body, {}, {}, pinVerifier());
-    if (!reply.reachable) { return {makeError("connect failed"), reply.pinMismatch}; }
-    auto r = models::PairResponse::fromJson(parseObject(reply.body));
-    r.httpStatus = reply.status;
-    return {r, reply.pinMismatch};
+    return toReply(blockingRequest(url, "POST", body, verify_), &models::PairResponse::fromJson);
 }
 
 PairingClient::Reply PairingClient::pairStatus(const QString& ip, int port,
-                                               const QString& deviceId) {
+                                               const QString& deviceId) const {
     const QString url = QStringLiteral("https://%1:%2/api/pair/status?deviceId=%3")
                             .arg(ip)
                             .arg(port)
                             .arg(QString::fromUtf8(QUrl::toPercentEncoding(deviceId)));
-    const auto reply = blockingRequest(url, "GET", {}, {}, {}, pinVerifier());
-    if (!reply.reachable) { return {makeError("connect failed"), reply.pinMismatch}; }
-    auto r = models::PairResponse::fromStatusJson(parseObject(reply.body));
-    r.httpStatus = reply.status;
-    return {r, reply.pinMismatch};
+    return toReply(blockingRequest(url, "GET", {}, verify_), &models::PairResponse::fromStatusJson);
 }
-
-PairingClient::PinVerifier& PairingClient::pinVerifier() {
-    // Set once at manager construction; worker threads only read it afterwards.
-    static PinVerifier verifier;
-    return verifier;
-}
-
-void PairingClient::setPinVerifier(PinVerifier verifier) { pinVerifier() = std::move(verifier); }
 
 } // namespace dish::net

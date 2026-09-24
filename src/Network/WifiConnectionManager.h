@@ -6,6 +6,7 @@
 #include "ConnectionStore.h"
 #include "HTTPClient.h"
 #include "Models/Models.h"
+#include "PairingClient.h"
 #include "WifiConnection.h"
 #include "core/reducer/RestOutcome.h"
 
@@ -167,6 +168,9 @@ class WifiConnectionManager : public QObject {
 
     ConnectionStore* store_;
     HTTPClient* http_;
+    // Built in the constructor over the same pin store as http_, then copied into
+    // each pairing worker. Empty (accepting) only until the constructor runs.
+    PairingClient pairing_{PairingClient::PinVerifier{}};
     QString deviceId_;
     QString deviceName_;
 

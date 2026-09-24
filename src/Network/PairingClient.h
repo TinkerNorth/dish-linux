@@ -10,6 +10,7 @@
 #include <QString>
 
 #include <functional>
+#include <utility>
 #include <variant>
 
 namespace dish::net {
@@ -21,6 +22,12 @@ namespace dish::net {
 // Each call drives a nested QEventLoop around the async QNetworkAccessManager to
 // keep the API synchronous, so it MUST be invoked from a worker thread and never
 // from the UI thread.
+//
+// An instance carries the TOFU gate it runs, and is cheap to copy: a caller hands
+// each worker its own copy rather than every worker reading one process-wide
+// verifier. That process-wide slot was a singleton with a lifetime hazard in it -
+// the verifier closes over a pin store by reference, and nothing tied the slot's
+// contents to that store's lifetime.
 class PairingClient {
   public:
     // Arms map 1:1 onto reducer::PairVerdict; the success arm carries the shared
@@ -47,33 +54,27 @@ class PairingClient {
 
     static Outcome classify(const models::PairResponse& response, bool pinMismatch = false);
 
+    // Called on the TLS `encrypted` edge with the peer cert DER; returning false
+    // aborts before any payload transits. Pairing is the pin-on-first-use moment,
+    // so the first pair pins and every later pair must match. Keyed by host,
+    // sharing the pin store with HTTPClient. An empty verifier accepts, which only
+    // a test should ever construct. `pinMismatch` is set only for a CHANGED cert,
+    // so an identity change is not read as a dead link.
+    using PinVerifier =
+        std::function<bool(const QString& host, const QByteArray& certDer, bool& pinMismatch)>;
+
+    explicit PairingClient(PinVerifier verify) : verify_(std::move(verify)) {}
+
     // Path A (operator `pin`) and Path B (client-shown `clientPin`, which answers
     // Pending and is then polled). Both fields always ride in the body, empty when
     // unused; the server tries a valid `pin` first.
-    static Reply pair(const QString& ip, int port, const QString& deviceId,
-                      const QString& deviceName, const QString& pin,
-                      const QString& clientPin = QString());
+    Reply pair(const QString& ip, int port, const QString& deviceId, const QString& deviceName,
+               const QString& pin, const QString& clientPin = QString()) const;
 
-    // Proves possession of the CURRENT key to get a fresh one. A failed proof
-    // falls through to the PIN paths server-side, so it degrades to a fresh
-    // attempt rather than an error.
-    static Reply rotateKey(const QString& ip, int port, const QString& deviceId,
-                           const QString& deviceName, const QString& hmacProof);
-
-    static Reply pairStatus(const QString& ip, int port, const QString& deviceId);
-
-    // Called on the TLS `encrypted` edge with the peer cert DER; returning false
-    // aborts before any payload transits. Pairing is the pin-on-first-use moment,
-    // so the first pair pins and every later pair or rotation must match. Keyed by
-    // host, sharing the pin store with HTTPClient. Unset means accept, which only
-    // happens in tests and before a manager wires the store. `pinMismatch` is set
-    // only for a CHANGED cert, so an identity change is not read as a dead link.
-    using PinVerifier =
-        std::function<bool(const QString& host, const QByteArray& certDer, bool& pinMismatch)>;
-    static void setPinVerifier(PinVerifier verifier);
+    Reply pairStatus(const QString& ip, int port, const QString& deviceId) const;
 
   private:
-    static PinVerifier& pinVerifier();
+    PinVerifier verify_;
 };
 
 } // namespace dish::net

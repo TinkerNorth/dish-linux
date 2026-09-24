@@ -197,8 +197,8 @@ WifiConnectionManager::WifiConnectionManager(ConnectionStore* store, QObject* pa
     };
     http_->setPinVerifier(verify);
     // The same gate over the same store, so the first pair pins and every later
-    // pairing or rotation must present the pinned cert.
-    PairingClient::setPinVerifier(verify);
+    // pairing must present the pinned cert. Each pairing worker gets its own copy.
+    pairing_ = PairingClient(verify);
 }
 
 WifiConnectionManager::~WifiConnectionManager() {
@@ -395,8 +395,8 @@ void WifiConnectionManager::pairWithPin(const models::DiscoveredServer& server,
                 },
                 outcome);
         });
-    watcher->setFuture(QtConcurrent::run([server, did, dname, pin] {
-        return PairingClient::pair(server.ip, server.pairPort, did, dname, pin);
+    watcher->setFuture(QtConcurrent::run([pairing = pairing_, server, did, dname, pin] {
+        return pairing.pair(server.ip, server.pairPort, did, dname, pin);
     }));
 }
 
@@ -476,10 +476,10 @@ void WifiConnectionManager::requestReversePairing(const models::DiscoveredServer
                 },
                 outcome);
         });
-    watcher->setFuture(QtConcurrent::run([server, did, dname, pin] {
+    watcher->setFuture(QtConcurrent::run([pairing = pairing_, server, did, dname, pin] {
         // Empty operator pin, displayed pin as clientPin: that is what selects
         // Path B server-side.
-        return PairingClient::pair(server.ip, server.pairPort, did, dname, QString(), pin);
+        return pairing.pair(server.ip, server.pairPort, did, dname, QString(), pin);
     }));
 }
 
@@ -540,8 +540,9 @@ void WifiConnectionManager::pollReverseStatus() {
             break; // the timer re-fires on its own
         }
     });
-    watcher->setFuture(QtConcurrent::run(
-        [server, did] { return PairingClient::pairStatus(server.ip, server.pairPort, did); }));
+    watcher->setFuture(QtConcurrent::run([pairing = pairing_, server, did] {
+        return pairing.pairStatus(server.ip, server.pairPort, did);
+    }));
 }
 
 void WifiConnectionManager::cancelReversePairing() {
@@ -617,8 +618,8 @@ void WifiConnectionManager::pairAndConnect(WifiConnection* conn,
                 },
                 outcome);
         });
-    watcher->setFuture(QtConcurrent::run([server, did, dname] {
-        return PairingClient::pair(server.ip, server.pairPort, did, dname, QString());
+    watcher->setFuture(QtConcurrent::run([pairing = pairing_, server, did, dname] {
+        return pairing.pair(server.ip, server.pairPort, did, dname, QString());
     }));
 }
 
