@@ -23,6 +23,80 @@ ConnectionHub::ConnectionHub(WifiConnectionManager* wifi, ConnectionStore* store
     rebuild();
 }
 
+namespace {
+
+// An Idle or absent session is Ready when discovery can still see the host and Saved when it
+// cannot: both are "not connected", but only one of them is one tap away.
+models::LinkState idleState(const QSet<QString>& discoveredIds, const QString& id) {
+    return discoveredIds.contains(id) ? models::LinkState::Ready : models::LinkState::Saved;
+}
+
+models::LinkState liveStateOf(const SessionState state, const QSet<QString>& discoveredIds,
+                              const QString& id) {
+    switch (state) {
+    case SessionState::Live:
+        return models::LinkState::Connected;
+    case SessionState::Linking:
+        return models::LinkState::Connecting;
+    case SessionState::Faltering:
+        // Entered at >=2 consecutive missed acks, recovers on the next.
+        return models::LinkState::Unstable;
+    case SessionState::Stale:
+        // The heartbeat dropped or a reconnect's pair came back AuthRequired. The chip reads
+        // "Needs pairing" while the manager keeps retrying silently.
+        return models::LinkState::Stale;
+    case SessionState::Idle:
+        return idleState(discoveredIds, id);
+    }
+    // Unreachable: the switch is exhaustive over SessionState and carries no default, so a new
+    // state is a compile error rather than a silent Saved.
+    return models::LinkState::Saved;
+}
+
+} // namespace
+
+// Every id the screen can show: one that has a live connection object, one that is only
+// remembered, or both.
+QSet<QString>
+ConnectionHub::knownIds(const QHash<QString, models::RememberedWifi>& remembered) const {
+    QSet<QString> ids;
+    for (auto it = wifi_->connections().begin(); it != wifi_->connections().end(); ++it) {
+        ids.insert(it.key());
+    }
+    for (auto it = remembered.begin(); it != remembered.end(); ++it) { ids.insert(it.key()); }
+    return ids;
+}
+
+// The slot this connection is bound to, if any. The table is keyed the other way round, because
+// a slot has one destination and a destination can be offered to several slots.
+std::optional<QString> ConnectionHub::boundSlotFor(const QString& id) const {
+    for (auto it = bindings_.begin(); it != bindings_.end(); ++it) {
+        if (it.value() == id) { return it.key(); }
+    }
+    return std::nullopt;
+}
+
+// Null for an id whose server record is not usable, which is how a half-written remembered entry
+// leaves the list rather than showing as a nameless row.
+std::optional<models::ConnectionSummary>
+ConnectionHub::summaryFor(const QString& id,
+                          const QHash<QString, models::RememberedWifi>& remembered,
+                          const QSet<QString>& discoveredIds) const {
+    auto* conn = wifi_->get(id);
+    const models::DiscoveredServer server =
+        (conn != nullptr) ? conn->server() : remembered.value(id).toDiscovered();
+    if (!server.isValid()) { return std::nullopt; }
+
+    models::ConnectionSummary s;
+    s.id = id;
+    s.label = server.name.isEmpty() ? server.ip : server.name;
+    s.detail = QStringLiteral("%1 • UDP %2").arg(server.ip).arg(server.udpPort);
+    s.live = (conn != nullptr) ? liveStateOf(conn->state(), discoveredIds, id)
+                               : idleState(discoveredIds, id);
+    s.boundSlotId = boundSlotFor(id);
+    return s;
+}
+
 void ConnectionHub::rebuild() {
     QHash<QString, models::RememberedWifi> remembered;
     for (const auto& r : store_->remembered()) { remembered.insert(r.id, r); }
@@ -30,63 +104,11 @@ void ConnectionHub::rebuild() {
     QSet<QString> discoveredIds;
     for (const auto& s : wifi_->discoveredServers()) { discoveredIds.insert(s.id()); }
 
-    QSet<QString> ids;
-    for (auto it = wifi_->connections().begin(); it != wifi_->connections().end(); ++it) {
-        ids.insert(it.key());
-    }
-    for (auto it = remembered.begin(); it != remembered.end(); ++it) { ids.insert(it.key()); }
-
+    const QSet<QString> ids = knownIds(remembered);
     QList<models::ConnectionSummary> out;
     out.reserve(ids.size());
     for (const auto& id : ids) {
-        auto* conn = wifi_->get(id);
-        const models::DiscoveredServer server =
-            (conn != nullptr) ? conn->server() : remembered.value(id).toDiscovered();
-        if (!server.isValid()) { continue; }
-        // Every branch below reassigns this; the initializer only silences MSVC
-        // C4701, which cannot prove the default-less switch is exhaustive.
-        models::LinkState live = models::LinkState::Saved;
-        if (conn != nullptr) {
-            switch (conn->state()) {
-            case SessionState::Live:
-                live = models::LinkState::Connected;
-                break;
-            case SessionState::Linking:
-                live = models::LinkState::Connecting;
-                break;
-            case SessionState::Faltering:
-                // Entered at >=2 consecutive missed acks, recovers on the next.
-                live = models::LinkState::Unstable;
-                break;
-            case SessionState::Stale:
-                // The heartbeat dropped or a reconnect's pair came back
-                // AuthRequired. The chip reads "Needs pairing" while the manager
-                // keeps retrying silently.
-                live = models::LinkState::Stale;
-                break;
-            case SessionState::Idle:
-                live = discoveredIds.contains(id) ? models::LinkState::Ready
-                                                  : models::LinkState::Saved;
-                break;
-            }
-        } else {
-            live = discoveredIds.contains(id) ? models::LinkState::Ready : models::LinkState::Saved;
-        }
-        std::optional<QString> bound;
-        for (auto it = bindings_.begin(); it != bindings_.end(); ++it) {
-            if (it.value() == id) {
-                bound = it.key();
-                break;
-            }
-        }
-        const QString label = server.name.isEmpty() ? server.ip : server.name;
-        models::ConnectionSummary s;
-        s.id = id;
-        s.label = label;
-        s.detail = QStringLiteral("%1 \u2022 UDP %2").arg(server.ip).arg(server.udpPort);
-        s.live = live;
-        s.boundSlotId = bound;
-        out.append(s);
+        if (auto s = summaryFor(id, remembered, discoveredIds)) { out.append(std::move(*s)); }
     }
     std::sort(out.begin(), out.end(),
               [](const auto& a, const auto& b) { return a.label < b.label; });

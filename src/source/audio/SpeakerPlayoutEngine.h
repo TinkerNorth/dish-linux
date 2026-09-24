@@ -91,6 +91,10 @@ class SpeakerPlayoutEngine {
     bool playingFor(const std::string& slotId, PlayoutLane lane = PlayoutLane::Speaker) const;
 
   private:
+    // reconcile's two halves. Both run under mtx_, which reconcile takes.
+    void closeDepartedLocked(const std::vector<SpeakerVoiceTarget>& targets);
+    void openMissingLocked(const std::vector<SpeakerVoiceTarget>& targets);
+
     struct Voice {
         int handle = kNoAudioDevice;
         std::string slotId;
