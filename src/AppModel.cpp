@@ -620,6 +620,8 @@ QString AppModel::boundSlotForConnection(const QString& connectionId) const {
 AppModel::MoonlightRoutes AppModel::moonlightRoutesFor(source::moon::MoonlightSession* session,
                                                        std::uint8_t pad) {
     MoonlightRoutes routes;
+    // No session to send through is no routes, never a sender holding a null pointer.
+    if (session == nullptr) { return routes; }
     routes.report = [session, pad](std::uint16_t buttons, std::uint8_t lt, std::uint8_t rt,
                                    std::int16_t lx, std::int16_t ly, std::int16_t rx,
                                    std::int16_t ry) {
@@ -683,9 +685,9 @@ void AppModel::bindMoonlightSlot(const QString& slotId, const QString& hostUuid)
                                .value_or(repository::kMoonlightControllerTypeAuto);
 
     const auto number = moonlight_->bindController(slotId, hostUuid, storedType, source);
-    auto* session = number ? moonlight_->session(hostUuid) : nullptr;
-    installMoonlightRoutes(slotId, session != nullptr ? moonlightRoutesFor(session, *number)
-                                                      : MoonlightRoutes{});
+    installMoonlightRoutes(slotId, number
+                                       ? moonlightRoutesFor(moonlight_->session(hostUuid), *number)
+                                       : MoonlightRoutes{});
     // rebuild() re-derives the slot list against the new binding and emits.
     rebuild();
 }
