@@ -83,7 +83,6 @@ class FakePairingListener : public QObject {
     QByteArray certDer() const { return cert_.toDer(); }
 
     const std::vector<SeenRequest>& requests() const { return requests_; }
-    int handshakes() const { return handshakes_; }
 
     // How many requests reached a path, whatever they carried.
     int seen(const QString& path) const {
@@ -97,7 +96,6 @@ class FakePairingListener : public QObject {
   private:
     void acceptAll() {
         while (auto* sock = server_.nextPendingConnection()) {
-            ++handshakes_;
             auto pending = std::make_shared<QByteArray>();
             QObject::connect(sock, &QTcpSocket::readyRead, sock,
                              [this, sock, pending] { onBytes(sock, *pending); });
@@ -146,7 +144,6 @@ class FakePairingListener : public QObject {
     QSslServer server_;
     QSslCertificate cert_;
     bool listening_ = false;
-    int handshakes_ = 0;
     std::vector<SeenRequest> requests_;
 };
 

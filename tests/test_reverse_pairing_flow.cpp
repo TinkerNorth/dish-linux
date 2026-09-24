@@ -147,7 +147,9 @@ TEST_CASE("reverse pairing: a changed certificate ends it before the PIN is writ
     rig.wifi->requestReversePairing(rig.server);
     REQUIRE(spinFor([&] { return rig.phase() == ReversePairingPhase::Declined; }));
 
-    CHECK(rig.listener.handshakes() >= 1);
+    // Declined, not TimedOut: that is the identity-changed arm, not a dead link. Whether the
+    // listener counted a handshake is not asserted; under TLS 1.3 the client can abort before the
+    // server finishes its side.
     CHECK(rig.listener.seen(QStringLiteral("/api/pair")) == 0);
     CHECK(rig.listener.seen(QStringLiteral("/api/pair/status")) == 0);
     CHECK_FALSE(rig.store->sharedKey(rig.server.id()).has_value());

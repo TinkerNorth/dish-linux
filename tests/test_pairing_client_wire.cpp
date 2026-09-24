@@ -154,8 +154,8 @@ TEST_CASE("pairing wire: a refusing verifier aborts before the PIN is written", 
     // in it - never went out.
     FakePairingListener listener;
     REQUIRE(listener.listening());
-    const PairingClient client(
-        recordingVerifier(std::make_shared<VerifierLog>(), false, /*flagMismatch=*/true));
+    const auto log = std::make_shared<VerifierLog>();
+    const PairingClient client(recordingVerifier(log, false, /*flagMismatch=*/true));
 
     const auto reply = onWorker([&] {
         return client.pair(kLoopback, listener.port(), QStringLiteral("dev-1"),
@@ -163,7 +163,14 @@ TEST_CASE("pairing wire: a refusing verifier aborts before the PIN is written", 
     });
     dish::test::settle(200);
 
-    CHECK(listener.handshakes() >= 1);
+    // The refusal is the verifier's: it was shown the listener's certificate, which a dead port
+    // would never have given it. How many handshakes the LISTENER counted is not asserted - under
+    // TLS 1.3 the client can abort on its `encrypted` edge before the server has finished its
+    // side, so the server may never queue the connection at all.
+    {
+        const std::lock_guard<std::mutex> lock(log->mtx);
+        CHECK(log->certs.size() == 1);
+    }
     CHECK(listener.requests().empty());
     CHECK_FALSE(reply.response.reachable);
     // A changed certificate, not a dead link: the flag is what tells them apart.
