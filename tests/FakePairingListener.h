@@ -38,6 +38,15 @@
 
 namespace dish::test {
 
+// A loopback port with nothing listening on it.
+inline int closedLoopbackPort() {
+    QTcpServer probe;
+    if (!probe.listen(QHostAddress::LocalHost, 0)) { return 0; }
+    const int port = static_cast<int>(probe.serverPort());
+    probe.close();
+    return port;
+}
+
 // One request as the listener received it.
 struct SeenRequest {
     QByteArray method;

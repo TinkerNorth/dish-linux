@@ -23,10 +23,8 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <QByteArray>
-#include <QHostAddress>
 #include <QJsonObject>
 #include <QString>
-#include <QTcpServer>
 #include <QUrl>
 #include <QUrlQuery>
 
@@ -90,15 +88,6 @@ Delivered pairDen(HTTPClient& client, int port) {
         client.pair(kLoopback, port, QStringLiteral("dev-1"), QStringLiteral("Den PC"),
                     QStringLiteral("1234"), QString(), std::move(cb));
     });
-}
-
-// A loopback port with nothing listening on it.
-int closedPort() {
-    QTcpServer probe;
-    REQUIRE(probe.listen(QHostAddress::LocalHost, 0));
-    const int port = static_cast<int>(probe.serverPort());
-    probe.close();
-    return port;
 }
 
 template <typename Arm> bool classifiesAs(const Delivered& reply) {
@@ -197,7 +186,7 @@ TEST_CASE("pairing wire: nothing listening is unreachable with no mismatch", "[p
     HTTPClient client;
     client.setPinVerifier(recordingVerifier(log, true));
 
-    const auto reply = pairDen(client, closedPort());
+    const auto reply = pairDen(client, dish::test::closedLoopbackPort());
 
     CHECK_FALSE(reply.response.reachable);
     CHECK(reply.response.httpStatus == 0);

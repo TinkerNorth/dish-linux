@@ -35,9 +35,6 @@ using dish::test::spinFor;
 
 namespace {
 
-const QString kSharedKey =
-    QStringLiteral("a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2");
-
 // The satellite's answers, by path: the first POST is the Path-B grant it stages for the operator,
 // and every status poll gets `statusReply`.
 std::function<PairingAnswer(const SeenRequest&)> satelliteAnswering(QJsonObject statusReply) {
@@ -81,9 +78,9 @@ TEST_CASE("reverse pairing: an approval on the poll stores the key and reports a
           "[reverse][flow]") {
     ManagerRig rig;
     REQUIRE(rig.listener.listening());
-    rig.listener.respond =
-        satelliteAnswering(QJsonObject{{QStringLiteral("status"), QStringLiteral("approved")},
-                                       {QStringLiteral("sharedKey"), kSharedKey}});
+    rig.listener.respond = satelliteAnswering(
+        QJsonObject{{QStringLiteral("status"), QStringLiteral("approved")},
+                    {QStringLiteral("sharedKey"), dish::test::kFixtureSharedKey}});
 
     rig.wifi->requestReversePairing(rig.server);
     REQUIRE(spinFor(
@@ -91,7 +88,7 @@ TEST_CASE("reverse pairing: an approval on the poll stores the key and reports a
 
     CHECK(rig.listener.seen(QStringLiteral("/api/pair/status")) >= 1);
     // The key the operator's approval released is the one the session will be keyed with.
-    CHECK(rig.store->sharedKey(rig.server.id()) == kSharedKey);
+    CHECK(rig.store->sharedKey(rig.server.id()) == dish::test::kFixtureSharedKey);
 }
 
 TEST_CASE("reverse pairing: a denial on the poll ends the attempt as declined", "[reverse][flow]") {

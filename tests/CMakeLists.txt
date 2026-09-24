@@ -76,6 +76,7 @@ set(DISH_TEST_SOURCES
     test_pairing_outcome.cpp
     test_pairing_wire.cpp
     test_forget_in_flight.cpp
+    test_session_open_flow.cpp
     test_reverse_pairing_flow.cpp
     test_rest_control_plane.cpp
     test_reverse_pairing.cpp
