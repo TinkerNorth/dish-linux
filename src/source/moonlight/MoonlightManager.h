@@ -212,6 +212,23 @@ class MoonlightManager : public QObject {
     // callback would otherwise re-create the record forget() just dropped and
     // leave a forgotten host rendering the trust it had before.
     quint64 epochOf(const QString& uuid) const { return epochs_.value(uuid, 0); }
+
+    // probe in order: where to ask, what the plaintext port said, what the TLS port said, and the
+    // two signals every settled probe ends with.
+    struct ProbeTarget {
+        QString address;
+        int httpPort = 47989;
+        int httpsPort = 47984;
+        QString rememberedUuid;
+        bool remembered = false;
+        QString serverCertPem;
+    };
+    std::optional<ProbeTarget> probeTargetFor(const QString& uuid) const;
+    void onPlainServerInfo(const QString& uuid, const ProbeTarget& target, quint64 epoch,
+                           int status, const QByteArray& body);
+    void onTlsServerInfo(const QString& uuid, const QString& address, quint64 epoch, int status,
+                         const QByteArray& body);
+    void finishProbe(const QString& uuid);
     MoonlightSession* ensureSession(const repository::MoonlightHost& host);
     void wireSession(MoonlightSession* session, const QString& uuid);
     // Starts the session if nothing is running on it yet. The app comes from

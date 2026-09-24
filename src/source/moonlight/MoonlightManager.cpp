@@ -3,6 +3,8 @@
 
 #include "source/moonlight/MoonlightManager.h"
 
+#include "core/moonlight/MoonlightHostIdentity.h"
+
 #include "core/moonlight/MoonlightXml.h"
 #include "source/moonlight/MoonlightDiscovery.h"
 #include "source/moonlight/MoonlightLog.h"
@@ -18,7 +20,7 @@ namespace dish::source::moon {
 namespace {
 
 QString synthUuidForAddress(const QString& address) {
-    return QStringLiteral("addr:%1").arg(address);
+    return QString::fromStdString(moonlight::placeholderUuidFor(address.toStdString()));
 }
 
 // Sunshine's own "Desktop" app id, and the fallback when the host offered no
@@ -311,20 +313,103 @@ QString MoonlightManager::pairingRefusedReason(const QString& uuid) const {
     return pairingRefused(uuid) ? pairingRefusedReason_ : QString();
 }
 
-void MoonlightManager::probe(const QString& uuid) {
-    QString address;
-    int httpPort = 47989;
+// Where a probe goes: the remembered record when there is one, the discovered row otherwise.
+// Null when neither has an address, which is a host there is nothing to ask.
+std::optional<MoonlightManager::ProbeTarget>
+MoonlightManager::probeTargetFor(const QString& uuid) const {
+    ProbeTarget target;
     const auto stored = hostRepo_.get(uuid);
     if (stored) {
-        address = stored->address;
-        httpPort = stored->httpPort;
+        target.address = stored->address;
+        target.httpPort = stored->httpPort;
+        target.httpsPort = stored->httpsPort;
+        target.rememberedUuid = stored->uuid;
+        target.remembered = stored->paired();
+        target.serverCertPem = stored->serverCertPem;
     } else if (const auto it = discovered_.constFind(uuid); it != discovered_.constEnd()) {
-        address = it->address;
+        target.address = it->address;
     }
-    if (address.isEmpty()) {
-        // Nothing to ask, so probeFinished has to fire anyway: a caller that
-        // waits for it (the host screen re-probes every row on open) would
-        // otherwise sit on Checking for a host that no longer exists.
+    if (target.address.isEmpty()) { return std::nullopt; }
+    return target;
+}
+
+void MoonlightManager::finishProbe(const QString& uuid) {
+    emit probeFinished(uuid);
+    emit rowsChanged();
+}
+
+// The plaintext answer settles reachability and identity, and settles pairing too when there is no
+// certificate to ask with, or the host is not the one it would fit. Only a remembered host that is
+// still itself goes on to the TLS question.
+void MoonlightManager::onPlainServerInfo(const QString& uuid, const ProbeTarget& target,
+                                         quint64 epoch, int status, const QByteArray& body) {
+    if (epochOf(uuid) != epoch) {
+        // Forgotten while this was in flight. probes_[uuid] would INSERT, handing a stranger the
+        // verdict of the host it used to be, so the answer is dropped instead.
+        qCInfo(lcMoon) << "probe reply for" << target.address << "arrived after a forget";
+        return;
+    }
+    HostProbe& result = probes_[uuid];
+    const std::optional<moonxml::ServerInfo> info =
+        status == 200 ? moonxml::parseServerInfo(body.toStdString())
+                      : std::optional<moonxml::ServerInfo>{};
+    if (!info) {
+        result.inFlight = false;
+        result.answered = false;
+        qCInfo(lcMoon) << "probe of" << target.address << "did not answer; HTTP" << status;
+        finishProbe(uuid);
+        return;
+    }
+    result.answered = true;
+    result.identityChanged =
+        moonlight::hostIdentityChanged(target.rememberedUuid.toStdString(), info->uuid);
+    if (!target.remembered || result.identityChanged) {
+        result.inFlight = false;
+        result.paired = false;
+        qCInfo(lcMoon) << "probe of" << target.address << "answered; paired false identity"
+                       << (result.identityChanged ? "changed" : "same");
+        finishProbe(uuid);
+        return;
+    }
+    http_->getTls(
+        target.address, target.httpsPort, QStringLiteral("/serverinfo"), QUrlQuery(),
+        target.serverCertPem,
+        [this, uuid, address = target.address, epoch](int tlsStatus, const QByteArray& tlsBody) {
+            onTlsServerInfo(uuid, address, epoch, tlsStatus, tlsBody);
+        });
+}
+
+// The plaintext port answered a moment ago, so a TLS call that does not is the host declining the
+// certificate: that is what trustRejected records.
+void MoonlightManager::onTlsServerInfo(const QString& uuid, const QString& address, quint64 epoch,
+                                       int status, const QByteArray& body) {
+    if (epochOf(uuid) != epoch) {
+        qCInfo(lcMoon) << "probe reply for" << address << "arrived after a forget";
+        return;
+    }
+    HostProbe& verdict = probes_[uuid];
+    verdict.inFlight = false;
+    const auto secure = status == 200 ? moonxml::parseServerInfo(body.toStdString())
+                                      : std::optional<moonxml::ServerInfo>{};
+    verdict.paired = secure && secure->pairStatus == 1;
+    verdict.trustRejected = !verdict.paired;
+    qCInfo(lcMoon) << "probe of" << address << "over TLS: paired" << verdict.paired << "HTTP"
+                   << status;
+    finishProbe(uuid);
+}
+
+// PLAINTEXT FIRST, for reachability and identity only. Its PairStatus is not an answer about
+// pairing: Sunshine computes that field on the mutual-TLS route alone and hands every plaintext
+// caller a 0, its own paired devices included, so reading it here rendered every paired host
+// "trust lost" until the app list happened to prove otherwise. The trust question goes over TLS,
+// for a host there is a certificate to ask it with; `currentgame` / `state` from this port describe
+// nobody, so they are not read here at all.
+void MoonlightManager::probe(const QString& uuid) {
+    const auto target = probeTargetFor(uuid);
+    if (!target) {
+        // Nothing to ask, so probeFinished has to fire anyway: a caller that waits for it (the
+        // host screen re-probes every row on open) would otherwise sit on Checking for a host that
+        // no longer exists.
         qCWarning(lcMoon) << "probe of" << uuid << "skipped: no address on file";
         emit probeFinished(uuid);
         return;
@@ -332,89 +417,18 @@ void MoonlightManager::probe(const QString& uuid) {
 
     HostProbe& probe = probes_[uuid];
     if (probe.inFlight) {
-        qCDebug(lcMoon) << "probe of" << address << "already in flight; coalesced";
+        qCDebug(lcMoon) << "probe of" << target->address << "already in flight; coalesced";
         return;
     }
     probe.inFlight = true;
     emit rowsChanged();
 
-    // PLAINTEXT FIRST, for reachability and identity only. Its PairStatus is
-    // not an answer about pairing: Sunshine computes that field on the
-    // mutual-TLS route alone and hands every plaintext caller a 0, its own
-    // paired devices included, so reading it here rendered every paired host
-    // "trust lost" until the app list happened to prove otherwise. The trust
-    // question goes over TLS below, for a host there is a certificate to ask
-    // it with; `currentgame` / `state` from this port describe nobody, so they
-    // are not read here at all.
     ensureIdentityLoaded();
-    const QString rememberedUuid = stored ? stored->uuid : QString();
-    const bool remembered = stored && stored->paired();
-    const int httpsPort = stored ? stored->httpsPort : 47984;
-    const QString serverCertPem = stored ? stored->serverCertPem : QString();
     const quint64 epoch = epochOf(uuid);
-    http_->getPlain(
-        address, httpPort, QStringLiteral("/serverinfo"), QUrlQuery(),
-        [this, uuid, rememberedUuid, remembered, httpsPort, serverCertPem, address,
-         epoch](int status, const QByteArray& body) {
-            if (epochOf(uuid) != epoch) {
-                // Forgotten while this was in flight. probes_[uuid] would
-                // INSERT, handing a stranger the verdict of the host it used
-                // to be, so the answer is dropped instead.
-                qCInfo(lcMoon) << "probe reply for" << address << "arrived after a forget";
-                return;
-            }
-            HostProbe& result = probes_[uuid];
-            const std::optional<moonxml::ServerInfo> info =
-                status == 200 ? moonxml::parseServerInfo(body.toStdString())
-                              : std::optional<moonxml::ServerInfo>{};
-            if (!info) {
-                result.inFlight = false;
-                result.answered = false;
-                qCInfo(lcMoon) << "probe of" << address << "did not answer; HTTP" << status;
-                emit probeFinished(uuid);
-                emit rowsChanged();
-                return;
-            }
-            result.answered = true;
-            // A uuid we do not recognise means the machine behind the address
-            // was reset or replaced, so the stored certificate anchors nothing.
-            const QString reported = QString::fromStdString(info->uuid);
-            result.identityChanged = !rememberedUuid.isEmpty() && !reported.isEmpty() &&
-                                     !rememberedUuid.startsWith(QLatin1String("addr:")) &&
-                                     reported != rememberedUuid;
-            if (!remembered || result.identityChanged) {
-                // No certificate to ask with, or a host it would not fit: the
-                // pairing question has its answer already.
-                result.inFlight = false;
-                result.paired = false;
-                qCInfo(lcMoon) << "probe of" << address << "answered; paired false identity"
-                               << (result.identityChanged ? "changed" : "same");
-                emit probeFinished(uuid);
-                emit rowsChanged();
-                return;
-            }
-            http_->getTls(
-                address, httpsPort, QStringLiteral("/serverinfo"), QUrlQuery(), serverCertPem,
-                [this, uuid, address, epoch](int tlsStatus, const QByteArray& tlsBody) {
-                    if (epochOf(uuid) != epoch) {
-                        qCInfo(lcMoon) << "probe reply for" << address << "arrived after a forget";
-                        return;
-                    }
-                    HostProbe& verdict = probes_[uuid];
-                    verdict.inFlight = false;
-                    const auto secure = tlsStatus == 200
-                                            ? moonxml::parseServerInfo(tlsBody.toStdString())
-                                            : std::optional<moonxml::ServerInfo>{};
-                    // The plaintext port answered a moment ago, so a TLS call
-                    // that does not is the host declining the certificate.
-                    verdict.paired = secure && secure->pairStatus == 1;
-                    verdict.trustRejected = !verdict.paired;
-                    qCInfo(lcMoon) << "probe of" << address << "over TLS: paired" << verdict.paired
-                                   << "HTTP" << tlsStatus;
-                    emit probeFinished(uuid);
-                    emit rowsChanged();
-                });
-        });
+    http_->getPlain(target->address, target->httpPort, QStringLiteral("/serverinfo"), QUrlQuery(),
+                    [this, uuid, resolved = *target, epoch](int status, const QByteArray& body) {
+                        onPlainServerInfo(uuid, resolved, epoch, status, body);
+                    });
 }
 
 void MoonlightManager::refreshApps(const QString& uuid) {
