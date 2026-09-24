@@ -26,6 +26,7 @@
 #include <mutex>
 #include <string>
 #include <thread>
+#include <vector>
 
 namespace dish::source::moon {
 
@@ -97,6 +98,16 @@ class MoonlightControlStream {
     struct Link;
 
     void serviceLoop();
+
+    // What one bounded pass over ENet saw, gathered under the link lock and acted on after it.
+    struct ServicePass {
+        std::vector<moonwire::HostEvent> events;
+        bool linkUp = false;
+        bool linkDown = false;
+        bool hostGone = false; // torn down under us: the loop ends
+    };
+    ServicePass serviceUnderLock();
+    void pingIfDue();
     void notifyLink(bool connected);
     // Seals `plaintext` and queues it. Caller must NOT hold linkMtx_.
     void sealAndSend(const std::uint8_t* plaintext, std::size_t len);
