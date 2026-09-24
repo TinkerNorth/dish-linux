@@ -205,6 +205,9 @@ set(DISH_TEST_SOURCES
     test_hidraw_admission.cpp
     test_http_gateways.cpp
     test_ui_preference_store.cpp
+    test_remembered_wifi_eq.cpp
+    test_legacy_catalog.cpp
+    test_list_model_roles.cpp
     test_catalog_feature_gate.cpp
     test_crash_log_path.cpp
     test_unix_signal_watcher.cpp
