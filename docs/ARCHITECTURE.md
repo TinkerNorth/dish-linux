@@ -79,7 +79,7 @@ layer together.
 | `src/Util/` | Leaf helpers with no domain state: endian, hex, host battery, locale install | nothing | mixed |
 | `src/UI/` | The design-token palette (`Theme`), the font-family probes (`FontStacks`), crash handling, the `SlotLiveStats` mapper, `common/ExternalLink`, `licenses/LicenseManifest` | `core/` | yes (Gui) |
 | `src/Input/` | The SDL bridge, the input processor, joystick mapping, the output command queue | `core/` | yes |
-| `src/Network/` | Sockets and the REST control plane: `SatelliteClient`, `ConnectionHub`, `WifiConnectionManager`, `HTTPClient`, `PairingClient` | `core/` | yes |
+| `src/Network/` | Sockets and the REST control plane: `SatelliteClient`, `ConnectionHub`, `WifiConnectionManager`, `HTTPClient`, `PairingOutcome` | `core/` | yes |
 | `src/update/` | The update checker's IO edge: the manifest gateway (a dedicated QNAM) and `UpdateChecker`. Dish never installs its own update, so there is no download, staging or apply path | `core/`, `source/` | yes |
 
 `src/Input/` and `src/Network/` predate the layer model and keep their

@@ -87,7 +87,7 @@ PairResponse PairResponse::fromJson(const QJsonObject& obj) {
     r.supportedProtocol = intOr(obj, "supported", 0);
     r.supportedProtocolMin = intOr(obj, "supportedMin", 0);
     // A JSON body parsed, so the server is reachable even when ok=false.
-    // PairingClient sets reachable=false on every network-error path.
+    // HTTPClient sets reachable=false on every network-error path.
     r.reachable = true;
     return r;
 }

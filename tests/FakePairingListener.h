@@ -1,15 +1,14 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 // Copyright (C) 2026 Dish contributors.
 //
-// A satellite's HTTPS pairing endpoint on loopback, reduced to what a client
-// can observe: it records every request and answers each one through a
-// responder the test sets. TLS is real and uses the Moonlight fixture's
-// self-signed identity, so the client's pinned-certificate check runs against
-// a real handshake.
+// A satellite's HTTPS endpoint on loopback, reduced to what a client can
+// observe: it records every request and answers each one through a responder
+// the test sets. TLS is real and uses the Moonlight fixture's self-signed
+// identity, so the client's pinned-certificate check runs against a real
+// handshake.
 //
-// It lives on the test's own thread. The pairing client blocks in a nested
-// event loop and must run on a worker, exactly as the manager runs it; the
-// test spins this thread (dish::test::spinFor) while it waits.
+// It lives on the test's own thread, beside the client under test; the test
+// spins that thread (dish::test::spinFor) while it waits for a reply.
 
 #pragma once
 
@@ -21,6 +20,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QList>
+#include <QPointer>
 #include <QSslCertificate>
 #include <QSslConfiguration>
 #include <QSslKey>
@@ -33,6 +33,7 @@
 
 #include <functional>
 #include <memory>
+#include <utility>
 #include <vector>
 
 namespace dish::test {
@@ -93,6 +94,18 @@ class FakePairingListener : public QObject {
         return n;
     }
 
+    // From hold() until release(), requests are recorded but their answers wait: the window a
+    // test needs to act while a reply is still on its way. The client gives up after its own
+    // transfer timeout, so a release has to come well inside it.
+    void hold() { holding_ = true; }
+    void release() {
+        holding_ = false;
+        for (const auto& [sock, answer] : held_) {
+            if (sock) { write(sock, answer); }
+        }
+        held_.clear();
+    }
+
   private:
     void acceptAll() {
         while (auto* sock = server_.nextPendingConnection()) {
@@ -123,6 +136,14 @@ class FakePairingListener : public QObject {
         requests_.push_back(seenRequest);
 
         const PairingAnswer answer = respond(seenRequest);
+        if (holding_) {
+            held_.emplace_back(QPointer<QTcpSocket>(sock), answer);
+            return;
+        }
+        write(sock, answer);
+    }
+
+    static void write(QTcpSocket* sock, const PairingAnswer& answer) {
         const QByteArray payload = QJsonDocument(answer.body).toJson(QJsonDocument::Compact);
         sock->write("HTTP/1.1 " + QByteArray::number(answer.status) + " X\r\n" +
                     "Content-Type: application/json\r\n" +
@@ -144,7 +165,9 @@ class FakePairingListener : public QObject {
     QSslServer server_;
     QSslCertificate cert_;
     bool listening_ = false;
+    bool holding_ = false;
     std::vector<SeenRequest> requests_;
+    std::vector<std::pair<QPointer<QTcpSocket>, PairingAnswer>> held_;
 };
 
 } // namespace dish::test

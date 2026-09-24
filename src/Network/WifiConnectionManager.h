@@ -6,11 +6,11 @@
 #include "ConnectionStore.h"
 #include "HTTPClient.h"
 #include "Models/Models.h"
-#include "PairingClient.h"
+#include "PairingOutcome.h"
 #include "WifiConnection.h"
+#include "core/reducer/Reconcile.h"
 #include "core/reducer/RestOutcome.h"
 #include "core/reducer/ReversePairing.h"
-#include "core/wire/SessionCrypto.h"
 
 #include <QHash>
 #include <QObject>
@@ -20,6 +20,7 @@
 #include <array>
 #include <cstdint>
 #include <optional>
+#include <vector>
 
 class QTimer;
 
@@ -121,10 +122,41 @@ class WifiConnectionManager : public QObject {
     void wireSlotSync(WifiConnection* conn);
     void pairAndConnect(WifiConnection* conn, const models::DiscoveredServer& server,
                         ConnectIntent intent);
+    // The forward pairs' replies: a connect's PIN-less one, and the operator's PIN from the sheet.
+    void onConnectPairReply(const QString& id, const models::DiscoveredServer& server,
+                            ConnectIntent intent, const PairingOutcome::Arm& outcome);
+    void onPinPairReply(const QString& id, const models::DiscoveredServer& server,
+                        const PairingOutcome::Arm& outcome);
     // One PUT /api/connections carrying identity, the key proof and the FULL
     // topology, which is what drives the session live.
     void openSession(WifiConnection* conn, const models::DiscoveredServer& server,
                      ConnectIntent intent);
+    // What a granted PUT carries to key the session with: the token the satellite assigned, and
+    // the per-session key derived from it, the salt and the pairing key. The pairing key itself
+    // never reaches the UDP path; only this derived key does. Null when the token or the salt is
+    // missing or malformed. The connect and the rekey read it the same way.
+    struct SessionMaterial {
+        std::array<std::uint8_t, 4> token{};
+        std::array<std::uint8_t, 32> sessionKey{};
+    };
+    static std::optional<SessionMaterial>
+    sessionMaterialFrom(const models::SessionResponse& resp,
+                        const std::array<std::uint8_t, 32>& pairingKey);
+    // The connect PUT's reply, in steps: a refusal settles itself; a grant starts the session and
+    // then converges the slot changes that raced the round trip.
+    void onSessionReply(const QString& id, const models::DiscoveredServer& server,
+                        ConnectIntent intent, const std::array<std::uint8_t, 32>& pairingKey,
+                        const std::vector<reducer::DesiredSlot>& sentDescriptors,
+                        const models::SessionResponse& resp, bool pinMismatch);
+    void onSessionRefused(WifiConnection* conn, const models::DiscoveredServer& server,
+                          ConnectIntent intent, reducer::RestVerdict verdict,
+                          const models::SessionResponse& resp);
+    void onSessionVersionRefused(WifiConnection* conn, const models::DiscoveredServer& server,
+                                 ConnectIntent intent, const models::SessionResponse& resp);
+    void startSession(WifiConnection* conn, const models::DiscoveredServer& server,
+                      const std::shared_ptr<SatelliteClient>& client,
+                      const models::SessionResponse& resp, const SessionMaterial& material);
+    void convergeLateSlots(WifiConnection* conn, const std::vector<reducer::DesiredSlot>& sent);
     // GET-then-maybe-rePUT, fired when the enriched ack drifts.
     void reconcile(WifiConnection* conn, const models::DiscoveredServer& server);
     // Re-PUT for a fresh token/salt/key on the SAME socket, so there is no state
@@ -133,19 +165,12 @@ class WifiConnectionManager : public QObject {
 
     // The rekey PUT's reply, in three steps: is this still the session that asked, does the reply
     // carry material, and adopt it. The same steps dish-windows names the same way.
-    struct RekeyMaterial {
-        std::array<std::uint8_t, 4> token{};
-        std::array<std::uint8_t, wire::kSessionSaltSize> salt{};
-        std::uint32_t tokenBe = 0;
-    };
-    static std::optional<RekeyMaterial> rekeyMaterialFrom(const models::SessionResponse& resp);
     void onRekeyReply(const QString& id, const std::shared_ptr<SatelliteClient>& client,
                       const std::array<std::uint8_t, 32>& pairingKey,
                       const models::SessionResponse& resp, bool pinMismatch);
     void adoptRekey(WifiConnection* c, const QString& id,
                     const std::shared_ptr<SatelliteClient>& client,
-                    const std::array<std::uint8_t, 32>& pairingKey,
-                    const models::SessionResponse& resp, const RekeyMaterial& material);
+                    const models::SessionResponse& resp, const SessionMaterial& material);
     // Reads GET /api/server/capabilities for the host's controller-audio
     // verdict and folds it into the connection (reducer/HostAudioVerdict.h).
     // Fired after EVERY successful session PUT — connect, reconnect-after-death
@@ -167,8 +192,8 @@ class WifiConnectionManager : public QObject {
     void emitErrorIfUserInitiated(ConnectIntent intent, const QString& message);
     void markStale(const QString& id);
 
-    // One pairStatus round-trip off the thread pool, fed with the elapsed clock
-    // through reducer::nextReversePairingAction to decide re-arm / open / abort.
+    // One pairStatus round-trip, fed with the elapsed clock through
+    // reducer::nextReversePairingAction to decide re-arm / open / abort.
     void pollReverseStatus();
 
     // Reverse pairing in order: arm an attempt, send it, read the reply, and poll for the
@@ -177,15 +202,17 @@ class WifiConnectionManager : public QObject {
     void armReverseAttempt(const models::DiscoveredServer& server);
     bool reverseAttemptIsCurrent(const models::DiscoveredServer& server, const QString& pin) const;
     void startReversePoll();
-    void applyReverseOutcome(WifiConnection* conn, const models::DiscoveredServer& server,
-                             const PairingClient::Reply& pair);
-    void onReversePairReply(WifiConnection* conn, const models::DiscoveredServer& server,
-                            const QString& pin, const PairingClient::Reply& pair);
+    void adoptReverseGrant(const models::DiscoveredServer& server, const QString& sharedKeyHex);
+    void applyReverseOutcome(const models::DiscoveredServer& server,
+                             const models::PairResponse& response, bool pinMismatch);
+    void onReversePairReply(const QString& id, const models::DiscoveredServer& server,
+                            const QString& pin, const models::PairResponse& response,
+                            bool pinMismatch);
     static reducer::ApprovalReply approvalReplyOf(const models::PairResponse& status);
     void applyReverseAction(reducer::ReversePairingAction action,
-                            const PairingClient::Reply& status,
+                            const models::PairResponse& status,
                             const models::DiscoveredServer& server);
-    void onReverseStatusReply(const PairingClient::Reply& status,
+    void onReverseStatusReply(const models::PairResponse& status, bool pinMismatch,
                               const models::DiscoveredServer& server);
     void setReversePhase(ReversePairingPhase phase);
     void finishReverse(ReversePairingPhase terminal);
@@ -203,12 +230,12 @@ class WifiConnectionManager : public QObject {
 
     ConnectionStore* store_;
     HTTPClient* http_;
-    // Built in the constructor over the same pin store as http_, then copied into
-    // each pairing worker. Empty (accepting) only until the constructor runs.
-    PairingClient pairing_{PairingClient::PinVerifier{}};
     QString deviceId_;
     QString deviceName_;
 
+    // A reply looks its connection up here by id rather than keeping the pointer it was sent with:
+    // forget() hands the object to deleteLater, so a pointer held across a round trip can dangle,
+    // and a reply for a satellite the user removed has nothing left to act on.
     QHash<QString, WifiConnection*> connections_;
     QList<models::DiscoveredServer> discovered_;
     bool scanning_ = false;

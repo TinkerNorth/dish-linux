@@ -213,6 +213,56 @@ void HTTPClient::deleteController(const QString& ip, int port, const QString& co
             });
 }
 
+namespace {
+
+// A reply that never arrived is "connect failed" whatever the endpoint; one that did is read by the
+// endpoint's own parser and stamped with the transport status, which the body cannot carry.
+models::PairResponse pairResponseFrom(const QByteArray& body, int status, bool reachable,
+                                      models::PairResponse (*parse)(const QJsonObject&)) {
+    if (!reachable) {
+        models::PairResponse r;
+        r.ok = false;
+        r.error = QStringLiteral("connect failed");
+        // No JSON body arrived, so httpStatus stays 0 as well.
+        r.reachable = false;
+        return r;
+    }
+    auto r = parse(parseObject(body));
+    r.httpStatus = status;
+    return r;
+}
+
+} // namespace
+
+void HTTPClient::pair(const QString& ip, int port, const QString& deviceId,
+                      const QString& deviceName, const QString& pin, const QString& clientPin,
+                      PairCb cb) {
+    const QString url = QStringLiteral("https://%1:%2/api/pair").arg(ip).arg(port);
+    const QJsonObject obj{
+        {"deviceId", deviceId},
+        {"deviceName", deviceName},
+        {"protocolVersion", proto::kProtocolVersion},
+        {"pin", pin},
+        {"clientPin", clientPin},
+    };
+    perform(url, "POST", QJsonDocument(obj).toJson(QJsonDocument::Compact), {}, {}, {}, {},
+            [cb = std::move(cb)](const RawReply& r) {
+                cb(pairResponseFrom(r.body, r.status, r.reachable, &models::PairResponse::fromJson),
+                   r.pinMismatch);
+            });
+}
+
+void HTTPClient::pairStatus(const QString& ip, int port, const QString& deviceId, PairCb cb) {
+    const QString url = QStringLiteral("https://%1:%2/api/pair/status?deviceId=%3")
+                            .arg(ip)
+                            .arg(port)
+                            .arg(QString::fromUtf8(QUrl::toPercentEncoding(deviceId)));
+    perform(url, "GET", {}, {}, {}, {}, {}, [cb = std::move(cb)](const RawReply& r) {
+        cb(pairResponseFrom(r.body, r.status, r.reachable, &models::PairResponse::fromStatusJson),
+           r.pinMismatch);
+    });
+}
+
 void HTTPClient::unpair(const QString& ip, int port, const QString& deviceId,
                         const QString& hmacProof, AckCb cb) {
     const QString url = QStringLiteral("https://%1:%2/api/pair").arg(ip).arg(port);

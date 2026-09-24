@@ -48,6 +48,8 @@ class HTTPClient : public QObject {
     // For routes the caller does not decode; `reachable` distinguishes a real
     // 401 from a dead transport.
     using AckCb = std::function<void(int httpStatus, bool reachable, const QString& code)>;
+    // A pairing reply, with the mismatch beside it for the same reason as SessionCb's.
+    using PairCb = std::function<void(const models::PairResponse&, bool pinMismatch)>;
 
     // Declarative upsert: `controllers` must be the WHOLE desired set, not a
     // delta. `mouseControl` is always false today (no touchpad-mouse UI) but the
@@ -79,6 +81,17 @@ class HTTPClient : public QObject {
     // DELETE /api/connections/{id}/controllers/{idx} — removes the SLOT only.
     void deleteController(const QString& ip, int port, const QString& connectionId, int ctrlIdx,
                           const QString& deviceId, const QString& hmacProof, ControllerCb cb);
+
+    // POST /api/pair. Path A (operator `pin`) and Path B (client-shown `clientPin`,
+    // which answers Pending and is then polled). Both fields always ride in the
+    // body, empty when unused; the server tries a valid `pin` first. It passes the
+    // same pin gate as every other call here: the first pair pins the certificate,
+    // and every later call must present it.
+    void pair(const QString& ip, int port, const QString& deviceId, const QString& deviceName,
+              const QString& pin, const QString& clientPin, PairCb cb);
+
+    // GET /api/pair/status?deviceId= — the Path B approval poll.
+    void pairStatus(const QString& ip, int port, const QString& deviceId, PairCb cb);
 
     // DELETE /api/pair — client self-unpair (X-Device-Id + X-Hmac-Proof).
     void unpair(const QString& ip, int port, const QString& deviceId, const QString& hmacProof,

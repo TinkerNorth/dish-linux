@@ -15,25 +15,20 @@
 // The approval poll runs on the manager's own one-second timer, so the cases
 // that reach it take a second or two.
 
-#include "Network/ConnectionStore.h"
 #include "Network/WifiConnectionManager.h"
 
 #include "FakePairingListener.h"
-#include "QSettingsFixture.h"
+#include "ManagerRig.h"
 
 #include <catch2/catch_test_macros.hpp>
 
 #include <QJsonObject>
-#include <QSettings>
 #include <QString>
 
-#include <memory>
+#include <functional>
 
-using dish::models::DiscoveredServer;
-using dish::net::ConnectionStore;
 using dish::net::ReversePairingPhase;
-using dish::net::WifiConnectionManager;
-using dish::test::FakePairingListener;
+using dish::test::ManagerRig;
 using dish::test::PairingAnswer;
 using dish::test::SeenRequest;
 using dish::test::spinFor;
@@ -55,34 +50,11 @@ std::function<PairingAnswer(const SeenRequest&)> satelliteAnswering(QJsonObject 
     };
 }
 
-// The store, the manager, and the server that points at the listener. Built in the order AppModel
-// builds them; the settings file outlives the store.
-struct Rig {
-    FakePairingListener listener;
-    std::shared_ptr<QSettings> shared = dish::test::makeSharedSettings();
-    std::unique_ptr<ConnectionStore> store;
-    std::unique_ptr<WifiConnectionManager> wifi;
-    DiscoveredServer server;
-
-    Rig() {
-        store = std::make_unique<ConnectionStore>(
-            std::unique_ptr<QSettings>(new QSettings(shared->fileName(), QSettings::IniFormat)));
-        wifi = std::make_unique<WifiConnectionManager>(store.get());
-        server.machineId = QStringLiteral("m-reverse");
-        server.ip = QStringLiteral("127.0.0.1");
-        server.name = QStringLiteral("Den");
-        server.pairPort = listener.port();
-        server.httpPort = listener.port();
-    }
-
-    ReversePairingPhase phase() const { return wifi->reversePairingPhase(); }
-};
-
 } // namespace
 
 TEST_CASE("reverse pairing: the displayed PIN rides as the client PIN, with no operator PIN",
           "[reverse][flow]") {
-    Rig rig;
+    ManagerRig rig;
     REQUIRE(rig.listener.listening());
     rig.listener.respond =
         satelliteAnswering(QJsonObject{{QStringLiteral("status"), QStringLiteral("pending")}});
@@ -101,20 +73,21 @@ TEST_CASE("reverse pairing: the displayed PIN rides as the client PIN, with no o
     CHECK(post.body.value(QStringLiteral("pin")).toString().isEmpty());
     CHECK(post.body.value(QStringLiteral("clientPin")).toString() == rig.wifi->reversePairingPin());
     CHECK(rig.wifi->reversePairingPin().size() == 4);
-    CHECK(rig.phase() == ReversePairingPhase::AwaitingApproval);
+    CHECK(rig.wifi->reversePairingPhase() == ReversePairingPhase::AwaitingApproval);
     rig.wifi->cancelReversePairing();
 }
 
 TEST_CASE("reverse pairing: an approval on the poll stores the key and reports approved",
           "[reverse][flow]") {
-    Rig rig;
+    ManagerRig rig;
     REQUIRE(rig.listener.listening());
     rig.listener.respond =
         satelliteAnswering(QJsonObject{{QStringLiteral("status"), QStringLiteral("approved")},
                                        {QStringLiteral("sharedKey"), kSharedKey}});
 
     rig.wifi->requestReversePairing(rig.server);
-    REQUIRE(spinFor([&] { return rig.phase() == ReversePairingPhase::Approved; }, 8000));
+    REQUIRE(spinFor(
+        [&] { return rig.wifi->reversePairingPhase() == ReversePairingPhase::Approved; }, 8000));
 
     CHECK(rig.listener.seen(QStringLiteral("/api/pair/status")) >= 1);
     // The key the operator's approval released is the one the session will be keyed with.
@@ -122,13 +95,14 @@ TEST_CASE("reverse pairing: an approval on the poll stores the key and reports a
 }
 
 TEST_CASE("reverse pairing: a denial on the poll ends the attempt as declined", "[reverse][flow]") {
-    Rig rig;
+    ManagerRig rig;
     REQUIRE(rig.listener.listening());
     rig.listener.respond =
         satelliteAnswering(QJsonObject{{QStringLiteral("status"), QStringLiteral("denied")}});
 
     rig.wifi->requestReversePairing(rig.server);
-    REQUIRE(spinFor([&] { return rig.phase() == ReversePairingPhase::Declined; }, 8000));
+    REQUIRE(spinFor(
+        [&] { return rig.wifi->reversePairingPhase() == ReversePairingPhase::Declined; }, 8000));
 
     CHECK_FALSE(rig.store->sharedKey(rig.server.id()).has_value());
 }
@@ -138,14 +112,15 @@ TEST_CASE("reverse pairing: a changed certificate ends it before the PIN is writ
     // The host is pinned to a certificate the listener does not present, which is exactly what a
     // replaced machine behind a remembered address looks like. The gate on the TLS `encrypted` edge
     // must stop the POST, so the PIN never reaches a box this client cannot authenticate.
-    Rig rig;
+    ManagerRig rig;
     REQUIRE(rig.listener.listening());
     rig.store->facade().pins().pin(rig.server.ip, QString(64, QLatin1Char('0')));
     rig.listener.respond =
         satelliteAnswering(QJsonObject{{QStringLiteral("status"), QStringLiteral("pending")}});
 
     rig.wifi->requestReversePairing(rig.server);
-    REQUIRE(spinFor([&] { return rig.phase() == ReversePairingPhase::Declined; }));
+    REQUIRE(
+        spinFor([&] { return rig.wifi->reversePairingPhase() == ReversePairingPhase::Declined; }));
 
     // Declined, not TimedOut: that is the identity-changed arm, not a dead link. Whether the
     // listener counted a handshake is not asserted; under TLS 1.3 the client can abort before the

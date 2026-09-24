@@ -280,8 +280,8 @@ set(DISH_CORE_SOURCES
     src/Models/Models.cpp
     src/Network/SatelliteClient.h
     src/Network/SatelliteClient.cpp
-    src/Network/PairingClient.h
-    src/Network/PairingClient.cpp
+    src/Network/PairingOutcome.h
+    src/Network/PairingOutcome.cpp
     src/Network/HTTPClient.h
     src/Network/HTTPClient.cpp
     src/Network/WifiConnection.h

@@ -4,22 +4,18 @@
 // The pairing exchange as it crosses the wire, against a real TLS listener on
 // loopback.
 //
-// test_rest_control_plane.cpp pins what a reply MEANS (classify). Nothing pinned
-// what the client SENDS, or the one property this exchange exists to have: the
-// pinned-certificate check runs on the TLS `encrypted` edge and a refusal aborts
+// test_pairing_outcome.cpp pins what a reply MEANS. This pins what the client
+// SENDS, and the one property the exchange exists to have: the pinned-
+// certificate check runs on the TLS `encrypted` edge, and a refusal aborts
 // before a byte of the request - the PIN included - is written. That is the
-// difference between trust-on-first-use and trust-on-every-use, and it was only
-// ever asserted by reading the code.
+// difference between trust-on-first-use and trust-on-every-use.
 //
-// Each case also carries the verifier it was built with. Until this file there
-// was one verifier per process, set by whichever manager was built last, so a
-// test could only ever see the last one.
-//
-// Every call runs on a worker thread, exactly as the manager runs it: the client
-// blocks in a nested event loop and must never be called on the thread that owns
-// the listener.
+// The client and its verifier live on this thread, as they do in the manager,
+// and so does the listener; each case spins the loop until the callback lands.
 
-#include "Network/PairingClient.h"
+#include "Models/Models.h"
+#include "Network/HTTPClient.h"
+#include "Network/PairingOutcome.h"
 #include "core/model/Protocol.h"
 
 #include "FakePairingListener.h"
@@ -27,36 +23,31 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <QByteArray>
-#include <QFuture>
 #include <QHostAddress>
-#include <QJsonDocument>
 #include <QJsonObject>
-#include <QSslCertificate>
-#include <QSslConfiguration>
-#include <QSslKey>
-#include <QSslServer>
-#include <QSslSocket>
 #include <QString>
 #include <QTcpServer>
 #include <QUrl>
 #include <QUrlQuery>
-#include <QtConcurrent/QtConcurrentRun>
 
 #include <functional>
 #include <memory>
-#include <mutex>
+#include <optional>
+#include <utility>
+#include <variant>
 #include <vector>
 
-using dish::net::PairingClient;
+using dish::models::PairResponse;
+using dish::net::HTTPClient;
+using dish::net::PairingOutcome;
 using dish::test::FakePairingListener;
 using dish::test::PairingAnswer;
 using dish::test::spinFor;
 
 namespace {
 
-// What a verifier was shown, from the worker thread it runs on.
+// What a verifier was shown.
 struct VerifierLog {
-    std::mutex mtx;
     std::vector<QString> hosts;
     std::vector<QByteArray> certs;
 };
@@ -64,26 +55,41 @@ struct VerifierLog {
 // A verifier that records what it was shown and answers `accept`; a refusal
 // flags a mismatch only when `flagMismatch` says so, which is the difference
 // between a changed certificate and a link that died.
-PairingClient::PinVerifier recordingVerifier(const std::shared_ptr<VerifierLog>& log, bool accept,
-                                             bool flagMismatch = false) {
+HTTPClient::PinVerifier recordingVerifier(const std::shared_ptr<VerifierLog>& log, bool accept,
+                                          bool flagMismatch = false) {
     return
         [log, accept, flagMismatch](const QString& host, const QByteArray& der, bool& pinMismatch) {
-            {
-                const std::lock_guard<std::mutex> lock(log->mtx);
-                log->hosts.push_back(host);
-                log->certs.push_back(der);
-            }
+            log->hosts.push_back(host);
+            log->certs.push_back(der);
             if (!accept && flagMismatch) { pinMismatch = true; }
             return accept;
         };
 }
 
-// Runs one client call on a worker and spins this thread, which owns the
-// listener, until it lands.
-PairingClient::Reply onWorker(const std::function<PairingClient::Reply()>& call) {
-    QFuture<PairingClient::Reply> future = QtConcurrent::run(call);
-    REQUIRE(spinFor([&future] { return future.isFinished(); }));
-    return future.result();
+// One reply, as the callback delivered it.
+struct Delivered {
+    PairResponse response;
+    bool pinMismatch = false;
+};
+
+// Sends one call and spins until its callback lands.
+Delivered await(const std::function<void(HTTPClient::PairCb)>& send) {
+    std::optional<Delivered> got;
+    send([&got](const PairResponse& response, bool pinMismatch) {
+        got = Delivered{response, pinMismatch};
+    });
+    REQUIRE(spinFor([&got] { return got.has_value(); }));
+    return *got;
+}
+
+const QString kLoopback = QStringLiteral("127.0.0.1");
+
+// The pair most cases send: device dev-1 with the operator's PIN, no client PIN.
+Delivered pairDen(HTTPClient& client, int port) {
+    return await([&](HTTPClient::PairCb cb) {
+        client.pair(kLoopback, port, QStringLiteral("dev-1"), QStringLiteral("Den PC"),
+                    QStringLiteral("1234"), QString(), std::move(cb));
+    });
 }
 
 // A loopback port with nothing listening on it.
@@ -95,7 +101,9 @@ int closedPort() {
     return port;
 }
 
-const QString kLoopback = QStringLiteral("127.0.0.1");
+template <typename Arm> bool classifiesAs(const Delivered& reply) {
+    return std::holds_alternative<Arm>(PairingOutcome::classify(reply.response, reply.pinMismatch));
+}
 
 } // namespace
 
@@ -103,12 +111,10 @@ TEST_CASE("pairing wire: pair posts the device, both pins, and the protocol vers
           "[pairing][wire]") {
     FakePairingListener listener;
     REQUIRE(listener.listening());
-    const PairingClient client(recordingVerifier(std::make_shared<VerifierLog>(), true));
+    HTTPClient client;
+    client.setPinVerifier(recordingVerifier(std::make_shared<VerifierLog>(), true));
 
-    const auto reply = onWorker([&] {
-        return client.pair(kLoopback, listener.port(), QStringLiteral("dev-1"),
-                           QStringLiteral("Den PC"), QStringLiteral("1234"));
-    });
+    const auto reply = pairDen(client, listener.port());
 
     REQUIRE(listener.requests().size() == 1);
     const auto& seen = listener.requests().front();
@@ -126,7 +132,7 @@ TEST_CASE("pairing wire: pair posts the device, both pins, and the protocol vers
 
     CHECK(reply.response.reachable);
     CHECK_FALSE(reply.pinMismatch);
-    CHECK(std::holds_alternative<PairingClient::Success>(PairingClient::classify(reply.response)));
+    CHECK(classifiesAs<PairingOutcome::Success>(reply));
 }
 
 TEST_CASE("pairing wire: the verifier sees the host dialled and the certificate presented",
@@ -134,14 +140,11 @@ TEST_CASE("pairing wire: the verifier sees the host dialled and the certificate 
     FakePairingListener listener;
     REQUIRE(listener.listening());
     const auto log = std::make_shared<VerifierLog>();
-    const PairingClient client(recordingVerifier(log, true));
+    HTTPClient client;
+    client.setPinVerifier(recordingVerifier(log, true));
 
-    onWorker([&] {
-        return client.pair(kLoopback, listener.port(), QStringLiteral("dev-1"),
-                           QStringLiteral("Den PC"), QStringLiteral("1234"));
-    });
+    pairDen(client, listener.port());
 
-    const std::lock_guard<std::mutex> lock(log->mtx);
     REQUIRE(log->hosts.size() == 1);
     // Keyed by the host the client dialled, which is what the pin store keys on.
     CHECK(log->hosts.front() == kLoopback);
@@ -149,34 +152,27 @@ TEST_CASE("pairing wire: the verifier sees the host dialled and the certificate 
 }
 
 TEST_CASE("pairing wire: a refusing verifier aborts before the PIN is written", "[pairing][wire]") {
-    // The whole point of checking on the `encrypted` edge. The handshake has
-    // completed, so the listener saw a connection, but the request - and the PIN
-    // in it - never went out.
+    // The whole point of checking on the `encrypted` edge: the handshake has
+    // completed, but the request - and the PIN in it - never goes out.
     FakePairingListener listener;
     REQUIRE(listener.listening());
     const auto log = std::make_shared<VerifierLog>();
-    const PairingClient client(recordingVerifier(log, false, /*flagMismatch=*/true));
+    HTTPClient client;
+    client.setPinVerifier(recordingVerifier(log, false, /*flagMismatch=*/true));
 
-    const auto reply = onWorker([&] {
-        return client.pair(kLoopback, listener.port(), QStringLiteral("dev-1"),
-                           QStringLiteral("Den PC"), QStringLiteral("1234"));
-    });
+    const auto reply = pairDen(client, listener.port());
     dish::test::settle(200);
 
     // The refusal is the verifier's: it was shown the listener's certificate, which a dead port
     // would never have given it. How many handshakes the LISTENER counted is not asserted - under
     // TLS 1.3 the client can abort on its `encrypted` edge before the server has finished its
     // side, so the server may never queue the connection at all.
-    {
-        const std::lock_guard<std::mutex> lock(log->mtx);
-        CHECK(log->certs.size() == 1);
-    }
+    CHECK(log->certs.size() == 1);
     CHECK(listener.requests().empty());
     CHECK_FALSE(reply.response.reachable);
     // A changed certificate, not a dead link: the flag is what tells them apart.
     CHECK(reply.pinMismatch);
-    CHECK(std::holds_alternative<PairingClient::IdentityChanged>(
-        PairingClient::classify(reply.response, reply.pinMismatch)));
+    CHECK(classifiesAs<PairingOutcome::IdentityChanged>(reply));
 }
 
 TEST_CASE("pairing wire: a refusal that flags no mismatch reads as unreachable",
@@ -186,33 +182,28 @@ TEST_CASE("pairing wire: a refusal that flags no mismatch reads as unreachable",
     // dead link would tell the user to forget and re-pair.
     FakePairingListener listener;
     REQUIRE(listener.listening());
-    const PairingClient client(recordingVerifier(std::make_shared<VerifierLog>(), false));
+    HTTPClient client;
+    client.setPinVerifier(recordingVerifier(std::make_shared<VerifierLog>(), false));
 
-    const auto reply = onWorker([&] {
-        return client.pair(kLoopback, listener.port(), QStringLiteral("dev-1"),
-                           QStringLiteral("Den PC"), QStringLiteral("1234"));
-    });
+    const auto reply = pairDen(client, listener.port());
 
     CHECK_FALSE(reply.response.reachable);
     CHECK_FALSE(reply.pinMismatch);
-    CHECK(std::holds_alternative<PairingClient::Unreachable>(
-        PairingClient::classify(reply.response, reply.pinMismatch)));
+    CHECK(classifiesAs<PairingOutcome::Unreachable>(reply));
 }
 
 TEST_CASE("pairing wire: nothing listening is unreachable with no mismatch", "[pairing][wire]") {
     const auto log = std::make_shared<VerifierLog>();
-    const PairingClient client(recordingVerifier(log, true));
-    const int port = closedPort();
+    HTTPClient client;
+    client.setPinVerifier(recordingVerifier(log, true));
 
-    const auto reply = onWorker([&] {
-        return client.pair(kLoopback, port, QStringLiteral("dev-1"), QStringLiteral("Den PC"),
-                           QStringLiteral("1234"));
-    });
+    const auto reply = pairDen(client, closedPort());
 
     CHECK_FALSE(reply.response.reachable);
+    CHECK(reply.response.httpStatus == 0);
     CHECK_FALSE(reply.pinMismatch);
+    CHECK(classifiesAs<PairingOutcome::Unreachable>(reply));
     // No handshake, so nothing was ever shown to the verifier.
-    const std::lock_guard<std::mutex> lock(log->mtx);
     CHECK(log->hosts.empty());
 }
 
@@ -227,16 +218,13 @@ TEST_CASE("pairing wire: the transport status is stamped onto the parsed reply",
                              QJsonObject{{QStringLiteral("ok"), false},
                                          {QStringLiteral("error"), QStringLiteral("protocol")}}};
     };
-    const PairingClient client(recordingVerifier(std::make_shared<VerifierLog>(), true));
+    HTTPClient client;
+    client.setPinVerifier(recordingVerifier(std::make_shared<VerifierLog>(), true));
 
-    const auto reply = onWorker([&] {
-        return client.pair(kLoopback, listener.port(), QStringLiteral("dev-1"),
-                           QStringLiteral("Den PC"), QStringLiteral("1234"));
-    });
+    const auto reply = pairDen(client, listener.port());
 
     CHECK(reply.response.httpStatus == 409);
-    CHECK(std::holds_alternative<PairingClient::VersionMismatch>(
-        PairingClient::classify(reply.response)));
+    CHECK(classifiesAs<PairingOutcome::VersionMismatch>(reply));
 }
 
 TEST_CASE("pairing wire: the status poll percent-encodes the device id", "[pairing][wire]") {
@@ -246,10 +234,13 @@ TEST_CASE("pairing wire: the status poll percent-encodes the device id", "[pairi
         return PairingAnswer{200,
                              QJsonObject{{QStringLiteral("status"), QStringLiteral("pending")}}};
     };
-    const PairingClient client(recordingVerifier(std::make_shared<VerifierLog>(), true));
+    HTTPClient client;
+    client.setPinVerifier(recordingVerifier(std::make_shared<VerifierLog>(), true));
     const QString awkwardId = QStringLiteral("a b&c=d");
 
-    onWorker([&] { return client.pairStatus(kLoopback, listener.port(), awkwardId); });
+    await([&](HTTPClient::PairCb cb) {
+        client.pairStatus(kLoopback, listener.port(), awkwardId, std::move(cb));
+    });
 
     REQUIRE(listener.requests().size() == 1);
     const auto& seen = listener.requests().front();
@@ -261,23 +252,50 @@ TEST_CASE("pairing wire: the status poll percent-encodes the device id", "[pairi
     CHECK(seen.query.queryItemValue(QStringLiteral("deviceId"), QUrl::FullyDecoded) == awkwardId);
 }
 
+TEST_CASE("pairing wire: the status poll's reply is read as an approval, not as a pair",
+          "[pairing][wire]") {
+    // The two routes answer in different shapes: a pair says ok/pending, a poll
+    // says a status word. Read with the pair's parser, an approval would carry
+    // no status at all and the operator's answer would never be seen.
+    FakePairingListener listener;
+    REQUIRE(listener.listening());
+    listener.respond = [](const dish::test::SeenRequest&) {
+        return PairingAnswer{200,
+                             QJsonObject{{QStringLiteral("status"), QStringLiteral("approved")},
+                                         {QStringLiteral("sharedKey"), QStringLiteral("0a0b")}}};
+    };
+    HTTPClient client;
+    client.setPinVerifier(recordingVerifier(std::make_shared<VerifierLog>(), true));
+
+    const auto reply = await([&](HTTPClient::PairCb cb) {
+        client.pairStatus(kLoopback, listener.port(), QStringLiteral("dev-1"), std::move(cb));
+    });
+
+    CHECK(reply.response.reachable);
+    CHECK(reply.response.httpStatus == 200);
+    CHECK(reply.response.status == QStringLiteral("approved"));
+    CHECK(reply.response.sharedKey == QStringLiteral("0a0b"));
+}
+
 TEST_CASE("pairing wire: each client runs the verifier it was built with", "[pairing][wire]") {
-    // There used to be one verifier per process, replaced by every manager that
-    // was built. Two clients over two pin stores must each consult their own.
+    // Two managers over two pin stores must each consult their own, which a
+    // process-wide verifier cannot do.
     FakePairingListener listener;
     REQUIRE(listener.listening());
     const auto first = std::make_shared<VerifierLog>();
     const auto second = std::make_shared<VerifierLog>();
-    const PairingClient a(recordingVerifier(first, true));
-    const PairingClient b(recordingVerifier(second, false, /*flagMismatch=*/true));
+    HTTPClient a;
+    a.setPinVerifier(recordingVerifier(first, true));
+    HTTPClient b;
+    b.setPinVerifier(recordingVerifier(second, false, /*flagMismatch=*/true));
 
-    const auto fromA = onWorker([&] {
-        return a.pair(kLoopback, listener.port(), QStringLiteral("dev-a"), QStringLiteral("A"),
-                      QStringLiteral("1111"));
+    const auto fromA = await([&](HTTPClient::PairCb cb) {
+        a.pair(kLoopback, listener.port(), QStringLiteral("dev-a"), QStringLiteral("A"),
+               QStringLiteral("1111"), QString(), std::move(cb));
     });
-    const auto fromB = onWorker([&] {
-        return b.pair(kLoopback, listener.port(), QStringLiteral("dev-b"), QStringLiteral("B"),
-                      QStringLiteral("2222"));
+    const auto fromB = await([&](HTTPClient::PairCb cb) {
+        b.pair(kLoopback, listener.port(), QStringLiteral("dev-b"), QStringLiteral("B"),
+               QStringLiteral("2222"), QString(), std::move(cb));
     });
 
     CHECK(fromA.response.reachable);
@@ -287,8 +305,6 @@ TEST_CASE("pairing wire: each client runs the verifier it was built with", "[pai
     REQUIRE(listener.requests().size() == 1);
     CHECK(listener.requests().front().body.value(QStringLiteral("deviceId")).toString() ==
           QStringLiteral("dev-a"));
-    const std::lock_guard<std::mutex> lockA(first->mtx);
-    const std::lock_guard<std::mutex> lockB(second->mtx);
     CHECK(first->hosts.size() == 1);
     CHECK(second->hosts.size() == 1);
 }
