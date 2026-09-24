@@ -3,19 +3,15 @@
 
 #include "MdnsDiscovery.h"
 
+#include "MdnsScan.h"
+
 #include <arpa/inet.h>
-#include <netinet/in.h>
-#include <sys/socket.h>
-#include <sys/time.h>
-#include <unistd.h>
 
 #include <QByteArray>
 #include <QHash>
 #include <QSet>
 #include <QString>
 
-#include <algorithm>
-#include <chrono>
 #include <cstdint>
 #include <cstring>
 #include <optional>
@@ -26,10 +22,6 @@ namespace dish::net {
 
 namespace {
 
-// mDNS multicast group + port (RFC 6762).
-constexpr const char* kMulticastGroup = "224.0.0.251";
-constexpr std::uint16_t kMulticastPort = 5353;
-
 constexpr std::uint16_t kTypeA = 1;
 constexpr std::uint16_t kTypePtr = 12;
 constexpr std::uint16_t kTypeTxt = 16;
@@ -39,10 +31,6 @@ constexpr std::uint16_t kTypeSrv = 33;
 // responder then answers straight to our source port, so a one-shot client
 // never has to join the multicast group to receive.
 constexpr std::uint16_t kClassInQu = 0x8001;
-
-// Straggler window after the first answer. The responder replies in well under
-// a millisecond, so burning the full discovery window buys nothing.
-constexpr int kGraceMs = 600;
 
 std::uint16_t read16(const std::uint8_t* p) {
     return static_cast<std::uint16_t>((p[0] << 8) | p[1]);
@@ -239,57 +227,18 @@ std::optional<models::DiscoveredServer> mdnsServiceToServer(const QString& servi
 }
 
 QList<models::DiscoveredServer> MdnsDiscovery::discover(int timeoutMs) {
-    using namespace std::chrono;
-
-    const int sock = ::socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
-    if (sock < 0) { return {}; }
-
-    // Bind an ephemeral port; the QU bit makes responders unicast back here.
-    sockaddr_in local{};
-    local.sin_family = AF_INET;
-    local.sin_addr.s_addr = INADDR_ANY;
-    local.sin_port = 0;
-    if (::bind(sock, reinterpret_cast<sockaddr*>(&local), sizeof(local)) < 0) {
-        ::close(sock);
-        return {};
-    }
-
-    timeval rcvTimeout{};
-    rcvTimeout.tv_sec = 0;
-    rcvTimeout.tv_usec = 300'000;
-    ::setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &rcvTimeout, sizeof(rcvTimeout));
-    int ttl = 255;
-    ::setsockopt(sock, IPPROTO_IP, IP_MULTICAST_TTL, &ttl, sizeof(ttl));
-
-    sockaddr_in dest{};
-    dest.sin_family = AF_INET;
-    dest.sin_port = htons(kMulticastPort);
-    ::inet_pton(AF_INET, kMulticastGroup, &dest.sin_addr);
-
-    const auto query = buildQuery();
-    ::sendto(sock, query.data(), query.size(), 0, reinterpret_cast<sockaddr*>(&dest), sizeof(dest));
-
     QList<models::DiscoveredServer> result;
     QSet<QString> seen;
-    const auto hardDeadline = steady_clock::now() + milliseconds(timeoutMs);
-    auto deadline = hardDeadline;
-    std::uint8_t buf[2048];
-
-    while (steady_clock::now() < deadline) {
-        const ssize_t n = ::recvfrom(sock, buf, sizeof(buf), 0, nullptr, nullptr);
-        if (n <= 0) { continue; } // timeout / transient
-        const auto server = detail::parseResponse(buf, static_cast<std::size_t>(n));
-        if (!server) { continue; }
+    // A satellite answers for one ip+port pair; the same box on two interfaces is two servers.
+    mdnsScan(buildQuery(), timeoutMs, [&](const std::uint8_t* p, std::size_t n) {
+        const auto server = detail::parseResponse(p, n);
+        if (!server) { return false; }
         const QString key = server->ip + QStringLiteral(":") + QString::number(server->udpPort);
-        if (seen.contains(key)) { continue; }
+        if (seen.contains(key)) { return false; }
         seen.insert(key);
         result.append(*server);
-        // Cap the remaining wait so a launch-time scan returns promptly instead
-        // of idling out the full `timeoutMs`.
-        deadline = std::min(hardDeadline, steady_clock::now() + milliseconds(kGraceMs));
-    }
-
-    ::close(sock);
+        return true;
+    });
     return result;
 }
 
