@@ -860,71 +860,93 @@ void WifiConnectionManager::reconcile(WifiConnection* conn,
                       });
 }
 
+// The token and salt a rekey reply carries, decoded and sized; nullopt when either is missing or
+// malformed, which leaves the live session on its current key.
+std::optional<WifiConnectionManager::RekeyMaterial>
+WifiConnectionManager::rekeyMaterialFrom(const models::SessionResponse& resp) {
+    if (!resp.token.has_value() || !resp.sessionSalt.has_value()) { return std::nullopt; }
+    const auto tok = util::fromHex(resp.token->toStdString());
+    const auto salt = util::fromHex(resp.sessionSalt->toStdString());
+    if (!tok || tok->size() != 4 || !salt || salt->size() != wire::kSessionSaltSize) {
+        return std::nullopt;
+    }
+    RekeyMaterial m;
+    std::copy_n(tok->begin(), 4, m.token.begin());
+    std::copy_n(salt->begin(), wire::kSessionSaltSize, m.salt.begin());
+    m.tokenBe = (static_cast<std::uint32_t>(m.token[0]) << 24) |
+                (static_cast<std::uint32_t>(m.token[1]) << 16) |
+                (static_cast<std::uint32_t>(m.token[2]) << 8) |
+                static_cast<std::uint32_t>(m.token[3]);
+    return m;
+}
+
+// Same socket, fresh token and key, counters back to 1, so the hot path never blips. connectionId
+// is stable across PUTs, so the id and slot state carry over.
+void WifiConnectionManager::adoptRekey(WifiConnection* c, const QString& id,
+                                       const std::shared_ptr<SatelliteClient>& client,
+                                       const std::array<std::uint8_t, 32>& pairingKey,
+                                       const models::SessionResponse& resp,
+                                       const RekeyMaterial& material) {
+    std::array<std::uint8_t, 32> sessionKey{};
+    wire::deriveSessionKey(pairingKey.data(), material.salt.data(), material.tokenBe,
+                           sessionKey.data());
+
+    // A re-PUT settles again: the satellite could have been upgraded under a live session, and the
+    // frame shape must follow the answer it just gave, not the one it gave at connect.
+    const auto negotiated = reducer::settleAccepted(resp.protocolVersion);
+    c->setSettledProtocolVersion(negotiated.settledVersion, negotiated.satelliteBehind);
+    c->setProtocolCompat(reducer::compatForOutcome(negotiated));
+    client->setConnectionParams(material.token, sessionKey, negotiated.settledVersion);
+    // Otherwise the next enriched ack would read as drift.
+    c->adoptEpoch(resp.epoch);
+    // The satellite could have been upgraded or re-switched under the live session, same reason
+    // the protocol version re-settles above.
+    probeHostAudio(id, c->server());
+}
+
+// Failures stay silent: heartbeat death and terminal-auth already surface them, and a session that
+// truly exhausts self-heals via the death retry.
+void WifiConnectionManager::onRekeyReply(const QString& id,
+                                         const std::shared_ptr<SatelliteClient>& client,
+                                         const std::array<std::uint8_t, 32>& pairingKey,
+                                         const models::SessionResponse& resp, bool pinMismatch) {
+    auto* c = connections_.value(id, nullptr);
+    if (c == nullptr) { return; }
+
+    using reducer::RestVerdict;
+    reducer::RestReply rr;
+    rr.status = resp.httpStatus;
+    rr.bodyParsed = resp.reachable;
+    rr.code = resp.code.value_or(QString()).toStdString();
+    rr.pinMismatch = pinMismatch;
+    const RestVerdict verdict = classifyRest(rr);
+    if (verdict == RestVerdict::Unauthorized) {
+        onTerminalAuthFailure(c, id, ConnectIntent::RetryAfterDeath);
+        return;
+    }
+    // If a death and reconnect replaced the session mid-flight, applying this material would re-arm
+    // the dead client and stamp a stale epoch onto the new session.
+    if (c->state() != SessionState::Live || c->client() != client) { return; }
+    if (verdict != RestVerdict::Ok) { return; }
+
+    const auto material = rekeyMaterialFrom(resp);
+    if (!material.has_value()) { return; }
+    adoptRekey(c, id, client, pairingKey, resp, *material);
+}
+
 void WifiConnectionManager::rekey(WifiConnection* conn, const models::DiscoveredServer& server) {
-    const QString id = conn->id();
     if (conn->state() != SessionState::Live) { return; }
     const auto client = conn->client();
     if (!client) { return; }
+    const QString id = conn->id();
     const auto creds = credentialsFor(id);
     if (!creds.has_value()) { return; }
     const auto pairingKey = creds->pairingKey;
-    // Failures stay silent: heartbeat death and terminal-auth already surface
-    // them, and a session that truly exhausts self-heals via the death retry.
     http_->putSession(
         server.ip, server.httpPort, deviceId_, deviceName_, creds->proof,
         conn->desiredDescriptors(), conn->wantsMouseControl(), conn->offeredProtocolVersion(),
         [this, id, client, pairingKey](const models::SessionResponse& resp, bool pinMismatch) {
-            auto* c = connections_.value(id, nullptr);
-            if (c == nullptr) { return; }
-            using reducer::RestVerdict;
-            reducer::RestReply rr;
-            rr.status = resp.httpStatus;
-            rr.bodyParsed = resp.reachable;
-            rr.code = resp.code.value_or(QString()).toStdString();
-            rr.pinMismatch = pinMismatch;
-            const RestVerdict verdict = classifyRest(rr);
-            if (verdict == RestVerdict::Unauthorized) {
-                onTerminalAuthFailure(c, id, ConnectIntent::RetryAfterDeath);
-                return;
-            }
-            // If a death and reconnect replaced the session mid-flight, applying
-            // this material would re-arm the dead client and stamp a stale epoch
-            // onto the new session.
-            if (c->state() != SessionState::Live || c->client() != client) { return; }
-            if (verdict != RestVerdict::Ok || !resp.token.has_value() ||
-                !resp.sessionSalt.has_value()) {
-                return;
-            }
-            const auto tok = util::fromHex(resp.token->toStdString());
-            const auto salt = util::fromHex(resp.sessionSalt->toStdString());
-            if (!tok || tok->size() != 4 || !salt || salt->size() != wire::kSessionSaltSize) {
-                return;
-            }
-            std::array<std::uint8_t, 4> token{};
-            std::copy_n(tok->begin(), 4, token.begin());
-            std::array<std::uint8_t, wire::kSessionSaltSize> saltArr{};
-            std::copy_n(salt->begin(), wire::kSessionSaltSize, saltArr.begin());
-            const std::uint32_t tokenBe = (static_cast<std::uint32_t>(token[0]) << 24) |
-                                          (static_cast<std::uint32_t>(token[1]) << 16) |
-                                          (static_cast<std::uint32_t>(token[2]) << 8) |
-                                          static_cast<std::uint32_t>(token[3]);
-            std::array<std::uint8_t, 32> sessionKey{};
-            wire::deriveSessionKey(pairingKey.data(), saltArr.data(), tokenBe, sessionKey.data());
-            // Same socket, fresh token and key, counters back to 1, so the hot
-            // path never blips. connectionId is stable across PUTs, so the id and
-            // slot state carry over.
-            // A re-PUT settles again: the satellite could have been upgraded
-            // under a live session, and the frame shape must follow the answer
-            // it just gave, not the one it gave at connect.
-            const auto negotiated = reducer::settleAccepted(resp.protocolVersion);
-            c->setSettledProtocolVersion(negotiated.settledVersion, negotiated.satelliteBehind);
-            c->setProtocolCompat(reducer::compatForOutcome(negotiated));
-            client->setConnectionParams(token, sessionKey, negotiated.settledVersion);
-            // Otherwise the next enriched ack would read as drift.
-            c->adoptEpoch(resp.epoch);
-            // The satellite could have been upgraded or re-switched under the
-            // live session, same reason the protocol version re-settles above.
-            probeHostAudio(id, c->server());
+            onRekeyReply(id, client, pairingKey, resp, pinMismatch);
         });
 }
 

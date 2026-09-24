@@ -10,6 +10,7 @@
 #include "WifiConnection.h"
 #include "core/reducer/RestOutcome.h"
 #include "core/reducer/ReversePairing.h"
+#include "core/wire/SessionCrypto.h"
 
 #include <QHash>
 #include <QObject>
@@ -129,6 +130,22 @@ class WifiConnectionManager : public QObject {
     // Re-PUT for a fresh token/salt/key on the SAME socket, so there is no state
     // blip visible to the UI.
     void rekey(WifiConnection* conn, const models::DiscoveredServer& server);
+
+    // The rekey PUT's reply, in three steps: is this still the session that asked, does the reply
+    // carry material, and adopt it. The same steps dish-windows names the same way.
+    struct RekeyMaterial {
+        std::array<std::uint8_t, 4> token{};
+        std::array<std::uint8_t, wire::kSessionSaltSize> salt{};
+        std::uint32_t tokenBe = 0;
+    };
+    static std::optional<RekeyMaterial> rekeyMaterialFrom(const models::SessionResponse& resp);
+    void onRekeyReply(const QString& id, const std::shared_ptr<SatelliteClient>& client,
+                      const std::array<std::uint8_t, 32>& pairingKey,
+                      const models::SessionResponse& resp, bool pinMismatch);
+    void adoptRekey(WifiConnection* c, const QString& id,
+                    const std::shared_ptr<SatelliteClient>& client,
+                    const std::array<std::uint8_t, 32>& pairingKey,
+                    const models::SessionResponse& resp, const RekeyMaterial& material);
     // Reads GET /api/server/capabilities for the host's controller-audio
     // verdict and folds it into the connection (reducer/HostAudioVerdict.h).
     // Fired after EVERY successful session PUT — connect, reconnect-after-death
