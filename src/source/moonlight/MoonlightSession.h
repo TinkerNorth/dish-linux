@@ -179,6 +179,7 @@ class MoonlightSession : public QObject {
     void absorbMediaSetup(const char* stream, const moonrtsp::Response& response, int& port,
                           QByteArray& pingPayload);
     void notifyFailure();
+    void onServerInfoReply(int status, const QByteArray& body);
     // sendLaunch in order: the per-attempt key, the query, and what the host answered.
     bool ensureRikey();
     QUrlQuery launchQuery(bool resuming) const;

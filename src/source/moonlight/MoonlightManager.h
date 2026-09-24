@@ -231,6 +231,9 @@ class MoonlightManager : public QObject {
     void onTlsServerInfo(const QString& uuid, const QString& address, quint64 epoch, int status,
                          const QByteArray& body);
     void finishProbe(const QString& uuid);
+    // forget's two named steps; the ordering between them lives in forget itself.
+    void cancelPairingWith(const QString& uuid);
+    void dropRecordsFor(const QString& uuid);
 
     // refreshApps' reply: dropped if a forget outran it, then refused or read.
     void onAppListReply(const QString& uuid, quint64 epoch, const QString& address, int status,

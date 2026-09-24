@@ -777,39 +777,17 @@ void MoonlightManager::quitHostApp(const QString& uuid) {
                   });
 }
 
-void MoonlightManager::forget(const QString& uuid) {
-    if (uuid.isEmpty()) {
-        qCWarning(lcMoon) << "forget called with no host";
-        return;
-    }
-    // THE EPOCH FIRST. Every request already on the wire for this host captured
-    // the old one and will now drop its own reply, which is what stops a probe
-    // or an applist landing a moment later from re-creating the records the
-    // rest of this function removes.
-    ++epochs_[uuid];
-    // A pairing still walking its phases would finish by upserting the row
-    // again, certificate and all: the host list would read empty while the
-    // pairing anchor stayed on file, and the next pair would meet a pin the
-    // user believes they deleted. cancel() does not emit finished().
-    if (pairingFlow_->active() && pairingFlow_->hostUuid() == uuid) {
-        qCInfo(lcMoon) << "forget cancels the pairing in flight with" << uuid;
-        pairingFlow_->cancel();
-    }
-    const QStringList dropped = boundSlots(uuid);
-    for (const auto& slotId : dropped) { bindings_.remove(slotId); }
-    auto* session = sessions_.take(uuid);
+// A pairing still walking its phases would finish by upserting the row again, certificate and all:
+// the host list would read empty while the pairing anchor stayed on file, and the next pair would
+// meet a pin the user believes they deleted. cancel() does not emit finished().
+void MoonlightManager::cancelPairingWith(const QString& uuid) {
+    if (!pairingFlow_->active() || pairingFlow_->hostUuid() != uuid) { return; }
+    qCInfo(lcMoon) << "forget cancels the pairing in flight with" << uuid;
+    pairingFlow_->cancel();
+}
 
-    // EVERY RECORD GOES BEFORE THE SESSION IS MADE TO SPEAK. stop() dispatches
-    // through the session machine and raises linkStateChanged, which reaches
-    // rowsChanged and every surface bound to it while this function would
-    // otherwise still be half done: a handler on the far side of that emit
-    // would resolve a host that is on its way out, and a probe asked for there
-    // would re-insert probes_[uuid] under the epoch this call already bumped,
-    // so its own reply would match and write the record back.
-    //
-    // The pairing anchor lives IN the row, so removing the row removes the pin.
-    // The session can be torn down after, because it carries its own COPY of
-    // the host record: the /cancel its teardown sends does not read the store.
+// The pairing anchor lives IN the row, so removing the row removes the pin.
+void MoonlightManager::dropRecordsFor(const QString& uuid) {
     hostRepo_.remove(uuid);
     discovered_.remove(uuid);
     probes_.remove(uuid);
@@ -818,7 +796,31 @@ void MoonlightManager::forget(const QString& uuid) {
         pairingRefusedUuid_.clear();
         pairingRefusedReason_.clear();
     }
+}
 
+// The steps run in this order for the reasons each carries, and in no other.
+void MoonlightManager::forget(const QString& uuid) {
+    if (uuid.isEmpty()) {
+        qCWarning(lcMoon) << "forget called with no host";
+        return;
+    }
+    // THE EPOCH FIRST. Every request already on the wire for this host captured the old one and
+    // will now drop its own reply, which is what stops a probe or an applist landing a moment later
+    // from re-creating the records the rest of this function removes.
+    ++epochs_[uuid];
+    cancelPairingWith(uuid);
+    const QStringList dropped = boundSlots(uuid);
+    for (const auto& slotId : dropped) { bindings_.remove(slotId); }
+    auto* session = sessions_.take(uuid);
+
+    // EVERY RECORD GOES BEFORE THE SESSION IS MADE TO SPEAK. stop() dispatches through the session
+    // machine and raises linkStateChanged, which reaches rowsChanged and every surface bound to it
+    // while this function would otherwise still be half done: a handler on the far side of that
+    // emit would resolve a host that is on its way out, and a probe asked for there would re-insert
+    // probes_[uuid] under the epoch this call already bumped, so its own reply would match and
+    // write the record back. The session can be torn down after, because it carries its own COPY of
+    // the host record: the /cancel its teardown sends does not read the store.
+    dropRecordsFor(uuid);
     if (session != nullptr) {
         session->stop(/*handBackApp=*/true);
         session->deleteLater();

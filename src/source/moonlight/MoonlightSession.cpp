@@ -301,55 +301,54 @@ MoonlightHttp::BodyCb MoonlightSession::guarded(MoonlightHttp::BodyCb cb) {
     };
 }
 
+// What the plaintext port can settle: whether anything answered, whether it is the host the record
+// anchors, and - for a host never paired - the trust question too, since there is no certificate
+// to ask it with. Everything else goes on to askTrust().
+void MoonlightSession::onServerInfoReply(int status, const QByteArray& body) {
+    if (status != 200) {
+        qCWarning(lcMoon) << "serverinfo on" << host_.address << "answered HTTP" << status;
+        dispatch(moonlight::moon_event::ServerInfoFailed{});
+        return;
+    }
+    const std::string xml = body.toStdString();
+    const auto info = moonxml::parseServerInfo(xml);
+    if (!info) {
+        qCWarning(lcMoon) << "serverinfo on" << host_.address << "unusable: host"
+                          << hostSays(moonxml::parseStatus(xml));
+        dispatch(moonlight::moon_event::ServerInfoFailed{});
+        return;
+    }
+    if (moonlight::hostIdentityChanged(host_.uuid.toStdString(), info->uuid)) {
+        // Another machine behind the address: the stored certificate anchors nothing, and a TLS
+        // call would only fail less usefully.
+        qCWarning(lcMoon) << host_.address << "answers as" << QString::fromStdString(info->uuid)
+                          << "remembered as" << host_.uuid << ": host replaced";
+        moonlight::moon_event::ServerInfoOk ev;
+        ev.remembered = host_.paired();
+        ev.identityChanged = true;
+        dispatch(ev);
+        return;
+    }
+    if (!host_.paired()) {
+        qCInfo(lcMoon) << "serverinfo on" << host_.address << "answered; not paired";
+        moonlight::moon_event::ServerInfoOk ev;
+        ev.paired = false;
+        ev.remembered = false;
+        dispatch(ev);
+        return;
+    }
+    askTrust();
+}
+
+// TWO QUESTIONS, TWO CALLS. The plaintext port answers whether anything is there and whether it is
+// the host the record anchors, and nothing else: Sunshine computes PairStatus on the mutual-TLS
+// route alone and hands every plaintext caller a 0, its own paired devices included, so a session
+// gated on this flag never started against a live host, which no amount of pairing made visible.
+// The trust question is asked by askTrust().
 void MoonlightSession::fetchServerInfo() {
-    // TWO QUESTIONS, TWO CALLS. The plaintext port answers whether anything is
-    // there and whether it is the host the record anchors, and nothing else:
-    // Sunshine computes PairStatus on the mutual-TLS route alone and hands every
-    // plaintext caller a 0, its own paired devices included, so a session gated
-    // on this flag never started against a live host, which no amount of
-    // pairing made visible. The trust question is asked by askTrust().
-    http_->getPlain(host_.address, host_.httpPort, QStringLiteral("/serverinfo"), QUrlQuery(),
-                    guarded([this](int status, const QByteArray& body) {
-                        if (status != 200) {
-                            qCWarning(lcMoon)
-                                << "serverinfo on" << host_.address << "answered HTTP" << status;
-                            dispatch(moonlight::moon_event::ServerInfoFailed{});
-                            return;
-                        }
-                        const std::string xml = body.toStdString();
-                        const auto info = moonxml::parseServerInfo(xml);
-                        if (!info) {
-                            const auto refusal = moonxml::parseStatus(xml);
-                            qCWarning(lcMoon) << "serverinfo on" << host_.address
-                                              << "unusable: host" << hostSays(refusal);
-                            dispatch(moonlight::moon_event::ServerInfoFailed{});
-                            return;
-                        }
-                        const QString reported = QString::fromStdString(info->uuid);
-                        if (moonlight::hostIdentityChanged(host_.uuid.toStdString(), info->uuid)) {
-                            // Another machine behind the address: the stored certificate
-                            // anchors nothing, and a TLS call would only fail less usefully.
-                            qCWarning(lcMoon) << host_.address << "answers as" << reported
-                                              << "remembered as" << host_.uuid << ": host replaced";
-                            moonlight::moon_event::ServerInfoOk ev;
-                            ev.remembered = host_.paired();
-                            ev.identityChanged = true;
-                            dispatch(ev);
-                            return;
-                        }
-                        if (!host_.paired()) {
-                            // Never paired: there is no certificate to present, so the
-                            // trust question has its answer already.
-                            qCInfo(lcMoon)
-                                << "serverinfo on" << host_.address << "answered; not paired";
-                            moonlight::moon_event::ServerInfoOk ev;
-                            ev.paired = false;
-                            ev.remembered = false;
-                            dispatch(ev);
-                            return;
-                        }
-                        askTrust();
-                    }));
+    http_->getPlain(
+        host_.address, host_.httpPort, QStringLiteral("/serverinfo"), QUrlQuery(),
+        guarded([this](int status, const QByteArray& body) { onServerInfoReply(status, body); }));
 }
 
 void MoonlightSession::askTrust() {
