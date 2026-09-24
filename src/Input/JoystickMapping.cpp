@@ -66,90 +66,86 @@ bool captureButtonPasses() { return true; }
 
 bool captureHatPasses(int hatValue) { return (hatValue & 0xFF) != hat::kCentered; }
 
-JoystickRemap withAssignment(JoystickRemap base, RemapTarget target, int kind, int index) {
-    const auto setButton = [&](RemapButton b) { base.buttons[idx(b)] = index; };
-    // A Hat capture points the dpad at that hat and drops the direction's
-    // button override so the hat wins; a Button capture leaves hatIndex alone,
-    // so the other directions keep reading the hat.
-    const auto setDpad = [&](RemapButton b) {
-        if (kind == static_cast<int>(CaptureKind::Hat)) {
-            base.hatIndex = index;
-            base.buttons[idx(b)] = -1;
-        } else {
-            base.buttons[idx(b)] = index;
-        }
-    };
-    // Either way the explicit choice disables the adaptive fallback.
-    const auto setTrigger = [&](TriggerSource& t) {
-        t.kind = (kind == static_cast<int>(CaptureKind::Button)) ? TriggerSourceKind::Button
-                                                                 : TriggerSourceKind::Axis;
-        t.index = index;
-        base.useAdaptiveTriggers = false;
-    };
+namespace {
 
+JoystickRemap withButton(JoystickRemap base, RemapButton b, int index) {
+    base.buttons[idx(b)] = index;
+    return base;
+}
+
+// A Hat capture points the dpad at that hat and drops the direction's button override so the hat
+// wins; a Button capture leaves hatIndex alone, so the other directions keep reading the hat.
+JoystickRemap withDpad(JoystickRemap base, RemapButton b, int kind, int index) {
+    if (kind != static_cast<int>(CaptureKind::Hat)) { return withButton(base, b, index); }
+    base.hatIndex = index;
+    base.buttons[idx(b)] = -1;
+    return base;
+}
+
+// Either way the explicit choice disables the adaptive fallback.
+JoystickRemap withTrigger(JoystickRemap base, TriggerSource JoystickRemap::* which, int kind,
+                          int index) {
+    TriggerSource& t = base.*which;
+    t.kind = (kind == static_cast<int>(CaptureKind::Button)) ? TriggerSourceKind::Button
+                                                             : TriggerSourceKind::Axis;
+    t.index = index;
+    base.useAdaptiveTriggers = false;
+    return base;
+}
+
+// An explicit right stick disables the adaptive guess the same way a trigger does.
+JoystickRemap withRightStick(JoystickRemap base, int JoystickRemap::* axis, int index) {
+    base.*axis = index;
+    base.useAdaptiveRightStick = false;
+    return base;
+}
+
+} // namespace
+
+JoystickRemap withAssignment(JoystickRemap base, RemapTarget target, int kind, int index) {
     switch (target) {
     case RemapTarget::A:
-        setButton(RemapButton::A);
-        break;
+        return withButton(base, RemapButton::A, index);
     case RemapTarget::B:
-        setButton(RemapButton::B);
-        break;
+        return withButton(base, RemapButton::B, index);
     case RemapTarget::X:
-        setButton(RemapButton::X);
-        break;
+        return withButton(base, RemapButton::X, index);
     case RemapTarget::Y:
-        setButton(RemapButton::Y);
-        break;
+        return withButton(base, RemapButton::Y, index);
     case RemapTarget::DpadUp:
-        setDpad(RemapButton::DpadUp);
-        break;
+        return withDpad(base, RemapButton::DpadUp, kind, index);
     case RemapTarget::DpadDown:
-        setDpad(RemapButton::DpadDown);
-        break;
+        return withDpad(base, RemapButton::DpadDown, kind, index);
     case RemapTarget::DpadLeft:
-        setDpad(RemapButton::DpadLeft);
-        break;
+        return withDpad(base, RemapButton::DpadLeft, kind, index);
     case RemapTarget::DpadRight:
-        setDpad(RemapButton::DpadRight);
-        break;
+        return withDpad(base, RemapButton::DpadRight, kind, index);
     case RemapTarget::LeftShoulder:
-        setButton(RemapButton::LeftShoulder);
-        break;
+        return withButton(base, RemapButton::LeftShoulder, index);
     case RemapTarget::RightShoulder:
-        setButton(RemapButton::RightShoulder);
-        break;
+        return withButton(base, RemapButton::RightShoulder, index);
     case RemapTarget::Back:
-        setButton(RemapButton::Back);
-        break;
+        return withButton(base, RemapButton::Back, index);
     case RemapTarget::Start:
-        setButton(RemapButton::Start);
-        break;
+        return withButton(base, RemapButton::Start, index);
     case RemapTarget::LeftThumb:
-        setButton(RemapButton::LeftThumb);
-        break;
+        return withButton(base, RemapButton::LeftThumb, index);
     case RemapTarget::RightThumb:
-        setButton(RemapButton::RightThumb);
-        break;
+        return withButton(base, RemapButton::RightThumb, index);
     case RemapTarget::LeftStickX:
         base.leftStickX = index;
-        break;
+        return base;
     case RemapTarget::LeftStickY:
         base.leftStickY = index;
-        break;
+        return base;
     case RemapTarget::RightStickX:
-        base.rightStickX = index;
-        base.useAdaptiveRightStick = false;
-        break;
+        return withRightStick(base, &JoystickRemap::rightStickX, index);
     case RemapTarget::RightStickY:
-        base.rightStickY = index;
-        base.useAdaptiveRightStick = false;
-        break;
+        return withRightStick(base, &JoystickRemap::rightStickY, index);
     case RemapTarget::LeftTrigger:
-        setTrigger(base.leftTrigger);
-        break;
+        return withTrigger(base, &JoystickRemap::leftTrigger, kind, index);
     case RemapTarget::RightTrigger:
-        setTrigger(base.rightTrigger);
-        break;
+        return withTrigger(base, &JoystickRemap::rightTrigger, kind, index);
     }
     return base;
 }

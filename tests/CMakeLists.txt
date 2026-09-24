@@ -208,6 +208,8 @@ set(DISH_TEST_SOURCES
     test_remembered_wifi_eq.cpp
     test_legacy_catalog.cpp
     test_list_model_roles.cpp
+    test_usb_hid_items.cpp
+    test_ip_literals_parse.cpp
     test_catalog_feature_gate.cpp
     test_crash_log_path.cpp
     test_unix_signal_watcher.cpp
