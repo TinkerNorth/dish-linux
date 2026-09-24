@@ -20,6 +20,7 @@
 #include "core/moonlight/MoonlightTouchDiffer.h"
 #include "core/moonlight/MoonlightTriggerRumble.h"
 #include "core/moonlight/MoonlightWire.h"
+#include "core/moonlight/MoonlightXml.h"
 #include "repository/MoonlightHostRepository.h"
 #include "source/moonlight/MoonlightControlStream.h"
 #include "source/moonlight/MoonlightHttp.h"
@@ -28,6 +29,7 @@
 #include <QByteArray>
 #include <QObject>
 #include <QString>
+#include <QUrlQuery>
 
 #include <QHash>
 
@@ -171,6 +173,13 @@ class MoonlightSession : public QObject {
     // Effect handlers.
     void fetchServerInfo();
     void sendLaunch();
+    // sendLaunch in order: the per-attempt key, the query, and what the host answered.
+    bool ensureRikey();
+    QUrlQuery launchQuery(bool resuming) const;
+    void onLaunchReply(const QString& path, int status, const QByteArray& body);
+    void onLaunchAccepted(const QString& path, const moonxml::LaunchResult& launch);
+    void onLaunchRefused(const QString& path, const QByteArray& body,
+                         const std::optional<moonxml::Status>& refusal);
     void openRtsp();
     void sendRtspStep(moonlight::RtspStep step);
     void connectControl();

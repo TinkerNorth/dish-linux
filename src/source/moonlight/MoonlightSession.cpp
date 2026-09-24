@@ -17,6 +17,7 @@
 #include <QTcpSocket>
 #include <QTimer>
 #include <QUdpSocket>
+#include <QStringView>
 #include <QUrlQuery>
 
 #include <chrono>
@@ -43,6 +44,13 @@ QString stepStreamId(moonlight::RtspStep step) {
 // datagram per port would be fragile: lose it and the host never learns our
 // media address.
 constexpr int kRtpPingIntervalMs = 500;
+
+// Stereo, in the encoding the Moonlight clients use: the channel mask (front left and right, 0x3)
+// in the high 16 bits and the channel count (2) in the low 16, so 0x00030002. The smallest
+// configuration there is, and nothing here listens to the stream it describes: with
+// localAudioPlayMode=1 the host keeps its audio local.
+constexpr QStringView kSurroundAudioInfo = u"196610";
+static_assert(((0x3 << 16) | 2) == 196610, "stereo: mask 0x3, two channels");
 
 // What the host said in the body of its reply, for one log line.
 QString hostSays(const std::optional<moonxml::Status>& status) {
@@ -367,28 +375,27 @@ void MoonlightSession::askTrust() {
                   }));
 }
 
-void MoonlightSession::sendLaunch() {
-    // One control-stream key per attempt (Wolf keys the control AES-GCM on
-    // this rikey). The rikeyid is minted with it: nothing this client sends is
-    // keyed on it today, but a host is free to be, and the other two clients
-    // mint one, so a constant here would be an assumption about a host we do
-    // not control. A launch that promotes to /resume keeps both.
-    if (!rikeyReady_) {
-        std::array<std::uint8_t, 4> id{};
-        if (!mooncrypto::randomBytes(rikey_.data(), rikey_.size()) ||
-            !mooncrypto::randomBytes(id.data(), id.size())) {
-            qCWarning(lcMoon) << "launch on" << host_.address
-                              << "aborted: no entropy for the rikey";
-            dispatch(moonlight::moon_event::LaunchFailed{});
-            return;
-        }
-        rikeyId_ = static_cast<std::uint32_t>(id[0]) | (static_cast<std::uint32_t>(id[1]) << 8) |
-                   (static_cast<std::uint32_t>(id[2]) << 16) |
-                   (static_cast<std::uint32_t>(id[3]) << 24);
-        rikeyReady_ = true;
+// One control-stream key per attempt (Wolf keys the control AES-GCM on this rikey). The rikeyid is
+// minted with it: nothing this client sends is keyed on it today, but a host is free to be, and the
+// other two clients mint one, so a constant here would be an assumption about a host we do not
+// control. A launch that promotes to /resume keeps both. False only when there is no entropy.
+bool MoonlightSession::ensureRikey() {
+    if (rikeyReady_) { return true; }
+    std::array<std::uint8_t, 4> id{};
+    if (!mooncrypto::randomBytes(rikey_.data(), rikey_.size()) ||
+        !mooncrypto::randomBytes(id.data(), id.size())) {
+        return false;
     }
+    rikeyId_ = static_cast<std::uint32_t>(id[0]) | (static_cast<std::uint32_t>(id[1]) << 8) |
+               (static_cast<std::uint32_t>(id[2]) << 16) |
+               (static_cast<std::uint32_t>(id[3]) << 24);
+    rikeyReady_ = true;
+    return true;
+}
 
-    const bool resuming = machine_.resuming;
+// A /resume carries only the key and the audio settings: the app and the mode belong to the
+// session the host is already holding.
+QUrlQuery MoonlightSession::launchQuery(bool resuming) const {
     QUrlQuery query;
     if (!resuming) {
         query.addQueryItem(QStringLiteral("appid"), appId_);
@@ -402,63 +409,80 @@ void MoonlightSession::sendLaunch() {
     query.addQueryItem(QStringLiteral("rikey"),
                        QString::fromStdString(util::toHex(rikey_.data(), rikey_.size())));
     query.addQueryItem(QStringLiteral("rikeyid"), QString::number(rikeyId_));
-    // 1, not 0. The user of a dish is sitting AT the host with the pad in their
-    // hands, so asking the host not to play audio locally would silence their
-    // own speakers for the length of the session.
+    // 1, not 0. The user of a dish is sitting AT the host with the pad in their hands, so asking
+    // the host not to play audio locally would silence their own speakers for the length of the
+    // session.
     query.addQueryItem(QStringLiteral("localAudioPlayMode"), QStringLiteral("1"));
-    query.addQueryItem(QStringLiteral("surroundAudioInfo"), QStringLiteral("196610"));
+    query.addQueryItem(QStringLiteral("surroundAudioInfo"), kSurroundAudioInfo.toString());
+    return query;
+}
+
+void MoonlightSession::onLaunchAccepted(const QString& path, const moonxml::LaunchResult& launch) {
+    if (machine_.phase != moonlight::SessionPhase::Launching) {
+        // THE LAUNCH WE WALKED AWAY FROM CAME GOOD ANYWAY. The last pad left while the reply was
+        // in flight, so the reducer will not act on it and nothing is riding the session. The host
+        // is holding an app on our behalf all the same: hand it straight back, or it sits there
+        // refusing every later /launch.
+        qCInfo(lcMoon) << path << "on" << host_.address
+                       << "answered after the session closed; handing back";
+        cancelStrandedApp();
+        return;
+    }
+    rtspTarget_ = QStringLiteral("rtsp://%1:%2")
+                      .arg(QString::fromStdString(launch.rtspHost))
+                      .arg(launch.rtspPort);
+    rtspPort_ = launch.rtspPort;
+    // The host's launch reply may hand out a fake session IP; dial the host we already know, not
+    // the parroted string.
+    rtspHostAddress_ = host_.address;
+    launched_ = true;
+    dispatch(moonlight::moon_event::LaunchOk{});
+}
+
+// A HOST SAYS NO IN THE BODY, NOT IN THE STATUS LINE: a second /launch is answered HTTP 200
+// carrying status_code="400" and "An app is already running on this host". Reading only the HTTP
+// status turns that into a missing sessionUrl0 further down and names the wrong thing.
+void MoonlightSession::onLaunchRefused(const QString& path, const QByteArray& body,
+                                       const std::optional<moonxml::Status>& refusal) {
+    if (refusal && refusal->appAlreadyRunning()) {
+        qCInfo(lcMoon) << host_.address << "already has an app running; resume" << refusal->resume;
+        dispatch(moonlight::moon_event::LaunchBusy{refusal->resume});
+        return;
+    }
+    qCWarning(lcMoon) << path << "refused by" << host_.address << ":"
+                      << QString::fromUtf8(body.left(512));
+    if (refusal && !refusal->message.empty()) {
+        refusalMessage_ = QString::fromStdString(refusal->message);
+    } else if (refusal) {
+        refusalMessage_ = QString::number(refusal->code);
+    }
+    dispatch(moonlight::moon_event::LaunchFailed{});
+}
+
+void MoonlightSession::onLaunchReply(const QString& path, int status, const QByteArray& body) {
+    const std::string xml = body.toStdString();
+    const auto refusal = moonxml::parseStatus(xml);
+    const auto launch = moonxml::parseLaunch(xml);
+    qCInfo(lcMoon) << path << "on" << host_.address << "HTTP" << status << "host"
+                   << hostSays(refusal) << "rtsp port" << (launch ? launch->rtspPort : 0);
+    if (status == 200 && launch && launch->launched) {
+        onLaunchAccepted(path, *launch);
+        return;
+    }
+    onLaunchRefused(path, body, refusal);
+}
+
+void MoonlightSession::sendLaunch() {
+    if (!ensureRikey()) {
+        qCWarning(lcMoon) << "launch on" << host_.address << "aborted: no entropy for the rikey";
+        dispatch(moonlight::moon_event::LaunchFailed{});
+        return;
+    }
+    const bool resuming = machine_.resuming;
     const QString path = resuming ? QStringLiteral("/resume") : QStringLiteral("/launch");
-    http_->getTls(host_.address, host_.httpsPort, path, query, host_.serverCertPem,
+    http_->getTls(host_.address, host_.httpsPort, path, launchQuery(resuming), host_.serverCertPem,
                   guarded([this, path](int status, const QByteArray& body) {
-                      const std::string xml = body.toStdString();
-                      const auto refusal = moonxml::parseStatus(xml);
-                      const auto launch = moonxml::parseLaunch(xml);
-                      qCInfo(lcMoon)
-                          << path << "on" << host_.address << "HTTP" << status << "host"
-                          << hostSays(refusal) << "rtsp port" << (launch ? launch->rtspPort : 0);
-                      if (status == 200 && launch && launch->launched) {
-                          if (machine_.phase != moonlight::SessionPhase::Launching) {
-                              // THE LAUNCH WE WALKED AWAY FROM CAME GOOD ANYWAY. The
-                              // last pad left while the reply was in flight, so the
-                              // reducer will not act on it and nothing is riding the
-                              // session. The host is holding an app on our behalf all
-                              // the same: hand it straight back, or it sits there
-                              // refusing every later /launch.
-                              qCInfo(lcMoon) << path << "on" << host_.address
-                                             << "answered after the session closed; handing back";
-                              cancelStrandedApp();
-                              return;
-                          }
-                          rtspTarget_ = QStringLiteral("rtsp://%1:%2")
-                                            .arg(QString::fromStdString(launch->rtspHost))
-                                            .arg(launch->rtspPort);
-                          rtspPort_ = launch->rtspPort;
-                          // The host's launch reply may hand out a fake session IP;
-                          // dial the host we already know, not the parroted string.
-                          rtspHostAddress_ = host_.address;
-                          launched_ = true;
-                          dispatch(moonlight::moon_event::LaunchOk{});
-                          return;
-                      }
-                      // A HOST SAYS NO IN THE BODY, NOT IN THE STATUS LINE: a second
-                      // /launch is answered HTTP 200 carrying status_code="400" and "An
-                      // app is already running on this host". Reading only the HTTP
-                      // status turns that into a missing sessionUrl0 further down and
-                      // names the wrong thing.
-                      if (refusal && refusal->appAlreadyRunning()) {
-                          qCInfo(lcMoon) << host_.address << "already has an app running; resume"
-                                         << refusal->resume;
-                          dispatch(moonlight::moon_event::LaunchBusy{refusal->resume});
-                          return;
-                      }
-                      qCWarning(lcMoon) << path << "refused by" << host_.address << ":"
-                                        << QString::fromUtf8(body.left(512));
-                      if (refusal && !refusal->message.empty()) {
-                          refusalMessage_ = QString::fromStdString(refusal->message);
-                      } else if (refusal) {
-                          refusalMessage_ = QString::number(refusal->code);
-                      }
-                      dispatch(moonlight::moon_event::LaunchFailed{});
+                      onLaunchReply(path, status, body);
                   }));
 }
 
