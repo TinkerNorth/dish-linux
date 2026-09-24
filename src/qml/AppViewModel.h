@@ -638,6 +638,9 @@ class AppViewModel : public QObject {
     void dispatchApply(const reducer::ApplyEvent& event);
     void beginApplyBind();
     void onApplyTick();
+    // onApplyTick's two waits: for a claim to settle, and for the satellite to answer a bind.
+    void checkPathSettled();
+    void checkBindReadback(const models::ControllerSlot& slot);
     const models::ControllerSlot* slotById(const QString& slotId) const;
 
     dish::AppModel* model_;

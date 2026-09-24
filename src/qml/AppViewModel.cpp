@@ -1691,6 +1691,37 @@ void AppViewModel::dispatchApply(const reducer::ApplyEvent& event) {
     }
 }
 
+// The same derived predicate the slot card's spinner reads, so the overlay and the card cannot
+// disagree about when a claim has settled. The slot id is re-resolved first, because a claim can
+// replace the SDL slot with the Direct one mid-switch.
+void AppViewModel::checkPathSettled() {
+    const QString liveId = resolveSlotIdForBind(applySlotId_);
+    if (liveId != applySlotId_ && !liveId.isEmpty()) { applySlotId_ = liveId; }
+    const auto* live = slotById(applySlotId_);
+    if (live == nullptr) { return; }
+    const bool switching =
+        reducer::slotPathSwitching(live->pathPhase, live->desiredPath, live->usbDirect,
+                                   live->liveRates.directPollHz, live->directFailure.has_value());
+    if (switching) { return; }
+    dispatchApply(reducer::apply_event::PathSettled{live->pathPhase == reducer::UsbPhase::Direct});
+}
+
+// The hub binds locally and the satellite answers asynchronously, so the outcome must never be read
+// on the tick that ENTERED this step: the local bind is synchronous and a same-tick read reports
+// success before the satellite has had a chance to refuse.
+void AppViewModel::checkBindReadback(const models::ControllerSlot& slot) {
+    if (apply_.elapsedMsOnStep <= 0) { return; }
+    const bool stillBound =
+        slot.boundConnectionId.has_value() && *slot.boundConnectionId == applyConnectionId_;
+    if (!stillBound) {
+        dispatchApply(reducer::apply_event::BindRejected{/*unreachable=*/false});
+        return;
+    }
+    const bool live =
+        slot.boundStatus.has_value() && slot.boundStatus->live == models::LinkState::Connected;
+    if (live) { dispatchApply(reducer::apply_event::BindAccepted{}); }
+}
+
 void AppViewModel::onApplyTick() {
     dispatchApply(reducer::apply_event::Tick{kApplyTickMs});
     if (!applyInFlight()) { return; }
@@ -1701,48 +1732,19 @@ void AppViewModel::onApplyTick() {
         dispatchApply(reducer::apply_event::SlotVanished{});
         return;
     }
-
     if (apply_.phase == reducer::ApplyPhase::SwitchingPath) {
-        // The same derived predicate the slot card's spinner reads, so the
-        // overlay and the card cannot disagree about when a claim has settled.
-        const QString liveId = resolveSlotIdForBind(applySlotId_);
-        if (liveId != applySlotId_ && !liveId.isEmpty()) { applySlotId_ = liveId; }
-        const auto* live = slotById(applySlotId_);
-        if (live == nullptr) { return; }
-        const bool switching = reducer::slotPathSwitching(
-            live->pathPhase, live->desiredPath, live->usbDirect, live->liveRates.directPollHz,
-            live->directFailure.has_value());
-        if (!switching) {
-            dispatchApply(
-                reducer::apply_event::PathSettled{live->pathPhase == reducer::UsbPhase::Direct});
-        }
+        checkPathSettled();
         return;
     }
-
-    // A Moonlight bind settles the instant it is written, so there is no
-    // readback to wait on and no host state that could turn it into a failure.
+    // A Moonlight bind settles the instant it is written, so there is no readback to wait on and
+    // no host state that could turn it into a failure. The host remembers the last pick so the NEXT
+    // binding on it starts where this one did; the binding still owns the type it sends, and this
+    // is a seed, not the authority.
     if (applyIsMoonlight_) {
-        // The host remembers the last pick so the NEXT binding on it starts
-        // where this one did. The binding still owns the type it sends; this is
-        // a seed, not the authority.
         setMoonlightControllerType(applyConnectionId_, applyType_);
         return;
     }
-
-    // The hub binds locally and the satellite answers asynchronously, so the
-    // outcome must never be read on the tick that ENTERED this step: the local
-    // bind is synchronous and a same-tick read reports success before the
-    // satellite has had a chance to refuse.
-    if (slot == nullptr || apply_.elapsedMsOnStep <= 0) { return; }
-    const bool stillBound =
-        slot->boundConnectionId.has_value() && *slot->boundConnectionId == applyConnectionId_;
-    if (!stillBound) {
-        dispatchApply(reducer::apply_event::BindRejected{/*unreachable=*/false});
-        return;
-    }
-    if (slot->boundStatus.has_value() && slot->boundStatus->live == models::LinkState::Connected) {
-        dispatchApply(reducer::apply_event::BindAccepted{});
-    }
+    if (slot != nullptr) { checkBindReadback(*slot); }
 }
 
 // ── Licenses ────────────────────────────────────────────────────────────────
