@@ -88,6 +88,57 @@ std::vector<int> directSyntheticIds(const std::map<int, reducer::UsbController>&
     return present;
 }
 
+// What the pad itself can deliver. The declared CONTROLLER_ARRIVAL bitfield is this intersected
+// with the emulated type's ceiling, because declaring a capability the source cannot provide makes
+// the host ask for reports that never arrive.
+//
+// A pad reporting any level at all has a battery to report. Left false before, which meant
+// CAP_BATTERY was never declared and the host had no reason to read the level the pad was already
+// publishing.
+moonlight::SourceCapabilities sourceCapabilitiesOf(const AppModel::SlotHardware& hardware,
+                                                   bool reportsBattery) {
+    moonlight::SourceCapabilities source;
+    source.rumble = hardware.hasRumble;
+    source.motion = hardware.hasMotion;
+    source.touchpad = hardware.hasTouchpad;
+    source.lightbar = hardware.hasLightbar;
+    source.battery = reportsBattery;
+    return source;
+}
+
+// Gyro sample first, then accel; the host asks for whichever it wants via MOTION_EVENT, and
+// sendMotion no-ops until then.
+//
+// The sources hand over the SATELLITE's fixed-point scaling and this wire wants physical units, so
+// the conversion is not optional: forwarding the raw int16 as a float reports a pad at rest
+// correctly and a moving one at tens of thousands of degrees per second.
+void sendMoonlightMotion(source::moon::MoonlightSession& session, std::uint8_t pad, std::int16_t gx,
+                         std::int16_t gy, std::int16_t gz, std::int16_t ax, std::int16_t ay,
+                         std::int16_t az) {
+    session.sendMotion(pad, moonproto::kMotionGyroscope, moonlight::gyroDegS(gx),
+                       moonlight::gyroDegS(gy), moonlight::gyroDegS(gz));
+    session.sendMotion(pad, moonproto::kMotionAcceleration, moonlight::accelMs2(ax),
+                       moonlight::accelMs2(ay), moonlight::accelMs2(az));
+}
+
+moonlight::TouchFinger touchFinger(bool active, std::uint8_t id, std::int16_t x, std::int16_t y) {
+    moonlight::TouchFinger f;
+    f.active = active;
+    f.id = id;
+    f.x = moonlight::touchNorm(x);
+    f.y = moonlight::touchNorm(y);
+    return f;
+}
+
+// The pad click has no packet of its own here: it rides the pad frame as BTN_TOUCHPAD, which the
+// report sender already carries, so only the finger positions come this way. The differ is the
+// pad's last frame, because the host wants transitions and the pad reports full state.
+void sendMoonlightTouch(source::moon::MoonlightSession& session, std::uint8_t pad,
+                        moonlight::MoonlightTouchDiffer& differ, const moonlight::TouchFinger& a,
+                        const moonlight::TouchFinger& b) {
+    for (const auto& event : differ.diff(a, b)) { session.sendTouch(pad, event); }
+}
+
 } // namespace
 
 AppModel::AppModel(QObject* parent)
@@ -562,115 +613,79 @@ QString AppModel::boundSlotForConnection(const QString& connectionId) const {
     return {};
 }
 
+// The four hot-path senders for one bound pad, each a one-expression forward so the work it does
+// has a name. Raw pointers: the session is parented to the manager, which outlives the SDL thread
+// (stopped in ~AppModel before these tables clear). The controller number is resolved once here so
+// the hot path carries it.
+AppModel::MoonlightRoutes AppModel::moonlightRoutesFor(source::moon::MoonlightSession* session,
+                                                       std::uint8_t pad) {
+    MoonlightRoutes routes;
+    routes.report = [session, pad](std::uint16_t buttons, std::uint8_t lt, std::uint8_t rt,
+                                   std::int16_t lx, std::int16_t ly, std::int16_t rx,
+                                   std::int16_t ry) {
+        session->sendControllerState(pad, buttons, lt, rt, lx, ly, rx, ry);
+    };
+    routes.motion = [session, pad](std::int16_t gx, std::int16_t gy, std::int16_t gz,
+                                   std::int16_t ax, std::int16_t ay, std::int16_t az,
+                                   std::uint32_t) {
+        sendMoonlightMotion(*session, pad, gx, gy, gz, ax, ay, az);
+    };
+    routes.battery = [session, pad](std::uint8_t level, std::uint8_t status) {
+        session->sendBattery(pad, moonlight::batteryStateFromSatelliteStatus(status),
+                             moonlight::batteryPercentage(level));
+    };
+    // Per bound pad, because the differ IS the pad's last frame.
+    auto differ = std::make_shared<moonlight::MoonlightTouchDiffer>();
+    routes.touch = [session, pad, differ](bool f0Active, std::uint8_t f0Id, std::int16_t f0X,
+                                          std::int16_t f0Y, bool f1Active, std::uint8_t f1Id,
+                                          std::int16_t f1X, std::int16_t f1Y,
+                                          bool /*buttonPressed*/, std::uint32_t /*eventTimeMs*/) {
+        sendMoonlightTouch(*session, pad, *differ, touchFinger(f0Active, f0Id, f0X, f0Y),
+                           touchFinger(f1Active, f1Id, f1X, f1Y));
+    };
+    return routes;
+}
+
+// A slot routes to exactly one transport: the satellite routes always come off, so the report
+// sender's fall-through reaches the Moonlight table. Empty routes clear the Moonlight table too.
+void AppModel::installMoonlightRoutes(const QString& slotId, MoonlightRoutes routes) {
+    std::lock_guard<std::mutex> lock(routingMtx_);
+    routing_.remove(slotId);
+    motionRouting_.remove(slotId);
+    batteryRouting_.remove(slotId);
+    touchpadRouting_.remove(slotId);
+    if (!routes.report) {
+        moonlightRouting_.remove(slotId);
+        moonlightMotionRouting_.remove(slotId);
+        moonlightBatteryRouting_.remove(slotId);
+        moonlightTouchRouting_.remove(slotId);
+        return;
+    }
+    // operator[], not insert: QHash::insert takes the value by const reference, so a std::move
+    // into it would silently copy the std::function (and its captured state) instead of moving.
+    moonlightRouting_[slotId] = std::move(routes.report);
+    moonlightMotionRouting_[slotId] = std::move(routes.motion);
+    moonlightBatteryRouting_[slotId] = std::move(routes.battery);
+    moonlightTouchRouting_[slotId] = std::move(routes.touch);
+}
+
 void AppModel::bindMoonlightSlot(const QString& slotId, const QString& hostUuid) {
     if (hostUuid.isEmpty()) {
         unbindMoonlightSlot(slotId);
         return;
     }
-    // What the pad itself can deliver. The declared CONTROLLER_ARRIVAL bitfield
-    // is this intersected with the emulated type's ceiling, because declaring a
-    // capability the source cannot provide makes the host ask for reports that
-    // never arrive.
-    const SlotHardware hardware = slotHardware(slotId);
-    moonlight::SourceCapabilities source;
-    source.rumble = hardware.hasRumble;
-    source.motion = hardware.hasMotion;
-    source.touchpad = hardware.hasTouchpad;
-    source.lightbar = hardware.hasLightbar;
-    // A pad reporting any level at all has a battery to report. Left false
-    // before, which meant CAP_BATTERY was never declared and the host had no
-    // reason to read the level the pad was already publishing.
-    source.battery = slotBatteryLevel(slotId) != net::SatelliteClient::kBatteryLevelUnknown;
-    // The type is a property of the BINDING, so it comes from the per-slot
-    // override the binding flow writes; Auto resolves against the pad above.
+    const auto source =
+        sourceCapabilitiesOf(slotHardware(slotId), slotBatteryLevel(slotId) !=
+                                                       net::SatelliteClient::kBatteryLevelUnknown);
+    // The type is a property of the BINDING, so it comes from the per-slot override the binding
+    // flow writes; Auto resolves against the pad above.
     const int storedType = typeStore_.typeFor(hostUuid.toStdString(), slotId.toStdString())
                                .value_or(repository::kMoonlightControllerTypeAuto);
 
     const auto number = moonlight_->bindController(slotId, hostUuid, storedType, source);
-
-    net::ConnectionHub::ReportSender reportSender;
-    net::ConnectionHub::MotionSender motionSender;
-    net::ConnectionHub::BatterySender batterySender;
-    net::ConnectionHub::TouchpadSender touchSender;
-    if (number) {
-        // Raw pointers: the session is parented to the manager, which outlives
-        // the SDL thread (stopped in ~AppModel before these tables clear). The
-        // controller number is resolved once here so the hot path carries it.
-        auto* session = moonlight_->session(hostUuid);
-        const std::uint8_t pad = *number;
-        if (session != nullptr) {
-            reportSender = [session, pad](std::uint16_t buttons, std::uint8_t lt, std::uint8_t rt,
-                                          std::int16_t lx, std::int16_t ly, std::int16_t rx,
-                                          std::int16_t ry) {
-                session->sendControllerState(pad, buttons, lt, rt, lx, ly, rx, ry);
-            };
-            motionSender = [session, pad](std::int16_t gx, std::int16_t gy, std::int16_t gz,
-                                          std::int16_t ax, std::int16_t ay, std::int16_t az,
-                                          std::uint32_t) {
-                // Gyro sample first, then accel; the host asks for whichever it
-                // wants via MOTION_EVENT, and sendMotion no-ops until then.
-                //
-                // The sources hand over the SATELLITE's fixed-point scaling and
-                // this wire wants physical units, so the conversion is not
-                // optional: forwarding the raw int16 as a float reports a pad at
-                // rest correctly and a moving one at tens of thousands of
-                // degrees per second.
-                session->sendMotion(pad, moonproto::kMotionGyroscope, moonlight::gyroDegS(gx),
-                                    moonlight::gyroDegS(gy), moonlight::gyroDegS(gz));
-                session->sendMotion(pad, moonproto::kMotionAcceleration, moonlight::accelMs2(ax),
-                                    moonlight::accelMs2(ay), moonlight::accelMs2(az));
-            };
-            batterySender = [session, pad](std::uint8_t level, std::uint8_t status) {
-                session->sendBattery(pad, moonlight::batteryStateFromSatelliteStatus(status),
-                                     moonlight::batteryPercentage(level));
-            };
-            // Per bound pad, because the differ IS the pad's last frame: the
-            // host wants transitions and the pad reports full state.
-            auto differ = std::make_shared<moonlight::MoonlightTouchDiffer>();
-            touchSender = [session, pad, differ](
-                              bool f0Active, std::uint8_t f0Id, std::int16_t f0X, std::int16_t f0Y,
-                              bool f1Active, std::uint8_t f1Id, std::int16_t f1X, std::int16_t f1Y,
-                              bool /*buttonPressed*/, std::uint32_t /*eventTimeMs*/) {
-                // The pad click has no packet of its own here: it rides the pad
-                // frame as BTN_TOUCHPAD, which the report sender already
-                // carries, so only the finger positions come this way.
-                moonlight::TouchFinger a;
-                a.active = f0Active;
-                a.id = f0Id;
-                a.x = moonlight::touchNorm(f0X);
-                a.y = moonlight::touchNorm(f0Y);
-                moonlight::TouchFinger b;
-                b.active = f1Active;
-                b.id = f1Id;
-                b.x = moonlight::touchNorm(f1X);
-                b.y = moonlight::touchNorm(f1Y);
-                for (const auto& event : differ->diff(a, b)) { session->sendTouch(pad, event); }
-            };
-        }
-    }
-    {
-        std::lock_guard<std::mutex> lock(routingMtx_);
-        // A slot routes to exactly one transport: clear any satellite route so
-        // the report sender's fall-through reaches the Moonlight table.
-        routing_.remove(slotId);
-        motionRouting_.remove(slotId);
-        batteryRouting_.remove(slotId);
-        touchpadRouting_.remove(slotId);
-        if (reportSender) {
-            // operator[], not insert: QHash::insert takes the value by const
-            // reference, so a std::move into it would silently copy the
-            // std::function (and its captured state) instead of moving.
-            moonlightRouting_[slotId] = std::move(reportSender);
-            moonlightMotionRouting_[slotId] = std::move(motionSender);
-            moonlightBatteryRouting_[slotId] = std::move(batterySender);
-            moonlightTouchRouting_[slotId] = std::move(touchSender);
-        } else {
-            moonlightRouting_.remove(slotId);
-            moonlightMotionRouting_.remove(slotId);
-            moonlightBatteryRouting_.remove(slotId);
-            moonlightTouchRouting_.remove(slotId);
-        }
-    }
+    auto* session = number ? moonlight_->session(hostUuid) : nullptr;
+    installMoonlightRoutes(slotId, session != nullptr ? moonlightRoutesFor(session, *number)
+                                                      : MoonlightRoutes{});
     // rebuild() re-derives the slot list against the new binding and emits.
     rebuild();
 }

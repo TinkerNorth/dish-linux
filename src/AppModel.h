@@ -325,6 +325,18 @@ class AppModel : public QObject {
     void pairingFailed(const QString& connectionId, const QString& reasonToken);
 
   private:
+    // One Moonlight-bound pad's four hot-path senders, empty when it has no session to send
+    // through, and where they go. bindMoonlightSlot is these two plus the bind itself.
+    struct MoonlightRoutes {
+        net::ConnectionHub::ReportSender report;
+        net::ConnectionHub::MotionSender motion;
+        net::ConnectionHub::BatterySender battery;
+        net::ConnectionHub::TouchpadSender touch;
+    };
+    static MoonlightRoutes moonlightRoutesFor(source::moon::MoonlightSession* session,
+                                              std::uint8_t pad);
+    void installMoonlightRoutes(const QString& slotId, MoonlightRoutes routes);
+
     void rebuild();
 
     // rebuild's passes, in the order it runs them. The three append* build the slot list, the
