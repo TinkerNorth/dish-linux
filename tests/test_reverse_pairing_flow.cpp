@@ -88,7 +88,11 @@ TEST_CASE("reverse pairing: the displayed PIN rides as the client PIN, with no o
         satelliteAnswering(QJsonObject{{QStringLiteral("status"), QStringLiteral("pending")}});
 
     rig.wifi->requestReversePairing(rig.server);
-    REQUIRE(spinFor([&] { return rig.listener.seen(QStringLiteral("/api/pair")) >= 1; }));
+    // Until the reply has LANDED, not merely until the request arrived: the worker that sent it is
+    // still inside the TLS stack in between, and a case that ends there leaves process exit racing
+    // it, which hangs intermittently under load.
+    REQUIRE(spinFor([&] { return !rig.wifi->isPairingInFlight(rig.server.id()); }));
+    REQUIRE(rig.listener.seen(QStringLiteral("/api/pair")) == 1);
 
     const auto& post = rig.listener.requests().front();
     CHECK(post.method == "POST");

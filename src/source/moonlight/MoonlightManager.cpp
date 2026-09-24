@@ -27,6 +27,17 @@ QString synthUuidForAddress(const QString& address) {
 // list we could read. The host still picks its default if it disagrees.
 constexpr const char* kDefaultAppId = "1";
 
+QList<MoonlightApp> appsFromXml(const std::string& xml) {
+    QList<MoonlightApp> apps;
+    for (const auto& entry : moonxml::parseAppList(xml)) {
+        MoonlightApp app;
+        app.id = QString::fromStdString(entry.id);
+        app.title = QString::fromStdString(entry.title);
+        apps.append(app);
+    }
+    return apps;
+}
+
 } // namespace
 
 MoonlightManager::MoonlightManager(const std::shared_ptr<QSettings>& settings, QObject* parent)
@@ -431,13 +442,60 @@ void MoonlightManager::probe(const QString& uuid) {
                     });
 }
 
+// A 401 is the host saying it does not know this client any more, which is trust lost and not a
+// transport fault.
+void MoonlightManager::onAppListRefused(const QString& uuid, const QString& address, int status,
+                                        const std::optional<moonxml::Status>& refusal) {
+    appCache_[uuid].failed = true;
+    if (status == 401 || (refusal && refusal->code == 401)) { probes_[uuid].trustRejected = true; }
+    qCWarning(lcMoon) << "applist on" << address << "HTTP" << status;
+    emit appsChanged(uuid);
+    emit rowsChanged();
+}
+
+// A reply we could read is proof of trust: the mutual-TLS handshake behind it is exactly what
+// pairing establishes.
+void MoonlightManager::onAppListRead(const QString& uuid, const QString& address,
+                                     const std::string& xml) {
+    HostProbe& probe = probes_[uuid];
+    probe.answered = true;
+    probe.paired = true;
+    probe.trustRejected = false;
+
+    AppCache& result = appCache_[uuid];
+    result.apps = appsFromXml(xml);
+    result.read = true;
+    result.failed = false;
+    qCInfo(lcMoon) << "applist on" << address << "returned" << result.apps.size() << "apps";
+    emit appsChanged(uuid);
+    emit rowsChanged();
+}
+
+void MoonlightManager::onAppListReply(const QString& uuid, quint64 epoch, const QString& address,
+                                      int status, const QByteArray& body) {
+    if (epochOf(uuid) != epoch) {
+        // As in probe(): both appCache_ and probes_ are written through operator[], so a reply that
+        // outlived a Forget would re-create what the Forget dropped.
+        qCInfo(lcMoon) << "applist reply for" << address << "outlived a forget";
+        return;
+    }
+    appCache_[uuid].inFlight = false;
+    const std::string xml = body.toStdString();
+    const auto refusal = moonxml::parseStatus(xml);
+    if (status != 200 || (refusal && !refusal->ok())) {
+        onAppListRefused(uuid, address, status, refusal);
+        return;
+    }
+    onAppListRead(uuid, address, xml);
+}
+
 void MoonlightManager::refreshApps(const QString& uuid) {
     ensureIdentityLoaded();
     const auto host = hostRepo_.get(uuid);
     AppCache& cache = appCache_[uuid];
     if (!host || !host->paired()) {
-        // The app list is HTTPS and paired-only; saying "no apps" here would
-        // present a 404 as a fact about the host.
+        // The app list is HTTPS and paired-only; saying "no apps" here would present a 404 as a
+        // fact about the host.
         cache.inFlight = false;
         cache.read = false;
         cache.failed = true;
@@ -457,50 +515,7 @@ void MoonlightManager::refreshApps(const QString& uuid) {
     http_->getTls(host->address, host->httpsPort, QStringLiteral("/applist"), QUrlQuery(),
                   host->serverCertPem,
                   [this, uuid, epoch, address = host->address](int status, const QByteArray& body) {
-                      if (epochOf(uuid) != epoch) {
-                          // As in probe(): both appCache_ and probes_ below are
-                          // written through operator[], so a reply that outlived
-                          // a Forget would re-create what the Forget dropped.
-                          qCInfo(lcMoon) << "applist reply for" << address << "outlived a forget";
-                          return;
-                      }
-                      AppCache& result = appCache_[uuid];
-                      result.inFlight = false;
-                      const std::string xml = body.toStdString();
-                      const auto refusal = moonxml::parseStatus(xml);
-                      if (status != 200 || (refusal && !refusal->ok())) {
-                          result.failed = true;
-                          // A 401 is the host saying it does not know this
-                          // client any more, which is trust lost and not a
-                          // transport fault.
-                          if (status == 401 || (refusal && refusal->code == 401)) {
-                              probes_[uuid].trustRejected = true;
-                          }
-                          qCWarning(lcMoon) << "applist on" << address << "HTTP" << status;
-                          emit appsChanged(uuid);
-                          emit rowsChanged();
-                          return;
-                      }
-                      // A reply we could read is proof of trust: the mutual-TLS
-                      // handshake behind it is exactly what pairing establishes.
-                      HostProbe& probe = probes_[uuid];
-                      probe.answered = true;
-                      probe.paired = true;
-                      probe.trustRejected = false;
-
-                      result.apps.clear();
-                      for (const auto& entry : moonxml::parseAppList(xml)) {
-                          MoonlightApp app;
-                          app.id = QString::fromStdString(entry.id);
-                          app.title = QString::fromStdString(entry.title);
-                          result.apps.append(app);
-                      }
-                      result.read = true;
-                      result.failed = false;
-                      qCInfo(lcMoon)
-                          << "applist on" << address << "returned" << result.apps.size() << "apps";
-                      emit appsChanged(uuid);
-                      emit rowsChanged();
+                      onAppListReply(uuid, epoch, address, status, body);
                   });
 }
 
