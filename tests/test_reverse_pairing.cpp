@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 // Copyright (C) 2026 Dish contributors.
 //
-// Socket-free and clock-free by construction: the live WifiConnectionManager
-// poll methods open real Winsock work the test process would have to join, so
-// the loop's branching lives in reducer::nextReversePairingAction instead.
+// Socket-free and clock-free by construction: the loop's branching lives in
+// reducer::nextReversePairingAction, so every edge of it is pinned here without a
+// timer. The flow the manager builds on top of it, over a real TLS listener, is
+// test_reverse_pairing_flow.cpp.
 
 #include "core/reducer/ReversePairing.h"
 #include "core/reducer/RestOutcome.h"

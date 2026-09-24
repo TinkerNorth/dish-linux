@@ -155,11 +155,13 @@ TEST_CASE("the sweep is over when its window is", "[moonlight][discovery]") {
     // And a window that was asked for is waited out rather than cut short:
     // hosts answer at their own pace and a sweep that returned early would
     // report an empty network it never listened to.
-    // Nothing is asserted about what it finds: whether a GameStream host
-    // answers depends on the network the suite happens to be running on.
+    // Whether a GameStream host answers depends on the network the suite happens
+    // to be running on, so only what holds for any answer is asserted: every
+    // entry reported is one a user could actually dial.
     clock.restart();
-    static_cast<void>(MoonlightDiscovery::discover(700));
+    const auto found = MoonlightDiscovery::discover(700);
     const qint64 waited = clock.elapsed();
+    for (const auto& host : found) { CHECK(host.isValid()); }
     CHECK(waited >= 600);
     // BOUNDED, and by the number it was given. The screen keeps a spinner up
     // for exactly as long as this call runs.

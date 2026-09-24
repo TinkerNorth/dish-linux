@@ -29,6 +29,19 @@ constexpr std::int64_t kConnectTimeoutMs = 5000;
 constexpr std::uint8_t kChannel = 0;
 constexpr std::size_t kChannelCount = 1;
 
+// One received packet: opened with the session's cipher and decoded into a host event. A packet
+// that will not open, or opens into an event this version does not model, is dropped: the host is
+// entitled to send events a client need not understand.
+void decodeReceived(mooncrypto::ControlCipher& cipher, const std::uint8_t* data, std::size_t len,
+                    std::vector<moonwire::HostEvent>& events) {
+    std::uint8_t plaintext[256];
+    const auto opened = cipher.open(data, len, plaintext, sizeof(plaintext));
+    if (!opened) { return; }
+    if (const auto decoded = moonwire::decodeHostEvent(plaintext, *opened)) {
+        events.push_back(*decoded);
+    }
+}
+
 } // namespace
 
 // Guarded by linkMtx_ like the rest of the link state; see the header for why
@@ -109,87 +122,85 @@ void MoonlightControlStream::notifyLink(bool connected) {
     if (linkHandler_) { linkHandler_(connected); }
 }
 
+// One bounded pass over ENet, under the link lock: what arrived, and whether the link came up or
+// went down. Bounded so the lock every hot-path send takes is never held for long; the loop resumes
+// in 2 ms anyway.
+MoonlightControlStream::ServicePass MoonlightControlStream::serviceUnderLock() {
+    ServicePass pass;
+    std::lock_guard<std::mutex> lock(linkMtx_);
+    if (link_->host == nullptr) {
+        pass.hostGone = true;
+        return pass;
+    }
+
+    ENetEvent event;
+    int guard = 32;
+    while (guard-- > 0 && enet_host_service(link_->host, &event, 0) > 0) {
+        switch (event.type) {
+        case ENET_EVENT_TYPE_CONNECT:
+            connected_.store(true, std::memory_order_relaxed);
+            pass.linkUp = true;
+            break;
+        case ENET_EVENT_TYPE_DISCONNECT:
+            connected_.store(false, std::memory_order_relaxed);
+            pass.linkDown = true;
+            break;
+        case ENET_EVENT_TYPE_RECEIVE:
+            decodeReceived(cipher_, event.packet->data, event.packet->dataLength, pass.events);
+            enet_packet_destroy(event.packet);
+            break;
+        case ENET_EVENT_TYPE_NONE:
+        default:
+            break;
+        }
+    }
+
+    const bool connectTimedOut = !connected_.load(std::memory_order_relaxed) && !pass.linkUp &&
+                                 !pass.linkDown && steadyNowMs() > connectDeadlineMs_;
+    if (connectTimedOut) { pass.linkDown = true; }
+    return pass;
+}
+
+// Keep-alive, off the lock-held section: the lock is taken only to read and advance the clock.
+void MoonlightControlStream::pingIfDue() {
+    if (!connected_.load(std::memory_order_relaxed)) { return; }
+    bool pingDue = false;
+    {
+        std::lock_guard<std::mutex> lock(linkMtx_);
+        const std::int64_t now = steadyNowMs();
+        if (now - lastPingMs_ >= kPingIntervalMs) {
+            lastPingMs_ = now;
+            pingDue = true;
+        }
+    }
+    if (!pingDue) { return; }
+    std::uint8_t plaintext[moonwire::kMaxPlaintextSize];
+    const std::size_t len = moonwire::encodePeriodicPing(plaintext);
+    sealAndSend(plaintext, len);
+}
+
 void MoonlightControlStream::serviceLoop() {
     bool announcedConnect = false;
     while (running_.load(std::memory_order_relaxed)) {
-        // Decoded events are dispatched after the lock is released, so a
-        // handler may call back into a sender without deadlocking.
-        std::vector<moonwire::HostEvent> events;
-        bool linkUp = false;
-        bool linkDown = false;
+        const ServicePass pass = serviceUnderLock();
+        if (pass.hostGone) { break; }
 
-        {
-            std::lock_guard<std::mutex> lock(linkMtx_);
-            if (link_->host == nullptr) { break; }
-
-            ENetEvent event;
-            int guard = 32; // bound one pass; the loop resumes in 2 ms anyway
-            while (guard-- > 0 && enet_host_service(link_->host, &event, 0) > 0) {
-                switch (event.type) {
-                case ENET_EVENT_TYPE_CONNECT:
-                    connected_.store(true, std::memory_order_relaxed);
-                    linkUp = true;
-                    break;
-                case ENET_EVENT_TYPE_DISCONNECT:
-                    connected_.store(false, std::memory_order_relaxed);
-                    linkDown = true;
-                    break;
-                case ENET_EVENT_TYPE_RECEIVE: {
-                    std::uint8_t plaintext[256];
-                    const auto len = cipher_.open(event.packet->data, event.packet->dataLength,
-                                                  plaintext, sizeof(plaintext));
-                    if (len) {
-                        if (const auto decoded = moonwire::decodeHostEvent(plaintext, *len)) {
-                            events.push_back(*decoded);
-                        }
-                    }
-                    enet_packet_destroy(event.packet);
-                    break;
-                }
-                case ENET_EVENT_TYPE_NONE:
-                default:
-                    break;
-                }
-            }
-
-            const std::int64_t now = steadyNowMs();
-            if (!connected_.load(std::memory_order_relaxed) && !linkUp && !linkDown &&
-                now > connectDeadlineMs_) {
-                linkDown = true; // connect timed out
-            }
-        }
-
-        if (linkUp && !announcedConnect) {
+        // Everything below runs with the lock released, so a handler may call back into a sender
+        // without deadlocking.
+        if (pass.linkUp && !announcedConnect) {
             announcedConnect = true;
             notifyLink(true);
         }
-        for (const auto& ev : events) {
+        for (const auto& ev : pass.events) {
             if (eventHandler_) { eventHandler_(ev); }
         }
-        if (linkDown) {
+        if (pass.linkDown) {
             if (!stopRequested_.load(std::memory_order_relaxed)) { notifyLink(false); }
             running_.store(false, std::memory_order_relaxed);
             break;
         }
 
-        // Keep-alive, off the lock-held section above.
-        if (connected_.load(std::memory_order_relaxed)) {
-            bool pingDue = false;
-            {
-                std::lock_guard<std::mutex> lock(linkMtx_);
-                const std::int64_t now = steadyNowMs();
-                if (now - lastPingMs_ >= kPingIntervalMs) {
-                    lastPingMs_ = now;
-                    pingDue = true;
-                }
-            }
-            if (pingDue) {
-                std::uint8_t plaintext[moonwire::kMaxPlaintextSize];
-                const std::size_t len = moonwire::encodePeriodicPing(plaintext);
-                sealAndSend(plaintext, len);
-            }
-        }
-
+        pingIfDue();
         std::this_thread::sleep_for(std::chrono::milliseconds(2));
     }
 }

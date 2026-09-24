@@ -72,62 +72,9 @@ int SlotListModel::rowCount(const QModelIndex& parent) const {
     return static_cast<int>(slots_.size());
 }
 
-QVariant SlotListModel::data(const QModelIndex& index, int role) const {
-    if (!index.isValid() || index.row() < 0 || index.row() >= slots_.size()) { return {}; }
-    const auto& s = slots_.at(index.row());
-
+// Null for a role this group does not answer, which is how data() walks its groups in turn.
+std::optional<QVariant> SlotListModel::rateChipFor(const models::ControllerSlot& s, int role) {
     switch (role) {
-    case IdRole:
-        return s.id;
-    case NameRole:
-        return s.name;
-    case BoundRole:
-        return s.boundConnectionId.has_value();
-    case BoundConnectionIdRole:
-        return s.boundConnectionId.value_or(QString());
-    case BoundLabelRole:
-        return s.boundStatus.has_value() ? s.boundStatus->label : QString();
-    case LiveRole:
-        return s.boundStatus.has_value() && s.boundStatus->live == models::LinkState::Connected;
-    case DotColorRole:
-        return dotColorToken(s);
-    case UsbDirectRole:
-        return s.usbDirect;
-    case BluetoothRole:
-        return s.bluetooth;
-    case RemappableRole:
-        return s.remappable;
-    case EmulateNameRole:
-        return s.emulateName;
-    case RegisteringRole:
-        return s.registering;
-
-    case HasMotionRole:
-        return s.capabilities.hasMotion;
-    case HasLightbarRole:
-        return s.capabilities.hasLightbar;
-    case HasTouchpadRole:
-        return s.capabilities.hasTouchpad;
-    case HasRumbleRole:
-        return s.capabilities.hasRumble;
-    case VerifiedModelRole:
-        return s.verifiedModel;
-    case MicArmedRole:
-        return s.micArmed;
-    case MicMutedRole:
-        return s.micMuted;
-    case BatteryLevelRole:
-        return static_cast<int>(s.capabilities.batteryLevel);
-    case BatteryStatusRole:
-        return static_cast<int>(s.capabilities.batteryStatus);
-    case BatteryKnownRole:
-        return s.capabilities.batteryLevel != kBatteryLevelUnknown;
-    case BatteryLowRole: {
-        const auto ui = reducer::batteryUiFromWire(static_cast<int>(s.capabilities.batteryLevel),
-                                                   static_cast<int>(s.capabilities.batteryStatus));
-        return ui.has_value() && reducer::isLowBattery(*ui);
-    }
-
     // Which rate chips render is the pure SlotLiveStats mapper's decision, not
     // the delegate's.
     case GamepadHzRole: {
@@ -160,40 +107,108 @@ QVariant SlotListModel::data(const QModelIndex& index, int role) const {
         const auto chip = ui::pollRateChip(s.liveRates, s.usbDirect);
         return chip.kind != ui::RateChipKind::Hidden;
     }
+    default:
+        return std::nullopt;
+    }
+}
 
-    case SatIpRole: {
-        const auto* row = rowForSlot(s);
+// The bound satellite's own row, or an empty answer when this slot has none.
+std::optional<QVariant> SlotListModel::satelliteFieldFor(const models::ControllerSlot& s,
+                                                         int role) const {
+    const composer::ConnectionRow* row = rowForSlot(s);
+    switch (role) {
+    case SatIpRole:
         return row != nullptr ? QString::fromStdString(row->ip) : QString();
-    }
-    case SatLinkStateRole: {
-        const auto* row = rowForSlot(s);
+    case SatLinkStateRole:
         return row != nullptr ? tokens::linkStateToken(row->live) : QString();
-    }
-    case SatChipRole: {
-        const auto* row = rowForSlot(s);
+    case SatChipRole:
         return row != nullptr ? tokens::chipToken(row->chip) : QString();
-    }
-    case SatDotColorRole: {
-        const auto* row = rowForSlot(s);
+    case SatDotColorRole:
         return row != nullptr ? tokens::dotToken(row->dotColor) : QString();
-    }
-    case SatGlyphRole: {
-        const auto* row = rowForSlot(s);
+    case SatGlyphRole:
         return row != nullptr ? tokens::glyphToken(row->glyph) : QString();
-    }
-    case SatLatencyTextRole: {
-        // Same formatter and samples gate as ConnectionListModel, so the Home
-        // wire label and the Connections row can never disagree.
-        const auto* row = rowForSlot(s);
+    case SatLatencyTextRole:
+        // Same formatter and samples gate as ConnectionListModel, so the Home wire label and the
+        // Connections row can never disagree.
         return row != nullptr && row->latencySamples > 0
                    ? QString::fromStdString(reducer::formatLatencyMs(row->latencyOneWayMs))
                    : QString();
-    }
-    case SatLatencySamplesRole: {
-        const auto* row = rowForSlot(s);
+    case SatLatencySamplesRole:
         return row != nullptr ? row->latencySamples : 0;
+    default:
+        return std::nullopt;
     }
+}
 
+// Who the slot is and what it is bound to.
+std::optional<QVariant> SlotListModel::identityFieldFor(const models::ControllerSlot& s, int role) {
+    switch (role) {
+    case IdRole:
+        return s.id;
+    case NameRole:
+        return s.name;
+    case BoundRole:
+        return s.boundConnectionId.has_value();
+    case BoundConnectionIdRole:
+        return s.boundConnectionId.value_or(QString());
+    case BoundLabelRole:
+        return s.boundStatus.has_value() ? s.boundStatus->label : QString();
+    case LiveRole:
+        return s.boundStatus.has_value() && s.boundStatus->live == models::LinkState::Connected;
+    case DotColorRole:
+        return dotColorToken(s);
+    case UsbDirectRole:
+        return s.usbDirect;
+    case BluetoothRole:
+        return s.bluetooth;
+    case RemappableRole:
+        return s.remappable;
+    case EmulateNameRole:
+        return s.emulateName;
+    case RegisteringRole:
+        return s.registering;
+    default:
+        return std::nullopt;
+    }
+}
+
+// What the pad can do, as its descriptor and its last battery report say.
+std::optional<QVariant> SlotListModel::capabilityFieldFor(const models::ControllerSlot& s,
+                                                          int role) {
+    switch (role) {
+    case HasMotionRole:
+        return s.capabilities.hasMotion;
+    case HasLightbarRole:
+        return s.capabilities.hasLightbar;
+    case HasTouchpadRole:
+        return s.capabilities.hasTouchpad;
+    case HasRumbleRole:
+        return s.capabilities.hasRumble;
+    case VerifiedModelRole:
+        return s.verifiedModel;
+    case MicArmedRole:
+        return s.micArmed;
+    case MicMutedRole:
+        return s.micMuted;
+    case BatteryLevelRole:
+        return static_cast<int>(s.capabilities.batteryLevel);
+    case BatteryStatusRole:
+        return static_cast<int>(s.capabilities.batteryStatus);
+    case BatteryKnownRole:
+        return s.capabilities.batteryLevel != kBatteryLevelUnknown;
+    case BatteryLowRole: {
+        const auto ui = reducer::batteryUiFromWire(static_cast<int>(s.capabilities.batteryLevel),
+                                                   static_cast<int>(s.capabilities.batteryStatus));
+        return ui.has_value() && reducer::isLowBattery(*ui);
+    }
+    default:
+        return std::nullopt;
+    }
+}
+
+// Which route the pad takes to the host, and how far along a switch is.
+std::optional<QVariant> SlotListModel::pathFieldFor(const models::ControllerSlot& s, int role) {
+    switch (role) {
     case PathPhaseRole:
         return pathPhaseToken(s.pathPhase);
     case DesiredPathRole:
@@ -201,17 +216,31 @@ QVariant SlotListModel::data(const QModelIndex& index, int role) const {
     case PathSupportedRole:
         return s.pathSupported;
     case ClaimInProgressRole:
-        // Wider than the FSM phase: a switch is not done until the device form
-        // and its telemetry settle too (Direct until the synthetic's poll rate
-        // is measured, Standard until the synthetic is gone). That is what lets
-        // the spinner end on a real event rather than an arbitrary timer.
+        // Wider than the FSM phase: a switch is not done until the device form and its telemetry
+        // settle too (Direct until the synthetic's poll rate is measured, Standard until the
+        // synthetic is gone). That is what lets the spinner end on a real event rather than an
+        // arbitrary timer.
         return reducer::slotPathSwitching(s.pathPhase, s.desiredPath, s.usbDirect,
                                           s.liveRates.directPollHz, s.directFailure.has_value());
     case DirectFailureRole:
         return directFailureToken(s.directFailure);
     default:
-        return {};
+        return std::nullopt;
     }
+}
+
+// An INVALID QVariant means no group claimed the role, which is what
+// test_slot_list_roles asserts can never happen for a role roleNames() vends.
+QVariant SlotListModel::data(const QModelIndex& index, int role) const {
+    if (!index.isValid() || index.row() < 0 || index.row() >= slots_.size()) { return {}; }
+    const auto& s = slots_.at(index.row());
+
+    if (const auto v = identityFieldFor(s, role)) { return *v; }
+    if (const auto v = capabilityFieldFor(s, role)) { return *v; }
+    if (const auto v = rateChipFor(s, role)) { return *v; }
+    if (const auto v = pathFieldFor(s, role)) { return *v; }
+    if (const auto v = satelliteFieldFor(s, role)) { return *v; }
+    return {};
 }
 
 QHash<int, QByteArray> SlotListModel::roleNames() const {

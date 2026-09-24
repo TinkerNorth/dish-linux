@@ -455,76 +455,86 @@ AppViewModel::AppViewModel(dish::AppModel* model, QObject* parent)
     onTelemetryTick();
 }
 
-void AppViewModel::onStateChanged() {
-    const auto& st = model_->state();
-
-    const auto& conns = st.connections;
-    int live = 0;
-    QString firstLabel;
+// What the header strip reads off the connection list: how many are live, how many exist, and the
+// name of the first live one, which is the label a single connection is shown by.
+AppViewModel::ConnectionTally
+AppViewModel::tallyConnections(const QList<models::ConnectionSummary>& conns) {
+    ConnectionTally tally;
     for (const auto& c : conns) {
-        if (c.live == models::LinkState::Connected) {
-            ++live;
-            if (firstLabel.isEmpty()) { firstLabel = c.label; }
-        }
+        if (c.live != models::LinkState::Connected) { continue; }
+        ++tally.live;
+        if (tally.firstLabel.isEmpty()) { tally.firstLabel = c.label; }
     }
-    const int total = static_cast<int>(conns.size());
-    onlineCount_ = live;
-    connectionCount_ = total;
+    tally.total = static_cast<int>(conns.size());
+    return tally;
+}
 
-    if (live == 0 && total == 0) {
-        statusText_ = tr("No connections yet");
-    } else if (live == 0) {
-        statusText_ = tr("%n paired", "", total);
-    } else if (live == 1) {
-        statusText_ = firstLabel;
-    } else {
-        statusText_ = tr("%n online", "", live);
+// One live connection is shown by its own name rather than a count, because the count would say
+// less than the label does.
+QString AppViewModel::statusTextFor(const ConnectionTally& tally) const {
+    if (tally.live == 0 && tally.total == 0) { return tr("No connections yet"); }
+    if (tally.live == 0) { return tr("%n paired", "", tally.total); }
+    if (tally.live == 1) { return tally.firstLabel; }
+    return tr("%n online", "", tally.live);
+}
+
+// The plural rides the TOTAL, matching Android's status_connected_of: "1 of 1 online" reads
+// singular, "2 of 5 online" plural.
+QString AppViewModel::summaryTextFor(const ConnectionTally& tally) const {
+    if (tally.live == 0 && tally.total == 0) { return tr("Open Connections to add one"); }
+    if (tally.live == 0) { return tr("%n paired", "", tally.total); }
+    return tr("%1 of %n online", "", tally.total).arg(tally.live);
+}
+
+// The same pure composer::streamingSlotCount the wake controller keys the display on, fed from
+// this slice's bindings against its links.
+int AppViewModel::streamingSlotCountFor(const MainUiState& st) {
+    QHash<QString, QString> bindings;
+    for (const auto& s : st.slotList) {
+        if (s.boundConnectionId.has_value()) { bindings.insert(s.id, *s.boundConnectionId); }
     }
+    QHash<QString, models::LinkState> links;
+    for (const auto& c : st.connections) { links.insert(c.id, c.live); }
+    return composer::streamingSlotCount(bindings, links);
+}
 
-    if (live == 0 && total == 0) {
-        summaryText_ = tr("Open Connections to add one");
-    } else if (live == 0) {
-        summaryText_ = tr("%n paired", "", total);
-    } else {
-        // The plural rides the TOTAL, matching Android's status_connected_of:
-        // "1 of 1 online" reads singular, "2 of 5 online" plural.
-        summaryText_ = tr("%1 of %n online", "", total).arg(live);
-    }
-
-    busy_ = st.busy;
-
+void AppViewModel::publishSlotCounts(const MainUiState& st) {
     slotCount_ = static_cast<int>(st.slotList.size());
     int bound = 0;
     for (const auto& s : st.slotList) {
         if (s.boundConnectionId.has_value()) { ++bound; }
     }
     boundSlotCount_ = bound;
-    firstOnlineName_ = firstLabel;
+    streamingSlotCount_ = streamingSlotCountFor(st);
+}
 
-    // The same pure composer::streamingSlotCount the wake controller keys the
-    // display on, fed from this slice's bindings against its links.
-    {
-        QHash<QString, QString> bindings;
-        for (const auto& s : st.slotList) {
-            if (s.boundConnectionId.has_value()) { bindings.insert(s.id, *s.boundConnectionId); }
-        }
-        QHash<QString, models::LinkState> links;
-        for (const auto& c : conns) { links.insert(c.id, c.live); }
-        streamingSlotCount_ = composer::streamingSlotCount(bindings, links);
-    }
-
+void AppViewModel::publishPairingTarget(const MainUiState& st) {
     pairingActive_ = st.pairingTarget.has_value();
     pairingServerName_ = pairingActive_ ? st.pairingTarget->name : QString();
     pairingServerId_ = pairingActive_ ? st.pairingTarget->id() : QString();
+}
 
+void AppViewModel::onStateChanged() {
+    const auto& st = model_->state();
+
+    const ConnectionTally tally = tallyConnections(st.connections);
+    onlineCount_ = tally.live;
+    connectionCount_ = tally.total;
+    firstOnlineName_ = tally.firstLabel;
+    statusText_ = statusTextFor(tally);
+    summaryText_ = summaryTextFor(tally);
+    busy_ = st.busy;
+
+    publishSlotCounts(st);
+    publishPairingTarget(st);
     slotModel_.setState(st.slotList);
 
     // Best-effort: the sheet reads a rising online count as "a pair just landed".
-    if (live > lastOnlineCount_) { emit pairingSucceeded(); }
-    lastOnlineCount_ = live;
+    if (tally.live > lastOnlineCount_) { emit pairingSucceeded(); }
+    lastOnlineCount_ = tally.live;
 
-    // A device attach or detach also moves the slot list, so the deadzone rows
-    // may have changed with it.
+    // A device attach or detach also moves the slot list, so the deadzone rows may have changed
+    // with it.
     emit deadzonesChanged();
 
     emit stateChanged();

@@ -74,6 +74,8 @@ set(DISH_TEST_SOURCES
     test_motion_capability_composer.cpp
     test_physical_motion_source.cpp
     test_pairing_client_classify.cpp
+    test_pairing_client_wire.cpp
+    test_reverse_pairing_flow.cpp
     test_rest_control_plane.cpp
     test_reverse_pairing.cpp
     test_battery_ui.cpp
@@ -204,6 +206,12 @@ set(DISH_TEST_SOURCES
     test_hidraw_admission.cpp
     test_http_gateways.cpp
     test_ui_preference_store.cpp
+    test_remembered_wifi_eq.cpp
+    test_legacy_catalog.cpp
+    test_list_model_roles.cpp
+    test_usb_hid_items.cpp
+    test_ip_literals_parse.cpp
+    test_moonlight_host_identity.cpp
     test_catalog_feature_gate.cpp
     test_crash_log_path.cpp
     test_unix_signal_watcher.cpp

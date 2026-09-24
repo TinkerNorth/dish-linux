@@ -60,78 +60,100 @@ bool isPrivateIpv4(const std::array<int, 4>& o) {
     return false;
 }
 
-// Handles one "::" compression and an optional embedded IPv4 in the final 32
-// bits. Zone ids are rejected rather than stripped.
-std::optional<std::array<std::uint8_t, 16>> parseIpv6(const std::string& host) {
-    if (host.find('%') != std::string::npos) { return std::nullopt; } // zone id unsupported
-
+// A literal's two halves around its one "::", if it has one. Null for a second run of colons,
+// which no legal literal carries.
+struct Ipv6Halves {
     std::string head;
     std::string tail;
     bool hasCompression = false;
-    {
-        const auto pos = host.find("::");
-        if (pos != std::string::npos) {
-            hasCompression = true;
-            head = host.substr(0, pos);
-            tail = host.substr(pos + 2);
-            if (tail.find("::") != std::string::npos) { return std::nullopt; }
-        } else {
-            head = host;
-        }
+};
+
+static std::optional<Ipv6Halves> splitAroundCompression(const std::string& host) {
+    Ipv6Halves halves;
+    const auto pos = host.find("::");
+    if (pos == std::string::npos) {
+        halves.head = host;
+        return halves;
     }
+    halves.hasCompression = true;
+    halves.head = host.substr(0, pos);
+    halves.tail = host.substr(pos + 2);
+    if (halves.tail.find("::") != std::string::npos) { return std::nullopt; }
+    return halves;
+}
 
-    // A colon-separated list of hextets; the last may be an embedded IPv4.
-    const auto groupsOf = [](const std::string& part,
-                             bool allowEmbeddedV4) -> std::optional<std::vector<std::uint16_t>> {
-        std::vector<std::uint16_t> groups;
-        if (part.empty()) { return groups; }
-        const auto pieces = split(part, ':');
-        for (std::size_t i = 0; i < pieces.size(); ++i) {
-            const std::string& piece = pieces[i];
-            const bool last = (i + 1 == pieces.size());
-            if (last && allowEmbeddedV4 && piece.find('.') != std::string::npos) {
-                const auto v4 = parseIpv4(piece);
-                if (!v4.has_value()) { return std::nullopt; }
-                groups.push_back(static_cast<std::uint16_t>(((*v4)[0] << 8) | (*v4)[1]));
-                groups.push_back(static_cast<std::uint16_t>(((*v4)[2] << 8) | (*v4)[3]));
-                continue;
-            }
-            if (piece.empty() || piece.size() > 4) { return std::nullopt; }
-            int value = 0;
-            for (const char c : piece) {
-                if (!isHexDigit(c)) { return std::nullopt; }
-                const int digit = isDigit(c)   ? (c - '0')
-                                  : (c >= 'a') ? (c - 'a' + 10)
-                                               : (c - 'A' + 10);
-                value = value * 16 + digit;
-            }
-            groups.push_back(static_cast<std::uint16_t>(value));
+// One hextet: up to four hex digits, and at least one.
+static std::optional<std::uint16_t> hextetOf(const std::string& piece) {
+    if (piece.empty() || piece.size() > 4) { return std::nullopt; }
+    int value = 0;
+    for (const char c : piece) {
+        if (!isHexDigit(c)) { return std::nullopt; }
+        const int digit = isDigit(c) ? (c - '0') : (c >= 'a') ? (c - 'a' + 10) : (c - 'A' + 10);
+        value = value * 16 + digit;
+    }
+    return static_cast<std::uint16_t>(value);
+}
+
+// A colon-separated list of hextets; the last may be an embedded IPv4, which occupies the final
+// two groups.
+static std::optional<std::vector<std::uint16_t>> hextetsOf(const std::string& part,
+                                                           const bool allowEmbeddedV4) {
+    std::vector<std::uint16_t> groups;
+    if (part.empty()) { return groups; }
+    const auto pieces = split(part, ':');
+    for (std::size_t i = 0; i < pieces.size(); ++i) {
+        const std::string& piece = pieces[i];
+        const bool isLast = (i + 1 == pieces.size());
+        if (isLast && allowEmbeddedV4 && piece.find('.') != std::string::npos) {
+            const auto v4 = parseIpv4(piece);
+            if (!v4.has_value()) { return std::nullopt; }
+            groups.push_back(static_cast<std::uint16_t>(((*v4)[0] << 8) | (*v4)[1]));
+            groups.push_back(static_cast<std::uint16_t>(((*v4)[2] << 8) | (*v4)[3]));
+            continue;
         }
-        return groups;
-    };
+        const auto hextet = hextetOf(piece);
+        if (!hextet.has_value()) { return std::nullopt; }
+        groups.push_back(*hextet);
+    }
+    return groups;
+}
 
-    const auto headGroups = groupsOf(head, !hasCompression);
-    if (!headGroups.has_value()) { return std::nullopt; }
-    const auto tailGroups = groupsOf(tail, true);
-    if (!tailGroups.has_value()) { return std::nullopt; }
-
+// "::" stands for the run of zero groups that makes the address eight long, and for at least one
+// of them. Without it the literal must already be eight.
+static std::optional<std::vector<std::uint16_t>>
+expandToEight(const std::vector<std::uint16_t>& head, const std::vector<std::uint16_t>& tail,
+              const bool hasCompression) {
+    if (!hasCompression) {
+        if (head.size() != 8) { return std::nullopt; }
+        return head;
+    }
+    const std::size_t present = head.size() + tail.size();
+    if (present >= 8) { return std::nullopt; }
     std::vector<std::uint16_t> full;
-    if (hasCompression) {
-        const std::size_t present = headGroups->size() + tailGroups->size();
-        if (present >= 8) { return std::nullopt; } // "::" must stand for ≥1 group
-        full.insert(full.end(), headGroups->begin(), headGroups->end());
-        full.insert(full.end(), 8 - present, 0);
-        full.insert(full.end(), tailGroups->begin(), tailGroups->end());
-    } else {
-        if (headGroups->size() != 8) { return std::nullopt; }
-        full = *headGroups;
-    }
-    if (full.size() != 8) { return std::nullopt; }
+    full.insert(full.end(), head.begin(), head.end());
+    full.insert(full.end(), 8 - present, 0);
+    full.insert(full.end(), tail.begin(), tail.end());
+    return full;
+}
+
+// Handles one "::" compression and an optional embedded IPv4 in the final 32 bits. Zone ids are
+// rejected rather than stripped.
+std::optional<std::array<std::uint8_t, 16>> parseIpv6(const std::string& host) {
+    if (host.find('%') != std::string::npos) { return std::nullopt; }
+
+    const auto halves = splitAroundCompression(host);
+    if (!halves.has_value()) { return std::nullopt; }
+    const auto head = hextetsOf(halves->head, !halves->hasCompression);
+    if (!head.has_value()) { return std::nullopt; }
+    const auto tail = hextetsOf(halves->tail, true);
+    if (!tail.has_value()) { return std::nullopt; }
+    const auto full = expandToEight(*head, *tail, halves->hasCompression);
+    if (!full.has_value() || full->size() != 8) { return std::nullopt; }
 
     std::array<std::uint8_t, 16> bytes{};
     for (std::size_t i = 0; i < 8; ++i) {
-        bytes[i * 2] = static_cast<std::uint8_t>(full[i] >> 8);
-        bytes[i * 2 + 1] = static_cast<std::uint8_t>(full[i] & 0xFF);
+        bytes[i * 2] = static_cast<std::uint8_t>((*full)[i] >> 8);
+        bytes[i * 2 + 1] = static_cast<std::uint8_t>((*full)[i] & 0xFF);
     }
     return bytes;
 }

@@ -423,147 +423,157 @@ void SatelliteClient::receiveLoop() {
     }
 }
 
-void SatelliteClient::processIncoming(const std::uint8_t* buf, std::size_t n) {
-    if (n < kHeaderSize + kAuthTag) { return; }
-    // One hold for the material and the replay mark; a re-key swaps them together.
+namespace {
+
+// Every feedback message is dispatched the same way: a message that did not parse is dropped, the
+// stored handler is copied under its own lock, and the copy is called with the lock released so a
+// handler cannot hold the receive thread against a setter.
+template <typename Handler, typename Parsed>
+void callHandler(std::mutex& mtx, const Handler& stored, const std::optional<Parsed>& msg) {
+    if (!msg) { return; }
+    Handler handler;
+    {
+        std::lock_guard<std::mutex> lock(mtx);
+        handler = stored;
+    }
+    if (handler) { handler(*msg); }
+}
+
+} // namespace
+
+// What the receive thread needs out of the session material: one hold for the key and the replay
+// mark together, so a re-key swaps them as a pair.
+struct SatelliteClient::IncomingMaterial {
     std::array<std::uint8_t, 4> token{};
     std::uint32_t tokenBe = 0;
     std::array<std::uint8_t, 32> key{};
     std::uint32_t lastRecv = 0;
-    {
-        std::lock_guard<std::mutex> lock(materialMtx_);
-        token = token_;
-        tokenBe = tokenBe_;
-        key = key_;
-        lastRecv = lastRecvCounter_;
-    }
-    if (std::memcmp(buf, token.data(), 4) != 0) { return; }
+};
+
+SatelliteClient::IncomingMaterial SatelliteClient::takeIncomingMaterial() {
+    IncomingMaterial m;
+    std::lock_guard<std::mutex> lock(materialMtx_);
+    m.token = token_;
+    m.tokenBe = tokenBe_;
+    m.key = key_;
+    m.lastRecv = lastRecvCounter_;
+    return m;
+}
+
+// False for a packet this session cannot read: a foreign token, a replay, or a body that does not
+// authenticate. The counter advances only if no re-key raced the decrypt; since this is the only
+// thread that advances it, an unchanged value means the same session.
+bool SatelliteClient::decryptIncoming(const std::uint8_t* buf, std::size_t n,
+                                      std::vector<std::uint8_t>& plain,
+                                      unsigned long long& plainLen) {
+    const IncomingMaterial m = takeIncomingMaterial();
+    if (std::memcmp(buf, m.token.data(), 4) != 0) { return false; }
 
     const std::uint32_t counter = util::readU32Be(buf + 4);
-    if (lastRecv != 0 && counter <= lastRecv) { return; } // replay guard
+    if (m.lastRecv != 0 && counter <= m.lastRecv) { return false; }
 
-    std::vector<std::uint8_t> plain(n - kHeaderSize);
-    unsigned long long plainLen = 0;
-    if (!wire::decryptPacket(key.data(), wire::kDirServerToClient, counter, tokenBe,
+    plain.resize(n - kHeaderSize);
+    if (!wire::decryptPacket(m.key.data(), wire::kDirServerToClient, counter, m.tokenBe,
                              buf + kHeaderSize, n - kHeaderSize, plain.data(), &plainLen)) {
+        return false;
+    }
+    std::lock_guard<std::mutex> lock(materialMtx_);
+    if (lastRecvCounter_ == m.lastRecv) { lastRecvCounter_ = counter; }
+    return true;
+}
+
+// exchange(), so a duplicate ack cannot double-count the same ping. push() drops a sample past the
+// loss cap, so a reclaimed ping's late ack never skews the median.
+void SatelliteClient::recordAckLatency() {
+    const std::int64_t sent = pingSentUs_.exchange(0, std::memory_order_relaxed);
+    if (sent == 0) { return; }
+    const double rttMs = static_cast<double>(nowSteadyUs() - sent) / 1000.0;
+    std::lock_guard<std::mutex> lock(latencyMtx_);
+    latencyWindow_.push(rttMs);
+}
+
+void SatelliteClient::onHeartbeatAck(const std::uint8_t* body, std::size_t bodyLen) {
+    recordAckLatency();
+    missedAcks_.store(0, std::memory_order_relaxed);
+    connectionAlive_.store(true, std::memory_order_relaxed);
+
+    const auto ack = parseHeartbeatAck(body, bodyLen);
+    if (!ack) { return; }
+    backendAvailable_.store(ack->backendAvailable ? 1 : 0, std::memory_order_relaxed);
+    activeControllerCount_.store(static_cast<std::int8_t>(ack->totalActiveControllers),
+                                 std::memory_order_relaxed);
+    serverEpoch_.store(static_cast<std::int32_t>(ack->epoch), std::memory_order_relaxed);
+    serverBitmap_.store(static_cast<std::int32_t>(ack->activeBitmap), std::memory_order_relaxed);
+    callHandler(ackHandlerMtx_, ackHandler_, ack);
+}
+
+// Gone server-side already, so the heartbeat death window is skipped.
+void SatelliteClient::onSessionClose(const std::uint8_t* body, std::size_t bodyLen) {
+    if (bodyLen < 1) { return; }
+    const std::uint8_t reason = body[0];
+    sessionCloseReason_.store(static_cast<std::int32_t>(reason), std::memory_order_relaxed);
+    connectionAlive_.store(false, std::memory_order_relaxed);
+
+    CloseHandler handler;
+    {
+        std::lock_guard<std::mutex> lock(closeHandlerMtx_);
+        handler = closeHandler_;
+    }
+    if (handler) { handler(reason); }
+}
+
+void SatelliteClient::dispatchIncoming(std::uint16_t msgType, const std::uint8_t* body,
+                                       std::size_t bodyLen) {
+    switch (msgType) {
+    case kMsgHeartbeatAck:
+        onHeartbeatAck(body, bodyLen);
+        return;
+    case kMsgRumble:
+        callHandler(rumbleHandlerMtx_, rumbleHandler_, parseRumbleMessage(body, bodyLen));
+        return;
+    case kMsgLightbar:
+        callHandler(lightbarHandlerMtx_, lightbarHandler_, parseLightbarMessage(body, bodyLen));
+        return;
+    case kMsgTriggerEffects:
+        callHandler(triggerEffectsHandlerMtx_, triggerEffectsHandler_,
+                    parseTriggerEffectsMessage(body, bodyLen));
+        return;
+    case kMsgPlayerLeds:
+        callHandler(playerLedsHandlerMtx_, playerLedsHandler_,
+                    parsePlayerLedsMessage(body, bodyLen));
+        return;
+    case kMsgSpeakerAudio:
+        // The message borrows the receive buffer: the handler decodes or copies before returning,
+        // which is the SpeakerAudioMessage contract.
+        callHandler(speakerAudioHandlerMtx_, speakerAudioHandler_,
+                    parseSpeakerAudioMessage(body, bodyLen));
+        return;
+    case kMsgHapticAudio:
+        // Same shape and the same borrowing contract as the speaker frame.
+        callHandler(hapticAudioHandlerMtx_, hapticAudioHandler_,
+                    parseSpeakerAudioMessage(body, bodyLen));
+        return;
+    case kMsgMicLed:
+        callHandler(micLedHandlerMtx_, micLedHandler_, parseMicLedMessage(body, bodyLen));
+        return;
+    case kMsgSessionClose:
+        onSessionClose(body, bodyLen);
+        return;
+    default:
         return;
     }
-    {
-        // Advance only if no re-key raced the decrypt. Since this is the only
-        // thread that advances it, an unchanged value means the same session.
-        std::lock_guard<std::mutex> lock(materialMtx_);
-        if (lastRecvCounter_ == lastRecv) { lastRecvCounter_ = counter; }
-    }
-    if (plainLen < 4) { return; }
-    const std::uint16_t msgType = readU16Be(plain.data());
-    const std::uint8_t* body = plain.data() + 4;
-    const std::size_t bodyLen = static_cast<std::size_t>(plainLen) - 4;
+}
 
-    if (msgType == kMsgHeartbeatAck) {
-        // exchange(), so a duplicate ack cannot double-count the same ping.
-        // push() drops a sample past the loss cap, so a reclaimed ping's late ack
-        // never skews the median.
-        const std::int64_t sent = pingSentUs_.exchange(0, std::memory_order_relaxed);
-        if (sent != 0) {
-            const double rttMs = static_cast<double>(nowSteadyUs() - sent) / 1000.0;
-            std::lock_guard<std::mutex> lock(latencyMtx_);
-            latencyWindow_.push(rttMs);
-        }
-        missedAcks_.store(0, std::memory_order_relaxed);
-        connectionAlive_.store(true, std::memory_order_relaxed);
-        if (const auto ack = parseHeartbeatAck(body, bodyLen)) {
-            backendAvailable_.store(ack->backendAvailable ? 1 : 0, std::memory_order_relaxed);
-            activeControllerCount_.store(static_cast<std::int8_t>(ack->totalActiveControllers),
-                                         std::memory_order_relaxed);
-            serverEpoch_.store(static_cast<std::int32_t>(ack->epoch), std::memory_order_relaxed);
-            serverBitmap_.store(static_cast<std::int32_t>(ack->activeBitmap),
-                                std::memory_order_relaxed);
-            HeartbeatAckHandler handler;
-            {
-                std::lock_guard<std::mutex> lock(ackHandlerMtx_);
-                handler = ackHandler_;
-            }
-            if (handler) { handler(*ack); }
-        }
-    } else if (msgType == kMsgRumble) {
-        const auto rm = parseRumbleMessage(body, bodyLen);
-        if (!rm) { return; }
-        RumbleHandler handler;
-        {
-            std::lock_guard<std::mutex> lock(rumbleHandlerMtx_);
-            handler = rumbleHandler_;
-        }
-        if (handler) { handler(*rm); }
-    } else if (msgType == kMsgLightbar) {
-        const auto lm = parseLightbarMessage(body, bodyLen);
-        if (!lm) { return; }
-        LightbarHandler handler;
-        {
-            std::lock_guard<std::mutex> lock(lightbarHandlerMtx_);
-            handler = lightbarHandler_;
-        }
-        if (handler) { handler(*lm); }
-    } else if (msgType == kMsgTriggerEffects) {
-        const auto tm = parseTriggerEffectsMessage(body, bodyLen);
-        if (!tm) { return; }
-        TriggerEffectsHandler handler;
-        {
-            std::lock_guard<std::mutex> lock(triggerEffectsHandlerMtx_);
-            handler = triggerEffectsHandler_;
-        }
-        if (handler) { handler(*tm); }
-    } else if (msgType == kMsgPlayerLeds) {
-        const auto pm = parsePlayerLedsMessage(body, bodyLen);
-        if (!pm) { return; }
-        PlayerLedsHandler handler;
-        {
-            std::lock_guard<std::mutex> lock(playerLedsHandlerMtx_);
-            handler = playerLedsHandler_;
-        }
-        if (handler) { handler(*pm); }
-    } else if (msgType == kMsgSpeakerAudio) {
-        // The message borrows the receive buffer: the handler decodes or
-        // copies before returning, which is the SpeakerAudioMessage contract.
-        const auto sm = parseSpeakerAudioMessage(body, bodyLen);
-        if (!sm) { return; }
-        SpeakerAudioHandler handler;
-        {
-            std::lock_guard<std::mutex> lock(speakerAudioHandlerMtx_);
-            handler = speakerAudioHandler_;
-        }
-        if (handler) { handler(*sm); }
-    } else if (msgType == kMsgHapticAudio) {
-        // Same shape and the same borrowing contract as the speaker frame.
-        const auto hm = parseSpeakerAudioMessage(body, bodyLen);
-        if (!hm) { return; }
-        HapticAudioHandler handler;
-        {
-            std::lock_guard<std::mutex> lock(hapticAudioHandlerMtx_);
-            handler = hapticAudioHandler_;
-        }
-        if (handler) { handler(*hm); }
-    } else if (msgType == kMsgMicLed) {
-        const auto mm = parseMicLedMessage(body, bodyLen);
-        if (!mm) { return; }
-        MicLedHandler handler;
-        {
-            std::lock_guard<std::mutex> lock(micLedHandlerMtx_);
-            handler = micLedHandler_;
-        }
-        if (handler) { handler(*mm); }
-    } else if (msgType == kMsgSessionClose) {
-        if (bodyLen < 1) { return; }
-        const std::uint8_t reason = body[0];
-        sessionCloseReason_.store(static_cast<std::int32_t>(reason), std::memory_order_relaxed);
-        // Gone server-side already, so skip the heartbeat death window.
-        connectionAlive_.store(false, std::memory_order_relaxed);
-        CloseHandler handler;
-        {
-            std::lock_guard<std::mutex> lock(closeHandlerMtx_);
-            handler = closeHandler_;
-        }
-        if (handler) { handler(reason); }
-    }
+void SatelliteClient::processIncoming(const std::uint8_t* buf, std::size_t n) {
+    if (n < kHeaderSize + kAuthTag) { return; }
+
+    std::vector<std::uint8_t> plain;
+    unsigned long long plainLen = 0;
+    if (!decryptIncoming(buf, n, plain, plainLen)) { return; }
+    if (plainLen < 4) { return; }
+
+    dispatchIncoming(readU16Be(plain.data()), plain.data() + 4,
+                     static_cast<std::size_t>(plainLen) - 4);
 }
 
 void SatelliteClient::setRumbleHandler(RumbleHandler handler) {

@@ -195,18 +195,21 @@ SessionViewDto SessionViewDto::fromJson(const QJsonObject& obj) {
     return r;
 }
 
-CapabilitiesDto CapabilitiesDto::fromJson(const QJsonObject& obj) {
-    CapabilitiesDto c;
-    c.protocolVersion = intOr(obj, "protocolVersion", proto::kProtocolVersionMin);
-    c.serverVersion = optString(obj, "serverVersion");
-    c.maxControllers = intOr(obj, "maxControllers", 16);
+namespace {
+
+// The one backend the host is actually using, named separately from the list below it: a host may
+// know of several and be running only this one.
+void readActiveBackend(const QJsonObject& obj, CapabilitiesDto& c) {
     const auto backend = obj.value(QLatin1String("backend")).toObject();
     c.backendId = optString(backend, "id");
     c.backendSupported = boolOr(backend, "supported", false);
     c.backendAvailable = boolOr(backend, "available", false);
     if (auto ec = optString(backend, "errorCode"); !ec.isEmpty()) { c.backendErrorCode = ec; }
-    const auto motion = obj.value(QLatin1String("motion")).toObject();
-    c.motionAvailable = boolOr(motion, "available", false);
+}
+
+// Every backend the host knows of, in its own order. Entries that are not objects are skipped
+// rather than appended empty, so a malformed one cannot present itself as an unnamed backend.
+void readBackendList(const QJsonObject& obj, CapabilitiesDto& c) {
     for (const auto& v : obj.value(QLatin1String("backends")).toArray()) {
         if (!v.isObject()) { continue; }
         const auto bo = v.toObject();
@@ -217,31 +220,50 @@ CapabilitiesDto CapabilitiesDto::fromJson(const QJsonObject& obj) {
         b.audio = boolOr(bo, "audio", false);
         c.backends.append(b);
     }
-    // Presence, not truthiness: an absent block is UNKNOWN and falls back to
-    // the per-backend audio flag (reducer/HostAudioVerdict.h), while a present
-    // block with false fields is a host that switched audio off.
+}
+
+// PRESENCE, not truthiness: an absent block is UNKNOWN and falls back to the per-backend audio flag
+// (reducer/HostAudioVerdict.h), while a present block with false fields is a host that switched
+// audio off. The two are different answers and `hasControllerAudioBlock` is what tells them apart.
+void readControllerAudio(const QJsonObject& obj, CapabilitiesDto& c) {
     const auto controllerAudio = obj.value(QLatin1String("controllerAudio"));
-    if (controllerAudio.isObject()) {
-        const auto ao = controllerAudio.toObject();
-        c.hasControllerAudioBlock = true;
-        c.controllerAudioEnabled = boolOr(ao, "enabled", false);
-        c.controllerAudioMic = boolOr(ao, "mic", false);
-        c.controllerAudioSpeaker = boolOr(ao, "speaker", false);
-        // Protocol 3; absent on an older host, which reads false: that host
-        // never sends the stream either.
-        c.controllerAudioHapticAudio = boolOr(ao, "hapticAudio", false);
-    }
+    if (!controllerAudio.isObject()) { return; }
+    const auto ao = controllerAudio.toObject();
+    c.hasControllerAudioBlock = true;
+    c.controllerAudioEnabled = boolOr(ao, "enabled", false);
+    c.controllerAudioMic = boolOr(ao, "mic", false);
+    c.controllerAudioSpeaker = boolOr(ao, "speaker", false);
+    // Protocol 3; absent on an older host, which reads false: that host never sends the stream
+    // either.
+    c.controllerAudioHapticAudio = boolOr(ao, "hapticAudio", false);
+}
+
+// Same presence rule as the block above: `hasHostBlock` separates a host that answered "none of
+// these" from one too old to have been asked.
+void readHostBlock(const QJsonObject& obj, CapabilitiesDto& c) {
     const auto host = obj.value(QLatin1String("host"));
-    if (host.isObject()) {
-        const auto ho = host.toObject();
-        c.hasHostBlock = true;
-        c.hostCatalog = hostCapabilityFromJson(ho.value(QLatin1String("catalog")).toObject());
-        c.hostMouseControl =
-            hostCapabilityFromJson(ho.value(QLatin1String("mouseControl")).toObject());
-        c.hostKeyboardControl =
-            hostCapabilityFromJson(ho.value(QLatin1String("keyboardControl")).toObject());
-        c.hostRumble = hostCapabilityFromJson(ho.value(QLatin1String("rumble")).toObject());
-    }
+    if (!host.isObject()) { return; }
+    const auto ho = host.toObject();
+    c.hasHostBlock = true;
+    c.hostCatalog = hostCapabilityFromJson(ho.value(QLatin1String("catalog")).toObject());
+    c.hostMouseControl = hostCapabilityFromJson(ho.value(QLatin1String("mouseControl")).toObject());
+    c.hostKeyboardControl =
+        hostCapabilityFromJson(ho.value(QLatin1String("keyboardControl")).toObject());
+    c.hostRumble = hostCapabilityFromJson(ho.value(QLatin1String("rumble")).toObject());
+}
+
+} // namespace
+
+CapabilitiesDto CapabilitiesDto::fromJson(const QJsonObject& obj) {
+    CapabilitiesDto c;
+    c.protocolVersion = intOr(obj, "protocolVersion", proto::kProtocolVersionMin);
+    c.serverVersion = optString(obj, "serverVersion");
+    c.maxControllers = intOr(obj, "maxControllers", 16);
+    readActiveBackend(obj, c);
+    c.motionAvailable = boolOr(obj.value(QLatin1String("motion")).toObject(), "available", false);
+    readBackendList(obj, c);
+    readControllerAudio(obj, c);
+    readHostBlock(obj, c);
     c.reachable = true;
     return c;
 }

@@ -3,19 +3,15 @@
 
 #include "MdnsDiscovery.h"
 
+#include "MdnsScan.h"
+
 #include <arpa/inet.h>
-#include <netinet/in.h>
-#include <sys/socket.h>
-#include <sys/time.h>
-#include <unistd.h>
 
 #include <QByteArray>
 #include <QHash>
 #include <QSet>
 #include <QString>
 
-#include <algorithm>
-#include <chrono>
 #include <cstdint>
 #include <cstring>
 #include <optional>
@@ -26,10 +22,6 @@ namespace dish::net {
 
 namespace {
 
-// mDNS multicast group + port (RFC 6762).
-constexpr const char* kMulticastGroup = "224.0.0.251";
-constexpr std::uint16_t kMulticastPort = 5353;
-
 constexpr std::uint16_t kTypeA = 1;
 constexpr std::uint16_t kTypePtr = 12;
 constexpr std::uint16_t kTypeTxt = 16;
@@ -39,10 +31,6 @@ constexpr std::uint16_t kTypeSrv = 33;
 // responder then answers straight to our source port, so a one-shot client
 // never has to join the multicast group to receive.
 constexpr std::uint16_t kClassInQu = 0x8001;
-
-// Straggler window after the first answer. The responder replies in well under
-// a millisecond, so burning the full discovery window buys nothing.
-constexpr int kGraceMs = 600;
 
 std::uint16_t read16(const std::uint8_t* p) {
     return static_cast<std::uint16_t>((p[0] << 8) | p[1]);
@@ -123,28 +111,77 @@ bool readName(const std::uint8_t* p, std::size_t len, std::size_t off, std::stri
 
 // The responder packs SRV + A + TXT into a single packet, so a per-packet parse
 // is sufficient — no cross-packet record assembly needed.
-std::optional<models::DiscoveredServer> parseResponse(const std::uint8_t* p, std::size_t len) {
-    if (len < 12) { return std::nullopt; }
-    const std::uint16_t qd = read16(p + 4);
-    const std::uint16_t an = read16(p + 6);
-    std::size_t pos = 12;
-
-    // Skip the question section.
-    for (std::uint16_t i = 0; i < qd; ++i) {
-        const std::size_t consumed = skipName(p, len, pos);
-        if (consumed == 0) { return std::nullopt; }
-        pos += consumed + 4; // + type + class
-        if (pos > len) { return std::nullopt; }
-    }
-
+// What the answer section contributed. srvPort 0 means no SRV was seen; the mapping layer applies
+// its own precedence over that.
+struct MdnsAnswers {
     std::string ip;
     std::string instance;
-    int srvPort = 0; // 0 = no SRV seen; the mapping layer applies precedence
+    int srvPort = 0;
     QHash<QString, QByteArray> txt;
     bool haveSrv = false;
     bool haveTxt = false;
+};
 
-    for (std::uint16_t i = 0; i < an; ++i) {
+// False when the section is malformed, which makes the whole response unusable rather than
+// partially read.
+bool skipQuestions(const std::uint8_t* p, std::size_t len, std::uint16_t count, std::size_t& pos) {
+    for (std::uint16_t i = 0; i < count; ++i) {
+        const std::size_t consumed = skipName(p, len, pos);
+        if (consumed == 0) { return false; }
+        pos += consumed + 4; // + type + class
+        if (pos > len) { return false; }
+    }
+    return true;
+}
+
+void readTxtRecord(const std::uint8_t* p, std::size_t rdata, std::uint16_t rdlen,
+                   MdnsAnswers& out) {
+    std::size_t t = rdata;
+    const std::size_t end = rdata + rdlen;
+    while (t < end) {
+        const std::uint8_t slen = p[t];
+        if (t + 1 + slen > end) { break; }
+        const std::string entry(reinterpret_cast<const char*>(p + t + 1), slen);
+        const auto eq = entry.find('=');
+        if (eq != std::string::npos) {
+            out.txt.insert(QString::fromStdString(entry.substr(0, eq)),
+                           QByteArray::fromStdString(entry.substr(eq + 1)));
+        }
+        t += 1 + slen;
+        out.haveTxt = true;
+    }
+}
+
+void readARecord(const std::uint8_t* p, std::size_t rdata, MdnsAnswers& out) {
+    char buf[INET_ADDRSTRLEN] = {};
+    in_addr a{};
+    std::memcpy(&a, p + rdata, 4);
+    if (::inet_ntop(AF_INET, &a, buf, sizeof(buf)) != nullptr) { out.ip = buf; }
+}
+
+// One record of whichever kind. Records this discovery does not use are stepped over.
+void readAnswerRecord(const std::uint8_t* p, std::size_t len, std::uint16_t type, std::size_t rdata,
+                      std::uint16_t rdlen, MdnsAnswers& out) {
+    if (type == kTypeA && rdlen == 4) {
+        readARecord(p, rdata, out);
+    } else if (type == kTypeSrv && rdlen >= 7) {
+        out.srvPort = read16(p + rdata + 4); // priority(2) weight(2) port(2)
+        out.haveSrv = true;
+    } else if (type == kTypeTxt) {
+        readTxtRecord(p, rdata, rdlen, out);
+    } else if (type == kTypePtr && out.instance.empty()) {
+        std::string n;
+        // The instance label is the first component of the PTR target.
+        if (readName(p, len, rdata, n)) { out.instance = n.substr(0, n.find('.')); }
+    }
+}
+
+// Null when any record is malformed: a truncated answer section means the rest of the datagram
+// cannot be trusted to start where the length says.
+std::optional<MdnsAnswers> readAnswers(const std::uint8_t* p, std::size_t len, std::uint16_t count,
+                                       std::size_t pos) {
+    MdnsAnswers out;
+    for (std::uint16_t i = 0; i < count; ++i) {
         const std::size_t nameLen = skipName(p, len, pos);
         if (nameLen == 0) { return std::nullopt; }
         pos += nameLen;
@@ -153,44 +190,27 @@ std::optional<models::DiscoveredServer> parseResponse(const std::uint8_t* p, std
         const std::uint16_t rdlen = read16(p + pos + 8);
         const std::size_t rdata = pos + 10;
         if (rdata + rdlen > len) { return std::nullopt; }
-
-        if (type == kTypeA && rdlen == 4) {
-            char buf[INET_ADDRSTRLEN] = {};
-            in_addr a{};
-            std::memcpy(&a, p + rdata, 4);
-            if (::inet_ntop(AF_INET, &a, buf, sizeof(buf)) != nullptr) { ip = buf; }
-        } else if (type == kTypeSrv && rdlen >= 7) {
-            srvPort = read16(p + rdata + 4); // priority(2) weight(2) port(2)
-            haveSrv = true;
-        } else if (type == kTypeTxt) {
-            std::size_t t = rdata;
-            const std::size_t end = rdata + rdlen;
-            while (t < end) {
-                const std::uint8_t slen = p[t];
-                if (t + 1 + slen > end) { break; }
-                const std::string entry(reinterpret_cast<const char*>(p + t + 1), slen);
-                const auto eq = entry.find('=');
-                if (eq != std::string::npos) {
-                    const QString key = QString::fromStdString(entry.substr(0, eq));
-                    const QByteArray val = QByteArray::fromStdString(entry.substr(eq + 1));
-                    txt.insert(key, val);
-                }
-                t += 1 + slen;
-                haveTxt = true;
-            }
-        } else if (type == kTypePtr && instance.empty()) {
-            std::string n;
-            if (readName(p, len, rdata, n)) {
-                // The instance label is the first component of the PTR target.
-                instance = n.substr(0, n.find('.'));
-            }
-        }
+        readAnswerRecord(p, len, type, rdata, rdlen, out);
         pos = rdata + rdlen;
     }
+    return out;
+}
 
-    if (ip.empty() || (!haveSrv && !haveTxt)) { return std::nullopt; }
-    return mdnsServiceToServer(QString::fromStdString(instance), QString::fromStdString(ip),
-                               srvPort, txt);
+std::optional<models::DiscoveredServer> parseResponse(const std::uint8_t* p, std::size_t len) {
+    if (len < 12) { return std::nullopt; }
+    const std::uint16_t qd = read16(p + 4);
+    const std::uint16_t an = read16(p + 6);
+
+    std::size_t pos = 12;
+    if (!skipQuestions(p, len, qd, pos)) { return std::nullopt; }
+    const auto answers = readAnswers(p, len, an, pos);
+    if (!answers.has_value()) { return std::nullopt; }
+
+    // An address with nothing describing the service behind it is not a hit: the mapping layer
+    // needs at least one of the SRV port or the TXT record to place it.
+    if (answers->ip.empty() || (!answers->haveSrv && !answers->haveTxt)) { return std::nullopt; }
+    return mdnsServiceToServer(QString::fromStdString(answers->instance),
+                               QString::fromStdString(answers->ip), answers->srvPort, answers->txt);
 }
 
 } // namespace detail
@@ -239,57 +259,18 @@ std::optional<models::DiscoveredServer> mdnsServiceToServer(const QString& servi
 }
 
 QList<models::DiscoveredServer> MdnsDiscovery::discover(int timeoutMs) {
-    using namespace std::chrono;
-
-    const int sock = ::socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
-    if (sock < 0) { return {}; }
-
-    // Bind an ephemeral port; the QU bit makes responders unicast back here.
-    sockaddr_in local{};
-    local.sin_family = AF_INET;
-    local.sin_addr.s_addr = INADDR_ANY;
-    local.sin_port = 0;
-    if (::bind(sock, reinterpret_cast<sockaddr*>(&local), sizeof(local)) < 0) {
-        ::close(sock);
-        return {};
-    }
-
-    timeval rcvTimeout{};
-    rcvTimeout.tv_sec = 0;
-    rcvTimeout.tv_usec = 300'000;
-    ::setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &rcvTimeout, sizeof(rcvTimeout));
-    int ttl = 255;
-    ::setsockopt(sock, IPPROTO_IP, IP_MULTICAST_TTL, &ttl, sizeof(ttl));
-
-    sockaddr_in dest{};
-    dest.sin_family = AF_INET;
-    dest.sin_port = htons(kMulticastPort);
-    ::inet_pton(AF_INET, kMulticastGroup, &dest.sin_addr);
-
-    const auto query = buildQuery();
-    ::sendto(sock, query.data(), query.size(), 0, reinterpret_cast<sockaddr*>(&dest), sizeof(dest));
-
     QList<models::DiscoveredServer> result;
     QSet<QString> seen;
-    const auto hardDeadline = steady_clock::now() + milliseconds(timeoutMs);
-    auto deadline = hardDeadline;
-    std::uint8_t buf[2048];
-
-    while (steady_clock::now() < deadline) {
-        const ssize_t n = ::recvfrom(sock, buf, sizeof(buf), 0, nullptr, nullptr);
-        if (n <= 0) { continue; } // timeout / transient
-        const auto server = detail::parseResponse(buf, static_cast<std::size_t>(n));
-        if (!server) { continue; }
+    // A satellite answers for one ip+port pair; the same box on two interfaces is two servers.
+    mdnsScan(buildQuery(), timeoutMs, [&](const std::uint8_t* p, std::size_t n) {
+        const auto server = detail::parseResponse(p, n);
+        if (!server) { return false; }
         const QString key = server->ip + QStringLiteral(":") + QString::number(server->udpPort);
-        if (seen.contains(key)) { continue; }
+        if (seen.contains(key)) { return false; }
         seen.insert(key);
         result.append(*server);
-        // Cap the remaining wait so a launch-time scan returns promptly instead
-        // of idling out the full `timeoutMs`.
-        deadline = std::min(hardDeadline, steady_clock::now() + milliseconds(kGraceMs));
-    }
-
-    ::close(sock);
+        return true;
+    });
     return result;
 }
 

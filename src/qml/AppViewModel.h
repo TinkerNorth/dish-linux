@@ -35,7 +35,8 @@ class QTimer;
 
 namespace dish {
 class AppModel;
-}
+struct MainUiState;
+} // namespace dish
 
 namespace dish::qml {
 
@@ -614,6 +615,19 @@ class AppViewModel : public QObject {
 
   private:
     void onStateChanged();
+
+    // What the header strip reads off the connection list.
+    struct ConnectionTally {
+        int live = 0;
+        int total = 0;
+        QString firstLabel;
+    };
+    static ConnectionTally tallyConnections(const QList<models::ConnectionSummary>& conns);
+    QString statusTextFor(const ConnectionTally& tally) const;
+    QString summaryTextFor(const ConnectionTally& tally) const;
+    static int streamingSlotCountFor(const dish::MainUiState& st);
+    void publishSlotCounts(const dish::MainUiState& st);
+    void publishPairingTarget(const dish::MainUiState& st);
     void onConnectionsChanged();
     void onTelemetryTick();
     void onRawJoystickInput(const QString& deviceId, int kind, int index, int value);

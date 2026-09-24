@@ -124,6 +124,13 @@ class ConnectionHub : public QObject {
   private:
     void rebuild();
 
+    // rebuild's three steps, each answerable on its own.
+    QSet<QString> knownIds(const QHash<QString, models::RememberedWifi>& remembered) const;
+    std::optional<QString> boundSlotFor(const QString& id) const;
+    std::optional<models::ConnectionSummary>
+    summaryFor(const QString& id, const QHash<QString, models::RememberedWifi>& remembered,
+               const QSet<QString>& discoveredIds) const;
+
     WifiConnectionManager* wifi_;
     ConnectionStore* store_;
     QList<models::ConnectionSummary> summaries_;

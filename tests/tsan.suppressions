@@ -13,6 +13,17 @@ called_from_lib:libQt6Core.so
 called_from_lib:libQt6DBus.so
 # The HTTP thread QNetworkAccessManager runs the manifest fetch on.
 called_from_lib:libQt6Network.so
+# OpenSSL ships uninstrumented too. PairingClient runs a blocking request on a
+# worker thread, and QNetworkAccessManager does the TLS handshake on its own
+# HTTP thread: the peer certificate OpenSSL builds there reaches the worker's
+# `encrypted` handler through Qt's queued signal, a handoff TSan cannot see, so
+# OpenSSL's own copy of it on each side reads as a race (first surfaced by
+# test_pairing_client_wire, the first test to drive that path).
+# Caveat: this also hides a race whose ONLY witness is a copy inside OpenSSL on
+# first-party memory - two threads sealing into one buffer, say. The control
+# stream seals under its link mutex, and its own accesses to the ring slot are
+# first-party frames that still report. Keep it that way before keeping this.
+called_from_lib:libcrypto.so
 # Qt 6.9 reimplemented QWaitCondition over std::condition_variable, so a Qt
 # thread handoff now enters the interceptor through libstdc++'s out-of-line
 # condition_variable::wait instead of a libQt6* frame, and the lines above no

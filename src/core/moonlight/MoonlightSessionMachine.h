@@ -232,134 +232,151 @@ inline Reduction fail(SessionState state, SessionFailure reason) {
     return {state, {SessionEffect::Teardown, SessionEffect::NotifyFailure}};
 }
 
+// Stop wins from every phase. Only a link that got as far as the control stream is told it is
+// ending; anything that started is torn down.
+inline Reduction onStop(const SessionState& state) {
+    SessionState next; // back to a fresh Idle
+    std::vector<SessionEffect> effects;
+    if (state.phase == SessionPhase::Streaming || state.phase == SessionPhase::ControlConnecting) {
+        effects.push_back(SessionEffect::SendTermination);
+    }
+    if (state.phase != SessionPhase::Idle) { effects.push_back(SessionEffect::Teardown); }
+    return {next, effects};
+}
+
+// Idle and Failed answer only a start: a failed session is restarted, never resumed in place.
+inline Reduction fromIdle(const SessionEvent& event) {
+    if (!std::holds_alternative<moon_event::StartRequested>(event)) { return {std::nullopt, {}}; }
+    SessionState next;
+    next.phase = SessionPhase::CheckingInfo;
+    return {next, {SessionEffect::FetchServerInfo}};
+}
+
+inline Reduction fromCheckingInfo(const SessionState& state, const SessionEvent& event) {
+    if (const auto* info = std::get_if<moon_event::ServerInfoOk>(&event)) {
+        // A host that came back with a different identity is not the host the stored
+        // certificate anchors, so it is named before pairing is judged at all: re-pairing is the
+        // only way back either way, and "no longer recognises this device" would be the wrong
+        // reason.
+        if (info->identityChanged) { return fail(state, SessionFailure::HostReplaced); }
+        if (!info->paired) {
+            return fail(state,
+                        info->remembered ? SessionFailure::TrustLost : SessionFailure::NotPaired);
+        }
+        SessionState next = state;
+        next.phase = SessionPhase::Launching;
+        next.resuming = info->currentGame != 0 && info->currentGame != -1;
+        return {next, {SessionEffect::SendLaunch}};
+    }
+    if (std::holds_alternative<moon_event::ServerInfoFailed>(event)) {
+        return fail(state, SessionFailure::Unreachable);
+    }
+    return {std::nullopt, {}};
+}
+
+inline Reduction fromLaunching(const SessionState& state, const SessionEvent& event) {
+    if (std::holds_alternative<moon_event::LaunchOk>(event)) {
+        SessionState next = state;
+        next.phase = SessionPhase::Rtsp;
+        next.rtspStep = RtspStep::Options;
+        return {next, {SessionEffect::OpenRtsp}};
+    }
+    if (const auto* busy = std::get_if<moon_event::LaunchBusy>(&event)) {
+        // One resume, and only when the host offered it: a second busy after resuming is the
+        // host keeping the app, not a reason to ask again.
+        if (busy->resumable && !state.resuming) {
+            SessionState next = state;
+            next.resuming = true;
+            return {next, {SessionEffect::SendLaunch}};
+        }
+        return fail(state, SessionFailure::AppAlreadyRunning);
+    }
+    if (std::holds_alternative<moon_event::LaunchFailed>(event)) {
+        // A /resume that fails is not a refused /launch: the host HAS the session and would not
+        // hand it back, which the user fixes by closing the app rather than by trying again.
+        return fail(state,
+                    state.resuming ? SessionFailure::ResumeFailed : SessionFailure::LaunchRejected);
+    }
+    return {std::nullopt, {}};
+}
+
+// The handshake advances one step per reply, in RtspStep's declared order, and Play is the step
+// that hands over to the control stream.
+inline Reduction fromRtsp(const SessionState& state, const SessionEvent& event) {
+    if (std::holds_alternative<moon_event::RtspReady>(event)) {
+        if (state.rtspStep != RtspStep::Options) { return {std::nullopt, {}}; }
+        return {state, {SessionEffect::SendRtspOptions}};
+    }
+    if (std::holds_alternative<moon_event::RtspStepOk>(event)) {
+        SessionState next = state;
+        if (state.rtspStep == RtspStep::Play) {
+            next.phase = SessionPhase::ControlConnecting;
+            return {next, {SessionEffect::ConnectControl}};
+        }
+        next.rtspStep = static_cast<RtspStep>(static_cast<std::uint8_t>(state.rtspStep) + 1);
+        return {next, {sendEffectFor(next.rtspStep)}};
+    }
+    if (std::holds_alternative<moon_event::RtspFailed>(event)) {
+        return fail(state, SessionFailure::RtspRejected);
+    }
+    return {std::nullopt, {}};
+}
+
+inline Reduction fromControlConnecting(const SessionState& state, const SessionEvent& event) {
+    if (std::holds_alternative<moon_event::ControlConnected>(event)) {
+        SessionState next = state;
+        next.phase = SessionPhase::Streaming;
+        return {next, {SessionEffect::StartStreaming}};
+    }
+    if (std::holds_alternative<moon_event::ControlLost>(event)) {
+        return fail(state, SessionFailure::ControlLost);
+    }
+    if (std::holds_alternative<moon_event::HostTerminated>(event)) {
+        return fail(state, SessionFailure::HostEnded);
+    }
+    return {std::nullopt, {}};
+}
+
+// A link that dies after going live is a DROP, not a setup failure: the host keeps the app and
+// will usually let us resume it, so the two must not be merged.
+inline Reduction fromStreaming(const SessionState& state, const SessionEvent& event) {
+    if (std::holds_alternative<moon_event::ControlLost>(event)) {
+        return fail(state, SessionFailure::Dropped);
+    }
+    if (std::holds_alternative<moon_event::HostTerminated>(event)) {
+        return fail(state, SessionFailure::HostEnded);
+    }
+    return {std::nullopt, {}};
+}
+
 } // namespace detail
 
 // Pure and total: every (phase x event) pair is defined; combinations that do
 // not apply return {nullopt, {}} so a stray late completion can never corrupt
 // the lifecycle.
+//
+// The switch names every phase and has no default, so the compiler flags a phase added later
+// that nothing here handles. It used to fold `default:` into Streaming, which would have given a
+// new phase Streaming's rules without anyone deciding that.
 inline Reduction reduce(const SessionState& state, const SessionEvent& event) {
-    using namespace moon_event;
-
-    // Stop wins from every phase.
-    if (std::holds_alternative<StopRequested>(event)) {
-        SessionState next; // back to a fresh Idle
-        std::vector<SessionEffect> effects;
-        if (state.phase == SessionPhase::Streaming ||
-            state.phase == SessionPhase::ControlConnecting) {
-            effects.push_back(SessionEffect::SendTermination);
-        }
-        if (state.phase != SessionPhase::Idle) { effects.push_back(SessionEffect::Teardown); }
-        return {next, effects};
-    }
-
+    if (std::holds_alternative<moon_event::StopRequested>(event)) { return detail::onStop(state); }
     switch (state.phase) {
     case SessionPhase::Idle:
-    case SessionPhase::Failed: {
-        if (std::holds_alternative<StartRequested>(event)) {
-            SessionState next;
-            next.phase = SessionPhase::CheckingInfo;
-            return {next, {SessionEffect::FetchServerInfo}};
-        }
-        return {std::nullopt, {}};
-    }
-
-    case SessionPhase::CheckingInfo: {
-        if (const auto* info = std::get_if<ServerInfoOk>(&event)) {
-            // A host that came back with a different identity is not the host
-            // the stored certificate anchors, so it is named before pairing is
-            // judged at all: re-pairing is the only way back either way, and
-            // "no longer recognises this device" would be the wrong reason.
-            if (info->identityChanged) { return detail::fail(state, SessionFailure::HostReplaced); }
-            if (!info->paired) {
-                return detail::fail(state, info->remembered ? SessionFailure::TrustLost
-                                                            : SessionFailure::NotPaired);
-            }
-            SessionState next = state;
-            next.phase = SessionPhase::Launching;
-            next.resuming = info->currentGame != 0 && info->currentGame != -1;
-            return {next, {SessionEffect::SendLaunch}};
-        }
-        if (std::holds_alternative<ServerInfoFailed>(event)) {
-            return detail::fail(state, SessionFailure::Unreachable);
-        }
-        return {std::nullopt, {}};
-    }
-
-    case SessionPhase::Launching: {
-        if (std::holds_alternative<LaunchOk>(event)) {
-            SessionState next = state;
-            next.phase = SessionPhase::Rtsp;
-            next.rtspStep = RtspStep::Options;
-            return {next, {SessionEffect::OpenRtsp}};
-        }
-        if (const auto* busy = std::get_if<LaunchBusy>(&event)) {
-            if (busy->resumable && !state.resuming) {
-                SessionState next = state;
-                next.resuming = true;
-                return {next, {SessionEffect::SendLaunch}};
-            }
-            return detail::fail(state, SessionFailure::AppAlreadyRunning);
-        }
-        if (std::holds_alternative<LaunchFailed>(event)) {
-            // A /resume that fails is not a refused /launch: the host HAS the
-            // session and would not hand it back, which the user fixes by
-            // closing the app rather than by trying again.
-            return detail::fail(state, state.resuming ? SessionFailure::ResumeFailed
-                                                      : SessionFailure::LaunchRejected);
-        }
-        return {std::nullopt, {}};
-    }
-
-    case SessionPhase::Rtsp: {
-        if (std::holds_alternative<RtspReady>(event)) {
-            if (state.rtspStep != RtspStep::Options) { return {std::nullopt, {}}; }
-            return {state, {SessionEffect::SendRtspOptions}};
-        }
-        if (std::holds_alternative<RtspStepOk>(event)) {
-            if (state.rtspStep == RtspStep::Play) {
-                SessionState next = state;
-                next.phase = SessionPhase::ControlConnecting;
-                return {next, {SessionEffect::ConnectControl}};
-            }
-            SessionState next = state;
-            next.rtspStep = static_cast<RtspStep>(static_cast<std::uint8_t>(state.rtspStep) + 1);
-            return {next, {detail::sendEffectFor(next.rtspStep)}};
-        }
-        if (std::holds_alternative<RtspFailed>(event)) {
-            return detail::fail(state, SessionFailure::RtspRejected);
-        }
-        return {std::nullopt, {}};
-    }
-
-    case SessionPhase::ControlConnecting: {
-        if (std::holds_alternative<ControlConnected>(event)) {
-            SessionState next = state;
-            next.phase = SessionPhase::Streaming;
-            return {next, {SessionEffect::StartStreaming}};
-        }
-        if (std::holds_alternative<ControlLost>(event)) {
-            return detail::fail(state, SessionFailure::ControlLost);
-        }
-        if (std::holds_alternative<HostTerminated>(event)) {
-            return detail::fail(state, SessionFailure::HostEnded);
-        }
-        return {std::nullopt, {}};
-    }
-
+    case SessionPhase::Failed:
+        return detail::fromIdle(event);
+    case SessionPhase::CheckingInfo:
+        return detail::fromCheckingInfo(state, event);
+    case SessionPhase::Launching:
+        return detail::fromLaunching(state, event);
+    case SessionPhase::Rtsp:
+        return detail::fromRtsp(state, event);
+    case SessionPhase::ControlConnecting:
+        return detail::fromControlConnecting(state, event);
     case SessionPhase::Streaming:
-    default: {
-        // A link that dies after going live is a DROP, not a setup failure: the
-        // host keeps the app and will usually let us resume it, so the two must
-        // not be merged.
-        if (std::holds_alternative<ControlLost>(event)) {
-            return detail::fail(state, SessionFailure::Dropped);
-        }
-        if (std::holds_alternative<HostTerminated>(event)) {
-            return detail::fail(state, SessionFailure::HostEnded);
-        }
-        return {std::nullopt, {}};
+        return detail::fromStreaming(state, event);
     }
-    }
+    // Only a phase outside the enum reaches here.
+    return {std::nullopt, {}};
 }
 
 } // namespace dish::moonlight
