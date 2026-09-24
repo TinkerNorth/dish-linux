@@ -16,6 +16,8 @@
 #include <QTimer>
 #include <QVariant>
 
+#include <mutex>
+
 namespace dish::source {
 
 namespace {
@@ -75,12 +77,14 @@ const QDBusArgument& operator>>(const QDBusArgument& arg, SecretValue& s) {
     return arg;
 }
 
+// Once per process, and safe to reach from two threads at once, which the plain
+// `static bool` this replaces was not.
 void registerTypes() {
-    static bool done = false;
-    if (done) { return; }
-    done = true;
-    qDBusRegisterMetaType<SecretValue>();
-    qDBusRegisterMetaType<StringMap>();
+    static std::once_flag once;
+    std::call_once(once, [] {
+        qDBusRegisterMetaType<SecretValue>();
+        qDBusRegisterMetaType<StringMap>();
+    });
 }
 
 StringMap attributesFor(const QString& id) {
