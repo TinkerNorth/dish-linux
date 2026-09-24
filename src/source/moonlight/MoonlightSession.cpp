@@ -229,6 +229,13 @@ void MoonlightSession::run(const moonlight::Reduction& reduction) {
     for (const auto effect : reduction.effects) { runEffect(effect); }
 }
 
+void MoonlightSession::notifyFailure() {
+    if (!machine_.failure) { return; }
+    const QString token = failureToken(*machine_.failure);
+    qCWarning(lcMoon) << "session on" << host_.address << "gave up:" << token;
+    emit failed(token);
+}
+
 void MoonlightSession::runEffect(moonlight::SessionEffect effect) {
     using moonlight::SessionEffect;
     switch (effect) {
@@ -275,11 +282,7 @@ void MoonlightSession::runEffect(moonlight::SessionEffect effect) {
         teardown();
         break;
     case SessionEffect::NotifyFailure:
-        if (machine_.failure) {
-            const QString token = failureToken(*machine_.failure);
-            qCWarning(lcMoon) << "session on" << host_.address << "gave up:" << token;
-            emit failed(token);
-        }
+        notifyFailure();
         break;
     }
 }
@@ -492,66 +495,71 @@ void MoonlightSession::openRtsp() {
     rtsp_->open(rtspHostAddress_, rtspPort_);
 }
 
-void MoonlightSession::sendRtspStep(moonlight::RtspStep step) {
-    QString request;
+// The request text for one handshake step. Every step takes the next CSeq, which is why this is
+// not const: the host matches each reply to its request by it.
+QString MoonlightSession::rtspRequestFor(moonlight::RtspStep step) {
     switch (step) {
     case moonlight::RtspStep::Options:
-        request =
-            QString::fromStdString(moonrtsp::formatOptions(rtspCseq_++, rtspTarget_.toStdString()));
-        break;
+        return QString::fromStdString(
+            moonrtsp::formatOptions(rtspCseq_++, rtspTarget_.toStdString()));
     case moonlight::RtspStep::Describe:
-        request = QString::fromStdString(
+        return QString::fromStdString(
             moonrtsp::formatDescribe(rtspCseq_++, rtspTarget_.toStdString()));
-        break;
     case moonlight::RtspStep::SetupAudio:
     case moonlight::RtspStep::SetupVideo:
     case moonlight::RtspStep::SetupControl:
-        request = QString::fromStdString(moonrtsp::formatSetup(
+        return QString::fromStdString(moonrtsp::formatSetup(
             rtspCseq_++, stepStreamId(step).toStdString(), rtspSessionId_.toStdString()));
-        break;
-    case moonlight::RtspStep::Announce: {
-        const auto payload = moonrtsp::buildAnnouncePayload(stream_);
-        request = QString::fromStdString(
-            moonrtsp::formatAnnounce(rtspCseq_++, rtspSessionId_.toStdString(), payload));
-        break;
-    }
+    case moonlight::RtspStep::Announce:
+        return QString::fromStdString(moonrtsp::formatAnnounce(
+            rtspCseq_++, rtspSessionId_.toStdString(), moonrtsp::buildAnnouncePayload(stream_)));
     case moonlight::RtspStep::Play:
-        request = QString::fromStdString(moonrtsp::formatPlay(
-            rtspCseq_++, rtspTarget_.toStdString(), rtspSessionId_.toStdString()));
-        break;
+        return QString::fromStdString(moonrtsp::formatPlay(rtspCseq_++, rtspTarget_.toStdString(),
+                                                           rtspSessionId_.toStdString()));
     }
+    return {};
+}
 
-    rtsp_->request(request, [this, step](const std::optional<moonrtsp::Response>& response) {
-        if (!response || !response->ok()) {
-            dispatch(moonlight::moon_event::RtspFailed{});
-            return;
-        }
-        // Absorb the per-step transport data the later phases need.
-        if (const auto id = moonrtsp::sessionId(*response); id && rtspSessionId_.isEmpty()) {
-            rtspSessionId_ = QString::fromStdString(*id);
-        }
-        if (step == moonlight::RtspStep::SetupAudio) {
-            audioPort_ = moonrtsp::transportPort(*response).value_or(0);
-            audioPingPayload_ =
-                QByteArray::fromStdString(moonrtsp::pingPayload(*response).value_or(""));
-            qCInfo(lcMoon) << "setup audio port" << audioPort_ << "ping payload"
-                           << audioPingPayload_.size() << "bytes";
-            ensureRtpPings();
-        } else if (step == moonlight::RtspStep::SetupVideo) {
-            videoPort_ = moonrtsp::transportPort(*response).value_or(0);
-            videoPingPayload_ =
-                QByteArray::fromStdString(moonrtsp::pingPayload(*response).value_or(""));
-            qCInfo(lcMoon) << "setup video port" << videoPort_ << "ping payload"
-                           << videoPingPayload_.size() << "bytes";
-            ensureRtpPings();
-        } else if (step == moonlight::RtspStep::SetupControl) {
-            controlPort_ = moonrtsp::transportPort(*response).value_or(0);
-            controlConnectData_ = moonrtsp::connectData(*response).value_or(0);
-            qCInfo(lcMoon) << "setup control port" << controlPort_ << "connect data"
-                           << controlConnectData_;
-        }
-        dispatch(moonlight::moon_event::RtspStepOk{});
-    });
+// The audio and video SETUPs leave the same two facts behind - the port the stream answers on and
+// the payload its hole-punch pings must carry - and each one's arrival is what lets the pings
+// start.
+void MoonlightSession::absorbMediaSetup(const char* stream, const moonrtsp::Response& response,
+                                        int& port, QByteArray& pingPayload) {
+    port = moonrtsp::transportPort(response).value_or(0);
+    pingPayload = QByteArray::fromStdString(moonrtsp::pingPayload(response).value_or(""));
+    qCInfo(lcMoon) << "setup" << stream << "port" << port << "ping payload" << pingPayload.size()
+                   << "bytes";
+    ensureRtpPings();
+}
+
+// Absorb the per-step transport data the later phases need, then let the reducer advance.
+void MoonlightSession::onRtspReply(moonlight::RtspStep step,
+                                   const std::optional<moonrtsp::Response>& response) {
+    if (!response || !response->ok()) {
+        dispatch(moonlight::moon_event::RtspFailed{});
+        return;
+    }
+    if (const auto id = moonrtsp::sessionId(*response); id && rtspSessionId_.isEmpty()) {
+        rtspSessionId_ = QString::fromStdString(*id);
+    }
+    if (step == moonlight::RtspStep::SetupAudio) {
+        absorbMediaSetup("audio", *response, audioPort_, audioPingPayload_);
+    } else if (step == moonlight::RtspStep::SetupVideo) {
+        absorbMediaSetup("video", *response, videoPort_, videoPingPayload_);
+    } else if (step == moonlight::RtspStep::SetupControl) {
+        controlPort_ = moonrtsp::transportPort(*response).value_or(0);
+        controlConnectData_ = moonrtsp::connectData(*response).value_or(0);
+        qCInfo(lcMoon) << "setup control port" << controlPort_ << "connect data"
+                       << controlConnectData_;
+    }
+    dispatch(moonlight::moon_event::RtspStepOk{});
+}
+
+void MoonlightSession::sendRtspStep(moonlight::RtspStep step) {
+    rtsp_->request(rtspRequestFor(step),
+                   [this, step](const std::optional<moonrtsp::Response>& response) {
+                       onRtspReply(step, response);
+                   });
 }
 
 void MoonlightSession::connectControl() {

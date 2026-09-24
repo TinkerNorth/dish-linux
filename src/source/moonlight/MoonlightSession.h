@@ -173,6 +173,12 @@ class MoonlightSession : public QObject {
     // Effect handlers.
     void fetchServerInfo();
     void sendLaunch();
+    // One handshake step: its request, and what its reply leaves behind.
+    QString rtspRequestFor(moonlight::RtspStep step);
+    void onRtspReply(moonlight::RtspStep step, const std::optional<moonrtsp::Response>& response);
+    void absorbMediaSetup(const char* stream, const moonrtsp::Response& response, int& port,
+                          QByteArray& pingPayload);
+    void notifyFailure();
     // sendLaunch in order: the per-attempt key, the query, and what the host answered.
     bool ensureRikey();
     QUrlQuery launchQuery(bool resuming) const;
