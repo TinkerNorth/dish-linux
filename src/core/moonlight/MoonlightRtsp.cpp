@@ -90,6 +90,8 @@ std::string formatPlay(int cseq, const std::string& target, const std::string& s
     return requestHead("PLAY", target, cseq, sessionId) + "\r\n";
 }
 
+// One attribute per line, in one function on purpose: the list IS the protocol, and it reads
+// best against a capture of a real client's ANNOUNCE, top to bottom.
 std::string buildAnnouncePayload(const StreamConfig& config) {
     // The WHOLE attribute set a real client sends. A host builds its stream
     // configuration by looking each of these up by name and a lookup that

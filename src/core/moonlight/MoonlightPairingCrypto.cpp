@@ -132,48 +132,64 @@ bool rsaVerifySha256(const std::string& certPem, const std::uint8_t* msg, std::s
     return EVP_DigestVerifyFinal(ctx.get(), sig, sigLen) == 1;
 }
 
-std::optional<ClientIdentity> generateClientIdentity() {
-    // 2048-bit RSA, the size every Moonlight host expects (the pairing
-    // signature length is pinned to 256 bytes).
+namespace {
+
+// 2048-bit RSA, the size every Moonlight host expects (the pairing signature length is pinned to
+// 256 bytes). Null when OpenSSL refuses any step.
+PkeyPtr newRsaKey() {
     PkeyCtx keyCtx(EVP_PKEY_CTX_new_id(EVP_PKEY_RSA, nullptr), EVP_PKEY_CTX_free);
     if (!keyCtx || EVP_PKEY_keygen_init(keyCtx.get()) <= 0 ||
         EVP_PKEY_CTX_set_rsa_keygen_bits(keyCtx.get(), 2048) <= 0) {
-        return std::nullopt;
+        return {nullptr, EVP_PKEY_free};
     }
     EVP_PKEY* rawKey = nullptr;
-    if (EVP_PKEY_keygen(keyCtx.get(), &rawKey) <= 0) { return std::nullopt; }
-    PkeyPtr key(rawKey, EVP_PKEY_free);
+    if (EVP_PKEY_keygen(keyCtx.get(), &rawKey) <= 0) { return {nullptr, EVP_PKEY_free}; }
+    return {rawKey, EVP_PKEY_free};
+}
 
+void addNameEntry(X509_NAME* name, const char* field, const char* value) {
+    X509_NAME_add_entry_by_txt(name, field, MBSTRING_ASC,
+                               reinterpret_cast<const unsigned char*>(value), -1, -1, 0);
+}
+
+// A certificate over `key`, signed by itself. Valid for 20 years; hosts deliberately tolerate
+// clock skew on either end. Null when OpenSSL refuses any step.
+X509Ptr selfSignedCertFor(EVP_PKEY* key) {
     X509Ptr cert(X509_new(), X509_free);
-    if (!cert) { return std::nullopt; }
+    if (!cert) { return cert; }
     ASN1_INTEGER_set(X509_get_serialNumber(cert.get()), 1);
     X509_set_version(cert.get(), 2);
-    // Valid for 20 years; hosts deliberately tolerate clock skew on either end.
     constexpr long kValidSeconds = 630720000L;
     X509_gmtime_adj(X509_getm_notBefore(cert.get()), 0);
     X509_gmtime_adj(X509_getm_notAfter(cert.get()), kValidSeconds);
-    X509_set_pubkey(cert.get(), key.get());
+    X509_set_pubkey(cert.get(), key);
 
     X509_NAME* name = X509_get_subject_name(cert.get());
-    const auto addEntry = [name](const char* field, const char* value) {
-        X509_NAME_add_entry_by_txt(name, field, MBSTRING_ASC,
-                                   reinterpret_cast<const unsigned char*>(value), -1, -1, 0);
-    };
-    addEntry("O", "TinkerNorth");
-    addEntry("CN", "Dish Client");
+    addNameEntry(name, "O", "TinkerNorth");
+    addNameEntry(name, "CN", "Dish Client");
     X509_set_issuer_name(cert.get(), name);
 
-    if (X509_sign(cert.get(), key.get(), EVP_sha256()) == 0) { return std::nullopt; }
+    if (X509_sign(cert.get(), key, EVP_sha256()) == 0) { return {nullptr, X509_free}; }
+    return cert;
+}
 
-    const auto pemOf = [](auto writeFn) -> std::optional<std::string> {
-        BioPtr bio(BIO_new(BIO_s_mem()), BIO_free);
-        if (!bio || writeFn(bio.get()) != 1) { return std::nullopt; }
-        BUF_MEM* mem = nullptr;
-        BIO_get_mem_ptr(bio.get(), &mem);
-        if (mem == nullptr || mem->data == nullptr) { return std::nullopt; }
-        return std::string(mem->data, mem->length);
-    };
+// The PEM text `writeFn` writes into a memory BIO, or nullopt when it declines to.
+template <typename WriteFn> std::optional<std::string> pemOf(WriteFn writeFn) {
+    BioPtr bio(BIO_new(BIO_s_mem()), BIO_free);
+    if (!bio || writeFn(bio.get()) != 1) { return std::nullopt; }
+    BUF_MEM* mem = nullptr;
+    BIO_get_mem_ptr(bio.get(), &mem);
+    if (mem == nullptr || mem->data == nullptr) { return std::nullopt; }
+    return std::string(mem->data, mem->length);
+}
 
+} // namespace
+
+std::optional<ClientIdentity> generateClientIdentity() {
+    const PkeyPtr key = newRsaKey();
+    if (!key) { return std::nullopt; }
+    const X509Ptr cert = selfSignedCertFor(key.get());
+    if (!cert) { return std::nullopt; }
     const auto certPem = pemOf([&cert](BIO* bio) { return PEM_write_bio_X509(bio, cert.get()); });
     const auto keyPem = pemOf([&key](BIO* bio) {
         return PEM_write_bio_PrivateKey(bio, key.get(), nullptr, nullptr, 0, nullptr, nullptr);

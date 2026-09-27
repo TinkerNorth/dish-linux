@@ -101,54 +101,63 @@ void MoonlightManager::ensureIdentityLoaded() {
     identityReady_ = true;
 }
 
+// Whether the pairing flow on screen is this host's.
+bool MoonlightManager::pairingWith(const QString& uuid) const {
+    return pairingFlow_->active() && pairingFlow_->hostUuid() == uuid;
+}
+
+// A remembered host's row: what the record says, and what its session, if it has one, is doing.
+MoonlightRow MoonlightManager::rememberedRow(const repository::MoonlightHost& host) const {
+    MoonlightRow row;
+    row.uuid = host.uuid;
+    row.name = host.name.isEmpty() ? host.address : host.name;
+    row.address = host.address;
+    row.paired = host.paired();
+    row.lastAppId = host.lastAppId;
+    row.lastAppName = host.lastAppName;
+    row.controllerType = host.controllerType;
+    const auto* session = sessions_.value(host.uuid, nullptr);
+    if (session != nullptr) {
+        row.link = session->linkState();
+        // ONLY WHAT IS ACTUALLY RIDING THE HOST. The pads stay attached to
+        // a session that has been stopped, because their bindings are
+        // durable intent and a restart re-announces every one of them. The
+        // row's count is not that: it feeds the "In use by N" chip, and a
+        // host whose session was quit, dropped or ended is in use by
+        // nobody however many bindings still point at it.
+        if (row.link == MoonlightLinkState::Live) {
+            row.controllers = static_cast<int>(session->controllerCount());
+        }
+    }
+    row.discovered = discovered_.contains(host.uuid);
+    row.trust = moonlight::hostTrust(uiInputs(host.uuid, QString()));
+    row.phase = pairingWith(host.uuid)
+                    ? moonlight::HostPhase::Pairing
+                    : moonlight::hostPhaseFor(session != nullptr ? session->machineState()
+                                                                 : moonlight::SessionState{},
+                                              row.trust != moonlight::HostTrust::NotPaired,
+                                              session != nullptr && session->everStarted());
+    return row;
+}
+
+// A host found on the network and not remembered: the discovery record as it stands, with the
+// trust and the phase a host nobody has paired can have.
+MoonlightRow MoonlightManager::discoveredRow(MoonlightRow row) const {
+    row.trust = moonlight::hostTrust(uiInputs(row.uuid, QString()));
+    row.phase = pairingWith(row.uuid) ? moonlight::HostPhase::Pairing : moonlight::HostPhase::Idle;
+    return row;
+}
+
 QList<MoonlightRow> MoonlightManager::rows() const {
     QList<MoonlightRow> out;
     QSet<QString> seen;
     for (const auto& host : hostRepo_.all()) {
-        MoonlightRow row;
-        row.uuid = host.uuid;
-        row.name = host.name.isEmpty() ? host.address : host.name;
-        row.address = host.address;
-        row.paired = host.paired();
-        row.lastAppId = host.lastAppId;
-        row.lastAppName = host.lastAppName;
-        row.controllerType = host.controllerType;
-        const auto* session = sessions_.value(host.uuid, nullptr);
-        if (session != nullptr) {
-            row.link = session->linkState();
-            // ONLY WHAT IS ACTUALLY RIDING THE HOST. The pads stay attached to
-            // a session that has been stopped, because their bindings are
-            // durable intent and a restart re-announces every one of them. The
-            // row's count is not that: it feeds the "In use by N" chip, and a
-            // host whose session was quit, dropped or ended is in use by
-            // nobody however many bindings still point at it.
-            if (row.link == MoonlightLinkState::Live) {
-                row.controllers = static_cast<int>(session->controllerCount());
-            }
-        }
-        if (const auto it = discovered_.constFind(host.uuid); it != discovered_.constEnd()) {
-            row.discovered = true;
-        }
-        const auto inputs = uiInputs(host.uuid, QString());
-        row.trust = moonlight::hostTrust(inputs);
-        row.phase = pairingFlow_->active() && pairingFlow_->hostUuid() == host.uuid
-                        ? moonlight::HostPhase::Pairing
-                        : moonlight::hostPhaseFor(session != nullptr ? session->machineState()
-                                                                     : moonlight::SessionState{},
-                                                  row.trust != moonlight::HostTrust::NotPaired,
-                                                  session != nullptr && session->everStarted());
+        out.append(rememberedRow(host));
         seen.insert(host.uuid);
-        out.append(row);
     }
     for (auto it = discovered_.constBegin(); it != discovered_.constEnd(); ++it) {
         if (seen.contains(it.key())) { continue; }
-        MoonlightRow row = it.value();
-        const auto inputs = uiInputs(row.uuid, QString());
-        row.trust = moonlight::hostTrust(inputs);
-        row.phase = pairingFlow_->active() && pairingFlow_->hostUuid() == row.uuid
-                        ? moonlight::HostPhase::Pairing
-                        : moonlight::HostPhase::Idle;
-        out.append(row);
+        out.append(discoveredRow(it.value()));
     }
     std::sort(out.begin(), out.end(),
               [](const MoonlightRow& a, const MoonlightRow& b) { return a.name < b.name; });

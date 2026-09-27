@@ -39,16 +39,10 @@ std::string readSysfsFile(const fs::path& path) {
     return contents;
 }
 
-} // namespace
-
-BatteryReading hostBatteryFromSysfs(const std::vector<SysfsBattery>& batteries) {
-    // No battery devices at all — a desktop. Report a full wired charge, the
-    // same value SDL's WIRED power level mapped to before this fallback.
-    if (batteries.empty()) { return {100, kBatteryStatusWired}; }
-
-    // Average the readable capacities so a multi-battery laptop reports one
-    // figure. Packs present but all unreadable is a different fact from no
-    // packs at all, and only the second one means "desktop".
+// The integer mean of the readable capacities, so a multi-battery laptop reports one figure, or
+// kBatteryLevelUnknown when no pack's capacity could be read. Packs present but all unreadable is
+// a different fact from no packs at all, and only the second one means "desktop".
+std::uint8_t meanCapacity(const std::vector<SysfsBattery>& batteries) {
     long capacitySum = 0;
     long readable = 0;
     for (const auto& b : batteries) {
@@ -56,14 +50,17 @@ BatteryReading hostBatteryFromSysfs(const std::vector<SysfsBattery>& batteries) 
         capacitySum += b.capacity;
         ++readable;
     }
-    const bool levelKnown = readable > 0;
-    const std::uint8_t level = levelKnown ? static_cast<std::uint8_t>(std::clamp(
-                                                static_cast<int>(capacitySum / readable), 0, 100))
-                                          : kBatteryLevelUnknown;
+    if (readable == 0) { return kBatteryLevelUnknown; }
+    return static_cast<std::uint8_t>(std::clamp(static_cast<int>(capacitySum / readable), 0, 100));
+}
 
-    // Fold the per-battery `status` text into one wire status. "Charging"
-    // anywhere wins (the machine is gaining charge); then "Discharging"; then
-    // "Full". "Not charging" / "Unknown" / anything else contribute nothing.
+// The per-battery `status` texts folded into one wire status. "Charging" anywhere wins (the
+// machine is gaining charge); then "Discharging"; then "Full", which a pack at the full plateau
+// also counts as. "Not charging" / "Unknown" / anything else contribute nothing.
+//
+// Never Unknown once a pack exists: firmware that only ever says "Not charging" would otherwise
+// put a 0 on the wire where the other clients put a 1, and the satellite reads the two differently.
+std::uint8_t foldStatus(const std::vector<SysfsBattery>& batteries, std::uint8_t level) {
     bool anyCharging = false;
     bool anyDischarging = false;
     bool anyFull = false;
@@ -76,17 +73,20 @@ BatteryReading hostBatteryFromSysfs(const std::vector<SysfsBattery>& batteries) 
             anyFull = true;
         }
     }
+    if (anyCharging) { return kBatteryStatusCharging; }
+    const bool atPlateau = level != kBatteryLevelUnknown && level >= kFullThresholdPercent;
+    if (!anyDischarging && (anyFull || atPlateau)) { return kBatteryStatusFull; }
+    return kBatteryStatusDischarging;
+}
 
-    // Never Unknown once a pack exists: firmware that only ever says
-    // "Not charging" would otherwise put a 0 on the wire where the other
-    // clients put a 1, and the satellite reads the two differently.
-    std::uint8_t status = kBatteryStatusDischarging;
-    if (anyCharging) {
-        status = kBatteryStatusCharging;
-    } else if (!anyDischarging && (anyFull || (levelKnown && level >= kFullThresholdPercent))) {
-        status = kBatteryStatusFull;
-    }
-    return {level, status};
+} // namespace
+
+BatteryReading hostBatteryFromSysfs(const std::vector<SysfsBattery>& batteries) {
+    // No battery devices at all: a desktop. Report a full wired charge, the same value SDL's WIRED
+    // power level mapped to before this fallback.
+    if (batteries.empty()) { return {100, kBatteryStatusWired}; }
+    const std::uint8_t level = meanCapacity(batteries);
+    return {level, foldStatus(batteries, level)};
 }
 
 BatteryReading readHostBattery() {

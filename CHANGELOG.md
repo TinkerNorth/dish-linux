@@ -16,6 +16,17 @@ the repos share a version number.
 
 ---
 
+## [Unreleased]
+
+### Fixed
+
+- Forgetting a satellite while one of its requests was still on the wire no
+  longer writes through the freed connection. The pairing and connect callbacks
+  kept the pointer they were sent with, and Forget hands that object to
+  deleteLater; a reply landing after the forget used it, and a granted one keyed
+  or remembered the satellite the user had just removed. Every reply now looks
+  its connection up by id and drops itself when the connection is gone.
+
 ## [2.1.0] - 2026-09-21
 
 ### Added

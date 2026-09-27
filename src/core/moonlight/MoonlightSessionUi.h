@@ -200,6 +200,8 @@ inline SessionUiState sessionUiState(const SessionUiInputs& in) {
 // which is a hard protocol limit and says so.
 inline bool sessionUiBlocksApply(SessionUiState state) { return state == SessionUiState::HostFull; }
 
+// The token table, one line per state, and long for exactly that reason. A switch rather than
+// an array so the compiler checks that every state has a word.
 inline const char* sessionUiToken(SessionUiState state) {
     switch (state) {
     case SessionUiState::Checking:
@@ -243,9 +245,10 @@ inline const char* sessionUiToken(SessionUiState state) {
     case SessionUiState::Dropped:
         return "dropped";
     case SessionUiState::EndedByHost:
-    default:
         return "endedByHost";
     }
+    // Only a state outside the enum reaches here; it reads as the terminal state, as before.
+    return "endedByHost";
 }
 
 // ── Host-screen vocabulary ───────────────────────────────────────────────────

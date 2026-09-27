@@ -855,6 +855,42 @@ bool AppViewModel::isMoonlightHost(const QString& hostId) const {
     return model_->moonlight()->knows(hostId);
 }
 
+// The host's name and the app the binding would show. The RUNNING app wins over the remembered
+// pick: a binding that joins a session must name what is actually up, never what we would have
+// started. The refusal rides along because the same session carries it.
+void AppViewModel::addMoonlightAppFields(QVariantMap& m, const QString& uuid) const {
+    auto* manager = model_->moonlight();
+    QString hostName;
+    QString appId;
+    QString appName;
+    if (const auto row = manager->row(uuid)) {
+        hostName = row->name;
+        appId = row->lastAppId;
+        appName = row->lastAppName;
+    }
+    QString refusal;
+    if (const auto* session = manager->session(uuid)) {
+        if (!session->appId().isEmpty()) {
+            appId = session->appId();
+            appName = session->appName();
+        }
+        refusal = session->refusalMessage();
+    }
+    m[QStringLiteral("refusal")] = refusal;
+    m[QStringLiteral("hostName")] = hostName;
+    m[QStringLiteral("appId")] = appId;
+    m[QStringLiteral("appName")] = appName;
+}
+
+// 1-based, the way the copy counts: "controller 2 of 4". Zero means this binding holds no number
+// yet; a binding still to be placed counts after the ones already riding the host.
+int AppViewModel::moonlightControllerOrdinal(const QString& slotId, int otherControllers) const {
+    if (const auto number = model_->moonlight()->controllerNumber(slotId)) {
+        return static_cast<int>(*number) + 1;
+    }
+    return slotId.isEmpty() ? 0 : otherControllers + 1;
+}
+
 QVariantMap AppViewModel::moonlightSession(const QString& uuid, const QString& slotId) const {
     auto* manager = model_->moonlight();
     const auto inputs = manager->uiInputs(uuid, slotId);
@@ -871,39 +907,9 @@ QVariantMap AppViewModel::moonlightSession(const QString& uuid, const QString& s
     // advice: a rejected PIN is "try again", a host that never answered is
     // "check it is switched on". The token; the copy is QML's.
     m[QStringLiteral("pairingReason")] = manager->pairingRefusedReason(uuid);
-
-    QString hostName;
-    QString appId;
-    QString appName;
-    if (const auto row = manager->row(uuid)) {
-        hostName = row->name;
-        appId = row->lastAppId;
-        appName = row->lastAppName;
-    }
-    // The RUNNING app wins over the remembered pick: a binding that joins a
-    // session must name what is actually up, never what we would have started.
-    QString refusal;
-    if (const auto* session = manager->session(uuid)) {
-        if (!session->appId().isEmpty()) {
-            appId = session->appId();
-            appName = session->appName();
-        }
-        refusal = session->refusalMessage();
-    }
-    m[QStringLiteral("refusal")] = refusal;
-    m[QStringLiteral("hostName")] = hostName;
-    m[QStringLiteral("appId")] = appId;
-    m[QStringLiteral("appName")] = appName;
-
-    // 1-based, the way the copy counts: "controller 2 of 4". Zero means this
-    // binding holds no number yet.
-    int ordinal = 0;
-    if (const auto number = manager->controllerNumber(slotId)) {
-        ordinal = static_cast<int>(*number) + 1;
-    } else if (!slotId.isEmpty()) {
-        ordinal = inputs.otherControllers + 1;
-    }
-    m[QStringLiteral("controllerNumber")] = ordinal;
+    addMoonlightAppFields(m, uuid);
+    m[QStringLiteral("controllerNumber")] =
+        moonlightControllerOrdinal(slotId, inputs.otherControllers);
     return m;
 }
 

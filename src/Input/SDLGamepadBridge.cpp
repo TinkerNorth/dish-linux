@@ -361,6 +361,8 @@ void SDLGamepadBridge::onRawJoystickInput(int iid, CaptureKind kind, int index, 
     maybeEmitCapture(iid, static_cast<int>(kind), index, value);
 }
 
+// One arm per SDL event kind, each a forward. Long because SDL has this many kinds; a split
+// would put a second name between an event and the handler already named for it.
 void SDLGamepadBridge::dispatchSdlEvent(const SDL_Event& ev) {
     switch (ev.type) {
     case SDL_CONTROLLERDEVICEADDED:

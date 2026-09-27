@@ -231,6 +231,10 @@ class MoonlightManager : public QObject {
     void onTlsServerInfo(const QString& uuid, const QString& address, quint64 epoch, int status,
                          const QByteArray& body);
     void finishProbe(const QString& uuid);
+    // rows()' two kinds of row, and the one question both ask of the pairing flow.
+    bool pairingWith(const QString& uuid) const;
+    MoonlightRow rememberedRow(const repository::MoonlightHost& host) const;
+    MoonlightRow discoveredRow(MoonlightRow row) const;
     // forget's two named steps; the ordering between them lives in forget itself.
     void cancelPairingWith(const QString& uuid);
     void dropRecordsFor(const QString& uuid);

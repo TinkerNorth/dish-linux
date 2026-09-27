@@ -642,6 +642,9 @@ class AppViewModel : public QObject {
     void checkPathSettled();
     void checkBindReadback(const models::ControllerSlot& slot);
     const models::ControllerSlot* slotById(const QString& slotId) const;
+    // moonlightSession's two derived parts: which app the binding shows, and its ordinal.
+    void addMoonlightAppFields(QVariantMap& m, const QString& uuid) const;
+    int moonlightControllerOrdinal(const QString& slotId, int otherControllers) const;
 
     dish::AppModel* model_;
     SlotListModel slotModel_;

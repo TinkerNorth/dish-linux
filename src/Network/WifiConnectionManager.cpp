@@ -529,14 +529,15 @@ reducer::ApprovalReply WifiConnectionManager::approvalReplyOf(const models::Pair
     return ar;
 }
 
-// `status` carries the shared key the Approve arm needs, which is why the reply is passed on rather
-// than reduced to the action alone.
+// `sharedKeyHex` is what the Approve arm adopts; the reducer only says Approve when the reply
+// carried one, and value_or at the call site keeps that invariant local rather than asking a reader
+// to carry it across two files.
 void WifiConnectionManager::applyReverseAction(reducer::ReversePairingAction action,
-                                               const models::PairResponse& status,
+                                               const QString& sharedKeyHex,
                                                const models::DiscoveredServer& server) {
     switch (action) {
     case reducer::ReversePairingAction::Approve:
-        adoptReverseGrant(server, *status.sharedKey);
+        adoptReverseGrant(server, sharedKeyHex);
         break;
     case reducer::ReversePairingAction::Decline:
         emit connectionEvent(makeError(reverseDeclinedMsg()));
@@ -574,8 +575,8 @@ void WifiConnectionManager::onReverseStatusReply(const models::PairResponse& sta
     // Latched AFTER classifying, so the first pending answer is classified as the first one.
     if (reply.statusStr == "pending") { reverseSawPending_ = true; }
     applyReverseAction(
-        reducer::nextReversePairingAction(approval, reverseElapsedMs_, reverseDeadlineMs_), status,
-        server);
+        reducer::nextReversePairingAction(approval, reverseElapsedMs_, reverseDeadlineMs_),
+        status.sharedKey.value_or(QString()), server);
 }
 
 void WifiConnectionManager::pollReverseStatus() {
@@ -741,7 +742,7 @@ void WifiConnectionManager::onSessionReply(const QString& id,
         conn->markDisconnected();
         return;
     }
-    startSession(conn, server, client, resp, *material);
+    startSession(conn, server, client, *resp.connectionId, resp, *material);
     convergeLateSlots(conn, sentDescriptors);
 }
 
@@ -808,6 +809,7 @@ void WifiConnectionManager::onSessionVersionRefused(WifiConnection* conn,
 void WifiConnectionManager::startSession(WifiConnection* conn,
                                          const models::DiscoveredServer& server,
                                          const std::shared_ptr<SatelliteClient>& client,
+                                         const QString& connectionId,
                                          const models::SessionResponse& resp,
                                          const SessionMaterial& material) {
     const QString id = conn->id();
@@ -823,7 +825,7 @@ void WifiConnectionManager::startSession(WifiConnection* conn,
     lastFailure_.remove(id);
 
     conn->markConnected(
-        client, *resp.connectionId, resp.epoch, resp.mouseControl.granted,
+        client, connectionId, resp.epoch, resp.mouseControl.granted,
         /*onDead=*/
         [this, id, server] {
             disconnect(id);

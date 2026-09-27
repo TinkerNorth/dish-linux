@@ -236,6 +236,8 @@ void MoonlightSession::notifyFailure() {
     emit failed(token);
 }
 
+// One forward per effect the reducer can ask for. Long because the reducer names this many;
+// the switch is what the compiler checks when it gains one.
 void MoonlightSession::runEffect(moonlight::SessionEffect effect) {
     using moonlight::SessionEffect;
     switch (effect) {

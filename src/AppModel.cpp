@@ -1262,6 +1262,23 @@ void AppModel::republishStreamingCount(const QHash<QString, QString>& bindings) 
     streamingSlotCount_.set(nextStreaming);
 }
 
+// Topology rides REST with no per-add UDP ACK poll, so "busy" is a session in its Linking
+// handshake.
+bool AppModel::anySessionLinking() const {
+    for (const auto* conn : wifi_->connections()) {
+        if (conn->state() == net::SessionState::Linking) { return true; }
+    }
+    return false;
+}
+
+// Mute is a live control over a present pad: a departed slot's entry is dropped so a replugged
+// pad (which reuses its model-keyed id) comes back live, the way the hardware itself does.
+void AppModel::dropMuteForDepartedSlots() {
+    std::set<std::string> presentIds;
+    for (const auto& s : state_.slotList) { presentIds.insert(s.id.toStdString()); }
+    micMuteStore_.retainOnly(presentIds);
+}
+
 void AppModel::rebuild() {
     QList<models::ControllerSlot> next;
     // Every slot this pass SHOWS, with the USB identity of the pad behind it. Published before the
@@ -1285,25 +1302,10 @@ void AppModel::rebuild() {
     state_.slotList = std::move(next);
 
     syncInputRateDevices();
-
-    // Topology rides REST with no per-add UDP ACK poll, so "busy" is a session in its Linking
-    // handshake.
-    state_.busy = false;
-    for (auto* conn : wifi_->connections()) {
-        if (conn->state() == net::SessionState::Linking) {
-            state_.busy = true;
-            break;
-        }
-    }
-
+    state_.busy = anySessionLinking();
     republishRouting();
     republishStreamingCount(hub_->bindings());
-
-    // Mute is a live control over a present pad: a departed slot's entry is dropped so a replugged
-    // pad (which reuses its model-keyed id) comes back live, the way the hardware itself does.
-    std::set<std::string> presentIds;
-    for (const auto& s : state_.slotList) { presentIds.insert(s.id.toStdString()); }
-    micMuteStore_.retainOnly(presentIds);
+    dropMuteForDepartedSlots();
 
     // Every input the audio eligibility rules read funnels through this function (bindings,
     // session states, toggles via re-bind, the probe verdict via poolChanged, mute via

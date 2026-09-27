@@ -359,6 +359,8 @@ class AppModel : public QObject {
     void crossReferenceBindings(QList<models::ControllerSlot>& next);
     void republishRouting();
     void republishStreamingCount(const QHash<QString, QString>& bindings);
+    bool anySessionLinking() const;
+    void dropMuteForDepartedSlots();
     void onHubChanged();
     void onBridgeDevicesChanged();
     void onWifiEvent(const net::ConnectionEvent& evt);

@@ -153,8 +153,9 @@ class WifiConnectionManager : public QObject {
                           const models::SessionResponse& resp);
     void onSessionVersionRefused(WifiConnection* conn, const models::DiscoveredServer& server,
                                  ConnectIntent intent, const models::SessionResponse& resp);
+    // `connectionId` rides beside `resp` because onSessionReply is where its presence is checked.
     void startSession(WifiConnection* conn, const models::DiscoveredServer& server,
-                      const std::shared_ptr<SatelliteClient>& client,
+                      const std::shared_ptr<SatelliteClient>& client, const QString& connectionId,
                       const models::SessionResponse& resp, const SessionMaterial& material);
     void convergeLateSlots(WifiConnection* conn, const std::vector<reducer::DesiredSlot>& sent);
     // GET-then-maybe-rePUT, fired when the enriched ack drifts.
@@ -209,8 +210,7 @@ class WifiConnectionManager : public QObject {
                             const QString& pin, const models::PairResponse& response,
                             bool pinMismatch);
     static reducer::ApprovalReply approvalReplyOf(const models::PairResponse& status);
-    void applyReverseAction(reducer::ReversePairingAction action,
-                            const models::PairResponse& status,
+    void applyReverseAction(reducer::ReversePairingAction action, const QString& sharedKeyHex,
                             const models::DiscoveredServer& server);
     void onReverseStatusReply(const models::PairResponse& status, bool pinMismatch,
                               const models::DiscoveredServer& server);
