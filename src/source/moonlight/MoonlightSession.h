@@ -53,7 +53,7 @@ enum class MoonlightLinkState : std::uint8_t { Idle, Linking, Live, Failed };
 class MoonlightSession : public QObject {
     Q_OBJECT
   public:
-    // `http` is shared (one QNetworkAccessManager per manager); the session
+    // `http` is shared (one MoonlightHttp per manager); the session
     // borrows it. `controlStream` and `rtsp` are owned here.
     MoonlightSession(MoonlightHttp* http, repository::MoonlightHost host,
                      QObject* parent = nullptr);
