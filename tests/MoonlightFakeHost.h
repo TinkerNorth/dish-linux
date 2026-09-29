@@ -187,6 +187,8 @@ class FakeMoonlightHost : public QObject {
     // The active mask on the most recent CONTROLLER_MULTI, which is how a pad
     // says it has been unplugged.
     int lastActiveMask() const { return lastMask_.load(std::memory_order_relaxed); }
+    // PERIODIC_PING keepalives the client sealed and sent on the live link.
+    int keepalives() const { return keepalives_.load(std::memory_order_relaxed); }
 
     // ── What the host does to the session ───────────────────────────────────
     // THE ENET HOST BELONGS TO ITS SERVICE THREAD. Both endings are asked for
@@ -557,12 +559,16 @@ class FakeMoonlightHost : public QObject {
             if (!cipher_.hasKey()) { return; }
             opened = cipher_.open(data, len, plaintext.data(), plaintext.size());
         }
-        if (!opened || *opened < 12) { return; }
+        if (!opened || *opened < 2) { return; }
         const auto u16At = [&plaintext](std::size_t at) {
             return static_cast<std::uint16_t>(plaintext[at] |
                                               (static_cast<std::uint16_t>(plaintext[at + 1]) << 8));
         };
-        if (u16At(0) != moonproto::kPktInputData) { return; }
+        if (u16At(0) == moonproto::kPktPeriodicPing) {
+            keepalives_.fetch_add(1, std::memory_order_relaxed);
+            return;
+        }
+        if (u16At(0) != moonproto::kPktInputData || *opened < 12) { return; }
         // [pkt u16][len u16][data size u32 BE][input type u32 LE][body]
         const std::uint32_t inputType =
             static_cast<std::uint32_t>(u16At(8)) | (static_cast<std::uint32_t>(u16At(10)) << 16);
@@ -609,6 +615,7 @@ class FakeMoonlightHost : public QObject {
     std::atomic<bool> controlConnected_{false};
     std::atomic<int> arrivals_{0};
     std::atomic<int> lastMask_{-1};
+    std::atomic<int> keepalives_{0};
 };
 
 } // namespace dish::test

@@ -31,7 +31,9 @@
 #include <QSslSocket>
 #include <QString>
 
+#include <chrono>
 #include <memory>
+#include <thread>
 
 using namespace dish;
 using namespace dish::source::moon;
@@ -113,6 +115,20 @@ struct Rig {
 // The TLS half of the fixture needs a working backend; a Qt built without one
 // would fail every case here for a reason that has nothing to do with Dish.
 bool tlsAvailable() { return QSslSocket::supportsSsl(); }
+
+// Nothing the session owns on this thread runs until this returns: its timers
+// and its queued calls wait, the way they do behind a Qt thread that is stuck.
+void keepThisThreadBusy(std::chrono::milliseconds span) { std::this_thread::sleep_for(span); }
+
+// Six keepalive periods of a client that sends one every half second. Three is
+// the least that proves the keepalive is still being sent rather than that one
+// was in flight when the thread stopped, with room for a loaded machine.
+constexpr std::chrono::milliseconds kBusyFor{3000};
+constexpr int kHeardWhileBusyAtLeast = 3;
+
+// More than two keepalive periods: long enough that a keepalive still being sent
+// would have arrived.
+constexpr int kQuietAfterQuitMs = 1200;
 
 } // namespace
 
@@ -356,6 +372,44 @@ TEST_CASE("a forget hands the app back although the record has already gone", "[
     CHECK_FALSE(rig.repo->get(kHostId).has_value());
     CHECK_FALSE(rig.manager->knows(kHostId));
     CHECK(rig.manager->boundHostFor(QStringLiteral("pad-a")).isEmpty());
+}
+
+// ── Keeping the link alive ───────────────────────────────────────────────────
+//
+// A host ends a session whose control stream it has heard nothing on for its
+// ping timeout: Sunshine's is ten seconds, and ENet's own pings do not reset it,
+// only a control message does. The thread that owns a session here is the Qt
+// thread, and it can be busy, so what these cases watch is the host's ENet
+// listener, which hears the client on a thread of its own.
+
+TEST_CASE("a live session keeps the host hearing from it while its own thread is busy",
+          "[moonlight][wire][keepalive]") {
+    if (!tlsAvailable()) { SKIP("no TLS backend for the fixture host"); }
+    Rig rig;
+    REQUIRE(rig.host.listening());
+    REQUIRE(rig.bindLive(QStringLiteral("pad-a")));
+    REQUIRE(spinFor([&rig] { return rig.host.keepalives() > 0; }));
+
+    const int heardBefore = rig.host.keepalives();
+    keepThisThreadBusy(kBusyFor);
+    const int heardWhileBusy = rig.host.keepalives() - heardBefore;
+
+    CHECK(heardWhileBusy >= kHeardWhileBusyAtLeast);
+}
+
+TEST_CASE("a session that quits stops keeping its link alive", "[moonlight][wire][keepalive]") {
+    if (!tlsAvailable()) { SKIP("no TLS backend for the fixture host"); }
+    Rig rig;
+    REQUIRE(rig.host.listening());
+    REQUIRE(rig.bindLive(QStringLiteral("pad-a")));
+    REQUIRE(spinFor([&rig] { return rig.host.keepalives() > 0; }));
+
+    rig.manager->quitHostApp(kHostId);
+    REQUIRE(spinFor([&rig] { return !rig.host.controlConnected(); }));
+
+    const int heardAtQuit = rig.host.keepalives();
+    settle(kQuietAfterQuitMs);
+    CHECK(rig.host.keepalives() == heardAtQuit);
 }
 
 // ── The binding survives whatever the host does ──────────────────────────────

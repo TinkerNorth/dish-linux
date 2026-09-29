@@ -174,7 +174,7 @@ enum class SessionEffect : std::uint8_t {
     SendRtspAnnounce,
     SendRtspPlay,
     ConnectControl,  // ENet connect with the SETUP-provided port + connect data
-    StartStreaming,  // arrivals, RTP hole-punch pings, periodic control ping
+    StartStreaming,  // arrivals and RTP hole-punch pings
     SendTermination, // graceful TERMINATION before the disconnect
     Teardown,        // close ENet, RTSP and RTP sockets
     NotifyFailure,   // surface state.failure to the UI
