@@ -4,6 +4,7 @@
 #include "qml/AppSettingsMaps.h"
 
 #include "Input/SDLGamepadBridge.h"
+#include "core/model/Protocol.h"
 #include "repository/DeadzoneRepository.h"
 #include "source/store/MotionEnabledStore.h"
 #include "UI/licenses/LicenseManifest.h"
@@ -11,6 +12,31 @@
 #include <QVariantMap>
 
 namespace dish::qml {
+
+namespace {
+
+// The choices QML offers, each against the wire mode it is stored as. One table
+// read both ways, so the pick a choice stores and the choice a pick reads as
+// cannot drift apart. Off leads, because a mode outside the table reads as it.
+struct TouchpadChoice {
+    const char* token;
+    std::uint8_t mode;
+};
+
+constexpr TouchpadChoice kTouchpadChoices[] = {
+    {"off", proto::kTouchpadModeOff},
+    {"pad", proto::kTouchpadModeDs4},
+    {"mouse", proto::kTouchpadModeMouse},
+};
+
+QString touchpadChoiceForMode(std::uint8_t mode) {
+    for (const auto& known : kTouchpadChoices) {
+        if (known.mode == mode) { return QLatin1String(known.token); }
+    }
+    return QLatin1String(kTouchpadChoices[0].token);
+}
+
+} // namespace
 
 int themeModeToInt(source::ThemeMode mode) {
     switch (mode) {
@@ -74,6 +100,20 @@ QString keepAwakeReachToken(reducer::KeepAwakeReach reach) {
         break;
     }
     return QStringLiteral("off");
+}
+
+QString touchpadChoiceForPick(const std::optional<std::string>& pick) {
+    const std::uint8_t mode = proto::touchpadModeFromName(pick.value_or(std::string()));
+    return touchpadChoiceForMode(mode);
+}
+
+std::optional<std::string> touchpadPickForChoice(const QString& choice) {
+    for (const auto& known : kTouchpadChoices) {
+        if (choice == QLatin1String(known.token)) {
+            return std::string(proto::touchpadModeName(known.mode));
+        }
+    }
+    return std::nullopt;
 }
 
 QVariantMap deadzoneRowFor(const QString& deviceId, const QString& name, bool hasGyro,

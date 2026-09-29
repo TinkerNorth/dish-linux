@@ -7,12 +7,16 @@
 
 #include "qml/AppSettingsMaps.h"
 
+#include "core/model/Protocol.h"
+#include "core/reducer/TouchpadModeResolve.h"
 #include "repository/DeadzoneRepository.h"
 #include "repository/MotionPreferenceRepository.h"
+#include "repository/TouchpadModeRepository.h"
 #include "source/store/CrashReportingStore.h"
 #include "source/store/MotionEnabledStore.h"
 #include "source/store/OnboardingPreferenceStore.h"
 #include "source/store/ThemePreferenceStore.h"
+#include "source/store/TouchpadModeStore.h"
 #include "UI/licenses/LicenseManifest.h"
 
 #include "QSettingsFixture.h"
@@ -29,6 +33,8 @@
 #include <QVariantMap>
 
 #include <memory>
+#include <optional>
+#include <string>
 
 using dish::qml::deadzoneRowFor;
 using dish::qml::kDefaultDeadzoneStickFlat;
@@ -39,18 +45,28 @@ using dish::qml::keepAwakeReachToken;
 using dish::qml::licenseRows;
 using dish::qml::themeModeFromInt;
 using dish::qml::themeModeToInt;
+using dish::qml::touchpadChoiceForPick;
+using dish::qml::touchpadPickForChoice;
 using dish::reducer::KeepAwakeMode;
 using dish::reducer::KeepAwakeReach;
+using dish::reducer::resolveTouchpadMode;
 using dish::repository::DeadzoneRepository;
 using dish::repository::MotionPreferenceRepository;
+using dish::repository::TouchpadModeRepository;
 using dish::source::CrashReportingStore;
 using dish::source::MotionEnabledStore;
 using dish::source::OnboardingPreferenceStore;
 using dish::source::ThemeMode;
 using dish::source::ThemePreferenceStore;
+using dish::source::TouchpadModeStore;
 using dish::test::makeSharedSettings;
+namespace proto = dish::proto;
 
 namespace {
+
+const std::string kWireOff{proto::touchpadModeName(proto::kTouchpadModeOff)};
+const std::string kWireDs4{proto::touchpadModeName(proto::kTouchpadModeDs4)};
+const std::string kWireMouse{proto::touchpadModeName(proto::kTouchpadModeMouse)};
 
 // A unique temp INI, never the real HKCU registry.
 std::unique_ptr<QSettings> uniqueIniSettings(const char* tag) {
@@ -126,6 +142,52 @@ TEST_CASE("keepAwakeReachToken names the three reaches for QML", "[appvm][keepaw
     REQUIRE(keepAwakeReachToken(KeepAwakeReach::None) == QStringLiteral("off"));
     REQUIRE(keepAwakeReachToken(KeepAwakeReach::System) == QStringLiteral("system"));
     REQUIRE(keepAwakeReachToken(KeepAwakeReach::SystemAndDisplay) == QStringLiteral("display"));
+}
+
+TEST_CASE("the Pad choice stores the pick the runtime routes as the DS4 pad", "[appvm][touchpad]") {
+    const auto pick = touchpadPickForChoice(QStringLiteral("pad"));
+    REQUIRE(pick.has_value());
+    CHECK(resolveTouchpadMode(*pick, /*padHasTouchpad=*/true, /*typeOffersDs4=*/true,
+                              /*hostMouseControl=*/false) == proto::kTouchpadModeDs4);
+}
+
+TEST_CASE("a Pad choice survives a restart and still reads as Pad", "[appvm][touchpad]") {
+    auto settings = makeSharedSettings();
+    TouchpadModeRepository repo(settings);
+    TouchpadModeStore store(&repo);
+    const auto pick = touchpadPickForChoice(QStringLiteral("pad"));
+    REQUIRE(pick.has_value());
+    store.setMode("sat", *pick);
+
+    TouchpadModeRepository reopenedRepo(settings);
+    const TouchpadModeStore reopened(&reopenedRepo);
+    CHECK(touchpadChoiceForPick(reopened.modeFor("sat")) == QStringLiteral("pad"));
+}
+
+TEST_CASE("Off and Mouse choices are stored under their own wire names", "[appvm][touchpad]") {
+    CHECK(touchpadPickForChoice(QStringLiteral("off")) == std::optional<std::string>(kWireOff));
+    CHECK(touchpadPickForChoice(QStringLiteral("mouse")) == std::optional<std::string>(kWireMouse));
+}
+
+TEST_CASE("a choice this client does not know stores nothing", "[appvm][touchpad]") {
+    // QML speaks choices, never wire names: "ds4" arriving here is a caller bug.
+    CHECK_FALSE(touchpadPickForChoice(QStringLiteral("ds4")).has_value());
+    CHECK_FALSE(touchpadPickForChoice(QStringLiteral("Pad")).has_value());
+    CHECK_FALSE(touchpadPickForChoice(QString()).has_value());
+}
+
+TEST_CASE("a stored ds4 pick reads as the Pad choice", "[appvm][touchpad]") {
+    CHECK(touchpadChoiceForPick(kWireDs4) == QStringLiteral("pad"));
+}
+
+TEST_CASE("an off pick reads as Off", "[appvm][touchpad]") {
+    CHECK(touchpadChoiceForPick(kWireOff) == QStringLiteral("off"));
+}
+
+TEST_CASE("a stored pick this client cannot read reads as Off", "[appvm][touchpad]") {
+    // The repository rejects an unknown mode on write but not on read, so a
+    // hand-edited or corrupt blob can still hydrate one.
+    CHECK(touchpadChoiceForPick(std::string("banana")) == QStringLiteral("off"));
 }
 
 TEST_CASE("crash-reporting toggle forwards through the store", "[appvm][crash]") {

@@ -15,6 +15,8 @@
 #include <QVariantMap>
 
 #include <cstdint>
+#include <optional>
+#include <string>
 
 namespace dish::ui {
 struct LicenseManifest;
@@ -46,6 +48,14 @@ reducer::KeepAwakeMode keepAwakeModeFromInt(int value);
 
 // "off" | "system" | "display": how far the hold currently reaches.
 QString keepAwakeReachToken(reducer::KeepAwakeReach reach);
+
+// The Off / Pad / Mouse choice QML shows ("off" | "pad" | "mouse") for the pick
+// the per-satellite store holds, which is a wire name ("off" | "ds4" | "mouse").
+// A pick never made reads "off".
+QString touchpadChoiceForPick(const std::optional<std::string>& pick);
+
+// The pick a choice is stored as, or nullopt for a choice this client does not know.
+std::optional<std::string> touchpadPickForChoice(const QString& choice);
 
 // The profile the SDL bridge installs at attach; a row with no stored override
 // seeds from it, so the two must not drift.

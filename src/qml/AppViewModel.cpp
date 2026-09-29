@@ -1500,16 +1500,14 @@ QString AppViewModel::touchpadModeFor(const QString& connectionId) const {
     const auto pick = model_->touchpadModeStore()->modeFor(connectionId.toStdString());
     // No invented default: an unpicked host reads "off" and the resolve ladder
     // owns any richer behaviour on the wire.
-    return pick.has_value() ? QString::fromStdString(*pick) : QStringLiteral("off");
+    return touchpadChoiceForPick(pick);
 }
 
 void AppViewModel::setTouchpadMode(const QString& connectionId, const QString& mode) {
     if (connectionId.isEmpty()) { return; }
-    if (mode != QLatin1String("off") && mode != QLatin1String("pad") &&
-        mode != QLatin1String("mouse")) {
-        return; // unrecognised mode, forward-compat no-op
-    }
-    model_->touchpadModeStore()->setMode(connectionId.toStdString(), mode.toStdString());
+    const auto pick = touchpadPickForChoice(mode);
+    if (!pick.has_value()) { return; } // unrecognised mode, forward-compat no-op
+    model_->touchpadModeStore()->setMode(connectionId.toStdString(), *pick);
 }
 
 bool AppViewModel::motionEnabledFor(const QString& slotId) const {
