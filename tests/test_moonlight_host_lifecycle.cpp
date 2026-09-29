@@ -612,6 +612,34 @@ TEST_CASE("a host that answers unpaired while we remember one has lost the trust
     CHECK(moonlight::sessionUiState(inputs) == moonlight::SessionUiState::TrustLost);
 }
 
+TEST_CASE("a paired host is not called unpaired while its mutual-TLS answer is still out",
+          "[moonlight][lifecycle][h1]") {
+    // The plaintext half of a probe says the host is there. Its PairStatus is 0
+    // for every caller on Sunshine and on Wolf alike, so that half cannot say
+    // whether the pairing stands, and the row must not offer Pair over a host
+    // it has not heard from yet.
+    InfoHost fixture(serverInfo(QStringLiteral("host-uuid"), /*pairStatus=*/0));
+    REQUIRE(fixture.listening());
+    // Takes the mutual-TLS call and never answers it.
+    QTcpServer silentTls;
+    REQUIRE(silentTls.listen(QHostAddress::LocalHost, 0));
+
+    auto settings = test::makeSharedSettings();
+    repository::MoonlightHostRepository repo(settings);
+    auto host = hostAt(fixture);
+    host.httpsPort = static_cast<int>(silentTls.serverPort());
+    repo.upsert(host);
+    MoonlightManager manager(settings);
+    const QString uuid = QStringLiteral("host-uuid");
+
+    manager.probe(uuid);
+    REQUIRE(spinUntil([&silentTls] { return silentTls.hasPendingConnections(); }));
+
+    const auto inputs = manager.uiInputs(uuid, QString());
+    CHECK(moonlight::hostTrust(inputs) == moonlight::HostTrust::Remembered);
+    CHECK(moonlight::sessionUiState(inputs) == moonlight::SessionUiState::Checking);
+}
+
 TEST_CASE("a probe with nowhere to send it still finishes", "[moonlight][lifecycle]") {
     // probeFinished is what the host screen waits on for every row it re-asks
     // on open. A probe that returns without firing it parks that row on

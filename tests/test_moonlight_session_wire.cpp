@@ -201,6 +201,21 @@ TEST_CASE("a resume asks the host for stereo", "[moonlight][wire]") {
     CHECK(surroundAudioInfoOf(rig.host, QStringLiteral("/resume")) == kStereo);
 }
 
+TEST_CASE("a plaintext PairStatus of 0 does not unpair a host the mutual-TLS answer confirms",
+          "[moonlight][wire][h1]") {
+    // The fixture answers every plaintext caller PairStatus 0, as Sunshine and
+    // Wolf both do, and confirms the pairing over mutual TLS.
+    if (!tlsAvailable()) { SKIP("no TLS backend for the fixture host"); }
+    Rig rig;
+    REQUIRE(rig.host.listening());
+
+    REQUIRE(rig.probeHost());
+
+    const auto inputs = rig.manager->uiInputs(kHostId, QString());
+    CHECK(inputs.paired);
+    CHECK(moonlight::hostTrust(inputs) == moonlight::HostTrust::Paired);
+}
+
 TEST_CASE("a second binding joins the live session without one HTTP call",
           "[moonlight][wire][b8]") {
     if (!tlsAvailable()) { SKIP("no TLS backend for the fixture host"); }

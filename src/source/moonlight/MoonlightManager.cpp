@@ -380,10 +380,10 @@ void MoonlightManager::onPlainServerInfo(const QString& uuid, const ProbeTarget&
         finishProbe(uuid);
         return;
     }
-    result.answered = true;
     result.identityChanged =
         moonlight::hostIdentityChanged(target.rememberedUuid.toStdString(), info->uuid);
     if (!target.remembered || result.identityChanged) {
+        result.answered = true;
         result.inFlight = false;
         result.paired = false;
         qCInfo(lcMoon) << "probe of" << target.address << "answered; paired false identity"
@@ -391,6 +391,8 @@ void MoonlightManager::onPlainServerInfo(const QString& uuid, const ProbeTarget&
         finishProbe(uuid);
         return;
     }
+    // Not answered yet: the plaintext half says the host is there, and whether the pairing
+    // stands is the mutual-TLS half's to say.
     http_->getTls(
         target.address, target.httpsPort, QStringLiteral("/serverinfo"), QUrlQuery(),
         target.serverCertPem,
@@ -409,6 +411,7 @@ void MoonlightManager::onTlsServerInfo(const QString& uuid, const QString& addre
     }
     HostProbe& verdict = probes_[uuid];
     verdict.inFlight = false;
+    verdict.answered = true;
     const auto secure = status == 200 ? moonxml::parseServerInfo(body.toStdString())
                                       : std::optional<moonxml::ServerInfo>{};
     verdict.paired = secure && secure->pairStatus == 1;
