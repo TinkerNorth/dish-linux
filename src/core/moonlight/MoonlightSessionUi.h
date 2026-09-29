@@ -7,9 +7,10 @@
 // sentence, the same rule the capability solver and the link vocabulary follow.
 //
 // PAIRING IS NOT A CONNECTION. Moonlight has no bidirectional liveness: pairing
-// is one-time trust, checkable only client-initiated (/serverinfo PairStatus, or
-// a mutual-TLS handshake that succeeds, which is itself proof). A host never
-// notifies the client, and a host-side unpair is discovered on the next call.
+// is one-time trust, checkable only client-initiated (the mutual-TLS /serverinfo
+// PairStatus, or any mutual-TLS call that succeeds, which is itself proof). A
+// host never notifies the client, and a host-side unpair is discovered on the
+// next call.
 // So trust is REMEMBERED and VERIFIED LAZILY — on entering a screen and before
 // starting a session, never polled — and a Moonlight host never draws a live
 // connection light.
@@ -36,12 +37,12 @@ namespace dish::moonlight {
 // holds is the one that renders.
 enum class SessionUiState : std::uint8_t {
     Checking,       // probe in flight, nothing cached
-    NotPaired,      // answered, PairStatus 0, no stored server certificate
+    NotPaired,      // answered, with no pairing certificate on file
     PairingPin,     // a pairing attempt is live and the PIN is on screen
     PairingRefused, // the pairing attempt finished not-ok
     Unreachable,    // never answered, and nothing remembered
     Remembered,     // never answered, but the pairing is remembered
-    TrustLost,      // answered unpaired with a certificate stored, or a 401
+    TrustLost,      // no mutual-TLS answer confirmed the pairing on file, or a 401
     HostReplaced,   // the uniqueid differs from the remembered one
     AppsLoading,    // paired, no session of ours, /applist in flight
     NewSession,     // paired, no session of ours, the list is readable
@@ -71,7 +72,9 @@ struct SessionUiInputs {
     bool probeAnswered = false;
     // A server certificate is stored, so the pairing is remembered.
     bool remembered = false;
-    // Verified this visit: PairStatus 1, or a mutual-TLS call that succeeded.
+    // Verified this visit: PairStatus 1 on the mutual-TLS /serverinfo, or another
+    // mutual-TLS call that succeeded. Never the plaintext PairStatus, which is 0
+    // for every caller.
     bool paired = false;
     bool identityChanged = false;
     bool trustRejected = false;

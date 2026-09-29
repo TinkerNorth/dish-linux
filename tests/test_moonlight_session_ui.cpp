@@ -43,7 +43,7 @@ TEST_CASE("M1 checking: a probe in flight with nothing cached", "[moonlight][ui]
     CHECK(tokenOf(in) == "checking");
 }
 
-TEST_CASE("M2 not paired: answered, PairStatus 0, nothing remembered", "[moonlight][ui]") {
+TEST_CASE("M2 not paired: answered, with no pairing on file", "[moonlight][ui]") {
     SessionUiInputs in;
     in.probeAttempted = true;
     in.probeAnswered = true;
@@ -212,7 +212,7 @@ TEST_CASE("a host nobody has asked yet is checking, never silent", "[moonlight][
     CHECK(sessionUiState(untouched) == SessionUiState::Checking);
 }
 
-TEST_CASE("M7 trust lost: answered unpaired with a certificate stored", "[moonlight][ui]") {
+TEST_CASE("M7 trust lost: the pairing on file is not confirmed, or a 401", "[moonlight][ui]") {
     SessionUiInputs in;
     in.probeAttempted = true;
     in.probeAnswered = true;
