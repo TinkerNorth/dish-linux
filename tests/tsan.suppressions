@@ -13,27 +13,6 @@ called_from_lib:libQt6Core.so
 called_from_lib:libQt6DBus.so
 # The HTTP thread QNetworkAccessManager runs the manifest fetch on.
 called_from_lib:libQt6Network.so
-# The TLS stack is uninstrumented too, and it works on both sides of a thread
-# boundary of QNetworkAccessManager's own making: its HTTP thread runs the
-# handshake and parses the peer certificate inside OpenSSL, then hands the
-# certificate to the owner thread through a queued signal, whose ordering is
-# a QMutex and an eventfd inside Qt that TSan cannot see. Every read of that
-# certificate on the owner thread, the TOFU pin check first of all, then
-# reports as a race inside libcrypto: i2d reading the encoding that d2i
-# cached on the other thread. First seen when test_pairing_wire became the
-# first test to drive TLS under this lane; every HTTPClient call has always
-# crossed this boundary.
-# The three are listed together on purpose. libcrypto alone (2026-09-23) hid
-# this and surfaced the plugin's own new on one thread and delete on the other
-# as races in Moonlight session tests that had passed before.
-# Caveat: a race whose ONLY witness is inside the TLS stack, two threads
-# driving one QSslSocket say, is hidden too. First-party accesses still report,
-# and libsodium, SDL and every other library stay visible.
-# Interim: the fix that needs none of these is a transport that does not cross
-# a thread (D:\TinkerNorth\DISH_TLS_TRANSPORT_PROMPT.md, outside the repo).
-called_from_lib:libqopensslbackend.so
-called_from_lib:libssl.so
-called_from_lib:libcrypto.so
 # Qt 6.9 reimplemented QWaitCondition over std::condition_variable, so a Qt
 # thread handoff now enters the interceptor through libstdc++'s out-of-line
 # condition_variable::wait instead of a libQt6* frame, and the lines above no
