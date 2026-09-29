@@ -4565,6 +4565,10 @@
         <translation>Le satellite a accepté, mais la liaison de la manette n&apos;a pas pu s&apos;ouvrir. Réessayez.</translation>
     </message>
     <message>
+        <source>This satellite&apos;s address is IPv6, and a satellite can only be reached over IPv4.</source>
+        <translation>L&apos;adresse de ce satellite est en IPv6, et un satellite n&apos;est joignable qu&apos;en IPv4.</translation>
+    </message>
+    <message>
         <source>This satellite no longer recognizes this device. Re-pair needed.</source>
         <translation>Ce satellite ne reconnaît plus cet appareil. Un nouvel appairage est nécessaire.</translation>
     </message>

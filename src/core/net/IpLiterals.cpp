@@ -184,4 +184,6 @@ bool isPrivateHostLiteral(const std::string& host) {
     return false; // not a literal -> not private
 }
 
+bool isIpv6Address(const std::string& host) { return host.find(':') != std::string::npos; }
+
 } // namespace dish::net

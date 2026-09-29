@@ -4565,6 +4565,10 @@
         <translation>El satélite aceptó, pero el enlace del mando no se pudo abrir. Vuelve a intentarlo.</translation>
     </message>
     <message>
+        <source>This satellite&apos;s address is IPv6, and a satellite can only be reached over IPv4.</source>
+        <translation>La dirección de este satélite es IPv6, y un satélite solo se puede alcanzar por IPv4.</translation>
+    </message>
+    <message>
         <source>This satellite no longer recognizes this device. Re-pair needed.</source>
         <translation>Este satélite ya no reconoce este dispositivo. Hay que volver a emparejarlo.</translation>
     </message>

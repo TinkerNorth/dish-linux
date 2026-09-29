@@ -34,6 +34,13 @@ the repos share a version number.
 - Disconnect cancels a silent reconnect still waiting out its backoff. A retry
   armed by an earlier failed background attempt used to fire after the user's
   Disconnect, find the row idle and dial the satellite again.
+- An IPv6 satellite address is refused before any request goes out, with a
+  message saying a satellite is reached over IPv4 only. Satellite binds IPv4
+  alone, so such an address could never reach it. The PIN and
+  reverse pairing requests now pass the same address check as a connect, so
+  neither goes to a public address either.
+- The controller socket refuses a UDP port outside 1 to 65535 instead of
+  wrapping it to another port.
 
 ## [2.1.0] - 2026-09-21
 

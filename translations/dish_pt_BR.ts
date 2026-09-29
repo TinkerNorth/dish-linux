@@ -4565,6 +4565,10 @@
         <translation>O satélite aceitou, mas o link do controle não abriu. Tente novamente.</translation>
     </message>
     <message>
+        <source>This satellite&apos;s address is IPv6, and a satellite can only be reached over IPv4.</source>
+        <translation>O endereço deste satélite é IPv6, e um satélite só pode ser alcançado por IPv4.</translation>
+    </message>
+    <message>
         <source>This satellite no longer recognizes this device. Re-pair needed.</source>
         <translation>Este satélite não reconhece mais este dispositivo. É preciso parear de novo.</translation>
     </message>

@@ -4565,6 +4565,10 @@
         <translation>Der Satellit hat zugestimmt, aber die Controller-Verbindung ließ sich nicht öffnen. Versuche es erneut.</translation>
     </message>
     <message>
+        <source>This satellite&apos;s address is IPv6, and a satellite can only be reached over IPv4.</source>
+        <translation>Die Adresse dieses Satelliten ist IPv6, und ein Satellit ist nur über IPv4 erreichbar.</translation>
+    </message>
+    <message>
         <source>This satellite no longer recognizes this device. Re-pair needed.</source>
         <translation>Dieser Satellit erkennt dieses Gerät nicht mehr. Eine erneute Kopplung ist nötig.</translation>
     </message>

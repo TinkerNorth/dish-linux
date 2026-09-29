@@ -4586,6 +4586,10 @@
         <translation>Satelit je prihvatio, ali veza kontrolera se nije mogla otvoriti. Pokušajte ponovo.</translation>
     </message>
     <message>
+        <source>This satellite&apos;s address is IPv6, and a satellite can only be reached over IPv4.</source>
+        <translation>Adresa ovog satelita je IPv6, a satelit je dostupan samo preko IPv4.</translation>
+    </message>
+    <message>
         <source>This satellite no longer recognizes this device. Re-pair needed.</source>
         <translation>Ovaj satelit više ne prepoznaje ovaj uređaj. Potrebno je ponovo uparivanje.</translation>
     </message>

@@ -25,6 +25,10 @@ using util::readU16Be;
 namespace {
 constexpr std::size_t kAuthTag = 16;   // Poly1305 tag appended by the AEAD
 constexpr std::size_t kHeaderSize = 8; // token(4) + counter(4)
+// The ports a UDP destination can carry. Outside them the 16-bit cast below would wrap to a
+// port nobody asked for.
+constexpr int kLowestPort = 1;
+constexpr int kHighestPort = 65535;
 
 std::int64_t nowSteadyUs() {
     return std::chrono::duration_cast<std::chrono::microseconds>(
@@ -44,6 +48,8 @@ SatelliteClient::SatelliteClient() {
 SatelliteClient::~SatelliteClient() { closeSocket(); }
 
 bool SatelliteClient::openSocket(const std::string& ip, int port) {
+    const bool portIsUsable = port >= kLowestPort && port <= kHighestPort;
+    if (!portIsUsable) { return false; }
     const int s = ::socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
     if (s < 0) { return false; }
 

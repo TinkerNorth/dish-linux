@@ -201,6 +201,12 @@ class WifiConnectionManager : public QObject {
                     std::uint64_t generation);
 
     void emitErrorIfUserInitiated(ConnectIntent intent, const QString& message);
+    // The addresses no request may go to: an IPv6 one, which the IPv4-only satellite can never
+    // answer, and a public one. True when refused, with the error already raised.
+    bool refusesAddress(const models::DiscoveredServer& server, ConnectIntent intent);
+    // Every user action on a satellite starts its reconnect story over: the backoff and the
+    // logged cause.
+    void clearForUserAction(const QString& id);
     void markStale(const QString& id);
 
     // One pairStatus round-trip, fed with the elapsed clock through

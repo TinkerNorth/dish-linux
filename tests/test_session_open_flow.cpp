@@ -43,6 +43,10 @@ const QString kSessionPath = QStringLiteral("/api/connections");
 const QString kGrantedSessionPath = QStringLiteral("/api/connections/c-1");
 // Past the first silent retry's backoff (reducer::backoffDelayMs(1), one second), with room.
 constexpr int kPastFirstRetryMs = 2500;
+// Long enough for a request the manager should not have sent to reach the listener.
+constexpr int kNothingFollowsMs = 500;
+// A UDP port the controller socket refuses, where the REST port is fine.
+constexpr int kUnusableUdpPort = 0;
 
 // Every session PUT is answered with `status` and `body`; anything else is granted.
 std::function<PairingAnswer(const SeenRequest&)> answeringSessions(int status, QJsonObject body) {
@@ -132,9 +136,8 @@ TEST_CASE("session open: material that does not decode never goes live, and is h
 TEST_CASE("session open: a grant whose controller socket will not open is handed back, and a "
           "user tap hears why",
           "[wifi][session]") {
-    // The controller socket is IPv4 only, so a satellite reached over IPv6 is granted a session
-    // this end cannot carry. It is the portable way to make the socket refuse.
-    ManagerRig rig(QHostAddress::LocalHostIPv6);
+    ManagerRig rig;
+    rig.server.udpPort = kUnusableUdpPort;
     REQUIRE(rig.listener.listening());
     rig.listener.respond = dish::test::grantingEverything;
     keyed(rig);
@@ -152,7 +155,8 @@ TEST_CASE("session open: a grant whose controller socket will not open is handed
 TEST_CASE("session open: a silent grant whose socket will not open is handed back, without a "
           "word or a retry",
           "[wifi][session]") {
-    ManagerRig rig(QHostAddress::LocalHostIPv6);
+    ManagerRig rig;
+    rig.server.udpPort = kUnusableUdpPort;
     REQUIRE(rig.listener.listening());
     rig.listener.respond = dish::test::grantingEverything;
     keyed(rig);
@@ -292,4 +296,64 @@ TEST_CASE("session retry: a silent failure after the disconnect still retries",
         [&] { return rig.listener.seen(kSessionPath) == 2 && inState(rig, SessionState::Stale); }));
 
     CHECK(spinFor([&] { return rig.listener.seen(kSessionPath) == 3; }));
+}
+
+TEST_CASE("connect guard: an IPv6 satellite is refused before any request, and a user tap hears "
+          "why",
+          "[wifi][session][ipv6]") {
+    // The satellite binds IPv4 only, for REST, the controller link and discovery alike, so an
+    // IPv6 address could never reach it. The listener here answers on IPv6 loopback all the same.
+    ManagerRig rig(QHostAddress::LocalHostIPv6);
+    REQUIRE(rig.listener.listening());
+    rig.listener.respond = dish::test::grantingEverything;
+    keyed(rig);
+
+    rig.wifi->connectTo(rig.server, ConnectIntent::UserInitiated);
+    settle(kNothingFollowsMs);
+
+    CHECK(rig.listener.requests().empty());
+    CHECK(rig.errors() == 1);
+    CHECK(connection(rig) == nullptr);
+}
+
+TEST_CASE("connect guard: a silent reconnect to an IPv6 satellite is refused without a word",
+          "[wifi][session][ipv6]") {
+    ManagerRig rig(QHostAddress::LocalHostIPv6);
+    REQUIRE(rig.listener.listening());
+    rig.listener.respond = dish::test::grantingEverything;
+    keyed(rig);
+
+    rig.wifi->connectTo(rig.server, ConnectIntent::AutoReconnect);
+    settle(kNothingFollowsMs);
+
+    CHECK(rig.listener.requests().empty());
+    CHECK(rig.errors() == 0);
+}
+
+TEST_CASE("pairing guard: a PIN pair to an IPv6 satellite is refused before the PIN is sent",
+          "[wifi][pairing][ipv6]") {
+    ManagerRig rig(QHostAddress::LocalHostIPv6);
+    REQUIRE(rig.listener.listening());
+    rig.listener.respond = dish::test::grantingEverything;
+
+    rig.wifi->pairWithPin(rig.server, QStringLiteral("1234"));
+    settle(kNothingFollowsMs);
+
+    CHECK(rig.listener.requests().empty());
+    CHECK(rig.errors() == 1);
+    CHECK_FALSE(rig.wifi->isPairingInFlight(rig.server.id()));
+}
+
+TEST_CASE("pairing guard: a reverse pair to an IPv6 satellite is refused before a PIN is shown",
+          "[wifi][pairing][ipv6]") {
+    ManagerRig rig(QHostAddress::LocalHostIPv6);
+    REQUIRE(rig.listener.listening());
+    rig.listener.respond = dish::test::grantingEverything;
+
+    rig.wifi->requestReversePairing(rig.server);
+    settle(kNothingFollowsMs);
+
+    CHECK(rig.listener.requests().empty());
+    CHECK(rig.errors() == 1);
+    CHECK(rig.wifi->reversePairingPhase() == dish::net::ReversePairingPhase::Idle);
 }

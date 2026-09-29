@@ -132,6 +132,12 @@ QString linkFailedMsg() {
         "The satellite accepted, but the controller link would not open. Try again.");
 }
 
+QString ipv6Msg() {
+    return QCoreApplication::translate(
+        "dish::net::WifiConnectionManager",
+        "This satellite's address is IPv6, and a satellite can only be reached over IPv4.");
+}
+
 QString rePairMsg() {
     return QCoreApplication::translate(
         "dish::net::WifiConnectionManager",
@@ -323,21 +329,36 @@ WifiConnectionManager::credentialsFor(const QString& id) const {
     return creds;
 }
 
-void WifiConnectionManager::connectTo(const models::DiscoveredServer& server,
-                                      ConnectIntent intent) {
+bool WifiConnectionManager::refusesAddress(const models::DiscoveredServer& server,
+                                           ConnectIntent intent) {
+    const std::string host = server.ip.toStdString();
+    // The satellite binds IPv4 only, for REST, the controller link and discovery alike. A silent
+    // intent stays quiet, as every background failure does.
+    if (isIpv6Address(host)) {
+        emitErrorIfUserInitiated(intent, ipv6Msg());
+        return true;
+    }
     // Satellites are LAN-only by definition, so a public literal here means a
     // spoofed beacon or a poisoned remembered entry. Dialing it would leak the
     // deviceId and hmacProof to an arbitrary internet host.
-    if (!isPrivateHostLiteral(server.ip.toStdString())) {
+    if (!isPrivateHostLiteral(host)) {
         emit connectionEvent(
             makeError(tr("Refusing to connect to a non-local address (%1).").arg(server.ip)));
-        return;
+        return true;
     }
+    return false;
+}
+
+void WifiConnectionManager::clearForUserAction(const QString& id) {
+    retryAttempts_.remove(id);
+    lastFailure_.remove(id);
+}
+
+void WifiConnectionManager::connectTo(const models::DiscoveredServer& server,
+                                      ConnectIntent intent) {
+    if (refusesAddress(server, intent)) { return; }
     auto* conn = ensureConnection(server);
-    if (intent == ConnectIntent::UserInitiated) {
-        retryAttempts_.remove(conn->id());
-        lastFailure_.remove(conn->id());
-    }
+    if (intent == ConnectIntent::UserInitiated) { clearForUserAction(conn->id()); }
     if (conn->state() == SessionState::Live || conn->state() == SessionState::Linking) {
         conn->updateServer(server);
         return;
@@ -356,9 +377,9 @@ void WifiConnectionManager::connectTo(const models::DiscoveredServer& server,
 
 void WifiConnectionManager::pairWithPin(const models::DiscoveredServer& server,
                                         const QString& pin) {
+    if (refusesAddress(server, ConnectIntent::UserInitiated)) { return; }
     auto* conn = ensureConnection(server);
-    retryAttempts_.remove(conn->id());
-    lastFailure_.remove(conn->id());
+    clearForUserAction(conn->id());
     if (conn->state() == SessionState::Live) { return; }
     conn->updateServer(server);
     conn->markConnecting();
@@ -506,10 +527,10 @@ void WifiConnectionManager::onReversePairReply(const QString& id,
 void WifiConnectionManager::requestReversePairing(const models::DiscoveredServer& server) {
     // A fresh request supersedes any in-flight one and clears a previous attempt's terminal arm.
     cancelReversePairing();
+    if (refusesAddress(server, ConnectIntent::UserInitiated)) { return; }
 
     auto* conn = ensureConnection(server);
-    retryAttempts_.remove(conn->id());
-    lastFailure_.remove(conn->id());
+    clearForUserAction(conn->id());
     conn->updateServer(server);
     armReverseAttempt(server);
 

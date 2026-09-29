@@ -73,3 +73,21 @@ TEST_CASE("close + heartbeat handler installation is null-safe", "[satellite][se
     c.setLightbarHandler([](const SatelliteClient::LightbarMessage&) {});
     SUCCEED();
 }
+
+TEST_CASE("openSocket refuses a port outside 1..65535 rather than truncate it",
+          "[satellite][session]") {
+    // htons of a 16-bit cast would turn 65536 into 0 and 65537 into 1: a socket keyed at a port
+    // nobody asked for.
+    SatelliteClient zero;
+    CHECK_FALSE(zero.openSocket("127.0.0.1", 0));
+    CHECK_FALSE(zero.isOpen());
+    SatelliteClient negative;
+    CHECK_FALSE(negative.openSocket("127.0.0.1", -1));
+    SatelliteClient tooHigh;
+    CHECK_FALSE(tooHigh.openSocket("127.0.0.1", 65536));
+
+    SatelliteClient lowest;
+    CHECK(lowest.openSocket("127.0.0.1", 1));
+    SatelliteClient highest;
+    CHECK(highest.openSocket("127.0.0.1", 65535));
+}
