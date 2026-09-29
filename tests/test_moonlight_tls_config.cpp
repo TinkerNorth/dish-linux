@@ -6,9 +6,9 @@
 // identity forward instead of asking for the certificate again, so a Moonlight
 // host's verify callback never runs, and Sunshine answers that with a fatal
 // internal_error alert (RFC 8446 alert 80) and no log line at all, at TLS 1.2 as
-// well as 1.3. Qt shares and persists sessions across the connections one
-// QNetworkAccessManager makes, which is exactly the shape that triggers it, so
-// every switch is pinned here rather than left to a future refactor.
+// well as 1.3. Qt keeps a session to offer again wherever a configuration lets
+// it, and one reused configuration is all that takes, so every switch is pinned
+// here rather than left to a future refactor.
 
 #include "source/moonlight/MoonlightHttp.h"
 
@@ -43,10 +43,10 @@ TEST_CASE("the mutual-TLS configuration never offers a session to resume", "[moo
 }
 
 TEST_CASE("peer verification is off because trust is the pairing pin", "[moonlight][tls]") {
-    // Both ends are self-signed, so chain verification can only fail. The reply
-    // handler compares the presented certificate against the one the pairing
-    // handshake verified and reports a mismatch as unreachable, which is the
-    // trust decision this replaces.
+    // Both ends are self-signed, so chain verification can only fail. The
+    // presented certificate is compared against the one the pairing handshake
+    // verified before the request is written, and a mismatch is reported as
+    // unreachable, which is the trust decision this replaces.
     const QSslConfiguration ssl = MoonlightHttp::tlsConfiguration(QString(), QString());
     CHECK(ssl.peerVerifyMode() == QSslSocket::VerifyNone);
 }

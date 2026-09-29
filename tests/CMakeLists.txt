@@ -43,6 +43,7 @@ set(DISH_TEST_SOURCES
     test_moonlight_discovery.cpp
     test_moonlight_session_wire.cpp
     test_moonlight_pairing_wire.cpp
+    test_moonlight_http_wire.cpp
     test_atomic_counter.cpp
     test_hex.cpp
     test_endian.cpp
