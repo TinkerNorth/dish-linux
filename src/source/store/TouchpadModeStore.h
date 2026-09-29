@@ -4,21 +4,7 @@
 // TouchpadModeStore — a StateSource over the per-satellite touchpad-mode pick:
 // satelliteId -> wire mode string ("off" | "ds4" | "mouse"). It bridges the
 // durable TouchpadModeRepository (the source of truth across launches) with a
-// reactive in-memory Observable<map> the TouchpadModeComposer reads. Mirrors
-// dish-android source/store/TouchpadModeStore (an
-// AbstractStateSource<Map<String,String>> over the same repo). Header-only.
-//
-// Behaviour the android tests pin and this preserves:
-//   * Hydrates its state from repo.all() on construction.
-//   * setMode(satelliteId, mode) persists to the repo AND republishes state.
-//   * forget(satelliteId) removes from BOTH the repo and the state (cascade
-//     forget, e.g. when a satellite is unpaired).
-//   * modeFor(satelliteId) returns nullopt for a satellite the user has never
-//     picked for — "never picked" is DISTINCT from "off", and the resolve
-//     ladder (not this store) collapses absence to the pair-time default.
-// A same-value setMode still writes through to the repo but the Observable's
-// == compare suppresses the redundant re-emit; forget of an absent satellite
-// short-circuits the state write entirely.
+// reactive in-memory Observable<map>. Header-only.
 
 #pragma once
 
@@ -46,8 +32,8 @@ class TouchpadModeStore : public arch::StateSource<TouchpadModeMap> {
     explicit TouchpadModeStore(repository::TouchpadModeRepository* repo)
         : arch::StateSource<TouchpadModeMap>(hydrate(repo)), repo_(repo) {}
 
-    // The pick for a satellite, or nullopt when the user never picked one —
-    // no invented default here (the resolve ladder owns the collapse to off).
+    // The pick for a satellite, or nullopt when the user never picked one: no
+    // invented default here, because each caller decides what absence means.
     std::optional<std::string> modeFor(const std::string& satelliteId) const {
         const auto& snapshot = state().value();
         const auto it = snapshot.find(satelliteId);
