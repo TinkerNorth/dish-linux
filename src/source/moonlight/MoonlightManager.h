@@ -125,9 +125,10 @@ class MoonlightManager : public QObject {
     void forget(const QString& uuid);
 
     // Tells a paired host to end whatever app it is running, tearing down our
-    // own session first when we hold one. The protocol's own way out of "an app
-    // is already running", and the only one when the host will not hand that
-    // session over. /cancel answers 200 either way, so this re-probes after.
+    // own session first when one is under way or up. The protocol's own way out
+    // of "an app is already running", and the only one when the host will not
+    // hand that session over. /cancel answers 200 either way, so this re-probes
+    // after.
     void quitHostApp(const QString& uuid);
 
     void setLastApp(const QString& uuid, const QString& appId, const QString& appName);

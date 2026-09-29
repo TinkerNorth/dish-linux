@@ -763,9 +763,13 @@ void MoonlightManager::quitHostApp(const QString& uuid) {
         return;
     }
     // Our own session first: tearing it down hands the app back through the
-    // same /cancel, and leaving it live would race the request.
+    // same /cancel, and leaving it live would race the request. A session at
+    // rest holds nothing of ours, whether it never started or failed (the host
+    // refused it for somebody else's app, or a live link dropped and was torn
+    // down): the bare /cancel is then the whole of the act.
     if (auto* session = sessions_.value(uuid, nullptr)) {
-        if (session->machineState().phase != moonlight::SessionPhase::Idle) {
+        const bool attemptOfOurs = !moonlight::sessionNeedsStart(session->machineState().phase);
+        if (attemptOfOurs) {
             session->stop(/*handBackApp=*/true);
             emit hostAppCancelled(uuid, true);
             probe(uuid);

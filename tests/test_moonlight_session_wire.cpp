@@ -430,6 +430,33 @@ TEST_CASE("an explicit quit closes the app and then asks the host again",
     CHECK(rig.manager->row(kHostId)->controllers == 0);
 }
 
+TEST_CASE("closing the app another device is running asks the host to close it",
+          "[moonlight][wire][b10][b16]") {
+    // The one action the in-use state offers. The host refused our /launch
+    // because somebody else's app is running, so nothing of ours is there to
+    // tear down and the /cancel is the whole of the act.
+    if (!tlsAvailable()) { SKIP("no TLS backend for the fixture host"); }
+    Rig rig;
+    REQUIRE(rig.host.listening());
+    rig.host.launchOk = false;
+    rig.manager->bindController(QStringLiteral("pad-a"), kHostId, moonproto::kControllerTypeAuto,
+                                plainPad());
+    REQUIRE(spinFor([&rig] {
+        auto* session = rig.manager->session(kHostId);
+        return session != nullptr &&
+               session->machineState().phase == moonlight::SessionPhase::Failed;
+    }));
+    REQUIRE(rig.probeHost());
+    REQUIRE(rig.uiFor(QStringLiteral("pad-a")) == moonlight::SessionUiState::BusyOther);
+    rig.host.forgetRequests();
+
+    rig.manager->quitHostApp(kHostId);
+
+    CHECK(spinFor([&rig] { return rig.host.seen(QStringLiteral("/cancel")) == 1; }, 5000));
+    // And the host is asked again, because the answer to /cancel proves nothing.
+    CHECK(spinFor([&rig] { return rig.host.seen(QStringLiteral("/serverinfo")) >= 1; }, 5000));
+}
+
 TEST_CASE("a forget hands the app back although the record has already gone",
           "[moonlight][wire][b6][b20]") {
     if (!tlsAvailable()) { SKIP("no TLS backend for the fixture host"); }
