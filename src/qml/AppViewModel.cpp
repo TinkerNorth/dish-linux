@@ -1380,8 +1380,8 @@ QVariantList AppViewModel::capabilityForCandidate(const QString& slotId, int typ
         in.typeRumble = reducer::isFeatureOffered(*typeDto, catalog::kFeatureRumble, known);
         in.typeLightbar = reducer::isFeatureOffered(*typeDto, catalog::kFeatureLightbar, known);
         // The audio slugs ride their own whitelist: they are protocol-2
-        // vocabulary and deliberately not in knownFeatureSlugs(), which the
-        // protocol-1 caps gate owns (see BundledCatalog.h).
+        // vocabulary and deliberately not in knownFeatureSlugs(), the
+        // protocol-1 vocabulary (see BundledCatalog.h).
         const auto audioSlugs = catalog::audioFeatureSlugs();
         in.typeMic = reducer::isFeatureOffered(*typeDto, catalog::kFeatureMic, audioSlugs);
         in.typeSpeaker = reducer::isFeatureOffered(*typeDto, catalog::kFeatureSpeaker, audioSlugs);
