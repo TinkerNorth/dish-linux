@@ -21,6 +21,7 @@ set(DISH_TEST_SOURCES
     test_kernel.cpp
     test_async_state.cpp
     test_session_crypto.cpp
+    test_http_framing.cpp
     test_moonlight_wire.cpp
     test_moonlight_touch_differ.cpp
     test_moonlight_telemetry.cpp

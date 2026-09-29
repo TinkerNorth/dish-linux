@@ -161,6 +161,8 @@ set(DISH_CORE_SOURCES
     src/core/AsyncState.h
     src/core/wire/SessionCrypto.h
     src/core/wire/SessionCrypto.cpp
+    src/core/wire/HttpFraming.h
+    src/core/wire/HttpFraming.cpp
     # Moonlight (Sunshine/Apollo/Wolf) host protocol: the Qt-free core.
     src/core/moonlight/MoonlightProtocol.h
     src/core/moonlight/MoonlightWire.h
