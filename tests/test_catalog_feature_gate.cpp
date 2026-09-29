@@ -33,9 +33,11 @@ namespace proto = dish::proto;
 
 using dish::models::CatalogDto;
 using dish::models::CatalogFeatureDto;
+using dish::models::CatalogHostFeatureDto;
 using dish::models::CatalogTypeDto;
 using dish::reducer::allowedCapsForType;
 using dish::reducer::declaredTouchpadMode;
+using dish::reducer::hostAdvertisesMouseControl;
 
 namespace {
 
@@ -96,6 +98,12 @@ CatalogDto catalogOf(std::initializer_list<CatalogTypeDto> types) {
     CatalogDto out;
     for (const auto& type : types) { out.controllerTypes.append(type); }
     return out;
+}
+
+CatalogHostFeatureDto advertisedHostFeature() {
+    CatalogHostFeatureDto feature;
+    feature.supported = true;
+    return feature;
 }
 
 } // namespace
@@ -204,6 +212,33 @@ TEST_CASE("declared touchpad: a host never picked for declares the pad render",
     const auto catalog = catalogOf({catalogType(proto::kControllerTypePlayStation, true)});
     CHECK(declaredTouchpadMode(std::nullopt, true, proto::kControllerTypePlayStation, catalog) ==
           proto::kTouchpadModeDs4);
+}
+
+TEST_CASE("declared touchpad: a Mouse pick declares off where the host advertises mouse control",
+          "[catalog][touchpad-declared]") {
+    // What a binding already stored as Mouse does: the ladder never falls back
+    // to the pad render, and this client does not route the mouse, so it
+    // declares off and requests no mouse control.
+    auto served = catalogOf({catalogType(proto::kControllerTypePlayStation, true)});
+    served.hostFeatures.insert(catalog::kHostFeatureMouseControl, advertisedHostFeature());
+    const std::optional<std::string> mousePick{
+        std::string(proto::touchpadModeName(proto::kTouchpadModeMouse))};
+    CHECK(declaredTouchpadMode(mousePick, true, proto::kControllerTypePlayStation, served) ==
+          proto::kTouchpadModeOff);
+}
+
+TEST_CASE("host mouse control: advertised only by a supported mouseControl feature",
+          "[catalog][mouse]") {
+    QHash<QString, CatalogHostFeatureDto> features;
+    CHECK_FALSE(hostAdvertisesMouseControl(features));
+
+    CatalogHostFeatureDto refused;
+    refused.supported = false;
+    features.insert(catalog::kHostFeatureMouseControl, refused);
+    CHECK_FALSE(hostAdvertisesMouseControl(features));
+
+    features.insert(catalog::kHostFeatureMouseControl, advertisedHostFeature());
+    CHECK(hostAdvertisesMouseControl(features));
 }
 
 TEST_CASE("declared touchpad: a pad without a touchpad declares off",

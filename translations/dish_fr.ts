@@ -234,6 +234,10 @@
         <translation>%1 n&apos;a pas de %2.</translation>
     </message>
     <message>
+        <source>Dish can’t use the touchpad as a mouse.</source>
+        <translation>Dish ne peut pas utiliser le pavé tactile comme souris.</translation>
+    </message>
+    <message>
         <source>The driver this controller is on can’t drive it.</source>
         <translation>Le pilote de cette manette ne peut pas le piloter.</translation>
     </message>
@@ -3859,6 +3863,10 @@
     <message>
         <source>Send the touchpad as a touchpad, or route it as a mouse.</source>
         <translation>Envoie le pavé tactile en tant que pavé, ou le redirige comme souris.</translation>
+    </message>
+    <message>
+        <source>Forwards this pad’s touchpad to the game as a touchpad.</source>
+        <translation>Transmet le pavé tactile de cette manette au jeu comme pavé tactile.</translation>
     </message>
     <message>
         <source>Lightbar</source>

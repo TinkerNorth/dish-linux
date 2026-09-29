@@ -55,6 +55,12 @@ TEST_CASE("default: a host never picked for renders the pad", "[touchpad-mode][d
     REQUIRE(reducer::touchpadPickOrDefault(std::nullopt) == kDs4);
 }
 
+TEST_CASE("mouse mode: shut where the host advertises mouse control", "[touchpad-mode][mouse]") {
+    // Routing the touchpad as the host's mouse is a deferral on this client, so
+    // the host's word cannot open the rung by itself.
+    REQUIRE_FALSE(reducer::mouseModeAvailable(/*hostAdvertisesMouseControl=*/true));
+}
+
 TEST_CASE("default: a pick the user made is kept as made", "[touchpad-mode][default]") {
     REQUIRE(reducer::touchpadPickOrDefault(kOff) == kOff);
     REQUIRE(reducer::touchpadPickOrDefault(kMouse) == kMouse);

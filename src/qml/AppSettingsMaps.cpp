@@ -103,9 +103,10 @@ QString keepAwakeReachToken(reducer::KeepAwakeReach reach) {
     return QStringLiteral("off");
 }
 
-QString touchpadChoiceForPick(const std::optional<std::string>& pick) {
+QString touchpadChoiceForPick(const std::optional<std::string>& pick, bool mouseModeAvailable) {
     const std::uint8_t mode = proto::touchpadModeFromName(reducer::touchpadPickOrDefault(pick));
-    return touchpadChoiceForMode(mode);
+    const bool mouseShut = mode == proto::kTouchpadModeMouse && !mouseModeAvailable;
+    return touchpadChoiceForMode(mouseShut ? proto::kTouchpadModeOff : mode);
 }
 
 std::optional<std::string> touchpadPickForChoice(const QString& choice) {

@@ -51,8 +51,9 @@ QString keepAwakeReachToken(reducer::KeepAwakeReach reach);
 
 // The Off / Pad / Mouse choice QML shows ("off" | "pad" | "mouse") for the pick
 // the per-satellite store holds, which is a wire name ("off" | "ds4" | "mouse").
-// A pick never made reads as the default the runtime forwards.
-QString touchpadChoiceForPick(const std::optional<std::string>& pick);
+// A pick never made reads as the default the runtime forwards, and a Mouse pick
+// reads "off" while mouse mode is unavailable, because the runtime declares off.
+QString touchpadChoiceForPick(const std::optional<std::string>& pick, bool mouseModeAvailable);
 
 // The pick a choice is stored as, or nullopt for a choice this client does not know.
 std::optional<std::string> touchpadPickForChoice(const QString& choice);

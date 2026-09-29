@@ -117,6 +117,17 @@ QtObject {
         return true;
     }
 
+    // Offered only where every layer carries it, so no editor offers a routing
+    // the runtime would turn off.
+    function offersMouse(rows) {
+        for (let i = 0; i < rows.length; ++i) {
+            const row = rows[i];
+            if (row.feature === "mouse")
+                return row.inOk && row.linkOk && row.typeOk && row.hostOk;
+        }
+        return false;
+    }
+
     function featureName(feature) {
         switch (feature) {
         case "gamepad":
@@ -202,6 +213,8 @@ QtObject {
                 return qsTr("No touchpad on this controller to drive a mouse.");
             return qsTr("%1 has no %2.").arg(draft.padName).arg(draft.featureNoun(row.feature));
         case "link":
+            if (row.feature === "mouse")
+                return qsTr("Dish can’t use the touchpad as a mouse.");
             // Which path refuses depends on the feature: Standard reaches the
             // adaptive triggers and the player LEDs only through SDL's own
             // DualSense driver, and Direct always can. Naming the wrong one

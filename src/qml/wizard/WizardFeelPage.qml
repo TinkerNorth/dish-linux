@@ -57,7 +57,9 @@ ColumnLayout {
         {
             "feature": "touchpad",
             "label": qsTr("Touchpad"),
-            "body": qsTr("Send the touchpad as a touchpad, or route it as a mouse."),
+            "body": page.mouseOffered
+                    ? qsTr("Send the touchpad as a touchpad, or route it as a mouse.")
+                    : qsTr("Forwards this pad’s touchpad to the game as a touchpad."),
             "segmented": true,
             "gated": true
         },
@@ -84,7 +86,10 @@ ColumnLayout {
         }
     ]
 
-    readonly property var touchpadOptions: [qsTr("Off"), qsTr("Pad"), qsTr("Mouse")]
+    readonly property bool mouseOffered: page.draft.offersMouse(page.solved)
+    readonly property var touchpadOptions: page.mouseOffered
+                                           ? [qsTr("Off"), qsTr("Pad"), qsTr("Mouse")]
+                                           : [qsTr("Off"), qsTr("Pad")]
 
     // Re-solved whenever the draft moves; a function call is not a dependency,
     // so `revision` is read to make one.

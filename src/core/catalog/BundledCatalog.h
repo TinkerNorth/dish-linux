@@ -48,6 +48,9 @@ inline const QString kFeatureHapticAudio = QStringLiteral("hapticAudio");
 inline const QString kFeatureTriggerEffects = QStringLiteral("triggerEffects");
 inline const QString kFeaturePlayerLeds = QStringLiteral("playerLeds");
 
+// The catalog's hostFeatures slug for touchpad-driven host mouse control.
+inline const QString kHostFeatureMouseControl = QStringLiteral("mouseControl");
+
 // The `known` whitelist reducer::isFeatureOffered gates on, owned here so every
 // caller passes the same vocabulary instead of re-listing it.
 inline QStringList knownFeatureSlugs() {

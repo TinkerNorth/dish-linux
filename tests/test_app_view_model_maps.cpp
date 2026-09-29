@@ -69,6 +69,9 @@ const std::string kWireOff{proto::touchpadModeName(proto::kTouchpadModeOff)};
 const std::string kWireDs4{proto::touchpadModeName(proto::kTouchpadModeDs4)};
 const std::string kWireMouse{proto::touchpadModeName(proto::kTouchpadModeMouse)};
 
+constexpr bool kMouseModeShut = false;
+constexpr bool kMouseModeOpen = true;
+
 // A unique temp INI, never the real HKCU registry.
 std::unique_ptr<QSettings> uniqueIniSettings(const char* tag) {
     const QString path = QDir::tempPath() + QStringLiteral("/dish-%1-").arg(tag) +
@@ -162,7 +165,7 @@ TEST_CASE("a Pad choice survives a restart and still reads as Pad", "[appvm][tou
 
     TouchpadModeRepository reopenedRepo(settings);
     const TouchpadModeStore reopened(&reopenedRepo);
-    CHECK(touchpadChoiceForPick(reopened.modeFor("sat")) == QStringLiteral("pad"));
+    CHECK(touchpadChoiceForPick(reopened.modeFor("sat"), kMouseModeShut) == QStringLiteral("pad"));
 }
 
 TEST_CASE("Off and Mouse choices are stored under their own wire names", "[appvm][touchpad]") {
@@ -178,15 +181,25 @@ TEST_CASE("a choice this client does not know stores nothing", "[appvm][touchpad
 }
 
 TEST_CASE("a stored ds4 pick reads as the Pad choice", "[appvm][touchpad]") {
-    CHECK(touchpadChoiceForPick(kWireDs4) == QStringLiteral("pad"));
+    CHECK(touchpadChoiceForPick(kWireDs4, kMouseModeShut) == QStringLiteral("pad"));
 }
 
 TEST_CASE("an off pick reads as Off", "[appvm][touchpad]") {
-    CHECK(touchpadChoiceForPick(kWireOff) == QStringLiteral("off"));
+    CHECK(touchpadChoiceForPick(kWireOff, kMouseModeShut) == QStringLiteral("off"));
 }
 
 TEST_CASE("a host never picked for reads as the Pad the runtime forwards", "[appvm][touchpad]") {
-    CHECK(touchpadChoiceForPick(std::nullopt) == QStringLiteral("pad"));
+    CHECK(touchpadChoiceForPick(std::nullopt, kMouseModeShut) == QStringLiteral("pad"));
+}
+
+TEST_CASE("a stored Mouse pick reads as Off while mouse mode is shut", "[appvm][touchpad]") {
+    // The runtime declares off for it, so an editor seeded from it must show
+    // Off, never the Mouse it cannot deliver.
+    CHECK(touchpadChoiceForPick(kWireMouse, kMouseModeShut) == QStringLiteral("off"));
+}
+
+TEST_CASE("a stored Mouse pick reads as Mouse where mouse mode is open", "[appvm][touchpad]") {
+    CHECK(touchpadChoiceForPick(kWireMouse, kMouseModeOpen) == QStringLiteral("mouse"));
 }
 
 TEST_CASE("a declared routing reads as the choice that stores it", "[appvm][touchpad]") {
@@ -203,7 +216,7 @@ TEST_CASE("a declared routing outside the wire's three reads as Off", "[appvm][t
 TEST_CASE("a stored pick this client cannot read reads as Off", "[appvm][touchpad]") {
     // The repository rejects an unknown mode on write but not on read, so a
     // hand-edited or corrupt blob can still hydrate one.
-    CHECK(touchpadChoiceForPick(std::string("banana")) == QStringLiteral("off"));
+    CHECK(touchpadChoiceForPick(std::string("banana"), kMouseModeShut) == QStringLiteral("off"));
 }
 
 TEST_CASE("crash-reporting toggle forwards through the store", "[appvm][crash]") {

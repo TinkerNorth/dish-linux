@@ -234,6 +234,10 @@
         <translation>%1 verfügt nicht über %2.</translation>
     </message>
     <message>
+        <source>Dish can’t use the touchpad as a mouse.</source>
+        <translation>Dish kann das Touchpad nicht als Maus verwenden.</translation>
+    </message>
+    <message>
         <source>The driver this controller is on can’t drive it.</source>
         <translation>Der Treiber, auf dem dieser Controller läuft, kann das nicht ansteuern.</translation>
     </message>
@@ -3859,6 +3863,10 @@
     <message>
         <source>Send the touchpad as a touchpad, or route it as a mouse.</source>
         <translation>Sende das Touchpad als Touchpad oder leite es als Maus weiter.</translation>
+    </message>
+    <message>
+        <source>Forwards this pad’s touchpad to the game as a touchpad.</source>
+        <translation>Leitet das Touchpad dieses Pads als Touchpad an das Spiel weiter.</translation>
     </message>
     <message>
         <source>Lightbar</source>

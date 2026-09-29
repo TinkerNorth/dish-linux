@@ -234,6 +234,10 @@
         <translation>%1 nema podršku za %2.</translation>
     </message>
     <message>
+        <source>Dish can’t use the touchpad as a mouse.</source>
+        <translation>Dish ne može koristiti dodirnu ploču kao miš.</translation>
+    </message>
+    <message>
         <source>The driver this controller is on can’t drive it.</source>
         <translation>Drajver na kojem je ovaj kontroler ovo ne može pokrenuti.</translation>
     </message>
@@ -3880,6 +3884,10 @@
     <message>
         <source>Send the touchpad as a touchpad, or route it as a mouse.</source>
         <translation>Pošaljite dodirnu ploču kao dodirnu ploču ili je preusmjerite kao miš.</translation>
+    </message>
+    <message>
+        <source>Forwards this pad’s touchpad to the game as a touchpad.</source>
+        <translation>Prosljeđuje dodirnu ploču ovog pada igri kao dodirnu ploču.</translation>
     </message>
     <message>
         <source>Lightbar</source>

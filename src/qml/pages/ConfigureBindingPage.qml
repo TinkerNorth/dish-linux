@@ -446,7 +446,10 @@ Kit.Page {
                                            && !page.touchpadTunable && !page.micTunable
                                            && !page.speakerTunable
 
-    readonly property var touchpadOptions: [qsTr("Off"), qsTr("Pad"), qsTr("Mouse")]
+    readonly property bool mouseOffered: draft.offersMouse(page.matrixRows)
+    readonly property var touchpadOptions: page.mouseOffered
+                                           ? [qsTr("Off"), qsTr("Pad"), qsTr("Mouse")]
+                                           : [qsTr("Off"), qsTr("Pad")]
 
     function touchpadIndex(token) {
         if (token === "pad") {
