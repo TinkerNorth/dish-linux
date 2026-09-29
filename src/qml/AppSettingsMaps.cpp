@@ -30,14 +30,14 @@ constexpr TouchpadChoice kTouchpadChoices[] = {
     {"mouse", proto::kTouchpadModeMouse},
 };
 
+} // namespace
+
 QString touchpadChoiceForMode(std::uint8_t mode) {
     for (const auto& known : kTouchpadChoices) {
         if (known.mode == mode) { return QLatin1String(known.token); }
     }
     return QLatin1String(kTouchpadChoices[0].token);
 }
-
-} // namespace
 
 int themeModeToInt(source::ThemeMode mode) {
     switch (mode) {

@@ -1508,6 +1508,10 @@ void AppViewModel::setTouchpadMode(const QString& connectionId, const QString& m
     model_->touchpadModeStore()->setMode(connectionId.toStdString(), *pick);
 }
 
+QString AppViewModel::touchpadRoutingFor(const QString& slotId) const {
+    return touchpadChoiceForMode(model_->declaredTouchpadMode(slotId));
+}
+
 bool AppViewModel::motionEnabledFor(const QString& slotId) const {
     if (slotId.isEmpty()) { return source::MotionEnabledStore::kDefaultEnabled; }
     return model_->motionEnabledStore()->isEnabled(slotId.toStdString());

@@ -1972,20 +1972,12 @@
         <translation>standardni</translation>
     </message>
     <message>
-        <source>Standard mode can’t carry it — switch to Direct.</source>
-        <translation>Standardni način to ne može prenijeti — prebacite na Brzi.</translation>
-    </message>
-    <message>
         <source>no gyro · pad</source>
         <translation>nema žira · pad</translation>
     </message>
     <message>
         <source>No gyro on this controller.</source>
         <translation>Ovaj kontroler nema žiroskop.</translation>
-    </message>
-    <message>
-        <source>no gyro · link</source>
-        <translation>nema žira · veza</translation>
     </message>
     <message>
         <source>gyro off</source>
@@ -2006,10 +1998,6 @@
     <message>
         <source>No touchpad on this controller.</source>
         <translation>Ovaj kontroler nema dodirnu ploču.</translation>
-    </message>
-    <message>
-        <source>no touchpad · link</source>
-        <translation>nema dodirne ploče · veza</translation>
     </message>
     <message>
         <source>touchpad off</source>

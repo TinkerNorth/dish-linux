@@ -486,10 +486,13 @@ class AppViewModel : public QObject {
     // Whether the raw-HID fast lane knows this model's report layout. Always
     // false over Bluetooth.
     Q_INVOKABLE bool isVerifiedModel(const QString& slotId) const;
-    // "off" | "pad" | "mouse", "off" when the user never picked one: the resolve
-    // ladder owns any richer default.
+    // "off" | "pad" | "mouse" for the host's pick, and "pad" when the user never
+    // picked one, because that is what the runtime forwards then.
     Q_INVOKABLE QString touchpadModeFor(const QString& connectionId) const;
     Q_INVOKABLE void setTouchpadMode(const QString& connectionId, const QString& mode);
+    // "off" | "pad" | "mouse": what the slot's descriptor declares, from the
+    // runtime's own answer, so the binding strip cannot show another routing.
+    Q_INVOKABLE QString touchpadRoutingFor(const QString& slotId) const;
     // Keyed exactly as setMotionEnabled writes, so a draft seeded from it cannot
     // silently re-enable gyro the user turned off on the Dead zones page.
     Q_INVOKABLE bool motionEnabledFor(const QString& slotId) const;

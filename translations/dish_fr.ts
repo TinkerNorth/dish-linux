@@ -1960,20 +1960,12 @@
         <translation>standard</translation>
     </message>
     <message>
-        <source>Standard mode can’t carry it — switch to Direct.</source>
-        <translation>Le Mode standard ne peut pas le transmettre — passez en Direct.</translation>
-    </message>
-    <message>
         <source>no gyro · pad</source>
         <translation>sans gyro · manette</translation>
     </message>
     <message>
         <source>No gyro on this controller.</source>
         <translation>Cette manette n&apos;a pas de gyroscope.</translation>
-    </message>
-    <message>
-        <source>no gyro · link</source>
-        <translation>sans gyro · lien</translation>
     </message>
     <message>
         <source>gyro off</source>
@@ -1994,10 +1986,6 @@
     <message>
         <source>No touchpad on this controller.</source>
         <translation>Cette manette n&apos;a pas de pavé tactile.</translation>
-    </message>
-    <message>
-        <source>no touchpad · link</source>
-        <translation>sans pavé · lien</translation>
     </message>
     <message>
         <source>touchpad off</source>

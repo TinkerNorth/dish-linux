@@ -723,7 +723,7 @@ Kit.Page {
         var chips = [];
         var direct = row.pathPhase === "direct";
         var dz = page.deadzoneRowFor(row.slotId);
-        var motionOn = dz ? dz.forwardMotion : true;
+        var motionOn = App.motionEnabledFor(row.slotId);
 
         if (row.emulateName.length > 0) {
             chips.push({ text: qsTr("as %1").arg(row.emulateName),
@@ -732,15 +732,11 @@ Kit.Page {
         chips.push(direct
                    ? { text: qsTr("direct · raw HID"),
                        tone: Kit.CapabilityChip.Present, reason: "" }
-                   : { text: qsTr("standard"), tone: Kit.CapabilityChip.Neutral,
-                       reason: qsTr("Standard mode can’t carry it — switch to Direct.") });
+                   : { text: qsTr("standard"), tone: Kit.CapabilityChip.Neutral, reason: "" });
 
         if (!row.hasMotion) {
             chips.push({ text: qsTr("no gyro · pad"), tone: Kit.CapabilityChip.Absent,
                          reason: qsTr("No gyro on this controller.") });
-        } else if (!direct) {
-            chips.push({ text: qsTr("no gyro · link"), tone: Kit.CapabilityChip.Absent,
-                         reason: qsTr("Standard mode can’t carry it — switch to Direct.") });
         } else if (!motionOn) {
             chips.push({ text: qsTr("gyro off"), tone: Kit.CapabilityChip.Neutral,
                          reason: qsTr("Motion forwarding is off for this device.") });
@@ -751,11 +747,8 @@ Kit.Page {
         if (!row.hasTouchpad) {
             chips.push({ text: qsTr("no touchpad · pad"), tone: Kit.CapabilityChip.Absent,
                          reason: qsTr("No touchpad on this controller.") });
-        } else if (!direct) {
-            chips.push({ text: qsTr("no touchpad · link"), tone: Kit.CapabilityChip.Absent,
-                         reason: qsTr("Standard mode can’t carry it — switch to Direct.") });
         } else {
-            var mode = App.touchpadModeFor(row.boundConnectionId);
+            var mode = App.touchpadRoutingFor(row.slotId);
             chips.push(mode === "off"
                        ? { text: qsTr("touchpad off"), tone: Kit.CapabilityChip.Neutral,
                            reason: qsTr("Touchpad routing is off for this binding.") }

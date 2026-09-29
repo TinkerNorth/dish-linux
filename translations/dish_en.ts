@@ -1936,20 +1936,12 @@
         <translation>standard</translation>
     </message>
     <message>
-        <source>Standard mode can’t carry it — switch to Direct.</source>
-        <translation>Standard mode can’t carry it — switch to Direct.</translation>
-    </message>
-    <message>
         <source>no gyro · pad</source>
         <translation>no gyro · pad</translation>
     </message>
     <message>
         <source>No gyro on this controller.</source>
         <translation>No gyro on this controller.</translation>
-    </message>
-    <message>
-        <source>no gyro · link</source>
-        <translation>no gyro · link</translation>
     </message>
     <message>
         <source>gyro off</source>
@@ -1970,10 +1962,6 @@
     <message>
         <source>No touchpad on this controller.</source>
         <translation>No touchpad on this controller.</translation>
-    </message>
-    <message>
-        <source>no touchpad · link</source>
-        <translation>no touchpad · link</translation>
     </message>
     <message>
         <source>touchpad off</source>

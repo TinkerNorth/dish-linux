@@ -57,6 +57,10 @@ QString touchpadChoiceForPick(const std::optional<std::string>& pick);
 // The pick a choice is stored as, or nullopt for a choice this client does not know.
 std::optional<std::string> touchpadPickForChoice(const QString& choice);
 
+// The choice a wire mode reads as, so a declared mode can be shown in the
+// editors' own words. A mode outside the table reads "off".
+QString touchpadChoiceForMode(std::uint8_t mode);
+
 // The profile the SDL bridge installs at attach; a row with no stored override
 // seeds from it, so the two must not drift.
 constexpr int kDefaultDeadzoneStickFlat = 3277;

@@ -45,6 +45,7 @@ using dish::qml::keepAwakeReachToken;
 using dish::qml::licenseRows;
 using dish::qml::themeModeFromInt;
 using dish::qml::themeModeToInt;
+using dish::qml::touchpadChoiceForMode;
 using dish::qml::touchpadChoiceForPick;
 using dish::qml::touchpadPickForChoice;
 using dish::reducer::KeepAwakeMode;
@@ -186,6 +187,17 @@ TEST_CASE("an off pick reads as Off", "[appvm][touchpad]") {
 
 TEST_CASE("a host never picked for reads as the Pad the runtime forwards", "[appvm][touchpad]") {
     CHECK(touchpadChoiceForPick(std::nullopt) == QStringLiteral("pad"));
+}
+
+TEST_CASE("a declared routing reads as the choice that stores it", "[appvm][touchpad]") {
+    CHECK(touchpadChoiceForMode(proto::kTouchpadModeOff) == QStringLiteral("off"));
+    CHECK(touchpadChoiceForMode(proto::kTouchpadModeDs4) == QStringLiteral("pad"));
+    CHECK(touchpadChoiceForMode(proto::kTouchpadModeMouse) == QStringLiteral("mouse"));
+}
+
+TEST_CASE("a declared routing outside the wire's three reads as Off", "[appvm][touchpad]") {
+    constexpr std::uint8_t kUnknownMode = 42;
+    CHECK(touchpadChoiceForMode(kUnknownMode) == QStringLiteral("off"));
 }
 
 TEST_CASE("a stored pick this client cannot read reads as Off", "[appvm][touchpad]") {
