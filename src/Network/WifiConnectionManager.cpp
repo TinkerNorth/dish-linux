@@ -332,8 +332,8 @@ WifiConnectionManager::credentialsFor(const QString& id) const {
 bool WifiConnectionManager::refusesAddress(const models::DiscoveredServer& server,
                                            ConnectIntent intent) {
     const std::string host = server.ip.toStdString();
-    // The satellite binds IPv4 only, for REST, the controller link and discovery alike. A silent
-    // intent stays quiet, as every background failure does.
+    // The satellite binds IPv4 only, for REST, the controller link and discovery alike. Both
+    // refusals stay quiet for a silent intent, as every background failure does.
     if (isIpv6Address(host)) {
         emitErrorIfUserInitiated(intent, ipv6Msg());
         return true;
@@ -342,8 +342,8 @@ bool WifiConnectionManager::refusesAddress(const models::DiscoveredServer& serve
     // spoofed beacon or a poisoned remembered entry. Dialing it would leak the
     // deviceId and hmacProof to an arbitrary internet host.
     if (!isPrivateHostLiteral(host)) {
-        emit connectionEvent(
-            makeError(tr("Refusing to connect to a non-local address (%1).").arg(server.ip)));
+        emitErrorIfUserInitiated(
+            intent, tr("Refusing to connect to a non-local address (%1).").arg(server.ip));
         return true;
     }
     return false;

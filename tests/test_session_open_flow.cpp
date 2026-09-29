@@ -445,3 +445,31 @@ TEST_CASE("user disconnect: forget lifts the hold", "[wifi][session][hold]") {
     rig.wifi->autoReconnectAll();
     CHECK(spinFor([&] { return rig.listener.seen(kSessionPath) == 2; }));
 }
+
+TEST_CASE("connect guard: a public address is refused before any request, and a user tap hears "
+          "why",
+          "[wifi][session][guard]") {
+    ManagerRig rig;
+    rig.server.ip = QStringLiteral("8.8.8.8");
+    keyed(rig);
+
+    rig.wifi->connectTo(rig.server, ConnectIntent::UserInitiated);
+
+    CHECK(rig.errors() == 1);
+    CHECK(connection(rig) == nullptr);
+}
+
+TEST_CASE("connect guard: a silent reconnect to a public address is refused without a word",
+          "[wifi][session][guard]") {
+    // A poisoned remembered entry is swept every 15 s: a line each time would be noise the user
+    // cannot act on, and no background failure speaks.
+    ManagerRig rig;
+    rig.server.ip = QStringLiteral("8.8.8.8");
+    keyed(rig);
+
+    rig.wifi->connectTo(rig.server, ConnectIntent::AutoReconnect);
+    rig.wifi->connectTo(rig.server, ConnectIntent::RetryAfterDeath);
+
+    CHECK(rig.errors() == 0);
+    CHECK(connection(rig) == nullptr);
+}
