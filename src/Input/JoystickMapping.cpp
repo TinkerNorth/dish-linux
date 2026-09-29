@@ -102,7 +102,7 @@ JoystickRemap withRightStick(JoystickRemap base, int JoystickRemap::* axis, int 
 
 } // namespace
 
-// One arm per remappable target, each a forward. Long because a pad has this many targets;
+// One arm per remappable target. Long because a pad has this many targets;
 // the switch is what the compiler checks when RemapTarget gains one.
 JoystickRemap withAssignment(JoystickRemap base, RemapTarget target, int kind, int index) {
     switch (target) {
