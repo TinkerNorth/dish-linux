@@ -319,6 +319,10 @@ set(DISH_CORE_SOURCES
     src/source/moonlight/MoonlightSession.cpp
     src/source/moonlight/MoonlightManager.h
     src/source/moonlight/MoonlightManager.cpp
+    # The HTTP/1.1 transport both REST clients ride: one socket per call, on
+    # the caller's thread.
+    src/source/http/HttpExchange.h
+    src/source/http/HttpExchange.cpp
     src/source/http/SatelliteTlsVerifier.h
     src/source/http/SatelliteTlsVerifier.cpp
     # An ETag cache over HTTPClient::getCatalog, not a durable Repository,

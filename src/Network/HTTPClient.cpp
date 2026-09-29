@@ -3,19 +3,18 @@
 
 #include "HTTPClient.h"
 
+#include "source/http/HttpExchange.h"
+
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
-#include <QNetworkAccessManager>
-#include <QNetworkReply>
-#include <QNetworkRequest>
-#include <QSslCertificate>
 #include <QSslConfiguration>
-#include <QSslError>
 #include <QSslSocket>
 #include <QUrl>
 
 #include <memory>
+#include <utility>
+#include <vector>
 
 namespace dish::net {
 
@@ -23,36 +22,33 @@ namespace {
 
 constexpr int kTimeoutMs = 5000;
 
-// QNetworkReply::NetworkError is a flat list mixing transport, TLS and HTTP
-// causes; this keeps only the distinctions a user or a log reader can act on.
-// The satellite path deliberately does NOT branch its retry on the result — see
-// TransportFailure in core/reducer/RestOutcome.h.
-reducer::TransportFailure classifyTransport(QNetworkReply::NetworkError error, bool pinMismatch) {
-    // Our own abort. The TOFU gate hangs up before any status exists, so the
-    // generic OperationCanceled below would otherwise bury an identity change.
-    if (pinMismatch) { return reducer::TransportFailure::Aborted; }
-    switch (error) {
-    case QNetworkReply::NoError:
-        // Reached with an empty body and no status: the peer closed the
-        // connection cleanly without answering.
-        return reducer::TransportFailure::Unreachable;
-    case QNetworkReply::ConnectionRefusedError:
-        return reducer::TransportFailure::Refused;
-    case QNetworkReply::HostNotFoundError:
-    case QNetworkReply::NetworkSessionFailedError:
-    case QNetworkReply::TemporaryNetworkFailureError:
-    case QNetworkReply::UnknownNetworkError:
-        return reducer::TransportFailure::Unreachable;
-    case QNetworkReply::TimeoutError:
-    case QNetworkReply::OperationCanceledError:
-        // setTransferTimeout expires a stalled request by cancelling it, so a
-        // bare cancel here is a timeout in every path we originate.
-        return reducer::TransportFailure::TimedOut;
-    case QNetworkReply::SslHandshakeFailedError:
-        return reducer::TransportFailure::Tls;
-    default:
-        return reducer::TransportFailure::Other;
+// VerifyNone only stops the handshake refusing the self-signed certificate before the pin verifier
+// has seen it; the verifier is the real gate.
+QSslConfiguration satelliteTls() {
+    QSslConfiguration tls = QSslConfiguration::defaultConfiguration();
+    tls.setPeerVerifyMode(QSslSocket::VerifyNone);
+    return tls;
+}
+
+// Every call is JSON, and the rest ride only when they carry something. The proof header exists so
+// a diverged pairing key fails with a terminal 401 rather than as a silently undecryptable UDP
+// session.
+std::vector<wire::HttpHeader> satelliteHeaders(const QString& deviceId, const QString& hmacProof,
+                                               const QString& acceptLanguage,
+                                               const QString& ifNoneMatch) {
+    struct Field {
+        const char* name;
+        const QString& value;
+    };
+    const Field optionalFields[] = {{"X-Device-Id", deviceId},
+                                    {"X-Hmac-Proof", hmacProof},
+                                    {"Accept-Language", acceptLanguage},
+                                    {"If-None-Match", ifNoneMatch}};
+    std::vector<wire::HttpHeader> headers{{"Content-Type", "application/json"}};
+    for (const Field& field : optionalFields) {
+        if (!field.value.isEmpty()) { headers.emplace_back(field.name, field.value.toStdString()); }
     }
+    return headers;
 }
 
 QJsonObject parseObject(const QByteArray& body) {
@@ -65,66 +61,48 @@ QJsonObject parseObject(const QByteArray& body) {
 
 } // namespace
 
-HTTPClient::HTTPClient(QObject* parent) : QObject(parent), nam_(new QNetworkAccessManager(this)) {
-    nam_->setTransferTimeout(kTimeoutMs);
-}
+HTTPClient::HTTPClient(QObject* parent) : QObject(parent) {}
 
 HTTPClient::~HTTPClient() = default;
+
+// A status is the server answering, whatever it said; without one the transport failed, and the
+// failure says how.
+HTTPClient::RawReply HTTPClient::rawReplyOf(const http::HttpResult& result, bool pinMismatch) {
+    RawReply out;
+    out.status = result.response.status;
+    out.reachable = out.status != 0;
+    out.body = QByteArray::fromStdString(result.response.body);
+    out.etag = QString::fromStdString(result.response.header("etag"));
+    out.pinMismatch = pinMismatch;
+    out.failure = result.failure;
+    return out;
+}
 
 void HTTPClient::perform(const QString& url, const QByteArray& method, const QByteArray& body,
                          const QString& deviceId, const QString& hmacProof,
                          const QString& acceptLanguage, const QString& ifNoneMatch,
                          std::function<void(const RawReply&)> done) {
-    QNetworkRequest req((QUrl(url)));
-    req.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
-    // The proof header exists so a diverged pairing key fails here with a
-    // terminal 401 rather than as a silently undecryptable UDP session.
-    if (!deviceId.isEmpty()) { req.setRawHeader("X-Device-Id", deviceId.toUtf8()); }
-    if (!hmacProof.isEmpty()) { req.setRawHeader("X-Hmac-Proof", hmacProof.toUtf8()); }
-    if (!acceptLanguage.isEmpty()) { req.setRawHeader("Accept-Language", acceptLanguage.toUtf8()); }
-    if (!ifNoneMatch.isEmpty()) { req.setRawHeader("If-None-Match", ifNoneMatch.toUtf8()); }
-
-    // VerifyNone only stops Qt refusing the self-signed chain before we get a
-    // chance to pin it; the `encrypted` handler below is the real gate.
-    QSslConfiguration tls = QSslConfiguration::defaultConfiguration();
-    tls.setPeerVerifyMode(QSslSocket::VerifyNone);
-    req.setSslConfiguration(tls);
-
-    const QString host = QUrl(url).host();
-
-    auto* reply = nam_->sendCustomRequest(req, method, body);
-    QObject::connect(reply, &QNetworkReply::sslErrors, reply,
-                     [reply](const QList<QSslError>&) { reply->ignoreSslErrors(); });
-    // `encrypted` is the earliest point the peer cert is available. An abort here
-    // reaches `finished` with no status and no body, so the mismatch itself has
-    // to be carried out of band or it reads as a dropped connection.
+    http::HttpRequest request{
+        .url = QUrl(url),
+        .method = method,
+        .headers = satelliteHeaders(deviceId, hmacProof, acceptLanguage, ifNoneMatch),
+        .body = body,
+        .tls = satelliteTls(),
+        .timeoutMs = kTimeoutMs};
+    // The pin is checked on the TLS `encrypted` edge, and a refusal there leaves no status and no
+    // body, so the mismatch rides out beside the reply or it would read as a dropped connection.
     const auto pinMismatch = std::make_shared<bool>(false);
+    const QString host = request.url.host();
+    http::PeerCheck peerCheck;
     if (pinVerifier_) {
-        QObject::connect(reply, &QNetworkReply::encrypted, reply, [this, reply, host, pinMismatch] {
-            const QByteArray der = reply->sslConfiguration().peerCertificate().toDer();
-            if (!pinVerifier_(host, der, *pinMismatch)) { reply->abort(); }
-        });
+        peerCheck = [this, host, pinMismatch](const QByteArray& certDer) {
+            return pinVerifier_(host, certDer, *pinMismatch);
+        };
     }
-    QObject::connect(
-        reply, &QNetworkReply::finished, this, [reply, pinMismatch, done = std::move(done)] {
-            reply->deleteLater();
-            RawReply out;
-            const auto statusVar = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute);
-            out.status = statusVar.isValid() ? statusVar.toInt() : 0;
-            // An aborted or never-connected reply is CLOSED, and reading a closed
-            // QIODevice warns to the log without returning anything. There is
-            // nothing to read in that case anyway: the guard is the whole fix for
-            // the "QIODevice::read ... device not open" line a remembered-but-
-            // absent satellite used to print on every backoff tick.
-            if (reply->isOpen()) { out.body = reply->readAll(); }
-            // A 4xx/5xx body still means the server answered; only a missing
-            // status AND an empty body is a transport failure.
-            out.reachable = out.status != 0 || !out.body.isEmpty();
-            out.etag = QString::fromUtf8(reply->rawHeader("ETag"));
-            out.pinMismatch = *pinMismatch;
-            if (!out.reachable) { out.failure = classifyTransport(reply->error(), *pinMismatch); }
-            done(out);
-        });
+    http::exchangeHttp(this, std::move(request), std::move(peerCheck),
+                       [pinMismatch, done = std::move(done)](const http::HttpResult& result) {
+                           done(rawReplyOf(result, *pinMismatch));
+                       });
 }
 
 void HTTPClient::putSession(const QString& ip, int port, const QString& deviceId,

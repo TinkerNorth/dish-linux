@@ -7,8 +7,8 @@
 //
 // net::HTTPClient MUST NOT carry this traffic: it sets QSslSocket::VerifyNone
 // deliberately (TOFU pinning for satellites on a LAN), which is exactly wrong
-// for a public host. That is why this owns a dedicated manager rather than
-// borrowing the app's.
+// for a public host. That is why this owns a manager of its own rather than
+// riding HTTPClient.
 
 #pragma once
 

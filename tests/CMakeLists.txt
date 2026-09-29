@@ -78,6 +78,7 @@ set(DISH_TEST_SOURCES
     test_physical_motion_source.cpp
     test_pairing_outcome.cpp
     test_pairing_wire.cpp
+    test_http_client_wire.cpp
     test_forget_in_flight.cpp
     test_session_open_flow.cpp
     test_reverse_pairing_flow.cpp
