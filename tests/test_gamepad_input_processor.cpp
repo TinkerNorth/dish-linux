@@ -753,3 +753,89 @@ TEST_CASE("actuationCount: the deadzone filter runs before the threshold", "[inp
     p.publish("pad", s);
     REQUIRE(p.actuationCount() == 1);
 }
+
+TEST_CASE("inspect: a device that never reported reads nothing", "[input][inspect]") {
+    const GamepadInputProcessor p;
+    const auto seen = p.inspect("pad");
+    REQUIRE_FALSE(seen.wire.has_value());
+    REQUIRE_FALSE(seen.raw.has_value());
+    REQUIRE_FALSE(seen.motion.has_value());
+    REQUIRE_FALSE(seen.touchpad.has_value());
+}
+
+TEST_CASE("inspect: the last report reads as it went on the wire and as the pad sent it",
+          "[input][inspect]") {
+    GamepadInputProcessor p;
+    p.setDeadzones("pad", GamepadInputProcessor::Deadzones{8000, 20});
+    GamepadInputProcessor::DeviceState s;
+    s.wButtons = GamepadInputProcessor::Buttons::kA;
+    s.lx = 7000; // inside the flat: the wire carries zero, the pad sent 7000
+    s.ry = -20000;
+    s.lt = 10;
+    p.publish("pad", s);
+
+    const auto seen = p.inspect("pad");
+    REQUIRE(seen.wire.has_value());
+    REQUIRE(seen.wire->wButtons == GamepadInputProcessor::Buttons::kA);
+    REQUIRE(seen.wire->lx == 0);
+    REQUIRE(seen.wire->ry == -20000);
+    REQUIRE(seen.wire->lt == 0);
+    REQUIRE(seen.raw.has_value());
+    REQUIRE(seen.raw->lx == 7000);
+    REQUIRE(seen.raw->lt == 10);
+}
+
+TEST_CASE("inspect: reads the last motion sample forwarded, not one the gate dropped",
+          "[input][inspect]") {
+    GamepadInputProcessor p;
+    GamepadInputProcessor::MotionSample forwarded;
+    forwarded.gyroX = 100;
+    forwarded.accelZ = 8192;
+    REQUIRE(p.publishMotionAt("pad", forwarded, 1'000'000));
+    GamepadInputProcessor::MotionSample dropped;
+    dropped.gyroX = -5;
+    REQUIRE_FALSE(p.publishMotionAt("pad", dropped, 1'000'001));
+
+    const auto seen = p.inspect("pad");
+    REQUIRE(seen.motion.has_value());
+    REQUIRE(seen.motion->gyroX == 100);
+    REQUIRE(seen.motion->accelZ == 8192);
+}
+
+TEST_CASE("inspect: reads the last touch frame", "[input][inspect]") {
+    GamepadInputProcessor p;
+    GamepadInputProcessor::TouchpadSample touch;
+    touch.finger0Active = true;
+    touch.finger0X = 1200;
+    touch.buttonPressed = true;
+    p.publishTouchpad("pad", touch);
+
+    const auto seen = p.inspect("pad");
+    REQUIRE(seen.touchpad.has_value());
+    REQUIRE(seen.touchpad->finger0Active);
+    REQUIRE(seen.touchpad->finger0X == 1200);
+    REQUIRE(seen.touchpad->buttonPressed);
+}
+
+TEST_CASE("inspect: a removed device reads nothing again", "[input][inspect]") {
+    GamepadInputProcessor p;
+    p.publish("pad", GamepadInputProcessor::DeviceState{});
+    p.publishMotionAt("pad", GamepadInputProcessor::MotionSample{}, 1'000'000);
+    p.publishTouchpad("pad", GamepadInputProcessor::TouchpadSample{});
+    p.remove("pad");
+
+    const auto seen = p.inspect("pad");
+    REQUIRE_FALSE(seen.wire.has_value());
+    REQUIRE_FALSE(seen.raw.has_value());
+    REQUIRE_FALSE(seen.motion.has_value());
+    REQUIRE_FALSE(seen.touchpad.has_value());
+}
+
+TEST_CASE("inspect: one device's input never reads as another's", "[input][inspect]") {
+    GamepadInputProcessor p;
+    GamepadInputProcessor::DeviceState s;
+    s.rx = 3000;
+    p.publish("pad-a", s);
+    REQUIRE(p.inspect("pad-a").wire.has_value());
+    REQUIRE_FALSE(p.inspect("pad-b").wire.has_value());
+}
