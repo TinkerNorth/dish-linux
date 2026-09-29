@@ -641,9 +641,10 @@ MoonlightManager::bindController(const QString& slotId, const QString& uuid, int
     }
     auto* session = ensureSession(*host);
     // Re-binding a slot that already holds a number is a RESTART, not a second
-    // pad: the number stands and the session is asked to run again, which is
-    // what Reconnect after a drop means.
-    auto number = session->controllerNumber(slotId);
+    // pad: the number stands, the host is told about the pad the binding now asks
+    // for, and the session is asked to run again, which is what Reconnect after
+    // a drop means.
+    auto number = session->reannounceController(slotId, storedType, source);
     if (!number) { number = session->attachController(slotId, storedType, source); }
     if (!number) {
         // Four pads already ride this host; the binding is not recorded,

@@ -213,4 +213,26 @@ inline std::uint32_t declaredButtons(std::uint8_t declaredCaps) {
     return buttons;
 }
 
+// What one CONTROLLER_ARRIVAL told the host a pad is.
+struct AnnouncedPad {
+    std::uint8_t type = moonproto::kControllerTypeUnknown;
+    std::uint8_t capabilities = 0;
+};
+
+// The capability bits a host reads when a pad arrives, and at no other time. Wolf's
+// create_new_joypad (control/input_handler.cpp) reads ACCELEROMETER and GYRO and no other bit:
+// every PlayStation pad it builds is one DualSense with a touchpad whatever the arrival said.
+inline constexpr std::uint8_t kCapsReadAtArrival =
+    moonproto::kCapAccelerometer | moonproto::kCapGyro;
+
+// Whether announcing `wanted` over the pad the host built from `held` gets the user another pad.
+// A host keeps a number it holds and skips a second arrival for it, so another pad costs a replug,
+// and a replug unplugs the pad in the game: nothing the host never reads is worth one.
+inline bool hostBuildsAnotherPad(const AnnouncedPad& held, const AnnouncedPad& wanted) {
+    const bool anotherType = held.type != wanted.type;
+    const int changedBits = held.capabilities ^ wanted.capabilities;
+    const bool anotherMotion = (changedBits & kCapsReadAtArrival) != 0;
+    return anotherType || anotherMotion;
+}
+
 } // namespace dish::moonlight

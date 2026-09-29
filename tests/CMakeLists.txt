@@ -42,6 +42,7 @@ set(DISH_TEST_SOURCES
     test_moonlight_host_repository.cpp
     test_moonlight_discovery.cpp
     test_moonlight_session_wire.cpp
+    test_moonlight_replug.cpp
     test_moonlight_pairing_wire.cpp
     test_moonlight_http_wire.cpp
     test_atomic_counter.cpp

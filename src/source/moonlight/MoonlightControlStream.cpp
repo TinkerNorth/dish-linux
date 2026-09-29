@@ -241,13 +241,18 @@ bool MoonlightControlStream::queuePacket(const std::uint8_t* sealed, std::size_t
     return true;
 }
 
+bool MoonlightControlStream::linkUpLocked() const {
+    return link_->host != nullptr && link_->peer != nullptr &&
+           connected_.load(std::memory_order_relaxed);
+}
+
 void MoonlightControlStream::sealAndSend(const std::uint8_t* plaintext, std::size_t len) {
     std::lock_guard<std::mutex> lock(linkMtx_);
-    if (link_->host == nullptr || link_->peer == nullptr ||
-        !connected_.load(std::memory_order_relaxed)) {
-        return;
-    }
+    if (!linkUpLocked()) { return; }
+    sealAndQueueLocked(plaintext, len);
+}
 
+void MoonlightControlStream::sealAndQueueLocked(const std::uint8_t* plaintext, std::size_t len) {
     Slot* slot = nullptr;
     for (std::size_t i = 0; i < kSlotCount; ++i) {
         Slot& candidate = slots_[(nextSlot_ + i) % kSlotCount];
@@ -292,6 +297,23 @@ void MoonlightControlStream::sendControllerArrival(std::uint8_t controllerNumber
     const std::size_t len = moonwire::encodeControllerArrival(
         plaintext, controllerNumber, controllerType, capabilities, supportedButtons);
     sealAndSend(plaintext, len);
+}
+
+void MoonlightControlStream::sendControllerReplug(std::uint8_t controllerNumber,
+                                                  std::uint16_t otherPadsMask,
+                                                  std::uint8_t controllerType,
+                                                  std::uint8_t capabilities,
+                                                  std::uint32_t supportedButtons) {
+    std::uint8_t unplug[moonwire::kMaxPlaintextSize];
+    const std::size_t unplugLen = moonwire::encodeControllerMulti(
+        unplug, controllerNumber, otherPadsMask, 0, 0, 0, 0, 0, 0, 0);
+    std::uint8_t arrival[moonwire::kMaxPlaintextSize];
+    const std::size_t arrivalLen = moonwire::encodeControllerArrival(
+        arrival, controllerNumber, controllerType, capabilities, supportedButtons);
+    std::lock_guard<std::mutex> lock(linkMtx_);
+    if (!linkUpLocked()) { return; }
+    sealAndQueueLocked(unplug, unplugLen);
+    sealAndQueueLocked(arrival, arrivalLen);
 }
 
 void MoonlightControlStream::sendControllerMotion(std::uint8_t controllerNumber,

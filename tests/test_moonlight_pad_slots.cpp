@@ -272,3 +272,31 @@ TEST_CASE("Auto carries the touchpad only where the pad's motion resolves it to 
     stillPad.motion = false;
     CHECK_FALSE(arrivalRendersTouchpad(arrivalForBinding(proto::kControllerTypeAuto, stillPad)));
 }
+
+TEST_CASE("only another type or another motion bit gets the user another pad",
+          "[moonlight][pads][h5]") {
+    const AnnouncedPad held{
+        proto::kControllerTypePs,
+        static_cast<std::uint8_t>(proto::kCapAnalogTriggers | proto::kCapAccelerometer)};
+
+    CHECK_FALSE(hostBuildsAnotherPad(held, held));
+
+    AnnouncedPad anotherType = held;
+    anotherType.type = proto::kControllerTypeXbox;
+    CHECK(hostBuildsAnotherPad(held, anotherType));
+
+    for (const std::uint8_t motionBit : {proto::kCapAccelerometer, proto::kCapGyro}) {
+        AnnouncedPad anotherMotion = held;
+        anotherMotion.capabilities = static_cast<std::uint8_t>(held.capabilities ^ motionBit);
+        CHECK(hostBuildsAnotherPad(held, anotherMotion));
+    }
+
+    // Every other bit is one the host never reads at arrival.
+    for (const std::uint8_t unread :
+         {proto::kCapAnalogTriggers, proto::kCapRumble, proto::kCapTriggerRumble,
+          proto::kCapTouchpad, proto::kCapBattery, proto::kCapRgbLed}) {
+        AnnouncedPad sameToTheHost = held;
+        sameToTheHost.capabilities = static_cast<std::uint8_t>(held.capabilities ^ unread);
+        CHECK_FALSE(hostBuildsAnotherPad(held, sameToTheHost));
+    }
+}

@@ -154,17 +154,24 @@ void MoonlightSession::stop(bool handBackApp) {
     handBackOnTeardown_ = false;
 }
 
+MoonlightSession::PadDeclaration
+MoonlightSession::declarationFor(std::uint8_t number, int storedType,
+                                 const moonlight::SourceCapabilities& source) {
+    PadDeclaration pad;
+    pad.number = number;
+    const auto arrival = moonlight::arrivalForBinding(storedType, source);
+    pad.type = arrival.type;
+    pad.capabilities = arrival.capabilities;
+    pad.buttons = moonlight::declaredButtons(pad.capabilities);
+    return pad;
+}
+
 std::optional<std::uint8_t>
 MoonlightSession::attachController(const QString& slotId, int storedType,
                                    const moonlight::SourceCapabilities& source) {
     const auto number = slots_.assign(slotId.toStdString());
     if (!number) { return std::nullopt; }
-    PadDeclaration pad;
-    pad.number = *number;
-    const auto arrival = moonlight::arrivalForBinding(storedType, source);
-    pad.type = arrival.type;
-    pad.capabilities = arrival.capabilities;
-    pad.buttons = moonlight::declaredButtons(pad.capabilities);
+    const PadDeclaration pad = declarationFor(*number, storedType, source);
     pads_.insert(slotId, pad);
     activeMask_.store(slots_.activeMask(), std::memory_order_relaxed);
     qCInfo(lcMoon) << "pad" << slotId << "takes controller" << pad.number << "on" << host_.address
@@ -186,6 +193,40 @@ std::size_t MoonlightSession::detachController(const QString& slotId) {
     qCInfo(lcMoon) << "pad" << slotId << "left" << host_.address << "mask" << mask << "remaining"
                    << slots_.size();
     return slots_.size();
+}
+
+std::optional<std::uint8_t>
+MoonlightSession::reannounceController(const QString& slotId, int storedType,
+                                       const moonlight::SourceCapabilities& source) {
+    const auto it = pads_.find(slotId);
+    if (it == pads_.end()) { return std::nullopt; }
+    const PadDeclaration wanted = declarationFor(it->number, storedType, source);
+    const moonlight::AnnouncedPad held{it->type, it->capabilities};
+    if (!moonlight::hostBuildsAnotherPad(held, {wanted.type, wanted.capabilities})) {
+        qCInfo(lcMoon) << "pad" << slotId << "already rides" << host_.address << "as controller"
+                       << wanted.number << "as the pad it asks for";
+        return wanted.number;
+    }
+    *it = wanted;
+    // The pad the host builds next has asked for no motion yet.
+    motionGate_.clear(wanted.number);
+    replugPad(wanted);
+    return wanted.number;
+}
+
+// A link not up yet has nothing to unplug: startStreaming announces the pad as it now stands.
+void MoonlightSession::replugPad(const PadDeclaration& pad) {
+    if (!control_ || !control_->isConnected()) {
+        qCInfo(lcMoon) << "controller" << pad.number << "on" << host_.address
+                       << "declared again before the link is up; held";
+        return;
+    }
+    qCInfo(lcMoon) << "replugging controller" << pad.number << "on" << host_.address << "as type"
+                   << pad.type << "caps" << pad.capabilities;
+    const std::uint16_t mask = activeMask_.load(std::memory_order_relaxed);
+    const auto otherPads = static_cast<std::uint16_t>(mask & ~(1U << pad.number));
+    control_->sendControllerReplug(pad.number, otherPads, pad.type, pad.capabilities, pad.buttons);
+    control_->sendControllerMulti(pad.number, mask, 0, 0, 0, 0, 0, 0, 0);
 }
 
 std::optional<std::uint8_t> MoonlightSession::controllerNumber(const QString& slotId) const {

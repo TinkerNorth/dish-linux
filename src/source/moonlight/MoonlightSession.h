@@ -86,6 +86,12 @@ class MoonlightSession : public QObject {
     // session already carries four pads, or this slot already holds one.
     std::optional<std::uint8_t> attachController(const QString& slotId, int storedType,
                                                  const moonlight::SourceCapabilities& source);
+    // Declares the pad `slotId` already holds again, for a binding that now asks for
+    // `storedType` over `source`. The number stands. A host keeps a number it holds and skips a
+    // second arrival for it, so where it would build another pad a live link unplugs the number
+    // and plugs the new pad in. nullopt when the slot holds no pad here.
+    std::optional<std::uint8_t> reannounceController(const QString& slotId, int storedType,
+                                                     const moonlight::SourceCapabilities& source);
     // Clears the pad's bit and sends the unplug, then reports how many
     // controllers are left. Zero is the caller's cue to tear the session down.
     std::size_t detachController(const QString& slotId);
@@ -229,6 +235,9 @@ class MoonlightSession : public QObject {
         std::uint8_t capabilities = 0;
         std::uint32_t buttons = moonproto::kStandardButtons;
     };
+    static PadDeclaration declarationFor(std::uint8_t number, int storedType,
+                                         const moonlight::SourceCapabilities& source);
+    void replugPad(const PadDeclaration& pad);
     moonlight::PadSlots slots_;
     QHash<QString, PadDeclaration> pads_;
     // The CONTROLLER_MULTI active mask, published for the hot path. Written on

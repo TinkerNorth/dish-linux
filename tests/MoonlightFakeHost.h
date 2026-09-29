@@ -21,6 +21,14 @@
 // those two happened is the difference between M20 and M21, and the only way to
 // prove the client tells them apart is to make a host do each.
 //
+// Its control stream keeps the joypad table a Wolf host keeps for a session, by
+// the rules in Wolf's src/moonlight-server/control/input_handler.cpp (the
+// TinkerNorth fork): an arrival for a number the session holds is skipped; a
+// CONTROLLER_MULTI naming a held number with its bit cleared unplugs that pad; a
+// CONTROLLER_MULTI naming a number it does not hold plugs a default Xbox pad
+// there, whatever the mask says; and a PlayStation pad that arrives with
+// ACCELEROMETER or GYRO is asked for that motion.
+//
 // Every listener binds 127.0.0.1:0, so a run costs no fixed port and reaches no
 // machine but this one.
 
@@ -31,6 +39,7 @@
 
 #include "Util/Hex.h"
 #include "core/moonlight/MoonlightControlCipher.h"
+#include "core/moonlight/MoonlightPadSlots.h"
 #include "core/moonlight/MoonlightPairingCrypto.h"
 #include "core/moonlight/MoonlightProtocol.h"
 #include "core/moonlight/MoonlightWire.h"
@@ -64,10 +73,14 @@
 #include <cctype>
 #include <cstdint>
 #include <functional>
+#include <map>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <thread>
+#include <utility>
+#include <vector>
 
 namespace dish::test {
 
@@ -210,6 +223,38 @@ class FakeMoonlightHost : public QObject {
     int lastActiveMask() const { return lastMask_.load(std::memory_order_relaxed); }
     // PERIODIC_PING keepalives the client sealed and sent on the live link.
     int keepalives() const { return keepalives_.load(std::memory_order_relaxed); }
+
+    // One input packet as the host read it. The number, mask, type, capabilities
+    // and touch event are filled only for the kinds that carry them.
+    struct ControlPacket {
+        std::uint32_t seq = 0;
+        std::uint32_t inputType = 0;
+        std::uint16_t number = 0;
+        std::uint16_t mask = 0;
+        std::uint8_t type = 0;
+        std::uint8_t capabilities = 0;
+        std::uint8_t touchEvent = 0;
+    };
+    std::vector<ControlPacket> controlPackets() const {
+        std::lock_guard<std::mutex> lock(padsMtx_);
+        return controlPackets_;
+    }
+    // The type of the pad the session holds under `number`, empty when none.
+    std::optional<std::uint8_t> padType(std::uint16_t number) const {
+        std::lock_guard<std::mutex> lock(padsMtx_);
+        const auto it = pads_.find(number);
+        if (it == pads_.end()) { return std::nullopt; }
+        return it->second;
+    }
+
+    // For a case that dials the control stream itself: the port a control SETUP
+    // names, and the key a /launch would have handed over.
+    int controlPort() const { return controlPort_; }
+    void useRikey(const std::array<std::uint8_t, 16>& key) {
+        std::lock_guard<std::mutex> lock(cipherMtx_);
+        cipher_.setKey(key);
+        hostSeq_ = 0;
+    }
 
     // ── What the host does to the session ───────────────────────────────────
     // THE ENET HOST BELONGS TO ITS SERVICE THREAD. Both endings are asked for
@@ -430,16 +475,14 @@ class FakeMoonlightHost : public QObject {
         return hex;
     }
 
+    // The cipher is the one thing both threads touch: written on the Qt thread
+    // serving /launch, and read by the service thread below.
     void installRikey(const QString& hex) {
         const QByteArray raw = QByteArray::fromHex(hex.toLatin1());
         if (raw.size() != 16) { return; }
         std::array<std::uint8_t, 16> key{};
         std::copy(raw.cbegin(), raw.cend(), key.begin());
-        // The cipher is the one thing both threads touch: written here, on the
-        // Qt thread serving /launch, and read by the service thread below.
-        std::lock_guard<std::mutex> lock(cipherMtx_);
-        cipher_.setKey(key);
-        hostSeq_ = 0;
+        useRikey(key);
     }
 
     // ── RTSP: one connection per message, the way a real host answers ───────
@@ -596,15 +639,107 @@ class FakeMoonlightHost : public QObject {
         }
         if (u16At(0) != moonproto::kPktInputData || *opened < 12) { return; }
         // [pkt u16][len u16][data size u32 BE][input type u32 LE][body]
-        const std::uint32_t inputType =
+        ControlPacket packet;
+        packet.seq = static_cast<std::uint32_t>(data[4]) |
+                     (static_cast<std::uint32_t>(data[5]) << 8) |
+                     (static_cast<std::uint32_t>(data[6]) << 16) |
+                     (static_cast<std::uint32_t>(data[7]) << 24);
+        packet.inputType =
             static_cast<std::uint32_t>(u16At(8)) | (static_cast<std::uint32_t>(u16At(10)) << 16);
-        if (inputType == moonproto::kInputControllerArrival) {
+        if (packet.inputType == moonproto::kInputControllerArrival) {
             arrivals_.fetch_add(1, std::memory_order_relaxed);
-        } else if (inputType == moonproto::kInputControllerMulti && *opened >= 18) {
+            packet.number = plaintext[12];
+            packet.type = plaintext[13];
+            packet.capabilities = plaintext[14];
+        } else if (packet.inputType == moonproto::kInputControllerMulti && *opened >= 18) {
             // The active mask sits two words into the body, and a bit missing
             // from it is how a pad is told to unplug.
             lastMask_.store(static_cast<int>(u16At(16)), std::memory_order_relaxed);
+            packet.number = u16At(14);
+            packet.mask = u16At(16);
+        } else if (packet.inputType == moonproto::kInputControllerTouch) {
+            packet.number = plaintext[12];
+            packet.touchEvent = plaintext[13];
         }
+        std::optional<std::uint8_t> built;
+        {
+            std::lock_guard<std::mutex> lock(padsMtx_);
+            built = applyWolfRules(packet);
+            controlPackets_.push_back(packet);
+        }
+        if (built == moonproto::kControllerTypePs) { requestMotion(packet); }
+    }
+
+    // padsMtx_ held. The type of the pad an arrival built, empty when it built none.
+    std::optional<std::uint8_t> applyWolfRules(const ControlPacket& packet) {
+        if (packet.inputType == moonproto::kInputControllerArrival) { return arrive(packet); }
+        if (packet.inputType == moonproto::kInputControllerMulti) { multi(packet); }
+        return std::nullopt;
+    }
+
+    // create_new_joypad's pick: the type asked for, or for an Unknown one a
+    // PlayStation pad when the arrival carries motion and an Xbox pad when not.
+    static std::uint8_t builtType(const ControlPacket& packet) {
+        const bool carriesMotion = (packet.capabilities & moonlight::kCapsReadAtArrival) != 0;
+        if (packet.type != moonproto::kControllerTypeUnknown) { return packet.type; }
+        return carriesMotion ? moonproto::kControllerTypePs : moonproto::kControllerTypeXbox;
+    }
+
+    // controller_arrival: a number the session holds is skipped.
+    std::optional<std::uint8_t> arrive(const ControlPacket& packet) {
+        if (pads_.count(packet.number) != 0) { return std::nullopt; }
+        const std::uint8_t type = builtType(packet);
+        pads_[packet.number] = type;
+        return type;
+    }
+
+    // controller_multi: a held number with its bit cleared is unplugged, and a
+    // number the session does not hold gets a default Xbox pad.
+    void multi(const ControlPacket& packet) {
+        const bool held = pads_.count(packet.number) != 0;
+        const bool bitCleared = (packet.mask & (1U << packet.number)) == 0;
+        if (held && bitCleared) {
+            pads_.erase(packet.number);
+            return;
+        }
+        if (!held) { pads_[packet.number] = moonproto::kControllerTypeXbox; }
+    }
+
+    // Service thread. One MOTION_EVENT per sensor the arrival declared, the way
+    // create_new_joypad asks a PlayStation pad for them.
+    void requestMotion(const ControlPacket& arrival) {
+        const std::pair<std::uint8_t, std::uint8_t> sensors[] = {
+            {moonproto::kCapAccelerometer, moonproto::kMotionAcceleration},
+            {moonproto::kCapGyro, moonproto::kMotionGyroscope},
+        };
+        for (const auto& [capability, motionType] : sensors) {
+            if ((arrival.capabilities & capability) == 0) { continue; }
+            sendMotionEvent(arrival.number, motionType);
+        }
+    }
+
+    // [0x5501][len 5][controller u16][rate u16][type u8], sealed with the rikey.
+    void sendMotionEvent(std::uint16_t number, std::uint8_t motionType) {
+        if (peer_ == nullptr) { return; }
+        const std::uint8_t plaintext[9] = {0x01,
+                                           0x55,
+                                           0x05,
+                                           0x00,
+                                           static_cast<std::uint8_t>(number & 0xFF),
+                                           static_cast<std::uint8_t>(number >> 8),
+                                           kMotionRateHz,
+                                           0x00,
+                                           motionType};
+        std::array<std::uint8_t, sizeof(plaintext) + 64> sealed{};
+        std::size_t total = 0;
+        {
+            std::lock_guard<std::mutex> lock(cipherMtx_);
+            total = cipher_.seal(hostSeq_++, plaintext, sizeof(plaintext), sealed.data());
+        }
+        if (total == 0) { return; }
+        enet_peer_send(peer_, 0,
+                       enet_packet_create(sealed.data(), total, ENET_PACKET_FLAG_RELIABLE));
+        enet_host_flush(enetHost_);
     }
 
     // The host's own pairing state, filled in as the phases arrive.
@@ -647,6 +782,13 @@ class FakeMoonlightHost : public QObject {
     std::atomic<int> arrivals_{0};
     std::atomic<int> lastMask_{-1};
     std::atomic<int> keepalives_{0};
+
+    // The rate create_new_joypad asks for.
+    static constexpr std::uint8_t kMotionRateHz = 100;
+    // Written on the service thread, read by the case.
+    mutable std::mutex padsMtx_;
+    std::map<std::uint16_t, std::uint8_t> pads_;
+    std::vector<ControlPacket> controlPackets_;
 };
 
 } // namespace dish::test
