@@ -9,6 +9,7 @@
 #pragma once
 
 #include "architecture/StateSource.h"
+#include "core/reducer/TouchpadModeResolve.h"
 #include "repository/TouchpadModeRepository.h"
 
 #include <QString>
@@ -41,8 +42,10 @@ class TouchpadModeStore : public arch::StateSource<TouchpadModeMap> {
         return it->second;
     }
 
-    // Persist + republish the pick for a satellite.
+    // Persist + republish the pick for a satellite. A mode the repository would
+    // refuse is refused here too, so memory never holds what disk will not.
     void setMode(const std::string& satelliteId, const std::string& mode) {
+        if (!reducer::isValidTouchpadModeName(mode)) { return; }
         if (repo_ != nullptr) {
             repo_->put(repository::TouchpadModePreference{QString::fromStdString(satelliteId),
                                                           QString::fromStdString(mode)});

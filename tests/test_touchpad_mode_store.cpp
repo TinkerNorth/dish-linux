@@ -59,6 +59,27 @@ TEST_CASE("a same-value setMode does not re-emit", "[touchpad-mode-store]") {
     CHECK(probe.count() == baseline);
 }
 
+TEST_CASE("a mode the repository refuses is not held in memory either", "[touchpad-mode-store]") {
+    // "pad" is the name the editors once wrote: the repository refused it while
+    // the state kept it, so memory and disk disagreed until the next launch.
+    TouchpadModeRepository repo(makeSharedSettings());
+    TouchpadModeStore store(&repo);
+    store.setMode("sat", "ds4");
+    dish::test::StateSourceProbe<TouchpadModeMap> probe(store.state());
+    const auto baseline = probe.count();
+
+    store.setMode("sat", "pad");
+    CHECK(store.modeFor("sat") == "ds4");
+    CHECK(probe.count() == baseline);
+}
+
+TEST_CASE("a refused mode leaves a host never picked for unpicked", "[touchpad-mode-store]") {
+    TouchpadModeRepository repo(makeSharedSettings());
+    TouchpadModeStore store(&repo);
+    store.setMode("sat", "banana");
+    CHECK_FALSE(store.modeFor("sat").has_value());
+}
+
 TEST_CASE("forget removes from the repo and the state", "[touchpad-mode-store]") {
     auto settings = makeSharedSettings();
     TouchpadModeRepository repo(settings);
