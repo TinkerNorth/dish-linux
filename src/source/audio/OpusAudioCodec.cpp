@@ -21,19 +21,21 @@ namespace {
 // Mirrored from satellite adapters/audio/opus_codec.cpp — the measurements
 // quoted below are its, on the same libopus generation.
 //
-// Mic: 32 kbps mono under OPUS_APPLICATION_VOIP puts Opus in SILK mode, which
-// is the only mode that HAS in-band FEC — the redundant low-rate copy of the
+// Mic: 32 kbps mono under OPUS_APPLICATION_VOIP encodes as SILK wideband on
+// band-limited input and as Hybrid fullband on broadband input. Both keep the
+// SILK layer, the only one with in-band FEC: the redundant low-rate copy of the
 // previous frame that lets a receiver recover a single lost packet instead of
 // guessing at it. The expected-loss hint is what makes the encoder actually
 // spend bits on that copy; without it the flag alone does nothing.
 //
 // Speaker: 96 kbps stereo under OPUS_APPLICATION_AUDIO, because this carries
 // game and chat audio a player listens to rather than speech a codec can model.
-// The loss hint below, not the application, is what picks the mode: it forces
-// SILK in, so BOTH streams encode as Hybrid fullband and both really do carry
-// in-band FEC (measured on libopus 1.6.1: 8.4 dB recovery via decode_fec vs
-// -1.3 dB for blind PLC on the speaker stream). Dropping the hint to zero would
-// hand the speaker to CELT and silently delete that FEC.
+// The FEC request and the loss hint below, not the application, pick the mode:
+// together they force SILK in, so the speaker encodes as Hybrid, SILK under CELT
+// (fullband, or super-wideband for band-limited content), instead of CELT alone,
+// and both streams really do carry in-band FEC (measured on libopus 1.6.1: 8.4 dB
+// recovery via decode_fec vs -1.3 dB for blind PLC on the speaker stream).
+// Dropping either one would hand the speaker to CELT and silently delete that FEC.
 constexpr int kOpusMicBitrateBps = 32000;
 constexpr int kOpusSpeakerBitrateBps = 96000;
 constexpr int kOpusExpectedPacketLossPct = 10;
