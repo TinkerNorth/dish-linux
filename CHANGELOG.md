@@ -31,6 +31,9 @@ the repos share a version number.
   with a REST disconnect instead of holding the satellite's slot until its own
   timeout, and a Connect the user pressed now says so instead of settling idle
   without a word. A background reconnect stays quiet and does not retry.
+- Disconnect cancels a silent reconnect still waiting out its backoff. A retry
+  armed by an earlier failed background attempt used to fire after the user's
+  Disconnect, find the row idle and dial the satellite again.
 
 ## [2.1.0] - 2026-09-21
 

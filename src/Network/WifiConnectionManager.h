@@ -196,6 +196,9 @@ class WifiConnectionManager : public QObject {
     // or how long we retry. The curve stays a pure function of the attempt.
     void scheduleRetry(const models::DiscoveredServer& server, ConnectIntent intent,
                        reducer::TransportFailure failure = reducer::TransportFailure::None);
+    // A backoff timer's end: retries unless a disconnect came after it was armed.
+    void onRetryDue(const QString& id, const models::DiscoveredServer& server,
+                    std::uint64_t generation);
 
     void emitErrorIfUserInitiated(ConnectIntent intent, const QString& message);
     void markStale(const QString& id);
@@ -252,6 +255,10 @@ class WifiConnectionManager : public QObject {
     // Last logged cause per satellite, so a box that stays off does not write
     // one identical line per backoff tick. Cleared whenever the id settles.
     QHash<QString, reducer::TransportFailure> lastFailure_;
+    // Bumped by every disconnect. A retry carries the value it was armed under, so one armed before
+    // a disconnect does not dial again after it. Never erased: a retry armed before a forget must
+    // not match a connection re-created later under the same id.
+    QHash<QString, std::uint64_t> retryGeneration_;
     // Single-flight guard: the ack ticks every second but the GET can take longer.
     QSet<QString> reconcileInFlight_;
 

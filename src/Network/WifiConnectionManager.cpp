@@ -1092,28 +1092,36 @@ void WifiConnectionManager::scheduleRetry(const models::DiscoveredServer& server
         qCDebug(lcNet, "satellite %s: still %s; retry %d in %llds", qUtf8Printable(id),
                 failureName(failure), attempt, static_cast<long long>(delay / 1000));
     }
-    QTimer::singleShot(static_cast<int>(delay), this, [this, id, server] {
-        auto* c = connections_.value(id, nullptr);
-        if (c == nullptr) { return; }
-        // Retry only from a settled state: a user-driven reconnect or forget in
-        // the interim moved it out, and clobbering that would fight the user.
-        if (c->state() != SessionState::Idle && c->state() != SessionState::Stale) { return; }
-        // Idempotent, and on completion it persists any new IP and re-runs
-        // autoReconnectAll, so a box that moved DHCP leases reconnects on its own
-        // without the user opening Manage and pressing Scan.
-        startDiscovery();
-        // The direct attempt below still runs, so a satellite discovery cannot
-        // reach (mDNS and broadcast blocked on the segment) is not left waiting on
-        // a scan that may find nothing.
-        models::DiscoveredServer target = server;
-        for (const auto& r : store_->remembered()) {
-            if (r.id == id) {
-                target = r.toDiscovered();
-                break;
-            }
+    const std::uint64_t generation = retryGeneration_.value(id, 0);
+    QTimer::singleShot(static_cast<int>(delay), this,
+                       [this, id, server, generation] { onRetryDue(id, server, generation); });
+}
+
+void WifiConnectionManager::onRetryDue(const QString& id, const models::DiscoveredServer& server,
+                                       std::uint64_t generation) {
+    // A disconnect since this retry was armed ended what it was retrying.
+    const bool disconnectedSince = retryGeneration_.value(id, 0) != generation;
+    if (disconnectedSince) { return; }
+    auto* c = connections_.value(id, nullptr);
+    if (c == nullptr) { return; }
+    // Retry only from a settled state: a user-driven reconnect or forget in
+    // the interim moved it out, and clobbering that would fight the user.
+    if (c->state() != SessionState::Idle && c->state() != SessionState::Stale) { return; }
+    // Idempotent, and on completion it persists any new IP and re-runs
+    // autoReconnectAll, so a box that moved DHCP leases reconnects on its own
+    // without the user opening Manage and pressing Scan.
+    startDiscovery();
+    // The direct attempt below still runs, so a satellite discovery cannot
+    // reach (mDNS and broadcast blocked on the segment) is not left waiting on
+    // a scan that may find nothing.
+    models::DiscoveredServer target = server;
+    for (const auto& r : store_->remembered()) {
+        if (r.id == id) {
+            target = r.toDiscovered();
+            break;
         }
-        connectTo(target, ConnectIntent::RetryAfterDeath);
-    });
+    }
+    connectTo(target, ConnectIntent::RetryAfterDeath);
 }
 
 void WifiConnectionManager::onTerminalAuthFailure(WifiConnection* conn, const QString& id,
@@ -1136,6 +1144,10 @@ void WifiConnectionManager::markStale(const QString& id) {
 }
 
 void WifiConnectionManager::disconnect(const QString& id) {
+    // First, and whether or not the connection is still here: every silent retry armed before this
+    // point is now out of date. One armed after it, a death's own, still runs.
+    const std::uint64_t nextGeneration = retryGeneration_.value(id, 0) + 1;
+    retryGeneration_.insert(id, nextGeneration);
     auto* conn = connections_.value(id, nullptr);
     if (conn == nullptr) { return; }
     const auto server = conn->server();

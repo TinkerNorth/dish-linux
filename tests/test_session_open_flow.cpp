@@ -3,7 +3,8 @@
 //
 // The connect PUT, driven through the real WifiConnectionManager against a
 // satellite on loopback: a grant takes the connection live, a grant this end
-// cannot carry is handed back, and each refusal takes its own way out.
+// cannot carry is handed back, and each refusal takes its own way out, the
+// silent retry it may arm included.
 //
 // test_session_manager.cpp pins the pure verdicts that choose between these
 // arms. This pins what the manager does on each one.
@@ -256,4 +257,39 @@ TEST_CASE("session open: a silent reconnect to a dead port parks and says nothin
 
     CHECK(rig.errors() == 0);
     CHECK(rig.store->sharedKey(rig.server.id()).has_value());
+}
+
+TEST_CASE("session retry: a disconnect cancels a silent retry still waiting out its backoff",
+          "[wifi][session][retry]") {
+    ManagerRig rig;
+    REQUIRE(rig.listener.listening());
+    rig.listener.respond = answeringSessions(503, QJsonObject{});
+    keyed(rig);
+
+    rig.wifi->connectTo(rig.server, ConnectIntent::AutoReconnect);
+    REQUIRE(spinFor([&] { return inState(rig, SessionState::Stale); }));
+    rig.wifi->disconnect(rig.server.id());
+    settle(kPastFirstRetryMs);
+
+    CHECK(rig.listener.seen(kSessionPath) == 1);
+    CHECK(inState(rig, SessionState::Idle));
+}
+
+TEST_CASE("session retry: a silent failure after the disconnect still retries",
+          "[wifi][session][retry]") {
+    // The cancel is for the retries the disconnect ended, not for every later one: this is also
+    // the order a session death takes, a disconnect and then its own retry.
+    ManagerRig rig;
+    REQUIRE(rig.listener.listening());
+    rig.listener.respond = answeringSessions(503, QJsonObject{});
+    keyed(rig);
+
+    rig.wifi->connectTo(rig.server, ConnectIntent::AutoReconnect);
+    REQUIRE(spinFor([&] { return inState(rig, SessionState::Stale); }));
+    rig.wifi->disconnect(rig.server.id());
+    rig.wifi->connectTo(rig.server, ConnectIntent::AutoReconnect);
+    REQUIRE(spinFor(
+        [&] { return rig.listener.seen(kSessionPath) == 2 && inState(rig, SessionState::Stale); }));
+
+    CHECK(spinFor([&] { return rig.listener.seen(kSessionPath) == 3; }));
 }
