@@ -184,6 +184,10 @@ TEST_CASE("an off pick reads as Off", "[appvm][touchpad]") {
     CHECK(touchpadChoiceForPick(kWireOff) == QStringLiteral("off"));
 }
 
+TEST_CASE("a host never picked for reads as the Pad the runtime forwards", "[appvm][touchpad]") {
+    CHECK(touchpadChoiceForPick(std::nullopt) == QStringLiteral("pad"));
+}
+
 TEST_CASE("a stored pick this client cannot read reads as Off", "[appvm][touchpad]") {
     // The repository rejects an unknown mode on write but not on read, so a
     // hand-edited or corrupt blob can still hydrate one.

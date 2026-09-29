@@ -400,11 +400,10 @@ AppModel::AppModel(std::unique_ptr<source::WakeInhibitor> inhibitor, QObject* pa
         const bool hasTouchpad = slotHardware(slotId).hasTouchpad;
         if (!hasTouchpad) { return proto::kTouchpadModeOff; }
         const auto connId = hub_->boundConnection(slotId);
-        const std::string pick =
-            connId.has_value()
-                ? touchpadModeStore_.modeFor(connId->id.toStdString())
-                      .value_or(std::string(proto::touchpadModeName(proto::kTouchpadModeDs4)))
-                : std::string(proto::touchpadModeName(proto::kTouchpadModeDs4));
+        const auto stored = connId.has_value()
+                                ? touchpadModeStore_.modeFor(connId->id.toStdString())
+                                : std::nullopt;
+        const std::string pick = reducer::touchpadPickOrDefault(stored);
         // kControllerTypePlayStation is the one type whose catalog touchpad
         // feature carries the "ds4" mode in every catalog the contract pins, so
         // this stands in for a real per-satellite CatalogFeatureGate lookup.

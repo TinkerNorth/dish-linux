@@ -12,6 +12,7 @@
 
 #include <algorithm>
 #include <array>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -30,6 +31,13 @@ inline const std::array<std::string_view, 3> kTouchpadModeNames{
 // survives the round trip unchanged, since unknown names collapse to off.
 inline bool isValidTouchpadModeName(std::string_view name) {
     return proto::touchpadModeName(proto::touchpadModeFromName(name)) == name;
+}
+
+// A host the user never picked for renders the pad, so a DS4 touchpad forwards
+// out of the box. The runtime and the binding editors both read this, so an
+// editor shows the routing the wire carries.
+inline std::string touchpadPickOrDefault(const std::optional<std::string>& stored) {
+    return stored.value_or(std::string(proto::touchpadModeName(proto::kTouchpadModeDs4)));
 }
 
 // A touchpad-bearing type with no "ds4" lineage gates the pad routing off. A

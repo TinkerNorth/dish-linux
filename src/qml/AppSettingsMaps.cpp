@@ -5,6 +5,7 @@
 
 #include "Input/SDLGamepadBridge.h"
 #include "core/model/Protocol.h"
+#include "core/reducer/TouchpadModeResolve.h"
 #include "repository/DeadzoneRepository.h"
 #include "source/store/MotionEnabledStore.h"
 #include "UI/licenses/LicenseManifest.h"
@@ -103,7 +104,7 @@ QString keepAwakeReachToken(reducer::KeepAwakeReach reach) {
 }
 
 QString touchpadChoiceForPick(const std::optional<std::string>& pick) {
-    const std::uint8_t mode = proto::touchpadModeFromName(pick.value_or(std::string()));
+    const std::uint8_t mode = proto::touchpadModeFromName(reducer::touchpadPickOrDefault(pick));
     return touchpadChoiceForMode(mode);
 }
 
