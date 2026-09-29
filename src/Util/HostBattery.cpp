@@ -89,16 +89,20 @@ BatteryReading hostBatteryFromSysfs(const std::vector<SysfsBattery>& batteries) 
     return {level, foldStatus(batteries, level)};
 }
 
-BatteryReading readHostBattery() {
+BatteryReading readHostBattery(const std::filesystem::path& powerSupplyRoot) {
     std::vector<SysfsBattery> batteries;
     std::error_code ec;
-    fs::directory_iterator it(kPowerSupplyRoot, ec);
+    fs::directory_iterator it(powerSupplyRoot, ec);
     if (!ec) {
         for (const auto& entry : it) {
             const fs::path& dir = entry.path();
             // Only consider supplies whose `type` file reads "Battery" — skip
             // the AC adapter and USB-port entries that share this directory.
             if (readSysfsFile(dir / "type") != "Battery") { continue; }
+            // hid-playstation, hid-sony, hid-nintendo and hid-steam scope a pad's own pack
+            // "Device": it powers the pad, not this machine. ACPI's laptop packs carry no scope.
+            const bool powersOnlyItsDevice = readSysfsFile(dir / "scope") == "Device";
+            if (powersOnlyItsDevice) { continue; }
 
             SysfsBattery battery;
             const std::string capacityText = readSysfsFile(dir / "capacity");
@@ -116,5 +120,7 @@ BatteryReading readHostBattery() {
     }
     return hostBatteryFromSysfs(batteries);
 }
+
+BatteryReading readHostBattery() { return readHostBattery(kPowerSupplyRoot); }
 
 } // namespace dish::util
