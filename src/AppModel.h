@@ -234,6 +234,12 @@ class AppModel : public QObject {
     // haptic lanes can be played rather than reduced by the host.
     bool slotCarriesHapticSink(const QString& slotId) const;
 
+    // The touchpadMode the slot's descriptor declares, one owner with anything
+    // that shows it. slotHardware covers the synthetic ids too, so a
+    // Direct-claimed pad that decodes its own touch block declares it: "off"
+    // makes the satellite drop every MSG_TOUCHPAD the forward path sends.
+    std::uint8_t declaredTouchpadMode(const QString& slotId) const;
+
     // Per-slot hardware truth read from the source layer that owns the slot:
     // the parser family for a synthetic (USB-direct) id, the SDL probe for a
     // framework id. The bind capability seams and the capability table read

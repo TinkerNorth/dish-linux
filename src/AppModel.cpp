@@ -14,11 +14,11 @@
 #include "core/moonlight/MoonlightProtocol.h"
 #include "core/moonlight/MoonlightTelemetry.h"
 #include "core/moonlight/MoonlightTouchDiffer.h"
+#include "core/reducer/CatalogFeatureGate.h"
 #include "core/reducer/CatalogPrewarm.h"
 #include "core/reducer/PickerVisibility.h"
 #include "core/reducer/RumbleRouting.h"
 #include "core/reducer/SlotPathFields.h"
-#include "core/reducer/TouchpadModeResolve.h"
 #include "core/reducer/TouchpadRouting.h"
 #include "core/reducer/UsbTwinDedup.h"
 
@@ -388,30 +388,7 @@ AppModel::AppModel(std::unique_ptr<source::WakeInhibitor> inhibitor, QObject* pa
     hub_->setControllerTypeFn(
         [this](const QString& slotId) { return resolveControllerType(slotId); });
 
-    // Declares ds4 pad-render when the pad has a touch source and the resolved
-    // type is DS4. The per-satellite pick defaults to ds4, so DS4 touch forwards
-    // out of the box; mouse stays unreachable while no UI sets the pick to
-    // "mouse" and hostMouseControl reads false. Answering "off" here would make
-    // the satellite discard every MSG_TOUCHPAD the forward path sends.
-    hub_->setTouchpadModeFn([this](const QString& slotId) -> std::uint8_t {
-        // slotHardware covers the synthetic ids too: a Direct-claimed DS4 /
-        // DualSense decodes the touch block itself, so its descriptor must
-        // declare the render mode or the satellite discards the forward.
-        const bool hasTouchpad = slotHardware(slotId).hasTouchpad;
-        if (!hasTouchpad) { return proto::kTouchpadModeOff; }
-        const auto connId = hub_->boundConnection(slotId);
-        const auto stored = connId.has_value()
-                                ? touchpadModeStore_.modeFor(connId->id.toStdString())
-                                : std::nullopt;
-        const std::string pick = reducer::touchpadPickOrDefault(stored);
-        // kControllerTypePlayStation is the one type whose catalog touchpad
-        // feature carries the "ds4" mode in every catalog the contract pins, so
-        // this stands in for a real per-satellite CatalogFeatureGate lookup.
-        const bool typeOffersDs4 =
-            resolveControllerType(slotId) == proto::kControllerTypePlayStation;
-        return reducer::resolveTouchpadMode(pick, hasTouchpad, typeOffersDs4,
-                                            /*hostMouseControl=*/false);
-    });
+    hub_->setTouchpadModeFn([this](const QString& slotId) { return declaredTouchpadMode(slotId); });
 
     // Dormant until start() arms the scan timer. reconcile() then auto-claims
     // the verified fast-lane models; every other or failed pad stays on SDL via
@@ -1449,6 +1426,15 @@ bool AppModel::slotCarriesSpeakerSink(const QString& slotId) const {
 
 bool AppModel::slotCarriesHapticSink(const QString& slotId) const {
     return reducer::slotCarriesHapticPlayout(feedbackInputs(slotId));
+}
+
+std::uint8_t AppModel::declaredTouchpadMode(const QString& slotId) const {
+    const QString connId = hub_->bindings().value(slotId);
+    const auto stored =
+        connId.isEmpty() ? std::nullopt : touchpadModeStore_.modeFor(connId.toStdString());
+    const auto catalog = connId.isEmpty() ? std::nullopt : catalogRepo_.cached(connId);
+    return reducer::declaredTouchpadMode(stored, slotHardware(slotId).hasTouchpad,
+                                         resolveControllerType(slotId), catalog);
 }
 
 reducer::HostAudioVerdict AppModel::hostControllerAudioFor(const QString& hostId) const {
