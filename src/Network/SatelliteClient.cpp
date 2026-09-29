@@ -632,6 +632,11 @@ SatelliteClient::LatencySnapshot SatelliteClient::latencySnapshot() const {
     return {latencyWindow_.oneWayP50Ms(), latencyWindow_.count()};
 }
 
+reducer::LatencySummary SatelliteClient::latencySummary() const {
+    std::lock_guard<std::mutex> lock(latencyMtx_);
+    return latencyWindow_.summary();
+}
+
 std::optional<SatelliteClient::HeartbeatAck>
 SatelliteClient::parseHeartbeatAck(const std::uint8_t* payload, std::size_t len) {
     if (payload == nullptr || len < proto::kHeartbeatAckPayloadBytes) { return std::nullopt; }

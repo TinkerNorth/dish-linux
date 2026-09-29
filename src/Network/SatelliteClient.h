@@ -381,6 +381,9 @@ class SatelliteClient {
     };
     LatencySnapshot latencySnapshot() const;
 
+    // The same window's round trips for the diagnostics page, emptied with it.
+    reducer::LatencySummary latencySummary() const;
+
   private:
     // Test-only seam to park the send counter near exhaustion.
     friend class SatelliteClientTestAccess;

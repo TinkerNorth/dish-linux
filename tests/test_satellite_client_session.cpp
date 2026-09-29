@@ -2,13 +2,20 @@
 // Copyright (C) 2026 Dish contributors.
 
 #include "Network/SatelliteClient.h"
+#include "ServerPacket.h"
+#include "core/model/Protocol.h"
+#include "satellite_client_test_access.h"
 
 #include <catch2/catch_test_macros.hpp>
 
 #include <array>
+#include <chrono>
 #include <cstdint>
+#include <vector>
 
 using dish::net::SatelliteClient;
+using dish::net::SatelliteClientTestAccess;
+using dish::reducer::LatencySummary;
 
 namespace {
 std::array<std::uint8_t, 4> token4() { return {0x00, 0x07, 0xA1, 0xB2}; }
@@ -16,6 +23,27 @@ std::array<std::uint8_t, 32> key32() {
     std::array<std::uint8_t, 32> k{};
     k[0] = 0xAB;
     return k;
+}
+
+// The ping's age when its ack is fed in, so the round trip is at least this.
+constexpr std::int64_t kPingAgeUs = 12'000;
+constexpr double kPingAgeMs = 12.0;
+
+std::int64_t steadyNowUs() {
+    return std::chrono::duration_cast<std::chrono::microseconds>(
+               std::chrono::steady_clock::now().time_since_epoch())
+        .count();
+}
+
+// An enriched ack: backend up, one controller, epoch 1, controller 0 active.
+std::vector<std::uint8_t> ackBody() { return {0x01, 0x01, 0x00, 0x01, 0x00, 0x01}; }
+
+void ackAgedPing(SatelliteClient& c, std::uint32_t counter) {
+    SatelliteClientTestAccess::armPing(c, steadyNowUs() - kPingAgeUs);
+    const auto ack = dish::test::sealServerPacket(token4(), key32(), dish::proto::kMsgHeartbeatAck,
+                                                  ackBody(), counter);
+    REQUIRE_FALSE(ack.empty());
+    SatelliteClientTestAccess::processIncoming(c, ack.data(), ack.size());
 }
 } // namespace
 
@@ -46,6 +74,25 @@ TEST_CASE("setConnectionParams starts the latency window empty", "[satellite][la
     const auto snap = c.latencySnapshot();
     REQUIRE(snap.samples == 0);
     REQUIRE(snap.oneWayMs == 0.0);
+    REQUIRE(c.latencySummary() == LatencySummary{});
+}
+
+TEST_CASE("an acked ping lands its round trip in the latency summary", "[satellite][latency]") {
+    SatelliteClient c;
+    c.setConnectionParams(token4(), key32(), dish::proto::kProtocolVersion);
+    ackAgedPing(c, 1);
+    const LatencySummary summary = c.latencySummary();
+    REQUIRE(summary.samples == 1);
+    REQUIRE(summary.rttP50Ms >= kPingAgeMs);
+    REQUIRE(summary.rttP99Ms == summary.rttP50Ms);
+}
+
+TEST_CASE("a re-key empties the latency summary", "[satellite][latency]") {
+    SatelliteClient c;
+    c.setConnectionParams(token4(), key32(), dish::proto::kProtocolVersion);
+    ackAgedPing(c, 1);
+    c.setConnectionParams(token4(), key32(), dish::proto::kProtocolVersion);
+    REQUIRE(c.latencySummary() == LatencySummary{});
 }
 
 TEST_CASE("a fresh client re-keyed twice keeps the counter at 1", "[satellite][counter]") {
