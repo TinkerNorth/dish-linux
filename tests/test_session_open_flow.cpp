@@ -68,6 +68,13 @@ bool inState(const ManagerRig& rig, SessionState state) {
     return conn != nullptr && conn->state() == state;
 }
 
+// A satellite the user connected to, now live and remembered.
+void liveByUser(ManagerRig& rig) {
+    rig.listener.respond = dish::test::grantingEverything;
+    keyed(rig);
+    rig.wifi->connectTo(rig.server, ConnectIntent::UserInitiated);
+}
+
 // How many times the granted session was handed back to the satellite.
 int releasesOfTheGrant(const ManagerRig& rig) {
     int n = 0;
@@ -356,4 +363,85 @@ TEST_CASE("pairing guard: a reverse pair to an IPv6 satellite is refused before 
     CHECK(rig.listener.requests().empty());
     CHECK(rig.errors() == 1);
     CHECK(rig.wifi->reversePairingPhase() == dish::net::ReversePairingPhase::Idle);
+}
+
+TEST_CASE("user disconnect: auto-reconnect leaves a satellite the user disconnected alone",
+          "[wifi][session][hold]") {
+    ManagerRig rig;
+    REQUIRE(rig.listener.listening());
+    liveByUser(rig);
+    REQUIRE(spinFor([&] { return inState(rig, SessionState::Live); }));
+    REQUIRE(rig.remembered());
+
+    rig.wifi->disconnectByUser(rig.server.id());
+    // The periodic sweep and every discovery scan both land here.
+    rig.wifi->autoReconnectAll();
+    settle(kNothingFollowsMs);
+
+    CHECK(rig.listener.seen(kSessionPath) == 1);
+    CHECK(inState(rig, SessionState::Idle));
+    CHECK(rig.wifi->isHeldByUser(rig.server.id()));
+}
+
+TEST_CASE("user disconnect: a satellite dropped for any other reason still auto-reconnects",
+          "[wifi][session][hold]") {
+    // The plain disconnect is what a session death and a suspend take.
+    ManagerRig rig;
+    REQUIRE(rig.listener.listening());
+    liveByUser(rig);
+    REQUIRE(spinFor([&] { return inState(rig, SessionState::Live); }));
+
+    rig.wifi->disconnect(rig.server.id());
+    rig.wifi->autoReconnectAll();
+
+    CHECK(spinFor(
+        [&] { return rig.listener.seen(kSessionPath) == 2 && inState(rig, SessionState::Live); }));
+    CHECK_FALSE(rig.wifi->isHeldByUser(rig.server.id()));
+}
+
+TEST_CASE("user disconnect: the user's next connect lifts the hold", "[wifi][session][hold]") {
+    ManagerRig rig;
+    REQUIRE(rig.listener.listening());
+    liveByUser(rig);
+    REQUIRE(spinFor([&] { return inState(rig, SessionState::Live); }));
+    rig.wifi->disconnectByUser(rig.server.id());
+
+    rig.wifi->connectTo(rig.server, ConnectIntent::UserInitiated);
+    REQUIRE(spinFor([&] { return inState(rig, SessionState::Live); }));
+    CHECK_FALSE(rig.wifi->isHeldByUser(rig.server.id()));
+
+    // Back to ordinary: a drop the user did not ask for is reconnected again.
+    rig.wifi->disconnect(rig.server.id());
+    rig.wifi->autoReconnectAll();
+    CHECK(spinFor([&] { return rig.listener.seen(kSessionPath) == 3; }));
+}
+
+TEST_CASE("user disconnect: pairing again lifts the hold", "[wifi][session][hold]") {
+    ManagerRig rig;
+    REQUIRE(rig.listener.listening());
+    liveByUser(rig);
+    REQUIRE(spinFor([&] { return inState(rig, SessionState::Live); }));
+    rig.wifi->disconnectByUser(rig.server.id());
+
+    rig.wifi->pairWithPin(rig.server, QStringLiteral("1234"));
+    REQUIRE(spinFor([&] { return inState(rig, SessionState::Live); }));
+
+    CHECK_FALSE(rig.wifi->isHeldByUser(rig.server.id()));
+}
+
+TEST_CASE("user disconnect: forget lifts the hold", "[wifi][session][hold]") {
+    ManagerRig rig;
+    REQUIRE(rig.listener.listening());
+    liveByUser(rig);
+    REQUIRE(spinFor([&] { return inState(rig, SessionState::Live); }));
+    rig.wifi->disconnectByUser(rig.server.id());
+
+    rig.wifi->forget(rig.server.id());
+    CHECK_FALSE(rig.wifi->isHeldByUser(rig.server.id()));
+
+    // The same satellite remembered again reconnects on its own like any other.
+    keyed(rig);
+    rig.store->remember(rig.server);
+    rig.wifi->autoReconnectAll();
+    CHECK(spinFor([&] { return rig.listener.seen(kSessionPath) == 2; }));
 }

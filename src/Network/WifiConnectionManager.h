@@ -84,7 +84,14 @@ class WifiConnectionManager : public QObject {
     QString reversePairingPin() const { return reversePin_; }
     QString reversePairingServerName() const { return reverseServerName_; }
 
+    // The plain teardown: a session death, a suspend and a forget all take it, and the silent
+    // reconnects still pick the satellite up afterwards.
     void disconnect(const QString& id);
+    // The Disconnect the user pressed. The same teardown, and the satellite is then held down:
+    // no silent reconnect (the periodic sweep, a discovery scan, a backoff retry) dials it again
+    // until the user connects or pairs it, or forgets it. Held for this run only, never saved.
+    void disconnectByUser(const QString& id);
+    bool isHeldByUser(const QString& id) const { return heldByUser_.contains(id); }
     void forget(const QString& id);
     void autoReconnectAll();
 
@@ -204,8 +211,8 @@ class WifiConnectionManager : public QObject {
     // The addresses no request may go to: an IPv6 one, which the IPv4-only satellite can never
     // answer, and a public one. True when refused, with the error already raised.
     bool refusesAddress(const models::DiscoveredServer& server, ConnectIntent intent);
-    // Every user action on a satellite starts its reconnect story over: the backoff and the
-    // logged cause.
+    // Every user action on a satellite starts its reconnect story over: the backoff, the logged
+    // cause and a hold from an earlier Disconnect.
     void clearForUserAction(const QString& id);
     void markStale(const QString& id);
 
@@ -265,6 +272,9 @@ class WifiConnectionManager : public QObject {
     // a disconnect does not dial again after it. Never erased: a retry armed before a forget must
     // not match a connection re-created later under the same id.
     QHash<QString, std::uint64_t> retryGeneration_;
+    // Satellites the user disconnected, which no silent reconnect may dial. Per run on purpose:
+    // at launch every remembered satellite reconnects, and Forget is the lasting way out.
+    QSet<QString> heldByUser_;
     // Single-flight guard: the ack ticks every second but the GET can take longer.
     QSet<QString> reconcileInFlight_;
 

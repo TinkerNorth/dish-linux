@@ -34,6 +34,13 @@ the repos share a version number.
 - Disconnect cancels a silent reconnect still waiting out its backoff. A retry
   armed by an earlier failed background attempt used to fire after the user's
   Disconnect, find the row idle and dial the satellite again.
+- Disconnect now holds. The periodic reconnect sweep and every discovery scan
+  used to dial a satellite the user had just disconnected within 15 seconds.
+  A satellite the user disconnects is now left alone by every silent reconnect
+  until the user connects or pairs it again, or forgets it. The hold lasts for
+  this run of the app and is not saved: at launch every remembered satellite
+  reconnects, as before. A satellite dropped for any other reason (its session
+  died, the machine slept) still reconnects on its own.
 - An IPv6 satellite address is refused before any request goes out, with a
   message saying a satellite is reached over IPv4 only. Satellite binds IPv4
   alone, so such an address could never reach it. The PIN and

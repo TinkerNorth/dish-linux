@@ -352,13 +352,17 @@ bool WifiConnectionManager::refusesAddress(const models::DiscoveredServer& serve
 void WifiConnectionManager::clearForUserAction(const QString& id) {
     retryAttempts_.remove(id);
     lastFailure_.remove(id);
+    heldByUser_.remove(id);
 }
 
 void WifiConnectionManager::connectTo(const models::DiscoveredServer& server,
                                       ConnectIntent intent) {
     if (refusesAddress(server, intent)) { return; }
+    const bool isSilent = intent != ConnectIntent::UserInitiated;
+    const bool userHeldItDown = heldByUser_.contains(WifiConnection::idFor(server));
+    if (isSilent && userHeldItDown) { return; }
     auto* conn = ensureConnection(server);
-    if (intent == ConnectIntent::UserInitiated) { clearForUserAction(conn->id()); }
+    if (!isSilent) { clearForUserAction(conn->id()); }
     if (conn->state() == SessionState::Live || conn->state() == SessionState::Linking) {
         conn->updateServer(server);
         return;
@@ -1177,6 +1181,11 @@ void WifiConnectionManager::disconnect(const QString& id) {
     if (cid.has_value()) { releaseSession(id, server, *cid); }
 }
 
+void WifiConnectionManager::disconnectByUser(const QString& id) {
+    heldByUser_.insert(id);
+    disconnect(id);
+}
+
 void WifiConnectionManager::releaseSession(const QString& id,
                                            const models::DiscoveredServer& server,
                                            const QString& connectionId) {
@@ -1203,6 +1212,7 @@ void WifiConnectionManager::forget(const QString& id) {
     store_->forget(id);
     retryAttempts_.remove(id);
     lastFailure_.remove(id);
+    heldByUser_.remove(id);
     reconcileInFlight_.remove(id);
     if (auto* taken = connections_.take(id)) {
         taken->deleteLater();
