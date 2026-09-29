@@ -30,6 +30,7 @@
 
 #include <QSslSocket>
 #include <QString>
+#include <QUrlQuery>
 
 #include <chrono>
 #include <memory>
@@ -130,6 +131,21 @@ constexpr int kHeardWhileBusyAtLeast = 3;
 // would have arrived.
 constexpr int kQuietAfterQuitMs = 1200;
 
+// Stereo, in the form both hosts parse: the channel mask (front left and front
+// right, 0x3) in the high 16 bits over the channel count (2) in the low 16.
+// Wolf reads the count as `value & 0xffff`.
+const QString kStereo = QStringLiteral("196610");
+
+// The surroundAudioInfo the first request on `path` carried, empty when none went out.
+QString surroundAudioInfoOf(const FakeMoonlightHost& host, const QString& path) {
+    for (const auto& request : host.requests()) {
+        if (request.path == path) {
+            return request.query.queryItemValue(QStringLiteral("surroundAudioInfo"));
+        }
+    }
+    return {};
+}
+
 } // namespace
 
 // ── A session, end to end ────────────────────────────────────────────────────
@@ -156,6 +172,30 @@ TEST_CASE("a first binding launches the app and brings the stream up", "[moonlig
     CHECK(rig.manager->session(kHostId)->linkState() == MoonlightLinkState::Live);
     CHECK(rig.uiFor(QStringLiteral("pad-a")) == moonlight::SessionUiState::Live);
     CHECK(rig.manager->controllerNumber(QStringLiteral("pad-a")) == 0);
+}
+
+TEST_CASE("a launch asks the host for stereo", "[moonlight][wire]") {
+    if (!tlsAvailable()) { SKIP("no TLS backend for the fixture host"); }
+    Rig rig;
+    REQUIRE(rig.host.listening());
+
+    REQUIRE(rig.bindLive(QStringLiteral("pad-a")));
+
+    REQUIRE(rig.host.seen(QStringLiteral("/launch")) == 1);
+    CHECK(surroundAudioInfoOf(rig.host, QStringLiteral("/launch")) == kStereo);
+}
+
+TEST_CASE("a resume asks the host for stereo", "[moonlight][wire]") {
+    if (!tlsAvailable()) { SKIP("no TLS backend for the fixture host"); }
+    Rig rig;
+    REQUIRE(rig.host.listening());
+    // The host is already running this client's app, which makes the start a resume.
+    rig.host.currentGame = 1;
+
+    REQUIRE(rig.bindLive(QStringLiteral("pad-a")));
+
+    REQUIRE(rig.host.seen(QStringLiteral("/resume")) == 1);
+    CHECK(surroundAudioInfoOf(rig.host, QStringLiteral("/resume")) == kStereo);
 }
 
 TEST_CASE("a second binding joins the live session without one HTTP call", "[moonlight][wire]") {

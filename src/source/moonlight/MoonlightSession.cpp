@@ -17,10 +17,10 @@
 #include <QTcpSocket>
 #include <QTimer>
 #include <QUdpSocket>
-#include <QStringView>
 #include <QUrlQuery>
 
 #include <chrono>
+#include <cstdint>
 #include <cstring>
 #include <optional>
 
@@ -45,12 +45,16 @@ QString stepStreamId(moonlight::RtspStep step) {
 // media address.
 constexpr int kRtpPingIntervalMs = 500;
 
-// Stereo, in the encoding the Moonlight clients use: the channel mask (front left and right, 0x3)
-// in the high 16 bits and the channel count (2) in the low 16, so 0x00030002. The smallest
-// configuration there is, and nothing here listens to the stream it describes: with
-// localAudioPlayMode=1 the host keeps its audio local.
-constexpr QStringView kSurroundAudioInfo = u"196610";
-static_assert(((0x3 << 16) | 2) == 196610, "stereo: mask 0x3, two channels");
+constexpr std::uint32_t kSpeakerFrontLeft = 0x1;
+constexpr std::uint32_t kSpeakerFrontRight = 0x2;
+constexpr std::uint32_t kStereoChannelCount = 2;
+
+constexpr std::uint32_t surroundAudioInfo(std::uint32_t channelMask, std::uint32_t channelCount) {
+    return (channelMask << 16) | channelCount;
+}
+
+constexpr std::uint32_t kStereoAudio =
+    surroundAudioInfo(kSpeakerFrontLeft | kSpeakerFrontRight, kStereoChannelCount);
 
 // What the host said in the body of its reply, for one log line.
 QString hostSays(const std::optional<moonxml::Status>& status) {
@@ -417,7 +421,7 @@ QUrlQuery MoonlightSession::launchQuery(bool resuming) const {
     // the host not to play audio locally would silence their own speakers for the length of the
     // session.
     query.addQueryItem(QStringLiteral("localAudioPlayMode"), QStringLiteral("1"));
-    query.addQueryItem(QStringLiteral("surroundAudioInfo"), kSurroundAudioInfo.toString());
+    query.addQueryItem(QStringLiteral("surroundAudioInfo"), QString::number(kStereoAudio));
     return query;
 }
 
