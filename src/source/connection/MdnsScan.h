@@ -2,18 +2,15 @@
 // Copyright (C) 2026 Dish contributors.
 //
 // One multicast-DNS query and the answers to it. Both discoverers speak the
-// protocol directly rather than through a platform service - there is no Avahi
-// dependency on Linux, and Windows offers only a COM-bound DNS-SD API - and this
-// is the part of that they share: the socket, the query, and the receive window.
+// protocol directly rather than through a platform service, and this is the
+// part of that they share: the socket, the query, and the receive window.
 //
 // What they do NOT share is the query bytes, the record parse, and what counts
 // as the same responder twice. Those stay with each discoverer, which is why
 // this takes a callback rather than a record type.
 //
 // No socket headers in this one on purpose: the discoverers include it, and
-// nothing that calls a scan should need to see a sockaddr or windows.h. The
-// dish-windows and dish-linux copies of this header are identical; only the .cpp
-// differs, Winsock in one and POSIX in the other.
+// nothing that calls a scan should need to see a sockaddr or windows.h.
 
 #pragma once
 
