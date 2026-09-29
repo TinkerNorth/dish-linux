@@ -115,7 +115,7 @@ bool socketsWork() {
 
 } // namespace
 
-TEST_CASE("a reply naming a host resolves to its address", "[moonlight][discovery]") {
+TEST_CASE("a reply naming a host resolves to its address", "[moonlight][discovery][h4]") {
     const auto packet = hostReply("Den", "den.local");
     const auto host = detail::parseMoonlightResponse(packet.data(), packet.size());
 
@@ -141,7 +141,7 @@ TEST_CASE("a reply with no address at all is not a host", "[moonlight][discovery
     CHECK_FALSE(detail::parseMoonlightResponse(truncated, sizeof(truncated)).has_value());
 }
 
-TEST_CASE("the sweep is over when its window is", "[moonlight][discovery]") {
+TEST_CASE("the sweep is over when its window is", "[moonlight][discovery][b1]") {
     if (!socketsWork()) { SKIP("no UDP socket to sweep with"); }
 
     // A window of nothing ends immediately, so a caller can ask for one.

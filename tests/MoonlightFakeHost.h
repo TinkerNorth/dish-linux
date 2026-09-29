@@ -64,6 +64,7 @@
 #include <QStringList>
 #include <QTcpServer>
 #include <QTcpSocket>
+#include <QTimer>
 #include <QUdpSocket>
 #include <QUrlQuery>
 
@@ -197,6 +198,9 @@ class FakeMoonlightHost : public QObject {
     void answer(const QString& path, int status, const QByteArray& body) {
         answers_.insert(path, CannedAnswer{status, body});
     }
+    // Hold every /launch reply this long, for a case that has to act while one
+    // is out.
+    int launchReplyDelayMs = 0;
 
     // ── What the client did ─────────────────────────────────────────────────
     int seen(const QString& path) const {
@@ -284,17 +288,22 @@ class FakeMoonlightHost : public QObject {
             request.path = url.path();
             request.query = QUrlQuery(url.query());
             request.tls = tls;
-            requests_.append(request);
-            // A host parks the pairing request until the PIN is typed, so the
-            // stall is silence on an open socket rather than a refusal.
-            if (pairStalls && request.path == QLatin1String("/pair")) { return; }
-            const auto canned = answers_.constFind(request.path);
-            if (canned != answers_.cend()) {
-                reply(sock, canned->status, canned->body);
-                return;
-            }
-            reply(sock, 200, bodyFor(request));
+            onRequest(sock, request);
         });
+    }
+
+    // A host parks the pairing request until the PIN is typed, so the stall is
+    // silence on an open socket rather than a refusal.
+    void onRequest(QTcpSocket* sock, const FakeRequest& request) {
+        requests_.append(request);
+        if (pairStalls && request.path == QLatin1String("/pair")) { return; }
+        const bool heldLaunch = request.path == QLatin1String("/launch") && launchReplyDelayMs > 0;
+        if (heldLaunch) {
+            QTimer::singleShot(launchReplyDelayMs, sock,
+                               [this, sock, request] { respond(sock, request); });
+            return;
+        }
+        respond(sock, request);
     }
 
     static QUrl requestUrl(const QByteArray& head) {
@@ -302,9 +311,19 @@ class FakeMoonlightHost : public QObject {
         return QUrl(QString::fromUtf8(line.size() > 1 ? line.at(1) : QByteArray()));
     }
 
+    void respond(QTcpSocket* sock, const FakeRequest& request) {
+        const auto canned = answers_.constFind(request.path);
+        if (canned != answers_.cend()) {
+            reply(sock, canned->status, canned->body);
+            return;
+        }
+        reply(sock, 200, bodyFor(request));
+    }
+
     static void reply(QTcpSocket* sock, int status, const QByteArray& body) {
         sock->write(QByteArray("HTTP/1.1 ") + QByteArray::number(status) +
-                    QByteArray(" X\r\nContent-Length: ") + QByteArray::number(body.size()) +
+                    QByteArray(status == 200 ? " OK" : " Refused") +
+                    QByteArray("\r\nContent-Length: ") + QByteArray::number(body.size()) +
                     QByteArray("\r\nConnection: close\r\n\r\n") + body);
         sock->flush();
         sock->disconnectFromHost();

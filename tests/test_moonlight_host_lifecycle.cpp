@@ -277,7 +277,7 @@ Residue residueOf(const MoonlightManager& manager, const repository::MoonlightHo
 // ── Arrival ──────────────────────────────────────────────────────────────────
 
 TEST_CASE("a host typed in by address is remembered unpaired, with its ports",
-          "[moonlight][lifecycle]") {
+          "[moonlight][lifecycle][b2]") {
     // The discovery fallback: mDNS does not cross every subnet, so the manual
     // path has to reach the same place the found path does.
     auto settings = test::makeSharedSettings();
@@ -375,7 +375,7 @@ TEST_CASE("a refusal names itself and is scoped to the host it happened on",
     CHECK(manager.pairingRefusedReason(mine).isEmpty());
 }
 
-TEST_CASE("pairing a known host puts a four digit PIN on screen", "[moonlight][lifecycle]") {
+TEST_CASE("pairing a known host puts a four digit PIN on screen", "[moonlight][lifecycle][b3]") {
     auto settings = test::makeSharedSettings();
     MoonlightManager manager(settings);
     manager.addManualHost(kNowhere, QStringLiteral("Den"), 47989, 47984);
@@ -401,7 +401,7 @@ TEST_CASE("pairing a known host puts a four digit PIN on screen", "[moonlight][l
 // ── Binding ──────────────────────────────────────────────────────────────────
 
 TEST_CASE("binding a paired host creates the session and takes controller zero",
-          "[moonlight][lifecycle]") {
+          "[moonlight][lifecycle][b7]") {
     auto settings = test::makeSharedSettings();
     repository::MoonlightHostRepository repo(settings);
     repo.upsert(pairedHost());
@@ -421,7 +421,7 @@ TEST_CASE("binding a paired host creates the session and takes controller zero",
 }
 
 TEST_CASE("binding a host nobody has paired records the intent and starts nothing",
-          "[moonlight][lifecycle]") {
+          "[moonlight][lifecycle][b12][b21]") {
     // A binding is a DURABLE INTENT. Pairing is remembered trust verified
     // lazily, so the session is attempted when the pad is used and never when
     // the binding is saved; nothing about the host may refuse the answer.
@@ -500,7 +500,7 @@ TEST_CASE("bindings do not outlive the process, and the pairing does", "[moonlig
 // ── The session: one per host, reference counted ─────────────────────────────
 
 TEST_CASE("a second binding joins, a fifth is refused, and the last one out closes up",
-          "[moonlight][lifecycle]") {
+          "[moonlight][lifecycle][b11][b13][b22]") {
     auto settings = test::makeSharedSettings();
     repository::MoonlightHostRepository repo(settings);
     repo.upsert(pairedHost());
@@ -569,7 +569,7 @@ TEST_CASE("a probe that is answered settles the trust the row states", "[moonlig
 }
 
 TEST_CASE("a host that answers with a different uuid is a different machine",
-          "[moonlight][lifecycle]") {
+          "[moonlight][lifecycle][h4]") {
     // The stored certificate anchors a MACHINE. A box reset or replaced behind
     // the same address anchors nothing, and re-pairing is the only way back.
     InfoHost fixture(serverInfo(QStringLiteral("someone-else"), /*pairStatus=*/0));
@@ -672,7 +672,7 @@ TEST_CASE("an app list the host failed to serve is not trust lost", "[moonlight]
 
 // ── Forget ───────────────────────────────────────────────────────────────────
 
-TEST_CASE("forgetting a host leaves not one piece of it behind", "[moonlight][lifecycle]") {
+TEST_CASE("forgetting a host leaves not one piece of it behind", "[moonlight][lifecycle][b6]") {
     // The residue check, against every piece of state a host owns. On the
     // Android client the equivalent Forget emptied the host list and left the
     // pinned certificate on file, and a re-pair then met a pin the user
@@ -722,7 +722,7 @@ TEST_CASE("forgetting a host leaves not one piece of it behind", "[moonlight][li
           moonlight::SessionUiState::Checking);
 }
 
-TEST_CASE("forget clears the answers a probe already brought back", "[moonlight][lifecycle]") {
+TEST_CASE("forget clears the answers a probe already brought back", "[moonlight][lifecycle][b6]") {
     // A host forgotten and added again is a STRANGER. Rendering it Paired on
     // the strength of a question asked before it was forgotten is exactly the
     // trust the host screen exists to state honestly.
@@ -748,7 +748,7 @@ TEST_CASE("forget clears the answers a probe already brought back", "[moonlight]
 }
 
 TEST_CASE("forget cancels a pairing in flight so it cannot write the host back",
-          "[moonlight][lifecycle]") {
+          "[moonlight][lifecycle][b6]") {
     // The resurrection path. A pairing that finishes ok upserts the row with
     // the certificate it just verified, and it does not ask whether the host is
     // still wanted. Left running, a Forget would look done and then undo itself:
@@ -775,7 +775,7 @@ TEST_CASE("forget cancels a pairing in flight so it cannot write the host back",
     CHECK(manager.pairingPin().isEmpty());
 }
 
-TEST_CASE("forgetting one host is not felt by its neighbour", "[moonlight][lifecycle]") {
+TEST_CASE("forgetting one host is not felt by its neighbour", "[moonlight][lifecycle][b6]") {
     auto settings = test::makeSharedSettings();
     repository::MoonlightHostRepository repo(settings);
     repo.upsert(pairedHost(QStringLiteral("goes")));
@@ -801,7 +801,7 @@ TEST_CASE("forgetting one host is not felt by its neighbour", "[moonlight][lifec
 }
 
 TEST_CASE("a reply that outlives the forget is dropped, not written back",
-          "[moonlight][lifecycle]") {
+          "[moonlight][lifecycle][b6]") {
     // probes_ is written through QHash::operator[], which INSERTS. A probe
     // answered a moment after a Forget would therefore re-create the record the
     // Forget removed, and the row would render Paired on the strength of a
@@ -863,7 +863,8 @@ TEST_CASE("re-pairing after a forget starts a fresh attempt, not a silent no-op"
     manager.cancelPairing();
 }
 
-TEST_CASE("a host forgotten and found again pairs from a clean slate", "[moonlight][lifecycle]") {
+TEST_CASE("a host forgotten and found again pairs from a clean slate",
+          "[moonlight][lifecycle][b6]") {
     // The whole loop: paired, bound, forgotten, re-added, probed. The probe
     // reports the host unpaired because the anchor went with the row, which is
     // the client and the host agreeing again rather than disagreeing.
@@ -901,7 +902,7 @@ TEST_CASE("a host forgotten and found again pairs from a clean slate", "[moonlig
 }
 
 TEST_CASE("a host that trusts us while we hold no certificate is not paired",
-          "[moonlight][lifecycle]") {
+          "[moonlight][lifecycle][b4][h1]") {
     // THE DISAGREEMENT THE LIVE REPORT LANDED IN, from the other side. A host
     // reports PairStatus against the uniqueid on the request, and this install
     // keeps its identity across a Forget, so a box we forgot still answers 1.
@@ -935,7 +936,7 @@ TEST_CASE("a host that trusts us while we hold no certificate is not paired",
     CHECK(manager.row(uuid)->trust == moonlight::HostTrust::NotPaired);
 }
 
-TEST_CASE("choosing a host as a destination writes it down", "[moonlight][lifecycle]") {
+TEST_CASE("choosing a host as a destination writes it down", "[moonlight][lifecycle][b21]") {
     // INTEREST IS DURABLE. A host that exists only in a scan result cannot
     // carry a binding: the next sweep owns that set, and the app pick and the
     // controller type the binding flow writes have nowhere to live. Acting on
