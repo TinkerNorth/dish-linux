@@ -242,7 +242,7 @@ AppModel::AppModel(std::unique_ptr<source::WakeInhibitor> inhibitor, QObject* pa
             // stream in, so this is the final value for both. Duration 0
             // because the host refreshes on its own schedule and a stop is an
             // explicit 0,0.
-            actuateRumble(slotId, strong, weak, 0);
+            deliverRumble(slotId, strong, weak, 0);
         });
     moonlight_->setLedSink(
         [this](const QString& slotId, std::uint8_t r, std::uint8_t g, std::uint8_t b) {
@@ -557,7 +557,7 @@ void AppModel::onRumbleMessage(const QString& id, const net::SatelliteClient::Ru
     const auto snapshot = rumbleSnapshotOf(hub_->bindings(), wifi_->connections());
     const auto target = reducer::resolveRumble(snapshot, id);
     if (!target.valid()) { return; }
-    actuateRumble(target.deviceId, rm.strongMagnitude, rm.weakMagnitude, rm.durationMs);
+    deliverRumble(target.deviceId, rm.strongMagnitude, rm.weakMagnitude, rm.durationMs);
 }
 
 // Gated by the light-bar setting: "Off" suppresses the colour entirely.
@@ -1457,6 +1457,14 @@ reducer::HostAudioVerdict AppModel::hostControllerAudioFor(const QString& hostId
     if (conn == nullptr) { return {}; } // conservative: no probe, no audio
     return {conn->hostMicAvailable(), conn->hostSpeakerAvailable(),
             conn->hostHapticAudioAvailable()};
+}
+
+void AppModel::deliverRumble(const QString& slotId, std::uint16_t strong, std::uint16_t weak,
+                             std::uint16_t durationMs) {
+    const reducer::RumbleCommand fromHost{strong, weak, durationMs};
+    const bool userRumbleOn = rumbleEnabledStore_.isEnabled(slotId.toStdString());
+    const auto command = reducer::rumbleTheUserAllows(fromHost, userRumbleOn);
+    actuateRumble(slotId, command.strong, command.weak, command.durationMs);
 }
 
 void AppModel::actuateRumble(const QString& slotId, std::uint16_t strong, std::uint16_t weak,

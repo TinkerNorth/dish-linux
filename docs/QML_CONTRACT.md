@@ -360,13 +360,8 @@ vends a sentence; QML localizes.
 |---|---|
 | `touchpadModeFor(connectionId)` → `"off"` / `"pad"` / `"mouse"` | Real. Per-satellite store; `"off"` when never picked. |
 | `setTouchpadMode(connectionId, mode)` | Real. |
-| `rumbleEnabledFor(slotId)` | **Stub: always `true`.** |
-| `setRumbleEnabled(slotId, on)` | **Stub: no-op.** |
-
-The rumble pair is honest about being a stub. No per-binding rumble store
-exists; rumble rides the descriptor capabilities. Still render the Rumble row
-and its switch: the capability verdict for it is real, so hiding the row would
-hide true information. The switch simply has no durable effect yet.
+| `rumbleEnabledFor(slotId)` | Real. Per-slot store; `true` when never switched. A draft seeds from it, so applying cannot silently turn rumble back on. |
+| `setRumbleEnabled(slotId, on)` | Real. Off turns every rumble a host sends that slot into a stop; the descriptor still offers rumble, as on Android. |
 
 ### Apply
 

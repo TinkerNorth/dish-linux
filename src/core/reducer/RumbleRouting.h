@@ -96,4 +96,26 @@ inline RumbleTarget resolveRumble(const std::vector<RumbleConnectionSnapshot>& c
     return RumbleTarget{chosen->boundDeviceId};
 }
 
+// ── The user's switch ────────────────────────────────────────────────────────
+
+// One command for a pad's two motors: the levels, and how long they hold (0
+// holds until the next command).
+struct RumbleCommand {
+    std::uint16_t strong = 0;
+    std::uint16_t weak = 0;
+    std::uint16_t durationMs = 0;
+
+    bool operator==(const RumbleCommand&) const = default;
+};
+
+inline constexpr RumbleCommand kRumbleStop{};
+
+// A slot the user switched off turns the host's command into a stop rather than
+// dropping it: a Moonlight hold and a Direct claim's levels never expire on their
+// own, so a motor running when the switch went off would run until it came back.
+inline RumbleCommand rumbleTheUserAllows(const RumbleCommand& fromHost, bool userRumbleOn) {
+    if (userRumbleOn) { return fromHost; }
+    return kRumbleStop;
+}
+
 } // namespace dish::reducer

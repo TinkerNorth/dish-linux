@@ -70,6 +70,8 @@ set(DISH_TEST_SOURCES
     test_deadzone_repository.cpp
     test_motion_preference_repository.cpp
     test_motion_enabled_store.cpp
+    test_rumble_preference_repository.cpp
+    test_rumble_enabled_store.cpp
     test_motion_backend_status_store.cpp
     test_motion_capability_composer.cpp
     test_physical_motion_source.cpp

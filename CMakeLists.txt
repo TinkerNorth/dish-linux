@@ -327,6 +327,8 @@ set(DISH_CORE_SOURCES
     src/source/store/ControllerTypeStore.cpp
     src/source/store/MotionEnabledStore.h
     src/source/store/MotionEnabledStore.cpp
+    src/source/store/RumbleEnabledStore.h
+    src/source/store/RumbleEnabledStore.cpp
     src/source/store/AudioEnabledStore.h
     src/source/store/AudioEnabledStore.cpp
     src/source/store/MicMuteStore.h
@@ -411,6 +413,8 @@ set(DISH_CORE_SOURCES
     src/repository/DeadzoneRepository.cpp
     src/repository/MotionPreferenceRepository.h
     src/repository/MotionPreferenceRepository.cpp
+    src/repository/RumblePreferenceRepository.h
+    src/repository/RumblePreferenceRepository.cpp
     src/repository/AudioPreferenceRepository.h
     src/repository/AudioPreferenceRepository.cpp
     src/repository/TouchpadModeRepository.h

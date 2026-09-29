@@ -36,6 +36,7 @@
 #include "source/store/AudioEnabledStore.h"
 #include "source/store/CrashReportingStore.h"
 #include "source/store/MotionEnabledStore.h"
+#include "source/store/RumbleEnabledStore.h"
 #include "source/store/OnboardingPreferenceStore.h"
 #include "source/store/ControllerTypeStore.h"
 #include "source/store/ThemePreferenceStore.h"
@@ -1516,12 +1517,15 @@ bool AppViewModel::motionEnabledFor(const QString& slotId) const {
     return model_->motionEnabledStore()->isEnabled(slotId.toStdString());
 }
 
-// TODO: rumble rides the descriptor caps because no per-binding rumble store
-// exists yet. A RumbleEnabledStore mirroring MotionEnabledStore is what these
-// two need to become real.
-bool AppViewModel::rumbleEnabledFor(const QString& /*slotId*/) const { return true; }
+bool AppViewModel::rumbleEnabledFor(const QString& slotId) const {
+    if (slotId.isEmpty()) { return source::RumbleEnabledStore::kDefaultEnabled; }
+    return model_->rumbleEnabledStore()->isEnabled(slotId.toStdString());
+}
 
-void AppViewModel::setRumbleEnabled(const QString& /*slotId*/, bool /*on*/) {}
+void AppViewModel::setRumbleEnabled(const QString& slotId, bool on) {
+    if (slotId.isEmpty()) { return; }
+    model_->rumbleEnabledStore()->setEnabled(slotId.toStdString(), on);
+}
 
 bool AppViewModel::micEnabledFor(const QString& slotId) const {
     if (slotId.isEmpty()) { return source::MicEnabledStore::kDefaultEnabled; }

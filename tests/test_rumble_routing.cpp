@@ -10,7 +10,9 @@
 using dish::reducer::combinedRumblePlan;
 using dish::reducer::isRumbleStop;
 using dish::reducer::resolveRumble;
+using dish::reducer::RumbleCommand;
 using dish::reducer::RumbleConnectionSnapshot;
+using dish::reducer::rumbleTheUserAllows;
 
 namespace {
 
@@ -150,4 +152,17 @@ TEST_CASE("isRumbleStop is false when there is a positive magnitude and duration
           "[rumble][stop]") {
     REQUIRE_FALSE(isRumbleStop(500, 0, 100));
     REQUIRE_FALSE(isRumbleStop(0, 500, 100));
+}
+
+TEST_CASE("rumble the user left on reaches the pad as the host sent it", "[rumble][switch]") {
+    const RumbleCommand fromHost{40000, 12000, 500};
+    CHECK(rumbleTheUserAllows(fromHost, true) == fromHost);
+}
+
+TEST_CASE("rumble the user switched off reaches the pad with both motors stopped",
+          "[rumble][switch]") {
+    const RumbleCommand heldUntilTheNext{40000, 12000, 0};
+    const RumbleCommand delivered = rumbleTheUserAllows(heldUntilTheNext, false);
+    CHECK(delivered.strong == 0);
+    CHECK(delivered.weak == 0);
 }

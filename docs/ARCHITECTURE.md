@@ -570,12 +570,6 @@ CI), so each needs a device-in-the-loop test pass.
   channel, so there is no Undo. Adding one needs an action slot on
   `models::DishNotification` and the queue, plus a callback lifetime story for a
   toast that outlives the page that raised it.
-- **Per-binding rumble.** No rumble store exists; rumble rides the descriptor
-  caps. `App.rumbleEnabledFor` returns `true` and `App.setRumbleEnabled` is a
-  no-op. The Feel row still renders, because the capability verdict for it is
-  real and hiding the row would hide true information. A fix mirrors
-  `MotionEnabledStore`, keyed per binding, read by the descriptor assembly in
-  `ConnectionHub::bind`.
 - **No positive bind-accepted edge.** `ConnectionHub::bind` applies the binding
   locally and the satellite answers asynchronously; only the failure is typed
   (`slotRegistrationFailed`). `ApplyBindingMachine` therefore reads success as

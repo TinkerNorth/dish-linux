@@ -26,6 +26,7 @@
 #include "repository/AudioPreferenceRepository.h"
 #include "repository/DeadzoneRepository.h"
 #include "repository/MotionPreferenceRepository.h"
+#include "repository/RumblePreferenceRepository.h"
 #include "core/input/UsbReportParsers.h"
 #include "core/model/Protocol.h"
 #include "core/reducer/BindingPresence.h"
@@ -50,6 +51,7 @@
 #include "source/store/AudioEnabledStore.h"
 #include "source/store/MicMuteStore.h"
 #include "source/store/MotionEnabledStore.h"
+#include "source/store/RumbleEnabledStore.h"
 #include "source/store/OnboardingPreferenceStore.h"
 #include "source/store/TouchpadModeStore.h"
 #include "source/store/ThemePreferenceStore.h"
@@ -134,6 +136,7 @@ class AppModel : public QObject {
 
     repository::DeadzoneRepository* deadzoneRepository() { return &deadzoneRepo_; }
     source::MotionEnabledStore* motionEnabledStore() { return &motionEnabledStore_; }
+    source::RumbleEnabledStore* rumbleEnabledStore() { return &rumbleEnabledStore_; }
     // The controller-audio toggles, persisted per binding slot like motion.
     // Mic defaults OFF (privacy), speaker ON; the stores own those defaults.
     source::MicEnabledStore* micEnabledStore() { return &micEnabledStore_; }
@@ -434,6 +437,10 @@ class AppModel : public QObject {
     // so an advertised capability and a delivered message can never disagree.
     reducer::SlotFeedbackInputs feedbackInputs(const QString& slotId) const;
 
+    // A host's rumble for a slot, through the user's rumble switch for it
+    // (reducer::rumbleTheUserAllows). Same threads as the actuators below.
+    void deliverRumble(const QString& slotId, std::uint16_t strong, std::uint16_t weak,
+                       std::uint16_t durationMs);
     // Send one feedback report to whatever the slot can actuate. No-ops when
     // nothing can. Called on the SatelliteClient receive thread and on the
     // Moonlight control thread, so they only touch structures with their own
@@ -588,6 +595,9 @@ class AppModel : public QObject {
     repository::DeadzoneRepository deadzoneRepo_;
     repository::MotionPreferenceRepository motionPrefRepo_;
     source::MotionEnabledStore motionEnabledStore_;
+    // Same repo-before-store ordering rule.
+    repository::RumblePreferenceRepository rumblePrefRepo_;
+    source::RumbleEnabledStore rumbleEnabledStore_{&rumblePrefRepo_};
     // Same repo-before-store ordering rule. One repository per direction so the
     // two toggle lists never share a settings blob.
     repository::AudioPreferenceRepository micPrefRepo_{QStringLiteral("mic_preferences")};
