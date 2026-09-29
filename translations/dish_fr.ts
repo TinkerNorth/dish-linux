@@ -2806,10 +2806,6 @@
         <translation>%1, hôte Moonlight, %2</translation>
     </message>
     <message>
-        <source>Moonlight host (Sunshine/Apollo)</source>
-        <translation>Hôte Moonlight (Sunshine/Apollo)</translation>
-    </message>
-    <message>
         <source>In use by %1</source>
         <translation>Utilisé par %1</translation>
     </message>
@@ -2896,6 +2892,10 @@
     <message>
         <source>Waiting for the host to accept the PIN…</source>
         <translation>En attente de l&apos;acceptation du PIN par l&apos;hôte…</translation>
+    </message>
+    <message>
+        <source>Moonlight host (Sunshine, Apollo or Wolf)</source>
+        <translation>Hôte Moonlight (Sunshine, Apollo ou Wolf)</translation>
     </message>
     <message>
         <source>Dish deletes its half of the pairing and will need the PIN again. %1 keeps its own record of this device until somebody removes it there.</source>
