@@ -4561,6 +4561,10 @@
         <translation>Impossible d&apos;établir une connexion sécurisée avec le satellite.</translation>
     </message>
     <message>
+        <source>The satellite accepted, but the controller link would not open. Try again.</source>
+        <translation>Le satellite a accepté, mais la liaison de la manette n&apos;a pas pu s&apos;ouvrir. Réessayez.</translation>
+    </message>
+    <message>
         <source>This satellite no longer recognizes this device. Re-pair needed.</source>
         <translation>Ce satellite ne reconnaît plus cet appareil. Un nouvel appairage est nécessaire.</translation>
     </message>

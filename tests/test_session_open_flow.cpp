@@ -2,8 +2,8 @@
 // Copyright (C) 2026 Dish contributors.
 //
 // The connect PUT, driven through the real WifiConnectionManager against a
-// satellite on loopback: a grant takes the connection live, and each refusal
-// takes its own way out.
+// satellite on loopback: a grant takes the connection live, a grant this end
+// cannot carry is handed back, and each refusal takes its own way out.
 //
 // test_session_manager.cpp pins the pure verdicts that choose between these
 // arms. This pins what the manager does on each one.
@@ -19,6 +19,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <QHostAddress>
 #include <QJsonObject>
 #include <QString>
 
@@ -31,11 +32,16 @@ using dish::reducer::ProtocolCompat;
 using dish::test::ManagerRig;
 using dish::test::PairingAnswer;
 using dish::test::SeenRequest;
+using dish::test::settle;
 using dish::test::spinFor;
 
 namespace {
 
 const QString kSessionPath = QStringLiteral("/api/connections");
+// The session grantingEverything hands out, where its release is addressed.
+const QString kGrantedSessionPath = QStringLiteral("/api/connections/c-1");
+// Past the first silent retry's backoff (reducer::backoffDelayMs(1), one second), with room.
+constexpr int kPastFirstRetryMs = 2500;
 
 // Every session PUT is answered with `status` and `body`; anything else is granted.
 std::function<PairingAnswer(const SeenRequest&)> answeringSessions(int status, QJsonObject body) {
@@ -55,6 +61,17 @@ WifiConnection* connection(const ManagerRig& rig) { return rig.wifi->get(rig.ser
 bool inState(const ManagerRig& rig, SessionState state) {
     const auto* conn = connection(rig);
     return conn != nullptr && conn->state() == state;
+}
+
+// How many times the granted session was handed back to the satellite.
+int releasesOfTheGrant(const ManagerRig& rig) {
+    int n = 0;
+    for (const auto& r : rig.listener.requests()) {
+        const bool isTheGrant = r.path == kGrantedSessionPath;
+        const bool isARelease = r.method == "DELETE";
+        if (isTheGrant && isARelease) { ++n; }
+    }
+    return n;
 }
 
 } // namespace
@@ -90,7 +107,8 @@ TEST_CASE("session open: a grant goes live on the satellite's connection id, and
         [&] { return rig.listener.seen(QStringLiteral("/api/server/capabilities")) >= 1; }));
 }
 
-TEST_CASE("session open: material that does not decode never goes live", "[wifi][session]") {
+TEST_CASE("session open: material that does not decode never goes live, and is handed back",
+          "[wifi][session]") {
     ManagerRig rig;
     REQUIRE(rig.listener.listening());
     rig.listener.respond = answeringSessions(
@@ -100,11 +118,53 @@ TEST_CASE("session open: material that does not decode never goes live", "[wifi]
     keyed(rig);
 
     rig.wifi->connectTo(rig.server, ConnectIntent::UserInitiated);
-    REQUIRE(spinFor(
-        [&] { return rig.listener.seen(kSessionPath) == 1 && inState(rig, SessionState::Idle); }));
+    REQUIRE(spinFor([&] { return rig.listener.seen(kSessionPath) == 1; }));
+    REQUIRE(spinFor([&] { return releasesOfTheGrant(rig) == 1; }));
 
+    CHECK(inState(rig, SessionState::Idle));
     CHECK(connection(rig)->client() == nullptr);
     CHECK_FALSE(rig.remembered());
+    // The user asked, so the user hears that the link would not come up.
+    CHECK(rig.errors() == 1);
+}
+
+TEST_CASE("session open: a grant whose controller socket will not open is handed back, and a "
+          "user tap hears why",
+          "[wifi][session]") {
+    // The controller socket is IPv4 only, so a satellite reached over IPv6 is granted a session
+    // this end cannot carry. It is the portable way to make the socket refuse.
+    ManagerRig rig(QHostAddress::LocalHostIPv6);
+    REQUIRE(rig.listener.listening());
+    rig.listener.respond = dish::test::grantingEverything;
+    keyed(rig);
+
+    rig.wifi->connectTo(rig.server, ConnectIntent::UserInitiated);
+    REQUIRE(spinFor([&] { return rig.listener.seen(kSessionPath) == 1; }));
+    REQUIRE(spinFor([&] { return releasesOfTheGrant(rig) == 1; }));
+
+    CHECK(inState(rig, SessionState::Idle));
+    CHECK(connection(rig)->client() == nullptr);
+    CHECK_FALSE(rig.remembered());
+    CHECK(rig.errors() == 1);
+}
+
+TEST_CASE("session open: a silent grant whose socket will not open is handed back, without a "
+          "word or a retry",
+          "[wifi][session]") {
+    ManagerRig rig(QHostAddress::LocalHostIPv6);
+    REQUIRE(rig.listener.listening());
+    rig.listener.respond = dish::test::grantingEverything;
+    keyed(rig);
+
+    rig.wifi->connectTo(rig.server, ConnectIntent::AutoReconnect);
+    REQUIRE(spinFor([&] { return rig.listener.seen(kSessionPath) == 1; }));
+    REQUIRE(spinFor([&] { return releasesOfTheGrant(rig) == 1; }));
+    // A retry would be granted the same session and fail the same way.
+    settle(kPastFirstRetryMs);
+
+    CHECK(rig.listener.seen(kSessionPath) == 1);
+    CHECK(inState(rig, SessionState::Idle));
+    CHECK(rig.errors() == 0);
 }
 
 TEST_CASE("session open: a 401 drops the key and parks the connection", "[wifi][session]") {

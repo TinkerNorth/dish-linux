@@ -71,7 +71,8 @@ class FakePairingListener : public QObject {
                              {QStringLiteral("sharedKey"), QStringLiteral("00112233")}}};
     };
 
-    FakePairingListener() {
+    // On IPv4 loopback unless a test needs the other one.
+    explicit FakePairingListener(const QHostAddress& on = QHostAddress(QHostAddress::LocalHost)) {
         const auto& identity = fixtureHostIdentity();
         const auto certs =
             QSslCertificate::fromData(QByteArray::fromStdString(identity.certPem), QSsl::Pem);
@@ -85,7 +86,7 @@ class FakePairingListener : public QObject {
         server_.setSslConfiguration(ssl);
         QObject::connect(&server_, &QTcpServer::pendingConnectionAvailable, this,
                          &FakePairingListener::acceptAll);
-        listening_ = server_.listen(QHostAddress::LocalHost, 0);
+        listening_ = server_.listen(on, 0);
     }
 
     bool listening() const { return listening_; }

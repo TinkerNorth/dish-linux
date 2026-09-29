@@ -26,6 +26,11 @@ the repos share a version number.
   deleteLater; a reply landing after the forget used it, and a granted one keyed
   or remembered the satellite the user had just removed. Every reply now looks
   its connection up by id and drops itself when the connection is gone.
+- A session the satellite granted but this end could not carry (the controller
+  socket would not open, or the token or salt did not decode) is handed back
+  with a REST disconnect instead of holding the satellite's slot until its own
+  timeout, and a Connect the user pressed now says so instead of settling idle
+  without a word. A background reconnect stays quiet and does not retry.
 
 ## [2.1.0] - 2026-09-21
 

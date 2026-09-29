@@ -4561,6 +4561,10 @@
         <translation>Could not set up a secure connection to the satellite.</translation>
     </message>
     <message>
+        <source>The satellite accepted, but the controller link would not open. Try again.</source>
+        <translation>The satellite accepted, but the controller link would not open. Try again.</translation>
+    </message>
+    <message>
         <source>This satellite no longer recognizes this device. Re-pair needed.</source>
         <translation>This satellite no longer recognizes this device. Re-pair needed.</translation>
     </message>

@@ -4561,6 +4561,10 @@
         <translation>No se pudo establecer una conexión segura con el satélite.</translation>
     </message>
     <message>
+        <source>The satellite accepted, but the controller link would not open. Try again.</source>
+        <translation>El satélite aceptó, pero el enlace del mando no se pudo abrir. Vuelve a intentarlo.</translation>
+    </message>
+    <message>
         <source>This satellite no longer recognizes this device. Re-pair needed.</source>
         <translation>Este satélite ya no reconoce este dispositivo. Hay que volver a emparejarlo.</translation>
     </message>

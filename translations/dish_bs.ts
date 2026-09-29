@@ -4582,6 +4582,10 @@
         <translation>Nije moguće uspostaviti sigurnu vezu sa satelitom.</translation>
     </message>
     <message>
+        <source>The satellite accepted, but the controller link would not open. Try again.</source>
+        <translation>Satelit je prihvatio, ali veza kontrolera se nije mogla otvoriti. Pokušajte ponovo.</translation>
+    </message>
+    <message>
         <source>This satellite no longer recognizes this device. Re-pair needed.</source>
         <translation>Ovaj satelit više ne prepoznaje ovaj uređaj. Potrebno je ponovo uparivanje.</translation>
     </message>

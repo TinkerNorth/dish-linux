@@ -13,6 +13,7 @@
 #include "FakePairingListener.h"
 #include "QSettingsFixture.h"
 
+#include <QHostAddress>
 #include <QJsonObject>
 #include <QObject>
 #include <QSettings>
@@ -42,6 +43,13 @@ inline PairingAnswer grantingEverything(const SeenRequest& r) {
                          {QStringLiteral("protocolVersion"), proto::kProtocolVersion}}};
 }
 
+// A loopback address as a server record carries it: an IPv6 literal goes in the URL's brackets.
+inline QString serverIpFor(const QHostAddress& loopback) {
+    const QString literal = loopback.toString();
+    const bool isIpv6 = loopback.protocol() == QHostAddress::IPv6Protocol;
+    return isIpv6 ? QStringLiteral("[%1]").arg(literal) : literal;
+}
+
 // Built in the order AppModel builds them; the settings file outlives the store.
 struct ManagerRig {
     FakePairingListener listener;
@@ -52,14 +60,16 @@ struct ManagerRig {
     // Every event the manager raised, in order.
     std::vector<net::ConnectionEvent> events;
 
-    ManagerRig() {
+    // The satellite answers on IPv4 loopback unless a test needs the other one.
+    explicit ManagerRig(QHostAddress::SpecialAddress loopback = QHostAddress::LocalHost)
+        : listener(QHostAddress(loopback)) {
         store = std::make_unique<net::ConnectionStore>(
             std::unique_ptr<QSettings>(new QSettings(shared->fileName(), QSettings::IniFormat)));
         wifi = std::make_unique<net::WifiConnectionManager>(store.get());
         QObject::connect(wifi.get(), &net::WifiConnectionManager::connectionEvent, wifi.get(),
                          [this](const net::ConnectionEvent& e) { events.push_back(e); });
         server.machineId = QStringLiteral("m-den");
-        server.ip = QStringLiteral("127.0.0.1");
+        server.ip = serverIpFor(QHostAddress(loopback));
         server.name = QStringLiteral("Den");
         server.pairPort = listener.port();
         server.httpPort = listener.port();

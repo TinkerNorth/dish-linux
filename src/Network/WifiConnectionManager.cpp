@@ -126,6 +126,12 @@ QString unreachableMsgFor(reducer::TransportFailure failure) {
     return unreachableMsg();
 }
 
+QString linkFailedMsg() {
+    return QCoreApplication::translate(
+        "dish::net::WifiConnectionManager",
+        "The satellite accepted, but the controller link would not open. Try again.");
+}
+
 QString rePairMsg() {
     return QCoreApplication::translate(
         "dish::net::WifiConnectionManager",
@@ -734,16 +740,27 @@ void WifiConnectionManager::onSessionReply(const QString& id,
     // Malformed material degrades like a refused connect, never a crash.
     const auto material = sessionMaterialFrom(resp, pairingKey);
     if (!material.has_value()) {
-        conn->markDisconnected();
+        onGrantUnusable(conn, server, intent, *resp.connectionId);
         return;
     }
     auto client = std::make_shared<SatelliteClient>();
-    if (!client->openSocket(server.ip.toStdString(), server.udpPort)) {
-        conn->markDisconnected();
+    const bool socketOpened = client->openSocket(server.ip.toStdString(), server.udpPort);
+    if (!socketOpened) {
+        onGrantUnusable(conn, server, intent, *resp.connectionId);
         return;
     }
     startSession(conn, server, client, *resp.connectionId, resp, *material);
     convergeLateSlots(conn, sentDescriptors);
+}
+
+// Handed straight back, or the satellite holds the slot until its own timeout. No retry, even for a
+// silent intent: it would be granted the same session and fail the same way.
+void WifiConnectionManager::onGrantUnusable(WifiConnection* conn,
+                                            const models::DiscoveredServer& server,
+                                            ConnectIntent intent, const QString& connectionId) {
+    conn->markDisconnected();
+    releaseSession(conn->id(), server, connectionId);
+    emitErrorIfUserInitiated(intent, linkFailedMsg());
 }
 
 // Each refusal has its own way out. An Ok arrives here only when it is missing part of the session.
@@ -1123,13 +1140,18 @@ void WifiConnectionManager::disconnect(const QString& id) {
     if (conn == nullptr) { return; }
     const auto server = conn->server();
     const auto cid = conn->connectionId();
-    const auto creds = credentialsFor(id);
     conn->markDisconnected();
+    if (cid.has_value()) { releaseSession(id, server, *cid); }
+}
+
+void WifiConnectionManager::releaseSession(const QString& id,
+                                           const models::DiscoveredServer& server,
+                                           const QString& connectionId) {
+    const auto creds = credentialsFor(id);
+    if (!creds.has_value()) { return; }
     // Best-effort only: the local side already treats the session as gone.
-    if (cid.has_value() && creds.has_value()) {
-        http_->deleteSession(server.ip, server.httpPort, *cid, deviceId_, creds->proof,
-                             [](int, bool, const QString&) {});
-    }
+    http_->deleteSession(server.ip, server.httpPort, connectionId, deviceId_, creds->proof,
+                         [](int, bool, const QString&) {});
 }
 
 void WifiConnectionManager::forget(const QString& id) {

@@ -148,6 +148,13 @@ class WifiConnectionManager : public QObject {
                         ConnectIntent intent, const std::array<std::uint8_t, 32>& pairingKey,
                         const std::vector<reducer::DesiredSlot>& sentDescriptors,
                         const models::SessionResponse& resp, bool pinMismatch);
+    // A grant this end cannot carry: the token or salt does not decode, or the controller socket
+    // will not open.
+    void onGrantUnusable(WifiConnection* conn, const models::DiscoveredServer& server,
+                         ConnectIntent intent, const QString& connectionId);
+    // Hands a granted session back to the satellite with a REST disconnect.
+    void releaseSession(const QString& id, const models::DiscoveredServer& server,
+                        const QString& connectionId);
     void onSessionRefused(WifiConnection* conn, const models::DiscoveredServer& server,
                           ConnectIntent intent, reducer::RestVerdict verdict,
                           const models::SessionResponse& resp);
