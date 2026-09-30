@@ -300,6 +300,32 @@ TEST_CASE("a session the host never started is torn down in silence", "[moonligh
     CHECK(rig.host.seen(QStringLiteral("/cancel")) == 0);
 }
 
+TEST_CASE("a launch refused in the status line fails with the host's own reason",
+          "[moonlight][wire]") {
+    if (!tlsAvailable()) { SKIP("no TLS backend for the fixture host"); }
+    Rig rig;
+    REQUIRE(rig.host.listening());
+    // The other shape of refusal: an HTTP error with the reason in its body, as
+    // Wolf answers a launch from a client whose pairing it has dropped.
+    rig.host.answer(QStringLiteral("/launch"), 401,
+                    test::wolfUnauthorizedBody(QStringLiteral("/launch")));
+
+    rig.manager->bindController(QStringLiteral("pad-a"), kHostId, moonproto::kControllerTypeAuto,
+                                plainPad());
+    REQUIRE(spinFor([&rig] {
+        auto* session = rig.manager->session(kHostId);
+        return session != nullptr &&
+               session->machineState().phase == moonlight::SessionPhase::Failed;
+    }));
+
+    const auto* session = rig.manager->session(kHostId);
+    CHECK(rig.host.seen(QStringLiteral("/launch")) == 1);
+    CHECK(session->machineState().failure == moonlight::SessionFailure::LaunchRejected);
+    // The words are the host's, read from the body the error came with: the
+    // session page shows them as the reason the host gave.
+    CHECK(session->refusalMessage() == test::wolfUnauthorizedMessage());
+}
+
 TEST_CASE("a launch that worked and a stream that did not is handed back", "[moonlight][wire]") {
     if (!tlsAvailable()) { SKIP("no TLS backend for the fixture host"); }
     Rig rig;

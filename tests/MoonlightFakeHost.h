@@ -42,6 +42,7 @@
 #include <QCoreApplication>
 #include <QElapsedTimer>
 #include <QEventLoop>
+#include <QHash>
 #include <QHostAddress>
 #include <QObject>
 #include <QSslCertificate>
@@ -89,6 +90,20 @@ struct FakeRequest {
     QUrlQuery query;
     bool tls = false;
 };
+
+// Wolf's reason for refusing an HTTPS call from a client it has not paired.
+inline QString wolfUnauthorizedMessage() {
+    return QStringLiteral("The client is not authorized. Certificate verification failed.");
+}
+
+// The body Wolf sends that refusal in, under HTTP 401, naming the path it refused
+// (reply_unauthorized in Wolf's src/moonlight-server/rest/servers.cpp).
+inline QByteArray wolfUnauthorizedBody(const QString& path) {
+    return QStringLiteral("<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
+                          "<root status_code=\"401\" query=\"%1\" status_message=\"%2\"/>")
+        .arg(path, wolfUnauthorizedMessage())
+        .toUtf8();
+}
 
 class FakeMoonlightHost : public QObject {
   public:
@@ -163,6 +178,12 @@ class FakeMoonlightHost : public QObject {
     // Accept the pairing request and never answer it, which is a host waiting
     // for a human to walk over and type the code.
     bool pairStalls = false;
+    // Answer every request for `path` with this status and body instead of what
+    // the host would otherwise say: the other way a host refuses, in the status
+    // line rather than in the body of a 200 (wolfUnauthorizedBody is one).
+    void answer(const QString& path, int status, const QByteArray& body) {
+        answers_.insert(path, CannedAnswer{status, body});
+    }
 
     // ── What the client did ─────────────────────────────────────────────────
     int seen(const QString& path) const {
@@ -222,7 +243,12 @@ class FakeMoonlightHost : public QObject {
             // A host parks the pairing request until the PIN is typed, so the
             // stall is silence on an open socket rather than a refusal.
             if (pairStalls && request.path == QLatin1String("/pair")) { return; }
-            reply(sock, bodyFor(request));
+            const auto canned = answers_.constFind(request.path);
+            if (canned != answers_.cend()) {
+                reply(sock, canned->status, canned->body);
+                return;
+            }
+            reply(sock, 200, bodyFor(request));
         });
     }
 
@@ -231,10 +257,10 @@ class FakeMoonlightHost : public QObject {
         return QUrl(QString::fromUtf8(line.size() > 1 ? line.at(1) : QByteArray()));
     }
 
-    static void reply(QTcpSocket* sock, const QByteArray& body) {
-        sock->write(QByteArray("HTTP/1.1 200 OK\r\nContent-Length: ") +
-                    QByteArray::number(body.size()) + QByteArray("\r\nConnection: close\r\n\r\n") +
-                    body);
+    static void reply(QTcpSocket* sock, int status, const QByteArray& body) {
+        sock->write(QByteArray("HTTP/1.1 ") + QByteArray::number(status) +
+                    QByteArray(" X\r\nContent-Length: ") + QByteArray::number(body.size()) +
+                    QByteArray("\r\nConnection: close\r\n\r\n") + body);
         sock->flush();
         sock->disconnectFromHost();
     }
@@ -599,6 +625,11 @@ class FakeMoonlightHost : public QObject {
     QString certPem_;
     QString keyPem_;
     QList<FakeRequest> requests_;
+    struct CannedAnswer {
+        int status = 200;
+        QByteArray body;
+    };
+    QHash<QString, CannedAnswer> answers_;
     int mediaPings_ = 0;
 
     // The ENet host and its peer belong to the service thread once it starts.
