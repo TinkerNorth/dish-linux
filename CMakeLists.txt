@@ -443,6 +443,9 @@ set(DISH_CORE_SOURCES
     src/composer/MotionCapabilityComposer.h
     src/composer/MotionCapabilityComposer.cpp
     src/composer/StreamingSlotCount.h
+    src/source/store/DiagnosticsLogStore.h
+    src/composer/DiagnosticsRecorder.h
+    src/composer/DiagnosticsRecorder.cpp
     src/composer/WakeStateComposer.h
     src/composer/WakeStateController.h
     src/composer/WakeStateController.cpp
