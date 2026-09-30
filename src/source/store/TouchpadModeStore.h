@@ -57,18 +57,6 @@ class TouchpadModeStore : public arch::StateSource<TouchpadModeMap> {
         });
     }
 
-    // Drop the satellite from both the repo and the live state (cascade
-    // forget). A no-op (no emit) on the state side if it was absent.
-    void forget(const std::string& satelliteId) {
-        if (repo_ != nullptr) { repo_->remove(QString::fromStdString(satelliteId)); }
-        setState([&](const TouchpadModeMap& current) {
-            if (current.find(satelliteId) == current.end()) { return current; }
-            TouchpadModeMap next = current;
-            next.erase(satelliteId);
-            return next;
-        });
-    }
-
   private:
     static TouchpadModeMap hydrate(repository::TouchpadModeRepository* repo) {
         TouchpadModeMap out;

@@ -79,23 +79,3 @@ TEST_CASE("a refused mode leaves a host never picked for unpicked", "[touchpad-m
     store.setMode("sat", "banana");
     CHECK_FALSE(store.modeFor("sat").has_value());
 }
-
-TEST_CASE("forget removes from the repo and the state", "[touchpad-mode-store]") {
-    auto settings = makeSharedSettings();
-    TouchpadModeRepository repo(settings);
-    TouchpadModeStore store(&repo);
-    store.setMode("sat", "mouse");
-
-    store.forget("sat");
-    CHECK_FALSE(store.modeFor("sat").has_value());
-    CHECK_FALSE(repo.get("sat").has_value());
-}
-
-TEST_CASE("forget of an absent satellite emits nothing", "[touchpad-mode-store]") {
-    TouchpadModeRepository repo(makeSharedSettings());
-    TouchpadModeStore store(&repo);
-    dish::test::StateSourceProbe<TouchpadModeMap> probe(store.state());
-    const auto baseline = probe.count();
-    store.forget("ghost");
-    CHECK(probe.count() == baseline);
-}
