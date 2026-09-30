@@ -47,6 +47,8 @@ Kit.Page {
     readonly property var shellStack: StackView.view
     readonly property var shellApi: shellStack ? shellStack.shellApi : null
 
+    LinkVocabulary { id: linkWords }
+
     // Signal-path geometry. The nodes flex between these bounds and elide with a
     // full-name tooltip; below the stack breakpoint the row goes vertical rather
     // than squeezing (a DPI-scaled window cannot hold three fixed columns).
@@ -236,7 +238,7 @@ Kit.Page {
                 Accessible.name: rowRoot.bound
                                  ? qsTr("%1, bound to %2, %3")
                                        .arg(rowRoot.name).arg(rowRoot.boundLabel)
-                                       .arg(page.chipText(rowRoot.satChip))
+                                       .arg(linkWords.chipText(rowRoot.satChip))
                                    + (rowRoot.showLatency ? " · " + rowRoot.satLatencyText : "")
                                  : qsTr("%1, not bound").arg(rowRoot.name)
 
@@ -407,8 +409,8 @@ Kit.Page {
                                         }
                                     }
                                     Kit.CapabilityChip {
-                                        text: page.chipText(rowRoot.satChip)
-                                        tone: page.chipTone(rowRoot.satChip)
+                                        text: linkWords.chipText(rowRoot.satChip)
+                                        tone: linkWords.chipTone(rowRoot.satChip)
                                         Layout.alignment: Qt.AlignVCenter
                                     }
                                 }
@@ -795,30 +797,5 @@ Kit.Page {
     // Dead zones page's sliders use).
     function percentOf(raw, range) {
         return Math.round(raw / range * 100);
-    }
-
-    // Localized chip text/tone for a link-state token — the same ladders the
-    // Connections page renders from the identical tokens.
-    function chipText(token) {
-        switch (token) {
-        case "found":        return qsTr("Found");
-        case "needsPairing": return qsTr("Needs pairing");
-        case "offline":      return qsTr("Offline");
-        case "ready":        return qsTr("Ready");
-        case "connecting":   return qsTr("Connecting…");
-        case "online":       return qsTr("Online");
-        case "unstable":     return qsTr("Unsteady");
-        default:             return token;
-        }
-    }
-    function chipTone(token) {
-        switch (token) {
-        case "online":       return Kit.CapabilityChip.Ok;
-        case "connecting":   return Kit.CapabilityChip.Warn;
-        case "unstable":     return Kit.CapabilityChip.Warn;
-        case "needsPairing": return Kit.CapabilityChip.Warn;
-        case "ready":        return Kit.CapabilityChip.Present;
-        default:             return Kit.CapabilityChip.Neutral;
-        }
     }
 }

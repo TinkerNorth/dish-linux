@@ -855,24 +855,8 @@
         <translation>Encontrado</translation>
     </message>
     <message>
-        <source>Needs pairing</source>
-        <translation>Parear novamente</translation>
-    </message>
-    <message>
-        <source>Offline</source>
-        <translation>Off-line</translation>
-    </message>
-    <message>
-        <source>Ready</source>
-        <translation>Pronto</translation>
-    </message>
-    <message>
         <source>Connecting…</source>
         <translation>Conectando…</translation>
-    </message>
-    <message>
-        <source>Online</source>
-        <translation>On-line</translation>
     </message>
     <message>
         <source>Scanning…</source>
@@ -1031,10 +1015,6 @@
     <message>
         <source>%1 — as %2</source>
         <translation>%1 — como %2</translation>
-    </message>
-    <message>
-        <source>Unsteady</source>
-        <translation>Instável</translation>
     </message>
 </context>
 <context>
@@ -2239,30 +2219,6 @@
         <translation>ativo</translation>
     </message>
     <message>
-        <source>Found</source>
-        <translation>Encontrado</translation>
-    </message>
-    <message>
-        <source>Needs pairing</source>
-        <translation>Parear novamente</translation>
-    </message>
-    <message>
-        <source>Offline</source>
-        <translation>Off-line</translation>
-    </message>
-    <message>
-        <source>Ready</source>
-        <translation>Pronto</translation>
-    </message>
-    <message>
-        <source>Connecting…</source>
-        <translation>Conectando…</translation>
-    </message>
-    <message>
-        <source>Online</source>
-        <translation>On-line</translation>
-    </message>
-    <message>
         <source>Set up a controller</source>
         <translation>Configurar um controle</translation>
     </message>
@@ -2455,10 +2411,6 @@
     <message>
         <source>dead zones stick %1% · trigger %2%</source>
         <translation>zonas mortas analógico %1 % · gatilho %2 %</translation>
-    </message>
-    <message>
-        <source>Unsteady</source>
-        <translation>Instável</translation>
     </message>
     <message>
         <source>Pad</source>

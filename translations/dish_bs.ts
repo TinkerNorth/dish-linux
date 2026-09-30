@@ -857,24 +857,8 @@
         <translation>Pronađen</translation>
     </message>
     <message>
-        <source>Needs pairing</source>
-        <translation>Potrebno uparivanje</translation>
-    </message>
-    <message>
-        <source>Offline</source>
-        <translation>Van veze</translation>
-    </message>
-    <message>
-        <source>Ready</source>
-        <translation>Spreman</translation>
-    </message>
-    <message>
         <source>Connecting…</source>
         <translation>Povezivanje…</translation>
-    </message>
-    <message>
-        <source>Online</source>
-        <translation>Na vezi</translation>
     </message>
     <message>
         <source>Scanning…</source>
@@ -1039,10 +1023,6 @@
     <message>
         <source>%1 — as %2</source>
         <translation>%1 — kao %2</translation>
-    </message>
-    <message>
-        <source>Unsteady</source>
-        <translation>Nestabilan</translation>
     </message>
 </context>
 <context>
@@ -2251,30 +2231,6 @@
         <translation>aktivan</translation>
     </message>
     <message>
-        <source>Found</source>
-        <translation>Pronađen</translation>
-    </message>
-    <message>
-        <source>Needs pairing</source>
-        <translation>Potrebno uparivanje</translation>
-    </message>
-    <message>
-        <source>Offline</source>
-        <translation>Van veze</translation>
-    </message>
-    <message>
-        <source>Ready</source>
-        <translation>Spreman</translation>
-    </message>
-    <message>
-        <source>Connecting…</source>
-        <translation>Povezivanje…</translation>
-    </message>
-    <message>
-        <source>Online</source>
-        <translation>Na vezi</translation>
-    </message>
-    <message>
         <source>Set up a controller</source>
         <translation>Postavi kontroler</translation>
     </message>
@@ -2469,10 +2425,6 @@
     <message>
         <source>dead zones stick %1% · trigger %2%</source>
         <translation>mrtve zone palica %1 % · okidač %2 %</translation>
-    </message>
-    <message>
-        <source>Unsteady</source>
-        <translation>Nestabilan</translation>
     </message>
     <message>
         <source>Pad</source>

@@ -1016,26 +1016,6 @@
         <source>%1 — as %2</source>
         <translation>%1 — as %2</translation>
     </message>
-    <message>
-        <source>Needs pairing</source>
-        <translation>Needs pairing</translation>
-    </message>
-    <message>
-        <source>Offline</source>
-        <translation>Offline</translation>
-    </message>
-    <message>
-        <source>Ready</source>
-        <translation>Ready</translation>
-    </message>
-    <message>
-        <source>Online</source>
-        <translation>Online</translation>
-    </message>
-    <message>
-        <source>Unsteady</source>
-        <translation>Unsteady</translation>
-    </message>
 </context>
 <context>
     <name>ContentDialog</name>
@@ -2431,34 +2411,6 @@
     <message>
         <source>dead zones stick %1% · trigger %2%</source>
         <translation>dead zones stick %1% · trigger %2%</translation>
-    </message>
-    <message>
-        <source>Found</source>
-        <translation>Found</translation>
-    </message>
-    <message>
-        <source>Needs pairing</source>
-        <translation>Needs pairing</translation>
-    </message>
-    <message>
-        <source>Offline</source>
-        <translation>Offline</translation>
-    </message>
-    <message>
-        <source>Ready</source>
-        <translation>Ready</translation>
-    </message>
-    <message>
-        <source>Connecting…</source>
-        <translation>Connecting…</translation>
-    </message>
-    <message>
-        <source>Online</source>
-        <translation>Online</translation>
-    </message>
-    <message>
-        <source>Unsteady</source>
-        <translation>Unsteady</translation>
     </message>
     <message>
         <source>Pad</source>

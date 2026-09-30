@@ -855,24 +855,8 @@
         <translation>Trouvée</translation>
     </message>
     <message>
-        <source>Needs pairing</source>
-        <translation>Appairage requis</translation>
-    </message>
-    <message>
-        <source>Offline</source>
-        <translation>Hors ligne</translation>
-    </message>
-    <message>
-        <source>Ready</source>
-        <translation>Prête</translation>
-    </message>
-    <message>
         <source>Connecting…</source>
         <translation>Connexion…</translation>
-    </message>
-    <message>
-        <source>Online</source>
-        <translation>En ligne</translation>
     </message>
     <message>
         <source>Scanning…</source>
@@ -1031,10 +1015,6 @@
     <message>
         <source>%1 — as %2</source>
         <translation>%1 — comme %2</translation>
-    </message>
-    <message>
-        <source>Unsteady</source>
-        <translation>Instable</translation>
     </message>
 </context>
 <context>
@@ -2239,30 +2219,6 @@
         <translation>active</translation>
     </message>
     <message>
-        <source>Found</source>
-        <translation>Trouvée</translation>
-    </message>
-    <message>
-        <source>Needs pairing</source>
-        <translation>Appairage requis</translation>
-    </message>
-    <message>
-        <source>Offline</source>
-        <translation>Hors ligne</translation>
-    </message>
-    <message>
-        <source>Ready</source>
-        <translation>Prête</translation>
-    </message>
-    <message>
-        <source>Connecting…</source>
-        <translation>Connexion…</translation>
-    </message>
-    <message>
-        <source>Online</source>
-        <translation>En ligne</translation>
-    </message>
-    <message>
         <source>Set up a controller</source>
         <translation>Configurer une manette</translation>
     </message>
@@ -2455,10 +2411,6 @@
     <message>
         <source>dead zones stick %1% · trigger %2%</source>
         <translation>zones mortes stick %1 % · gâchette %2 %</translation>
-    </message>
-    <message>
-        <source>Unsteady</source>
-        <translation>Instable</translation>
     </message>
     <message>
         <source>Pad</source>
