@@ -2,12 +2,14 @@
 // Copyright (C) 2026 Dish contributors.
 
 #include "StateSourceProbe.h"
+#include "core/moonlight/MoonlightProtocol.h"
 #include "source/store/ControllerTypeStore.h"
 
 #include <catch2/catch_test_macros.hpp>
 
 using dish::source::ControllerTypeMap;
 using dish::source::ControllerTypeStore;
+using dish::source::moonlightBindingTypeOf;
 
 namespace {
 constexpr int kXbox = 0;
@@ -117,4 +119,22 @@ TEST_CASE("ControllerTypeStore: a no-op setTypeIfAbsent/clear emits nothing", "[
 
     store.setType("conn-1", "slot-B", kPlayStation);
     REQUIRE(probe.count() == 2U);
+}
+
+TEST_CASE("ControllerTypeStore: each Moonlight binding on a host sends its own type",
+          "[typestore]") {
+    ControllerTypeStore store;
+    store.setType("host-1", "slot-A", dish::moonproto::kControllerTypeXbox);
+    store.setType("host-1", "slot-B", dish::moonproto::kControllerTypePs);
+    CHECK(moonlightBindingTypeOf(store, "host-1", "slot-A") ==
+          dish::moonproto::kControllerTypeXbox);
+    CHECK(moonlightBindingTypeOf(store, "host-1", "slot-B") == dish::moonproto::kControllerTypePs);
+}
+
+TEST_CASE("ControllerTypeStore: a Moonlight binding with no stored type sends Auto",
+          "[typestore]") {
+    ControllerTypeStore store;
+    store.setType("host-1", "slot-B", dish::moonproto::kControllerTypePs);
+    CHECK(moonlightBindingTypeOf(store, "host-1", "slot-A") ==
+          dish::moonproto::kControllerTypeAuto);
 }

@@ -4,6 +4,7 @@
 #pragma once
 
 #include <cstdint>
+#include <filesystem>
 #include <string>
 #include <vector>
 
@@ -45,7 +46,11 @@ struct SysfsBattery {
 // (Charging > Discharging > Full), so charging one of two packs reads CHARGING.
 BatteryReading hostBatteryFromSysfs(const std::vector<SysfsBattery>& batteries);
 
-// hostBatteryFromSysfs over a live scan of /sys/class/power_supply/*.
+// hostBatteryFromSysfs over the batteries a power_supply directory lists, less any whose scope is
+// "Device": a pad's or a mouse's own pack, which powers that device and not this machine.
+BatteryReading readHostBattery(const std::filesystem::path& powerSupplyRoot);
+
+// readHostBattery over the live /sys/class/power_supply.
 BatteryReading readHostBattery();
 
 } // namespace dish::util

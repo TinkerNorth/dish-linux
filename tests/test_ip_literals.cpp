@@ -7,6 +7,7 @@
 
 #include <string>
 
+using dish::net::isIpv6Address;
 using dish::net::isPrivateHostLiteral;
 
 TEST_CASE("isPrivateHostLiteral accepts private IPv4 / IPv6 literals", "[iplit]") {
@@ -39,4 +40,19 @@ TEST_CASE("isPrivateHostLiteral handles IPv6 edge forms", "[iplit]") {
     CHECK_FALSE(isPrivateHostLiteral("fe80::1%eth0"));         // zone id rejected
     CHECK_FALSE(isPrivateHostLiteral("::ffff:8.8.8.8"));  // v4-mapped, high bytes 0 -> not private
     CHECK_FALSE(isPrivateHostLiteral("::ffff:10.0.0.1")); // v4-mapped, high bytes 0 -> not private
+}
+
+TEST_CASE("isIpv6Address names every IPv6 form and nothing else", "[iplit]") {
+    CHECK(isIpv6Address("::1"));
+    CHECK(isIpv6Address("[::1]"));
+    CHECK(isIpv6Address("fd12:3456:789a::1"));
+    CHECK(isIpv6Address("2001:4860:4860::8888"));
+    // A zone, or a literal the parser would not take, still names IPv6 and still cannot reach
+    // an IPv4-only satellite.
+    CHECK(isIpv6Address("fe80::1%eth0"));
+    CHECK(isIpv6Address("fe80::1::2"));
+    CHECK_FALSE(isIpv6Address("127.0.0.1"));
+    CHECK_FALSE(isIpv6Address("192.168.1.20"));
+    CHECK_FALSE(isIpv6Address("satellite.local"));
+    CHECK_FALSE(isIpv6Address(""));
 }

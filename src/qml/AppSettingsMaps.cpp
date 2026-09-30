@@ -4,13 +4,44 @@
 #include "qml/AppSettingsMaps.h"
 
 #include "Input/SDLGamepadBridge.h"
+#include "Network/WifiConnectionManager.h"
+#include "core/model/Protocol.h"
+#include "core/reducer/TouchpadModeResolve.h"
 #include "repository/DeadzoneRepository.h"
 #include "source/store/MotionEnabledStore.h"
 #include "UI/licenses/LicenseManifest.h"
 
 #include <QVariantMap>
 
+#include <iterator>
+
 namespace dish::qml {
+
+namespace {
+
+// The choices QML offers, each against the wire mode it is stored as. One table
+// read both ways, so the pick a choice stores and the choice a pick reads as
+// cannot drift apart. Off leads, because a mode outside the table reads as it,
+// and the order is the binding draft's numbering: 0 off, 1 pad, 2 mouse.
+struct TouchpadChoice {
+    const char* token;
+    std::uint8_t mode;
+};
+
+constexpr TouchpadChoice kTouchpadChoices[] = {
+    {"off", proto::kTouchpadModeOff},
+    {"pad", proto::kTouchpadModeDs4},
+    {"mouse", proto::kTouchpadModeMouse},
+};
+
+} // namespace
+
+QString touchpadChoiceForMode(std::uint8_t mode) {
+    for (const auto& known : kTouchpadChoices) {
+        if (known.mode == mode) { return QLatin1String(known.token); }
+    }
+    return QLatin1String(kTouchpadChoices[0].token);
+}
 
 int themeModeToInt(source::ThemeMode mode) {
     switch (mode) {
@@ -74,6 +105,53 @@ QString keepAwakeReachToken(reducer::KeepAwakeReach reach) {
         break;
     }
     return QStringLiteral("off");
+}
+
+QString reversePairingPhaseToken(net::ReversePairingPhase phase) {
+    switch (phase) {
+    case net::ReversePairingPhase::AwaitingApproval:
+        return QStringLiteral("awaiting");
+    case net::ReversePairingPhase::Approved:
+        return QStringLiteral("approved");
+    case net::ReversePairingPhase::Declined:
+        return QStringLiteral("declined");
+    case net::ReversePairingPhase::TimedOut:
+        return QStringLiteral("timedout");
+    case net::ReversePairingPhase::IdentityChanged:
+        return QStringLiteral("identitychanged");
+    case net::ReversePairingPhase::VersionMismatch:
+        return QStringLiteral("versionmismatch");
+    case net::ReversePairingPhase::Idle:
+        break;
+    }
+    return QStringLiteral("idle");
+}
+
+QString touchpadChoiceForPick(const std::optional<std::string>& pick, bool mouseModeAvailable) {
+    const std::uint8_t mode = proto::touchpadModeFromName(reducer::touchpadPickOrDefault(pick));
+    const bool mouseShut = mode == proto::kTouchpadModeMouse && !mouseModeAvailable;
+    return touchpadChoiceForMode(mouseShut ? proto::kTouchpadModeOff : mode);
+}
+
+QString touchpadChoiceForMoonlight(bool touchReachesHost) {
+    return touchReachesHost ? touchpadChoiceForMode(proto::kTouchpadModeDs4)
+                            : touchpadChoiceForMode(proto::kTouchpadModeOff);
+}
+
+std::optional<QString> touchpadChoiceForDraftMode(int draftMode) {
+    constexpr int kChoiceCount = static_cast<int>(std::size(kTouchpadChoices));
+    const bool isAChoice = draftMode >= 0 && draftMode < kChoiceCount;
+    if (!isAChoice) { return std::nullopt; }
+    return QLatin1String(kTouchpadChoices[static_cast<std::size_t>(draftMode)].token);
+}
+
+std::optional<std::string> touchpadPickForChoice(const QString& choice) {
+    for (const auto& known : kTouchpadChoices) {
+        if (choice == QLatin1String(known.token)) {
+            return std::string(proto::touchpadModeName(known.mode));
+        }
+    }
+    return std::nullopt;
 }
 
 QVariantMap deadzoneRowFor(const QString& deviceId, const QString& name, bool hasGyro,

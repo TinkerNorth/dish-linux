@@ -88,30 +88,17 @@ void SentryCrashReportingBackend::disarm() noexcept {
 
 SentryCrashReportingBackend::~SentryCrashReportingBackend() { disarm(); }
 
-void SentryCrashReportingBackend::setEnabled(bool enabled) {
-    if (!enabled) {
-        const bool wasArmed = active_;
-        disarm();
-        if (wasArmed) { qCInfo(lcCrash) << "crash reporting disarmed"; }
-        return;
-    }
-
-    if (active_) { return; }
-
-    const std::string envOverride = envDsn();
-    if (!shouldArmSentry(compiledSentryDsn(), envOverride.c_str(), true)) {
-        // The common case for anything but a release build, and not a problem:
-        // the local crash.log is still written either way.
-        qCInfo(lcCrash) << "crash reporting requested but this build carries no DSN;"
-                        << "local crash reports are still written";
-        return;
-    }
-
 #ifdef DISH_HAS_SENTRY
+namespace {
+
+// Ownership passes to sentry_init, which takes the options whether or not it succeeds. File-local
+// rather than a member, so the header still names no sentry type: it is included from dish_core,
+// which builds with and without the SDK.
+sentry_options_t* buildSentryOptions() {
     sentry_options_t* options = sentry_options_new();
 
-    // Leave the DSN unset when only $SENTRY_DSN is present: the SDK reads the
-    // environment itself, and an empty string here would override it.
+    // Leave the DSN unset when only $SENTRY_DSN is present: the SDK reads the environment itself,
+    // and an empty string here would override it.
     if (compiledSentryDsn()[0] != '\0') { sentry_options_set_dsn(options, compiledSentryDsn()); }
 
     const std::string dir = defaultDatabaseDir();
@@ -120,27 +107,53 @@ void SentryCrashReportingBackend::setEnabled(bool enabled) {
     sentry_options_set_environment(options, sentryEnvironment());
     sentry_options_set_debug(options, 0);
 
-    // Defaults to on, and would report every launch and quit of a desktop app.
-    // The crash is the payload; the rest is telemetry nobody agreed to when
-    // they left a switch labelled "crash reports" alone.
+    // Defaults to on, and would report every launch and quit of a desktop app. The crash is the
+    // payload; the rest is telemetry nobody agreed to when they left a switch labelled "crash
+    // reports" alone.
     sentry_options_set_auto_session_tracking(options, 0);
 
-    // No sentry_options_set_send_default_pii() call on purpose: in
-    // sentry-native that setter exists only under SENTRY_PLATFORM_NX, and its
-    // own documentation states that not sending PII is already the default
-    // everywhere. Calling it would not compile here.
+    // No sentry_options_set_send_default_pii() call on purpose: in sentry-native that setter exists
+    // only under SENTRY_PLATFORM_NX, and its own documentation states that not sending PII is
+    // already the default everywhere. Calling it would not compile here.
     //
-    // No handler path either: this build selects SENTRY_BACKEND=inproc (see
-    // CMakeLists), which runs in-process and needs no helper executable. That
-    // is the whole reason for the choice, since a helper would otherwise have
-    // to be threaded through the .deb, the .rpm and the AppImage separately.
+    // No handler path either: this build selects SENTRY_BACKEND=inproc (see CMakeLists), which
+    // runs in-process and needs no helper executable. That is the whole reason for the choice,
+    // since a helper would otherwise have to be threaded through the .deb, the .rpm and the
+    // AppImage separately.
+    return options;
+}
 
-    if (sentry_init(options) == 0) {
+} // namespace
+#endif
+
+void SentryCrashReportingBackend::setEnabled(bool enabled) {
+    if (!enabled) {
+        const bool wasArmed = active_;
+        disarm();
+        if (wasArmed) { qCInfo(lcCrash) << "crash reporting disarmed"; }
+        return;
+    }
+    if (active_) { return; }
+    arm();
+}
+
+void SentryCrashReportingBackend::arm() {
+    const std::string envOverride = envDsn();
+    if (!shouldArmSentry(compiledSentryDsn(), envOverride.c_str(), true)) {
+        // The common case for anything but a release build, and not a problem: the local crash.log
+        // is still written either way.
+        qCInfo(lcCrash) << "crash reporting requested but this build carries no DSN;"
+                        << "local crash reports are still written";
+        return;
+    }
+
+#ifdef DISH_HAS_SENTRY
+    if (sentry_init(buildSentryOptions()) == 0) {
         active_ = true;
         qCInfo(lcCrash) << "crash reporting armed (" << sentryEnvironment() << ")";
-    } else {
-        qCWarning(lcCrash) << "sentry_init failed; local crash reports are still written";
+        return;
     }
+    qCWarning(lcCrash) << "sentry_init failed; local crash reports are still written";
 #endif
 }
 

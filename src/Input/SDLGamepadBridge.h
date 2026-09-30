@@ -148,6 +148,28 @@ class SDLGamepadBridge : public QObject {
 
   private:
     void runLoop();
+
+    // What one SDL event means, what a raw-joystick event means in particular, and what the loop
+    // closes on its way out. All on the SDL thread.
+    void dispatchSdlEvent(const SDL_Event& ev);
+    void onRawJoystickInput(int iid, CaptureKind kind, int index, int value, bool deliberate);
+    void closeAllDevices();
+
+    // Long enough that an idle pump does not spin, short enough that a stop is observed promptly.
+    static constexpr int kSdlWaitMs = 100;
+
+    void applySdlHints();
+    bool initSdl();
+    void onControllerAdded(const SDL_Event& ev);
+    struct ControllerCaps;
+    static ControllerCaps probeControllerCaps(SDL_GameController* gc);
+    void registerController(int iid, SDL_GameController* gc, const QString& deviceId,
+                            const QString& deviceName, const ControllerCaps& caps);
+    static void logControllerCaps(SDL_GameController* gc, SDL_Joystick* js, const QString& deviceId,
+                                  const QString& deviceName, const ControllerCaps& caps);
+    void onControllerRemoved(const SDL_Event& ev);
+    void onJoystickAdded(const SDL_Event& ev);
+    void onJoystickRemoved(const SDL_Event& ev);
     // Drain the pending-command queue and execute each SDL output call
     // (rumble / SetLED / SendEffect) on the SDL thread. Called once per
     // runLoop iteration.
@@ -162,9 +184,35 @@ class SDLGamepadBridge : public QObject {
     // game-controller rebuildState uses. Only for pads SDL does NOT recognise
     // as game controllers (see openJoysticks_).
     void rebuildJoystickState(int iid);
+
+    // Fixed caps, so the per-event read allocates nothing. A pad with more inputs than a cap is
+    // truncated, which loses nothing because the layouts reference only low indices.
+    static constexpr int kMaxJoystickAxes = 32;
+    static constexpr int kMaxJoystickButtons = 64;
+    static constexpr int kMaxJoystickHats = 8;
+
+    struct JoystickHandle;
+    JoystickHandle joystickHandleFor(int iid);
+    JoystickRemap remapFor(int vendorId, int productId);
+    static JoystickSnapshot readJoystick(SDL_Joystick* js, std::int16_t (&axes)[kMaxJoystickAxes],
+                                         bool (&buttons)[kMaxJoystickButtons],
+                                         std::uint8_t (&hats)[kMaxJoystickHats]);
     void handleSensorEvent(const SDL_ControllerSensorEvent& ev);
     void handleTouchpadEvent(const SDL_ControllerTouchpadEvent& ev);
     void pollBatteries();
+
+    using TimePoint = std::chrono::steady_clock::time_point;
+
+    // One device whose charge is due to be read, with its joystick handle already resolved so the
+    // publish needs no lock of its own.
+    struct PollEntry {
+        int iid = 0;
+        std::string deviceId;
+        SDL_Joystick* js = nullptr;
+    };
+    std::vector<PollEntry> batteriesDue(TimePoint now);
+    void considerForPoll(int iid, SDL_Joystick* js, TimePoint now, std::vector<PollEntry>& due);
+    bool publishBattery(const PollEntry& e);
     // True iff `deviceId` is currently twin-suppressed (USB-direct owns the pad).
     // Cheap: a short-held read of suppressedIds_ under suppressedMtx_.
     bool isSuppressed(const std::string& deviceId) const;
@@ -269,6 +317,14 @@ class SDLGamepadBridge : public QObject {
     };
     std::unordered_map<int, AccelCache> lastAccel_;
 
+    // What one sensor event leaves behind, when it leaves anything: the slot's id and the accel
+    // triple the gyro sample is paired with.
+    struct MotionUpdate {
+        std::string deviceId;
+        AccelCache accel{};
+    };
+    std::optional<MotionUpdate> applySensorEvent(const SDL_ControllerSensorEvent& ev);
+
     // Per-device last battery poll wall-clock. The runLoop polls battery on
     // every iteration but the per-device gate collapses it to 30 s.
     std::unordered_map<int, std::chrono::steady_clock::time_point> lastBatteryPoll_;
@@ -301,6 +357,16 @@ class SDLGamepadBridge : public QObject {
     struct TouchState {
         TouchFinger fingers[2];
     };
+
+    // What one touchpad event leaves behind: the slot's id, the tracked finger state, and the
+    // controller handle the click is read from, outside the lock.
+    struct TouchUpdate {
+        std::string deviceId;
+        SDL_GameController* controller = nullptr;
+        TouchState state;
+    };
+    std::optional<TouchUpdate> applyTouchpadEvent(const SDL_ControllerTouchpadEvent& ev);
+    static void applyTouchFinger(TouchState& ts, const SDL_ControllerTouchpadEvent& ev);
     std::unordered_map<int, TouchState> touchState_;
 
     // SDL_GameControllerRumble / SDL_GameControllerSetLED must run on the SDL

@@ -13,7 +13,9 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <optional>
 #include <set>
+#include <string>
 
 using namespace dish::moonlight;
 namespace proto = dish::moonproto;
@@ -238,4 +240,72 @@ TEST_CASE("four controllers ride one session and each keeps its own type", "[moo
     CHECK(slots.release("pad3").has_value());
     CHECK(slots.empty());
     CHECK(shouldHandBackApp(true, true, slots.empty()));
+}
+
+TEST_CASE("a binding's arrival is the type it resolves to and what that type declares",
+          "[moonlight][pads]") {
+    // The one computation the announcement and the binding strip both read.
+    SourceCapabilities pad = plainPad();
+    pad.touchpad = true;
+    const auto arrival = arrivalForBinding(proto::kControllerTypePs, pad);
+    CHECK(arrival.type == proto::kControllerTypePs);
+    CHECK(arrival.capabilities == declaredCapabilities(proto::kControllerTypePs, pad));
+
+    CHECK(arrivalForBinding(proto::kControllerTypeAuto, pad).type == proto::kControllerTypeXbox);
+}
+
+TEST_CASE("only another type or another motion bit gets the user another pad",
+          "[moonlight][pads][h5]") {
+    const AnnouncedPad held{
+        proto::kControllerTypePs,
+        static_cast<std::uint8_t>(proto::kCapAnalogTriggers | proto::kCapAccelerometer)};
+
+    CHECK_FALSE(hostBuildsAnotherPad(held, held));
+
+    AnnouncedPad anotherType = held;
+    anotherType.type = proto::kControllerTypeXbox;
+    CHECK(hostBuildsAnotherPad(held, anotherType));
+
+    for (const std::uint8_t motionBit : {proto::kCapAccelerometer, proto::kCapGyro}) {
+        AnnouncedPad anotherMotion = held;
+        anotherMotion.capabilities = static_cast<std::uint8_t>(held.capabilities ^ motionBit);
+        CHECK(hostBuildsAnotherPad(held, anotherMotion));
+    }
+
+    // Every other bit is one the host never reads at arrival.
+    for (const std::uint8_t unread :
+         {proto::kCapAnalogTriggers, proto::kCapRumble, proto::kCapTriggerRumble,
+          proto::kCapTouchpad, proto::kCapBattery, proto::kCapRgbLed}) {
+        AnnouncedPad sameToTheHost = held;
+        sameToTheHost.capabilities = static_cast<std::uint8_t>(held.capabilities ^ unread);
+        CHECK_FALSE(hostBuildsAnotherPad(held, sameToTheHost));
+    }
+}
+
+// ── The host's touchpad pick, on a Moonlight binding ────────────────────────
+
+TEST_CASE("a host never picked for gets a PlayStation pad's touches", "[moonlight][pads]") {
+    // The Pad the binding editors show for it, and the ds4 render a satellite declares.
+    CHECK(touchReachesHost(std::nullopt, /*padHasTouchpad=*/true, proto::kControllerTypePs));
+}
+
+TEST_CASE("a Pad pick sends the touches and an Off pick keeps them", "[moonlight][pads]") {
+    CHECK(touchReachesHost(std::string("ds4"), true, proto::kControllerTypePs));
+    CHECK_FALSE(touchReachesHost(std::string("off"), true, proto::kControllerTypePs));
+}
+
+TEST_CASE("a type that renders no touchpad gets no touches", "[moonlight][pads]") {
+    // The Xbox and Nintendo pads a host builds have no touchpad to put them on.
+    CHECK_FALSE(touchReachesHost(std::nullopt, true, proto::kControllerTypeXbox));
+    CHECK_FALSE(touchReachesHost(std::string("ds4"), true, proto::kControllerTypeNintendo));
+}
+
+TEST_CASE("a pad with no touchpad sends no touches", "[moonlight][pads]") {
+    CHECK_FALSE(touchReachesHost(std::nullopt, /*padHasTouchpad=*/false, proto::kControllerTypePs));
+}
+
+TEST_CASE("a Mouse pick sends no touches while no touchpad is routed as a mouse",
+          "[moonlight][pads]") {
+    // As on a satellite: a blocked pick never falls back to the pad render.
+    CHECK_FALSE(touchReachesHost(std::string("mouse"), true, proto::kControllerTypePs));
 }

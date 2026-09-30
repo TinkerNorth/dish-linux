@@ -181,6 +181,8 @@ std::size_t encodeRtpPing(std::uint8_t* out, const char* payload, std::size_t pa
     return kRtpPingSize;
 }
 
+// One arm per host packet kind, each its own wire layout written beside the bytes it reads.
+// Kept whole on purpose: a decoder per kind would hold three lines and its layout comment.
 std::optional<HostEvent> decodeHostEvent(const std::uint8_t* data, std::size_t len) {
     if (data == nullptr || len < 4) { return std::nullopt; }
     const std::uint16_t type = readU16Le(data);

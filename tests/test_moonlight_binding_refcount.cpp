@@ -66,7 +66,7 @@ moonlight::SourceCapabilities motionPad() {
 } // namespace
 
 TEST_CASE("a second binding joins the session instead of starting another",
-          "[moonlight][binding]") {
+          "[moonlight][binding][b8][b22]") {
     auto settings = test::makeSharedSettings();
     repository::MoonlightHostRepository repo(settings);
     repo.upsert(pairedHost());
@@ -96,7 +96,7 @@ TEST_CASE("a second binding joins the session instead of starting another",
     CHECK(manager.controllerCount(uuid) == 2);
 }
 
-TEST_CASE("four controllers ride one host and the fifth is refused", "[moonlight][binding]") {
+TEST_CASE("four controllers ride one host and the fifth is refused", "[moonlight][binding][b11]") {
     auto settings = test::makeSharedSettings();
     repository::MoonlightHostRepository repo(settings);
     repo.upsert(pairedHost());
@@ -127,7 +127,7 @@ TEST_CASE("four controllers ride one host and the fifth is refused", "[moonlight
     CHECK(moonlight::sessionUiBlocksApply(moonlight::sessionUiState(inputs)));
 }
 
-TEST_CASE("only the last unbind tears the session down", "[moonlight][binding]") {
+TEST_CASE("only the last unbind tears the session down", "[moonlight][binding][b13][b22]") {
     auto settings = test::makeSharedSettings();
     repository::MoonlightHostRepository repo(settings);
     repo.upsert(pairedHost());
@@ -198,7 +198,7 @@ TEST_CASE("re-binding a slot that already holds a number is a restart", "[moonli
     CHECK(manager.controllerCount(uuid) == 1);
 }
 
-TEST_CASE("a binding to an unpaired host is still recorded", "[moonlight][binding]") {
+TEST_CASE("a binding to an unpaired host is still recorded", "[moonlight][binding][b12][b21]") {
     // A binding is a DURABLE INTENT: pairing is remembered trust verified
     // lazily, so the session is attempted when the controller is used and never
     // when the binding is saved. Nothing about the host may refuse the answer.
@@ -305,7 +305,8 @@ TEST_CASE("the app list is per host and a refusal is not an empty list", "[moonl
     CHECK(moonlight::sessionUiState(asPaired) == moonlight::SessionUiState::AppsFailed);
 }
 
-TEST_CASE("the remembered app seeds the next session, not the binding", "[moonlight][binding]") {
+TEST_CASE("the remembered app seeds the next session, not the binding",
+          "[moonlight][binding][b7][b22]") {
     auto settings = test::makeSharedSettings();
     repository::MoonlightHostRepository repo(settings);
     repo.upsert(pairedHost());

@@ -67,4 +67,65 @@ QtObject {
             return Kit.CapabilityChip.Warn;
         return Kit.CapabilityChip.Error;
     }
+
+    // ── Link state ──────────────────────────────────────────────────────────
+    // The status chip a satellite row wears, by the chip token the rows and the
+    // diagnostics log vend.
+    function chipText(token) {
+        switch (token) {
+        case "found":
+            return qsTr("Found");
+        case "needsPairing":
+            return qsTr("Needs pairing");
+        case "offline":
+            return qsTr("Offline");
+        case "ready":
+            return qsTr("Ready");
+        case "connecting":
+            return qsTr("Connecting…");
+        case "online":
+            return qsTr("Online");
+        case "unstable":
+            return qsTr("Unsteady");
+        }
+        return token;
+    }
+
+    function chipTone(token) {
+        switch (token) {
+        case "online":
+            return Kit.CapabilityChip.Ok;
+        case "connecting":
+        case "unstable":
+        case "needsPairing":
+            return Kit.CapabilityChip.Warn;
+        case "ready":
+            return Kit.CapabilityChip.Present;
+        }
+        return Kit.CapabilityChip.Neutral;
+    }
+
+    // ── Moonlight types ─────────────────────────────────────────────────────
+    // The four CONTROLLER_ARRIVAL types in the order the pickers offer them, with
+    // `autoType` being App.moonlightAutoType. The three brand names are not
+    // translated: they are the devices the host plugs in, named the same in
+    // every language.
+    function moonlightTypes(autoType) {
+        return [
+            { "type": autoType, "name": qsTr("Auto") },
+            { "type": 1, "name": "Xbox" },
+            { "type": 2, "name": "PlayStation" },
+            { "type": 3, "name": "Nintendo" }
+        ];
+    }
+
+    // A type outside the table reads as Auto, the pickers' own fallback.
+    function moonlightTypeName(type, autoType) {
+        const types = vocab.moonlightTypes(autoType);
+        for (let i = 0; i < types.length; ++i) {
+            if (types[i].type === type)
+                return types[i].name;
+        }
+        return types[0].name;
+    }
 }

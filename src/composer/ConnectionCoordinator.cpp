@@ -188,7 +188,7 @@ void ConnectionCoordinator::reconnectConnection(const QString& connectionId) {
 }
 
 void ConnectionCoordinator::disconnectConnection(const QString& connectionId) {
-    wifi_->disconnect(connectionId);
+    wifi_->disconnectByUser(connectionId);
 }
 
 void ConnectionCoordinator::prepareForSleep() { wifi_->prepareForSleep(); }

@@ -189,6 +189,13 @@ TEST_CASE("coordinator: disconnect of a remembered-but-not-live satellite keeps 
     REQUIRE(r->live == UiLinkState::Saved);
 }
 
+TEST_CASE("coordinator: the Disconnect the user pressed holds the satellite against auto-reconnect",
+          "[coord][disconnect]") {
+    Fixture f({sat("m1", "10.0.0.1", "Pc")});
+    f.coord->disconnectConnection(midId("m1"));
+    CHECK(f.wifi->isHeldByUser(midId("m1")));
+}
+
 TEST_CASE("coordinator: disconnect of an unknown id is a quiet no-op", "[coord][disconnect]") {
     Fixture f({sat("m1", "10.0.0.1", "Pc")});
     f.coord->disconnectConnection(midId("nope"));

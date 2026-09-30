@@ -113,6 +113,16 @@ class SlotListModel : public QAbstractListModel {
     // are a handful of entries.
     const composer::ConnectionRow* rowForSlot(const models::ControllerSlot& slot) const;
 
+    // data()'s two computed role groups. Null means "not one of mine", which is how data() walks
+    // its groups in turn before falling through to the flat field reads.
+    // One group per concern; each answers nullopt for a role that is not its own, so data() is a
+    // chain of lookups and a role belongs to exactly one of them.
+    static std::optional<QVariant> identityFieldFor(const models::ControllerSlot& s, int role);
+    static std::optional<QVariant> capabilityFieldFor(const models::ControllerSlot& s, int role);
+    static std::optional<QVariant> rateChipFor(const models::ControllerSlot& s, int role);
+    static std::optional<QVariant> pathFieldFor(const models::ControllerSlot& s, int role);
+    std::optional<QVariant> satelliteFieldFor(const models::ControllerSlot& s, int role) const;
+
     QList<models::ControllerSlot> slots_;
     std::vector<composer::ConnectionRow> connectionRows_;
 };

@@ -79,7 +79,7 @@ meaning anything.
 
 ## Component inventory
 
-44 `.qml` files in `src/qml/kit/`.
+40 `.qml` files in `src/qml/kit/`.
 
 ### Primitives
 
@@ -101,7 +101,7 @@ meaning anything.
 | `SectionHeader` | `Row` | `label` (natural case in, uppercase out via `font.capitalization`, never an uppercase string) and an optional `glyph`. |
 | `BrandGlyph` | `Image` | `glyph`, `glyphForToken(token)`, `tinted`, `accessibleName`. Palette-tinted per C8. |
 | `AppMark` | `BrandGlyph` | The identity mark, `dish-logo` (the window icon as a glyph): the rail head and Home's rail entry. `busy` pulses opacity, the one sanctioned brand transient. |
-| `LiveStat` | `Text` | `live`, `rateText(hz, measured)`, `latencyText(ms, samples)`. **The only rate and latency formatter in the app.** `~` means derived or estimated; a sub-millisecond latency reads `"<1 ms"`, never `"~0.0 ms"`, mirroring `reducer::formatLatencyMs`, which is what the models render. |
+| `LiveStat` | `Text` | `live`, `rateText(hz, measured)`, `latencyText(ms, samples)`, `roundTripText(ms, samples)`. **The only rate and latency formatter in the app.** `~` means derived or estimated; a sub-millisecond latency reads `"<1 ms"`, never `"~0.0 ms"`, mirroring `reducer::formatLatencyMs`, which is what the models render. A measured round trip (the Diagnostics page's session window) reads one decimal and no `~`. |
 | `DishProgressBar` | `Rectangle` | `indeterminate`, `value`. Track `Theme.surfaceDim`, height fixed at 3, no caller-settable height. Static filled track under `Tokens.reducedMotion`. |
 | `LoadingSpinner` | `ColumnLayout` | `text`, `running`. The apply-overlay step spinner and the type-catalog loader. |
 
@@ -126,6 +126,7 @@ meaning anything.
 |---|---|---|
 | `WireLine` | `Item` | The pad-to-host wire. `live` solid, idle dashed, `transmitting` dashes crawling toward the host during an apply. Home and `WizardBanner` both compose it. |
 | `BindingStrip` | `Item` | The binding chip flow plus Edit. Overflows into a real focusable `+N` chip that opens a popup listing the remainder **with their reasons**, never a bare count. |
+| `StickPlot` | `Item` | One stick on its gate for the controller inspector: `stickX`, `stickY` as fractions from -1 to 1 with +y up, `reporting`, `accessibleName`. A pad that is not reporting draws no dot, because a centred one would read as a stick at rest. |
 | `CapabilityTable` | `Item` | The four-layer matrix. `rows` come from the caller, per C3. Check for available, cross for unavailable, em dash in `Theme.mutedStrong` for pending. Every layer chip shows its true state and the first failing one is heavier. |
 | `WizardBanner` | `Item` | The pad slot, wire and host slot, plus the stage markers and the stage-3 sub-step dots. `compact` for a short window. |
 | `StepList` | `Column` | The apply overlay's steps: done, active with a rotating ring, pending hollow, failed. |
@@ -209,7 +210,7 @@ The tree:
 | Kind | Files |
 |---|---|
 | Destinations | `pages/HomePage.qml` · `ControllersPage.qml` · `ConnectionsPage.qml` · `DonatePage.qml` · `SettingsPage.qml` |
-| Pushed details | `pages/ConfigureBindingPage.qml` · `ControlsRemapPage.qml` · `DeadzoneSettingsPage.qml` · `LicensesPage.qml` |
+| Pushed details | `pages/ConfigureBindingPage.qml` · `ControlsRemapPage.qml` · `DeadzoneSettingsPage.qml` · `DiagnosticsPage.qml` · `InputInspectorPage.qml` · `LicensesPage.qml` |
 | Shared dialog | `pages/PairingDialog.qml` |
 | Setup wizard | `wizard/SetupWizardPage.qml` plus `WizardInputPage` · `WizardDestinationPage` · `WizardTypePage` · `WizardFeelPage` · `WizardReviewPage` |
 | Binding draft | `shared/BindingDraft.qml`, the one draft type; both binding editors instantiate it |

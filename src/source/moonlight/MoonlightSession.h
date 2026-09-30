@@ -20,6 +20,7 @@
 #include "core/moonlight/MoonlightTouchDiffer.h"
 #include "core/moonlight/MoonlightTriggerRumble.h"
 #include "core/moonlight/MoonlightWire.h"
+#include "core/moonlight/MoonlightXml.h"
 #include "repository/MoonlightHostRepository.h"
 #include "source/moonlight/MoonlightControlStream.h"
 #include "source/moonlight/MoonlightHttp.h"
@@ -28,6 +29,7 @@
 #include <QByteArray>
 #include <QObject>
 #include <QString>
+#include <QUrlQuery>
 
 #include <QHash>
 
@@ -37,6 +39,7 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <mutex>
 #include <optional>
 
 class QTimer;
@@ -51,7 +54,7 @@ enum class MoonlightLinkState : std::uint8_t { Idle, Linking, Live, Failed };
 class MoonlightSession : public QObject {
     Q_OBJECT
   public:
-    // `http` is shared (one QNetworkAccessManager per manager); the session
+    // `http` is shared (one MoonlightHttp per manager); the session
     // borrows it. `controlStream` and `rtsp` are owned here.
     MoonlightSession(MoonlightHttp* http, repository::MoonlightHost host,
                      QObject* parent = nullptr);
@@ -84,6 +87,12 @@ class MoonlightSession : public QObject {
     // session already carries four pads, or this slot already holds one.
     std::optional<std::uint8_t> attachController(const QString& slotId, int storedType,
                                                  const moonlight::SourceCapabilities& source);
+    // Declares the pad `slotId` already holds again, for a binding that now asks for
+    // `storedType` over `source`. The number stands. A host keeps a number it holds and skips a
+    // second arrival for it, so where it would build another pad a live link unplugs the number
+    // and plugs the new pad in. nullopt when the slot holds no pad here.
+    std::optional<std::uint8_t> reannounceController(const QString& slotId, int storedType,
+                                                     const moonlight::SourceCapabilities& source);
     // Clears the pad's bit and sends the unplug, then reports how many
     // controllers are left. Zero is the caller's cue to tear the session down.
     std::size_t detachController(const QString& slotId);
@@ -104,12 +113,21 @@ class MoonlightSession : public QObject {
     // moment one game opened one sensor. Returns whether the sample went out.
     bool sendMotion(std::uint8_t controllerNumber, std::uint8_t motionType, float x, float y,
                     float z);
+    // The user's Motion switch for the pad under this number, on the Qt thread. Off, sendMotion
+    // sends nothing whatever the host asked for; the pad the host holds is left as it is.
+    void setMotionAllowed(std::uint8_t controllerNumber, bool allowed);
     // Battery, on the same thread as motion. Unconditional: a host that
     // declared the capability gets the level whenever the pad reports one.
     void sendBattery(std::uint8_t controllerNumber, std::uint8_t state, std::uint8_t percentage);
-    // One diffed touch event. Never rate-gated: the events are transitions, and
-    // dropping one strands a contact on the host.
-    void sendTouch(std::uint8_t controllerNumber, const moonlight::TouchEvent& event);
+    // The pad's full-state touch frame, on the SDL input thread, diffed here against the last
+    // frame the host was told about and sent as the transitions between them. Never rate-gated:
+    // the events are transitions, and dropping one strands a contact on the host. A pad whose
+    // touches do not reach the host is diffed against nothing touching, which lifts a contact the
+    // host still holds and sends nothing after it.
+    void sendTouchFrame(std::uint8_t controllerNumber, const moonlight::TouchFinger& finger0,
+                        const moonlight::TouchFinger& finger1);
+    // Whether the host's touchpad pick lets this pad's touches reach it, on the Qt thread.
+    void setTouchReaches(std::uint8_t controllerNumber, bool reaches);
 
     bool motionRequested(std::uint8_t controllerNumber, std::uint8_t motionType) const {
         return motionGate_.wanted(controllerNumber, motionType);
@@ -171,6 +189,20 @@ class MoonlightSession : public QObject {
     // Effect handlers.
     void fetchServerInfo();
     void sendLaunch();
+    // One handshake step: its request, and what its reply leaves behind.
+    QString rtspRequestFor(moonlight::RtspStep step);
+    void onRtspReply(moonlight::RtspStep step, const std::optional<moonrtsp::Response>& response);
+    void absorbMediaSetup(const char* stream, const moonrtsp::Response& response, int& port,
+                          QByteArray& pingPayload);
+    void notifyFailure();
+    void onServerInfoReply(int status, const QByteArray& body);
+    // sendLaunch in order: the per-attempt key, the query, and what the host answered.
+    bool ensureRikey();
+    QUrlQuery launchQuery(bool resuming) const;
+    void onLaunchReply(const QString& path, int status, const QByteArray& body);
+    void onLaunchAccepted(const QString& path, const moonxml::LaunchResult& launch);
+    void onLaunchRefused(const QString& path, const QByteArray& body,
+                         const std::optional<moonxml::Status>& refusal);
     void openRtsp();
     void sendRtspStep(moonlight::RtspStep step);
     void connectControl();
@@ -213,11 +245,28 @@ class MoonlightSession : public QObject {
         std::uint8_t capabilities = 0;
         std::uint32_t buttons = moonproto::kStandardButtons;
     };
+    static PadDeclaration declarationFor(std::uint8_t number, int storedType,
+                                         const moonlight::SourceCapabilities& source);
+    void replugPad(const PadDeclaration& pad);
     moonlight::PadSlots slots_;
     QHash<QString, PadDeclaration> pads_;
     // The CONTROLLER_MULTI active mask, published for the hot path. Written on
     // the Qt thread by attach/detach, read on the SDL input thread.
     std::atomic<std::uint16_t> activeMask_{0};
+    // One bit per pad whose Motion switch is off, read on the sensor thread.
+    std::atomic<std::uint16_t> motionOffMask_{0};
+    // Per controller number, the last touch frame the host was told about and whether the pad's
+    // touches reach it. It lives with the session rather than with a binding's routes, so applying
+    // a binding again keeps it: the host still holds the contacts it was told about. Written on the
+    // Qt thread when a pad is attached, replugged, detached, announced or bound, and on the SDL
+    // input thread by every frame.
+    struct PadTouch {
+        moonlight::MoonlightTouchDiffer lastFrame;
+        bool reaches = true;
+    };
+    std::mutex touchMtx_;
+    std::array<PadTouch, moonlight::kMaxPads> touch_;
+    void forgetTouchFrame(std::uint8_t controllerNumber);
 
     bool everStarted_ = false;
     QString refusalMessage_;

@@ -159,54 +159,69 @@ void WifiConnection::markConnected(const std::shared_ptr<SatelliteClient>& clien
     emit changed();
 }
 
-void WifiConnection::onAliveTick() {
-    const auto c = clientRef_.get();
-    if (!c) { return; }
-    // Rounded to the display precision so sub-jitter median moves do not re-emit.
-    const auto latency = c->latencySnapshot();
+// Rounded to the display precision so sub-jitter median moves do not re-emit.
+void WifiConnection::publishLatency(const SatelliteClient& c) {
+    const auto latency = c.latencySnapshot();
     const double rounded = latency.samples > 0
                                ? static_cast<double>(std::lround(latency.oneWayMs * 10.0)) / 10.0
                                : 0.0;
-    if (rounded != latencyOneWayMs_ || latency.samples != latencySamples_) {
-        latencyOneWayMs_ = rounded;
-        latencySamples_ = latency.samples;
-        emit telemetryChanged();
-    }
-    // Terminal immediately: the session is already gone server-side, so there is
-    // nothing to wait out.
-    const std::int32_t closeReason = c->sessionCloseReason();
+    if (rounded == latencyOneWayMs_ && latency.samples == latencySamples_) { return; }
+    latencyOneWayMs_ = rounded;
+    latencySamples_ = latency.samples;
+    emit telemetryChanged();
+}
+
+// True when the session is over and the tick ends here. Both arms are terminal immediately: the
+// session is already gone server-side, so there is nothing to wait out.
+bool WifiConnection::reportedGone(const SatelliteClient& c) {
+    const std::int32_t closeReason = c.sessionCloseReason();
     if (closeReason >= 0) {
         const auto cb = onClose_;
         if (cb) { cb(static_cast<std::uint8_t>(closeReason)); }
-        return;
+        return true;
     }
-    if (!c->isAlive()) {
-        const auto cb = onDead_;
-        if (cb) { cb(); }
-        return;
-    }
-    // Flips only between the two steady states; Linking and Stale keep their own
-    // owners. Recovers to Live the moment an ack lands.
-    const bool faltering = c->missedAcks() >= SatelliteClient::kHeartbeatMissNotResponding;
+    if (c.isAlive()) { return false; }
+    const auto cb = onDead_;
+    if (cb) { cb(); }
+    return true;
+}
+
+// Flips only between the two steady states; Linking and Stale keep their own owners. Recovers to
+// Live the moment an ack lands.
+void WifiConnection::applySteadyState(const SatelliteClient& c) {
+    const bool faltering = c.missedAcks() >= SatelliteClient::kHeartbeatMissNotResponding;
     const SessionState steady = faltering ? SessionState::Faltering : SessionState::Live;
-    if ((state_ == SessionState::Live || state_ == SessionState::Faltering) && state_ != steady) {
-        state_ = steady;
-        emit changed();
+    if (state_ != SessionState::Live && state_ != SessionState::Faltering) { return; }
+    if (state_ == steady) { return; }
+    state_ = steady;
+    emit changed();
+}
+
+// Re-key ahead of counter exhaustion. A session that exhausts anyway goes silent in
+// SatelliteClient and heals via the death-retry re-PUT. The flag is cleared once the counter is
+// back below the line, so a session that re-keys can re-key again.
+void WifiConnection::maybeRequestRekey(const SatelliteClient& c) {
+    if (!reducer::counterNeedsRepush(c.sendCounter())) {
+        rekeyRequested_ = false;
+        return;
     }
-    // A nudge only: the manager does the GET-then-rePUT solely when epoch or
-    // bitmap actually diverged.
+    if (rekeyRequested_ || !onRekey_) { return; }
+    rekeyRequested_ = true;
+    onRekey_();
+}
+
+void WifiConnection::onAliveTick() {
+    const auto c = clientRef_.get();
+    if (!c) { return; }
+
+    publishLatency(*c);
+    if (reportedGone(*c)) { return; }
+    applySteadyState(*c);
+    // A nudge only: the manager does the GET-then-rePUT solely when epoch or bitmap actually
+    // diverged.
     const auto cb = onReconcile_;
     if (cb) { cb(); }
-    // Re-key ahead of counter exhaustion. A session that exhausts anyway goes
-    // silent in SatelliteClient and heals via the death-retry re-PUT.
-    if (reducer::counterNeedsRepush(c->sendCounter())) {
-        if (!rekeyRequested_ && onRekey_) {
-            rekeyRequested_ = true;
-            onRekey_();
-        }
-    } else {
-        rekeyRequested_ = false;
-    }
+    maybeRequestRekey(*c);
 }
 
 void WifiConnection::markDisconnected() {

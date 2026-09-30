@@ -5,10 +5,10 @@
 // Qt's DEFAULT certificate validation (the system root store) and the default
 // NoLessSafeRedirectPolicy, which follows a 302 without downgrading to http.
 //
-// net::HTTPClient / net::PairingClient MUST NOT carry this traffic: they set
-// QSslSocket::VerifyNone deliberately (TOFU pinning for satellites on a LAN),
-// which is exactly wrong for a public host. That is why this owns a dedicated
-// manager rather than borrowing the app's.
+// net::HTTPClient MUST NOT carry this traffic: it sets QSslSocket::VerifyNone
+// deliberately (TOFU pinning for satellites on a LAN), which is exactly wrong
+// for a public host. That is why this owns a manager of its own rather than
+// riding HTTPClient.
 
 #pragma once
 

@@ -8,14 +8,56 @@
 
 #include "Util/HostBattery.h"
 
+#include <QByteArray>
+#include <QDir>
+#include <QFile>
+#include <QLatin1String>
+#include <QString>
+#include <QTemporaryDir>
+
 #include <catch2/catch_test_macros.hpp>
 
 #include <cstdint>
+#include <filesystem>
+#include <initializer_list>
+#include <utility>
 #include <vector>
 
 using dish::util::BatteryReading;
 using dish::util::hostBatteryFromSysfs;
+using dish::util::readHostBattery;
 using dish::util::SysfsBattery;
+
+namespace {
+
+// One file in a supply's sysfs directory: its name and its text.
+using SysfsAttribute = std::pair<const char*, const char*>;
+
+// A stand-in for /sys/class/power_supply: one directory per supply, one file per attribute, each
+// ending in the newline the kernel writes.
+class FakePowerSupplyTree {
+  public:
+    FakePowerSupplyTree() { REQUIRE(dir_.isValid()); }
+
+    void addSupply(const QString& name, std::initializer_list<SysfsAttribute> attributes) {
+        REQUIRE(QDir(dir_.path()).mkdir(name));
+        for (const auto& [file, text] : attributes) { writeAttribute(name, file, text); }
+    }
+
+    std::filesystem::path root() const { return {dir_.path().toStdString()}; }
+
+  private:
+    void writeAttribute(const QString& supply, const char* file, const char* text) const {
+        QFile out(dir_.filePath(supply + QLatin1Char('/') + QLatin1String(file)));
+        REQUIRE(out.open(QIODevice::WriteOnly));
+        const QByteArray bytes = QByteArray(text) + '\n';
+        REQUIRE(out.write(bytes) == bytes.size());
+    }
+
+    QTemporaryDir dir_;
+};
+
+} // namespace
 
 TEST_CASE("no battery devices (a desktop) reports 100% wired", "[hostbattery]") {
     const auto r = hostBatteryFromSysfs({});
@@ -157,4 +199,69 @@ TEST_CASE("a negative capacity clamps to 0 rather than wrapping", "[hostbattery]
     const auto r = hostBatteryFromSysfs(batteries);
     REQUIRE(r.level == 0U);
     REQUIRE(r.status == dish::util::kBatteryStatusDischarging);
+}
+
+TEST_CASE("a pad's own battery, scoped to its device, is not the host's", "[hostbattery]") {
+    // hid-playstation, hid-sony, hid-nintendo and hid-steam all register a pad's pack as a
+    // Battery whose scope is "Device".
+    FakePowerSupplyTree tree;
+    tree.addSupply(QStringLiteral("BAT0"),
+                   {{"type", "Battery"}, {"capacity", "50"}, {"status", "Discharging"}});
+    tree.addSupply(
+        QStringLiteral("ps-controller-battery"),
+        {{"type", "Battery"}, {"scope", "Device"}, {"capacity", "90"}, {"status", "Discharging"}});
+    const auto r = readHostBattery(tree.root());
+    REQUIRE(r.level == 50U);
+    REQUIRE(r.status == dish::util::kBatteryStatusDischarging);
+}
+
+TEST_CASE("a desktop with a pad plugged in still reads as a desktop", "[hostbattery]") {
+    FakePowerSupplyTree tree;
+    tree.addSupply(
+        QStringLiteral("ps-controller-battery"),
+        {{"type", "Battery"}, {"scope", "Device"}, {"capacity", "90"}, {"status", "Full"}});
+    const auto r = readHostBattery(tree.root());
+    REQUIRE(r.level == 100U);
+    REQUIRE(r.status == dish::util::kBatteryStatusWired);
+}
+
+TEST_CASE("a battery scoped System or Unknown, or not scoped at all, is the host's",
+          "[hostbattery]") {
+    // ACPI's laptop packs carry no scope file, so the last is the common case.
+    FakePowerSupplyTree tree;
+    SECTION("System") {
+        tree.addSupply(QStringLiteral("BAT0"), {{"type", "Battery"},
+                                                {"scope", "System"},
+                                                {"capacity", "40"},
+                                                {"status", "Discharging"}});
+    }
+    SECTION("Unknown") {
+        tree.addSupply(QStringLiteral("BAT0"), {{"type", "Battery"},
+                                                {"scope", "Unknown"},
+                                                {"capacity", "40"},
+                                                {"status", "Discharging"}});
+    }
+    SECTION("no scope file") {
+        tree.addSupply(QStringLiteral("BAT0"),
+                       {{"type", "Battery"}, {"capacity", "40"}, {"status", "Discharging"}});
+    }
+    const auto r = readHostBattery(tree.root());
+    REQUIRE(r.level == 40U);
+    REQUIRE(r.status == dish::util::kBatteryStatusDischarging);
+}
+
+TEST_CASE("an AC adapter and a USB port are not batteries", "[hostbattery]") {
+    FakePowerSupplyTree tree;
+    tree.addSupply(QStringLiteral("AC"), {{"type", "Mains"}, {"online", "1"}});
+    tree.addSupply(QStringLiteral("ucsi-source-psy-USBC000"), {{"type", "USB"}, {"online", "0"}});
+    const auto r = readHostBattery(tree.root());
+    REQUIRE(r.level == 100U);
+    REQUIRE(r.status == dish::util::kBatteryStatusWired);
+}
+
+TEST_CASE("a machine with no power_supply directory reads as a desktop", "[hostbattery]") {
+    const FakePowerSupplyTree tree;
+    const auto r = readHostBattery(tree.root() / "missing");
+    REQUIRE(r.level == 100U);
+    REQUIRE(r.status == dish::util::kBatteryStatusWired);
 }

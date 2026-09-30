@@ -19,44 +19,40 @@
 #include <csignal>
 #include <iostream>
 
-int main(int argc, char* argv[]) {
-    // FIRST, before any other subsystem can fault, so a crash still leaves a
-    // backtrace behind.
-    dish::crash::install();
+namespace {
 
-    if (sodium_init() < 0) {
-        // Before any logger exists, so stderr is the only channel; the exit
-        // code is the report.
-        std::cerr << "dish: libsodium initialisation failed\n";
-        return 1;
-    }
-
-    // QGuiApplication, not QApplication: no QWidget is ever constructed, so the
-    // widgets module stays out of the process.
-    QGuiApplication app(argc, argv);
+// What Qt keys the settings store and the per-user data directory on, and the desktop file the
+// compositor matches the window to. Set before anything reads a QSettings, or the first reader
+// creates the store under a different name.
+void applyApplicationIdentity() {
     QCoreApplication::setOrganizationName(QStringLiteral("TinkerNorth"));
     QCoreApplication::setOrganizationDomain(QStringLiteral("tinkernorth.com"));
     QCoreApplication::setApplicationName(QStringLiteral("Dish"));
     QGuiApplication::setDesktopFileName(QStringLiteral("com.tinkernorth.Dish"));
+}
 
-    // loadCatalog walks QLocale::uiLanguages(), so the desktop's preferred UI
-    // language wins over the regional format setting — two settings that
-    // routinely disagree. English is a real catalogue rather than the
-    // untranslated fallback, because %n plural forms have to come from
-    // somewhere and a source string can only carry one of them. `static` keeps
-    // the translator alive for the lifetime of the app.
+// loadCatalog walks QLocale::uiLanguages(), so the desktop's preferred UI language wins over the
+// regional format setting - two settings that routinely disagree. English is a real catalogue
+// rather than the untranslated fallback, because %n plural forms have to come from somewhere and a
+// source string can only carry one of them.
+//
+// The `static` is QCoreApplication's to demand: it holds the translator by pointer for as long as
+// it lives, so the translator has to outlive the call that installs it.
+void installUiTranslator() {
     static QTranslator translator;
     if (dish::i18n::loadCatalog(translator, QLocale::system())) {
         QCoreApplication::installTranslator(&translator);
     }
+}
 
-    // Wayland takes the window icon from the .desktop file, but X11 and the
-    // Alt-Tab switchers on several compositors still read the window's own.
+// The icon and the font ladder.
+void applyUiAppearance(QGuiApplication& app) {
+    // Wayland takes the window icon from the .desktop file, but X11 and the Alt-Tab switchers on
+    // several compositors still read the window's own.
     app.setWindowIcon(QIcon(QStringLiteral(":/icons/dish.svg")));
 
-    // Inter is bundled (SIL OFL, see packaging/fonts/) so the app matches the
-    // design on a machine that does not have it installed. The four statics
-    // give the weight ladder the tokens use.
+    // Inter is bundled (SIL OFL, see packaging/fonts/) so the app matches the design on a machine
+    // that does not have it installed. The four faces give the weight ladder the tokens use.
     for (const char* face : {":/fonts/Inter-Regular.ttf", ":/fonts/Inter-Medium.ttf",
                              ":/fonts/Inter-SemiBold.ttf", ":/fonts/Inter-Bold.ttf"}) {
         QFontDatabase::addApplicationFont(QLatin1String(face));
@@ -64,19 +60,38 @@ int main(int argc, char* argv[]) {
     QFont uiFont(QStringLiteral("Inter"));
     uiFont.setPixelSize(13); // the token base; pages override per role
     app.setFont(uiFont);
+}
 
-    // Logout and shutdown arrive as SIGTERM, whose default disposition kills
-    // the process where it stands: ~AppModel never runs, so the input thread is
-    // not stopped and QSettings never flushes what the session changed. Quit
-    // the loop instead and let main unwind normally.
+} // namespace
+
+int main(int argc, char* argv[]) {
+    // FIRST, before any other subsystem can fault, so a crash still leaves a backtrace behind.
+    dish::crash::install();
+
+    if (sodium_init() < 0) {
+        // Before any logger exists, so stderr is the only channel; the exit code is the report.
+        std::cerr << "dish: libsodium initialisation failed\n";
+        return 1;
+    }
+
+    // QGuiApplication, not QApplication: no QWidget is ever constructed, so the widgets module
+    // stays out of the process.
+    QGuiApplication app(argc, argv);
+    applyApplicationIdentity();
+    installUiTranslator();
+    applyUiAppearance(app);
+
+    // Logout and shutdown arrive as SIGTERM, whose default disposition kills the process where it
+    // stands: ~AppModel never runs, so the input thread is not stopped and QSettings never flushes
+    // what the session changed. Quit the loop instead and let main unwind normally. The watcher is
+    // held in main's own scope, which is its lifetime.
     const auto quitSignals = dish::util::installSignalWatcher({SIGINT, SIGTERM, SIGHUP});
     if (quitSignals) {
         QObject::connect(quitSignals.get(), &dish::util::UnixSignalWatcher::signalled, &app,
                          [](int) { QCoreApplication::quit(); });
     }
 
-    // runQmlApp owns the engine and exposes the model to QML as the `App`
-    // singleton.
+    // runQmlApp owns the engine and exposes the model to QML as the `App` singleton.
     dish::AppModel model;
     model.start();
     return dish::qml::runQmlApp(model);

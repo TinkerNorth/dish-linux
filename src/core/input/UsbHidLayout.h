@@ -244,120 +244,203 @@ inline void assignUsage(HidLayout& out, std::uint32_t page, std::uint32_t usage,
 
 // Returns false and leaves the layout invalid on malformed input or when nothing
 // gamepad-like is found, so callers fall back to a fixed-offset guess.
-inline bool parseReportDescriptor(const std::uint8_t* desc, std::size_t len, HidLayout& out) {
-    out = HidLayout{};
+// One item from the descriptor stream.
+struct HidItem {
+    std::uint8_t type = 0;
+    std::uint8_t tag = 0;
+    std::uint8_t dataLen = 0;
+    std::uint32_t data = 0;
+    bool skip = false;      // a long item, which no gamepad descriptor uses
+    bool truncated = false; // the stream ended mid-item
+};
 
-    std::uint32_t usagePage = 0, reportSize = 0, reportCount = 0;
-    std::int32_t logMin = 0, logMax = 0;
+// The global and local item state the stream accumulates until a Main item consumes it.
+struct HidParseState {
+    std::uint32_t usagePage = 0;
+    std::uint32_t reportSize = 0;
+    std::uint32_t reportCount = 0;
+    std::int32_t logMin = 0;
+    std::int32_t logMax = 0;
     std::uint8_t currentReportId = 0;
     std::uint32_t bitCursor = 0;
     bool locked = false;
     std::uint8_t lockedReportId = 0;
 
-    std::uint32_t usages[kMaxUsages];
+    std::uint32_t usages[kMaxUsages] = {};
     std::size_t usageCount = 0;
     std::uint32_t usageMin = 0;
     bool haveRange = false;
+};
+
+// A long item carries a payload-length byte, then a tag byte, then that many data bytes. No
+// gamepad descriptor uses one, so it is stepped over whole.
+inline HidItem readLongItem(const std::uint8_t* desc, std::size_t len, std::size_t& i) {
+    HidItem item;
+    if (i >= len) {
+        item.truncated = true;
+        return item;
+    }
+    const std::uint8_t payload = desc[i];
+    i += 2u + payload;
+    item.skip = true;
+    return item;
+}
+
+// A short item packs its data length, type and tag into the prefix byte; bSize 3 means 4 bytes,
+// which is the one size that is not its own encoding.
+inline HidItem readShortItem(const std::uint8_t* desc, std::size_t len, std::uint8_t prefix,
+                             std::size_t& i) {
+    HidItem item;
+    const std::uint8_t bSize = prefix & 0x03u;
+    item.dataLen = bSize == 3 ? 4 : bSize;
+    item.type = (prefix >> 2) & 0x03u;
+    item.tag = (prefix >> 4) & 0x0Fu;
+    if (i + item.dataLen > len) {
+        item.truncated = true;
+        return item;
+    }
+    for (std::uint8_t k = 0; k < item.dataLen; k++) {
+        item.data |= static_cast<std::uint32_t>(desc[i + k]) << (8u * k);
+    }
+    i += item.dataLen;
+    return item;
+}
+
+inline HidItem readHidItem(const std::uint8_t* desc, std::size_t len, std::size_t& i) {
+    const std::uint8_t prefix = desc[i++];
+    if (prefix == 0xFE) { return readLongItem(desc, len, i); }
+    return readShortItem(desc, len, prefix, i);
+}
+
+// A report id resets the bit cursor: offsets are relative to the payload of the report they are
+// in, not to the descriptor.
+inline void applyGlobalItem(const HidItem& item, HidParseState& st) {
+    switch (item.tag) {
+    case 0x0:
+        st.usagePage = item.data;
+        break;
+    case 0x1:
+        st.logMin = signExtend(item.data, item.dataLen);
+        break;
+    case 0x2:
+        st.logMax = signExtend(item.data, item.dataLen);
+        break;
+    case 0x7:
+        st.reportSize = item.data;
+        break;
+    case 0x8:
+        st.currentReportId = static_cast<std::uint8_t>(item.data);
+        st.bitCursor = 0;
+        break;
+    case 0x9:
+        st.reportCount = item.data;
+        break;
+    default:
+        break;
+    }
+}
+
+// A usage minimum implies the range; a usage maximum only confirms it, because the count comes
+// from the report count either way.
+inline void applyLocalItem(const HidItem& item, HidParseState& st) {
+    switch (item.tag) {
+    case 0x0:
+        if (st.usageCount < kMaxUsages) { st.usages[st.usageCount++] = item.data; }
+        break;
+    case 0x1:
+        st.usageMin = item.data;
+        st.haveRange = true;
+        break;
+    case 0x2:
+        st.haveRange = true;
+        break;
+    default:
+        break;
+    }
+}
+
+// The first button field wins: a descriptor that declares a second one is describing something
+// else, and the layout carries one run.
+inline void takeButtonField(const HidParseState& st, std::uint32_t startBit, HidLayout& out) {
+    if (out.buttonCount != 0) { return; }
+    out.buttonBitOffset = static_cast<std::uint16_t>(startBit);
+    const std::uint32_t cnt = st.reportCount > kMaxButtons ? kMaxButtons : st.reportCount;
+    out.buttonCount = static_cast<std::uint8_t>(cnt);
+}
+
+// One usage per field, either counted up from the range's minimum or taken from the declared
+// list, whose last entry repeats when the report declares more fields than usages.
+inline void takeAxisFields(const HidParseState& st, std::uint32_t startBit, HidLayout& out) {
+    for (std::uint32_t f = 0; f < st.reportCount; f++) {
+        std::uint32_t usage = 0;
+        if (st.haveRange) {
+            usage = st.usageMin + f;
+        } else if (st.usageCount == 0) {
+            break;
+        } else {
+            usage = st.usages[f < st.usageCount ? f : st.usageCount - 1];
+        }
+        assignUsage(out, st.usagePage, usage, startBit + f * st.reportSize, st.reportSize,
+                    st.logMin, st.logMax);
+    }
+}
+
+// Constant padding carries no field, and the cursor still has to move past it. The first report
+// that carries fields locks the layout: a device with several input reports is described by the
+// one this parse can decode, not by a mixture.
+inline void applyInputItem(const HidItem& item, HidParseState& st, HidLayout& out) {
+    const std::uint32_t startBit = st.bitCursor;
+    st.bitCursor += st.reportSize * st.reportCount;
+
+    const bool isConstantPadding = (item.data & 0x01u) != 0;
+    const bool carriesFields = st.reportSize > 0 && st.reportCount > 0;
+    if (isConstantPadding || !carriesFields) { return; }
+
+    if (!st.locked) {
+        st.locked = true;
+        st.lockedReportId = st.currentReportId;
+        out.reportId = st.currentReportId;
+    }
+    if (st.currentReportId != st.lockedReportId) { return; }
+
+    if (st.usagePage == 0x09) {
+        takeButtonField(st, startBit, out);
+        return;
+    }
+    if (st.usagePage == 0x01 || st.usagePage == 0x02) { takeAxisFields(st, startBit, out); }
+}
+
+inline void clearLocalItems(HidParseState& st) {
+    st.usageCount = 0;
+    st.haveRange = false;
+    st.usageMin = 0;
+}
+
+// A Main item consumes whatever the Global and Local items have accumulated and then clears the
+// Local ones; only an Input main item carries fields this parse wants.
+inline void applyItem(const HidItem& item, HidParseState& st, HidLayout& out) {
+    if (item.type == 0) {
+        if (item.tag == 0x8) { applyInputItem(item, st, out); }
+        clearLocalItems(st);
+        return;
+    }
+    if (item.type == 1) {
+        applyGlobalItem(item, st);
+        return;
+    }
+    if (item.type == 2) { applyLocalItem(item, st); }
+}
+
+inline bool parseReportDescriptor(const std::uint8_t* desc, std::size_t len, HidLayout& out) {
+    out = HidLayout{};
+    HidParseState st;
 
     std::size_t i = 0;
     while (i < len) {
-        const std::uint8_t prefix = desc[i++];
-        if (prefix == 0xFE) { // long item: 1 size byte + 1 tag byte + payload
-            if (i >= len) { break; }
-            const std::uint8_t payload = desc[i];
-            i += 2u + payload;
-            continue;
-        }
-        const std::uint8_t bSize = prefix & 0x03u;
-        const std::uint8_t dataLen = bSize == 3 ? 4 : bSize;
-        const std::uint8_t bType = (prefix >> 2) & 0x03u;
-        const std::uint8_t bTag = (prefix >> 4) & 0x0Fu;
-        if (i + dataLen > len) { break; }
-        std::uint32_t data = 0;
-        for (std::uint8_t k = 0; k < dataLen; k++) {
-            data |= static_cast<std::uint32_t>(desc[i + k]) << (8u * k);
-        }
-        i += dataLen;
-
-        if (bType == 0) {      // Main
-            if (bTag == 0x8) { // Input
-                const std::uint32_t startBit = bitCursor;
-                bitCursor += reportSize * reportCount;
-                const bool isConst = (data & 0x01u) != 0;
-                if (!isConst && reportSize > 0 && reportCount > 0) {
-                    if (!locked) {
-                        locked = true;
-                        lockedReportId = currentReportId;
-                        out.reportId = currentReportId;
-                    }
-                    if (currentReportId == lockedReportId) {
-                        if (usagePage == 0x09) {
-                            if (out.buttonCount == 0) {
-                                out.buttonBitOffset = static_cast<std::uint16_t>(startBit);
-                                const std::uint32_t cnt =
-                                    reportCount > kMaxButtons ? kMaxButtons : reportCount;
-                                out.buttonCount = static_cast<std::uint8_t>(cnt);
-                            }
-                        } else if (usagePage == 0x01 || usagePage == 0x02) {
-                            for (std::uint32_t f = 0; f < reportCount; f++) {
-                                std::uint32_t usage = 0;
-                                if (haveRange) {
-                                    usage = usageMin + f;
-                                } else if (usageCount == 0) {
-                                    break;
-                                } else {
-                                    usage = usages[f < usageCount ? f : usageCount - 1];
-                                }
-                                assignUsage(out, usagePage, usage, startBit + f * reportSize,
-                                            reportSize, logMin, logMax);
-                            }
-                        }
-                    }
-                }
-            }
-            usageCount = 0;
-            haveRange = false;
-            usageMin = 0;
-        } else if (bType == 1) { // Global
-            switch (bTag) {
-            case 0x0:
-                usagePage = data;
-                break;
-            case 0x1:
-                logMin = signExtend(data, dataLen);
-                break;
-            case 0x2:
-                logMax = signExtend(data, dataLen);
-                break;
-            case 0x7:
-                reportSize = data;
-                break;
-            case 0x8:
-                currentReportId = static_cast<std::uint8_t>(data);
-                bitCursor = 0;
-                break;
-            case 0x9:
-                reportCount = data;
-                break;
-            default:
-                break;
-            }
-        } else if (bType == 2) { // Local
-            switch (bTag) {
-            case 0x0:
-                if (usageCount < kMaxUsages) { usages[usageCount++] = data; }
-                break;
-            case 0x1:
-                usageMin = data;
-                haveRange = true;
-                break;
-            case 0x2:
-                haveRange = true;
-                break;
-            default:
-                break;
-            }
-        }
+        const HidItem item = readHidItem(desc, len, i);
+        if (item.truncated) { break; }
+        if (item.skip) { continue; }
+        applyItem(item, st, out);
     }
 
     out.valid = out.lx.present || out.ly.present || out.buttonCount > 0 || out.hasHat;

@@ -3,33 +3,38 @@
 
 #include "source/moonlight/MoonlightHttp.h"
 
+#include "source/http/HttpExchange.h"
 #include "source/moonlight/MoonlightLog.h"
 
-#include <QNetworkAccessManager>
-#include <QNetworkReply>
-#include <QNetworkRequest>
 #include <QSslCertificate>
 #include <QSslConfiguration>
 #include <QSslKey>
+#include <QSslSocket>
 #include <QUrl>
 #include <QUuid>
+
+#include <optional>
+#include <utility>
 
 namespace dish::source::moon {
 namespace {
 
-// Certificate equality that survives PEM reserialization differences: compare
-// the DER bytes, not the text.
-bool sameCert(const QSslCertificate& presented, const QString& pinnedPem) {
-    if (presented.isNull() || pinnedPem.isEmpty()) { return false; }
-    const auto pinned = QSslCertificate::fromData(pinnedPem.toUtf8(), QSsl::Pem);
-    if (pinned.isEmpty() || pinned.first().isNull()) { return false; }
-    return presented.toDer() == pinned.first().toDer();
+// Whatever answered is handed over with its status and body, a refusal as much as a success:
+// status 0 is kept for nothing having answered at all.
+void handOver(const QString& path, const MoonlightHttp::BodyCb& cb,
+              const http::HttpResult& result) {
+    const int status = result.response.status;
+    if (status == 0) {
+        qCWarning(lcMoon) << "http" << path << "failed:" << result.error;
+    } else {
+        qCDebug(lcMoon) << "http <-" << path << status << result.response.body.size() << "bytes";
+    }
+    cb(status, QByteArray::fromStdString(result.response.body));
 }
 
 } // namespace
 
-MoonlightHttp::MoonlightHttp(QObject* parent)
-    : QObject(parent), nam_(new QNetworkAccessManager(this)) {}
+MoonlightHttp::MoonlightHttp(QObject* parent) : QObject(parent) {}
 
 MoonlightHttp::~MoonlightHttp() = default;
 
@@ -66,16 +71,16 @@ void MoonlightHttp::getTls(const QString& address, int port, const QString& path
 QSslConfiguration MoonlightHttp::tlsConfiguration(const QString& certPem,
                                                   const QString& privateKeyPem) {
     QSslConfiguration ssl = QSslConfiguration::defaultConfiguration();
-    // Self-signed on both ends; trust is the explicit pin check the reply
-    // handler applies.
+    // Self-signed on both ends; trust is the pin, checked the moment the
+    // handshake completes.
     ssl.setPeerVerifyMode(QSslSocket::VerifyNone);
     // NEVER OFFER A SESSION TO RESUME. A resumed TLS session carries the peer
     // identity forward instead of asking for the certificate again, so a
     // Moonlight host's verify callback never runs and Sunshine kills the
     // connection with a fatal internal_error alert (RFC 8446 alert 80) and logs
-    // nothing at all. Qt shares and persists sessions across the connections one
-    // QNetworkAccessManager makes, which is exactly the shape that triggers it,
-    // so all three switches go off together.
+    // nothing at all. Every call dials a fresh socket, and all three switches go
+    // off together so that no session is cached, shared or kept for the next
+    // one, whatever reuses this configuration.
     ssl.setSslOption(QSsl::SslOptionDisableSessionTickets, true);
     ssl.setSslOption(QSsl::SslOptionDisableSessionSharing, true);
     ssl.setSslOption(QSsl::SslOptionDisableSessionPersistence, true);
@@ -97,46 +102,25 @@ void MoonlightHttp::perform(const QUrl& url, bool tls, const QString& pinnedServ
                        QUuid::createUuid().toString(QUuid::WithoutBraces).remove(QChar('-')));
     full.setQuery(query);
 
-    QNetworkRequest request(full);
-    request.setTransferTimeout(timeoutMs);
-    // GameStream hosts speak bare HTTP/1.1 and choke on upgrade probing.
-    request.setAttribute(QNetworkRequest::Http2AllowedAttribute, false);
-
-    if (tls) { request.setSslConfiguration(tlsConfiguration(certPem_, privateKeyPem_)); }
-
+    http::HttpRequest request;
+    request.url = full;
+    request.method = QByteArrayLiteral("GET");
+    request.tls = tls ? std::optional(tlsConfiguration(certPem_, privateKeyPem_)) : std::nullopt;
+    request.timeoutMs = timeoutMs;
     const QString path = full.path();
     qCDebug(lcMoon) << "http ->" << (tls ? "https" : "http") << full.host() << path;
-    QNetworkReply* reply = nam_->get(request);
-    if (tls) {
-        QObject::connect(reply, &QNetworkReply::sslErrors, reply,
-                         [reply](const QList<QSslError>&) { reply->ignoreSslErrors(); });
-    }
-    QObject::connect(reply, &QNetworkReply::finished, this,
-                     [reply, tls, path, pinnedServerCertPem, cb = std::move(cb)]() {
-                         reply->deleteLater();
-                         if (tls) {
-                             const auto presented = reply->sslConfiguration().peerCertificate();
-                             if (!sameCert(presented, pinnedServerCertPem)) {
-                                 qCWarning(lcMoon) << "http" << path
-                                                   << "rejected: server certificate does not "
-                                                      "match the pairing pin";
-                                 cb(0, QByteArray());
-                                 return;
-                             }
-                         }
-                         if (reply->error() != QNetworkReply::NoError &&
-                             reply->error() != QNetworkReply::ProtocolInvalidOperationError) {
-                             qCWarning(lcMoon)
-                                 << "http" << path << "failed:" << reply->errorString();
-                             cb(0, QByteArray());
-                             return;
-                         }
-                         const int status =
-                             reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-                         const QByteArray body = reply->readAll();
-                         qCDebug(lcMoon) << "http <-" << path << status << body.size() << "bytes";
-                         cb(status, body);
-                     });
+    http::exchangeHttp(
+        this, std::move(request),
+        [pinnedServerCertPem](const QByteArray& certDer) {
+            return matchesPin(certDer, pinnedServerCertPem);
+        },
+        [path, cb = std::move(cb)](const http::HttpResult& result) { handOver(path, cb, result); });
+}
+
+bool MoonlightHttp::matchesPin(const QByteArray& presentedDer, const QString& pinnedPem) {
+    const QByteArray pinnedDer =
+        QSslCertificate::fromData(pinnedPem.toUtf8(), QSsl::Pem).value(0).toDer();
+    return !pinnedDer.isEmpty() && pinnedDer == presentedDer;
 }
 
 } // namespace dish::source::moon

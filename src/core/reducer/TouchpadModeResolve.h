@@ -12,6 +12,7 @@
 
 #include <algorithm>
 #include <array>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -30,6 +31,24 @@ inline const std::array<std::string_view, 3> kTouchpadModeNames{
 // survives the round trip unchanged, since unknown names collapse to off.
 inline bool isValidTouchpadModeName(std::string_view name) {
     return proto::touchpadModeName(proto::touchpadModeFromName(name)) == name;
+}
+
+// Routing a touchpad as the host's mouse is a recorded deferral on this client
+// (tests/PARITY.md). The runtime, the capability previews and the binding
+// editors all read this, so no surface can offer a routing the runtime turns off.
+inline constexpr bool kClientRoutesTouchpadAsMouse = false;
+
+// The mouse rung opens only where this client routes the touchpad as a mouse
+// and the host advertises mouse control.
+inline bool mouseModeAvailable(bool hostAdvertisesMouseControl) {
+    return kClientRoutesTouchpadAsMouse && hostAdvertisesMouseControl;
+}
+
+// A host the user never picked for renders the pad, so a DS4 touchpad forwards
+// out of the box. The runtime and the binding editors both read this, so an
+// editor shows the routing the wire carries.
+inline std::string touchpadPickOrDefault(const std::optional<std::string>& stored) {
+    return stored.value_or(std::string(proto::touchpadModeName(proto::kTouchpadModeDs4)));
 }
 
 // A touchpad-bearing type with no "ds4" lineage gates the pad routing off. A

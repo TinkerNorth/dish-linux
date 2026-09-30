@@ -116,7 +116,7 @@ license — the project is LGPL-3.0-or-later end-to-end (`LICENSE`,
 
 ## Style
 
-- C++17, four-space indent, 100-column soft limit. `.clang-format` is
+- C++20, four-space indent, 100-column soft limit. `.clang-format` is
   authoritative — run `clang-format -i` if you're unsure.
 - Warnings are enforced as errors on first-party targets (`dish_strict`).
   See `CMakeLists.txt` for the exact set; in short:
@@ -124,6 +124,136 @@ license — the project is LGPL-3.0-or-later end-to-end (`LICENSE`,
   -Wcast-align -Wconversion -Wsign-conversion -Wdouble-promotion -Wformat=2`.
 - Match the surrounding style. Headers go in the order: project, Qt, libs,
   std, separated by blank lines (see `src/AppModel.h` for the pattern).
+
+### Shape of the code
+
+These rules are enforced in review, not by a gate. They come from the
+Parchment library and are adapted where C++ or Qt make the literal form worse
+than the thing it is meant to achieve. They apply to `src/` and `tests/`
+alike, and they are the same rules dish-windows follows, so a change ported
+between the two desktop clients keeps its shape.
+
+- **As immutable and as static as possible.** `const` on every local and
+  parameter that is not reassigned, `constexpr` for a value known at compile
+  time, and file-static (or an anonymous namespace) for anything the rest of
+  the translation unit does not need. A value that never changes is a named
+  constant, never a literal in the middle of a function. A type that holds no
+  state is a set of free functions, not a class.
+
+- **Split values into simple, named steps.** One operation per line, with the
+  result in a named `const` that says what it is, even when that reads longer:
+
+  ```cpp
+  const bool isAnotherSlot = entry.first != deviceId;
+  const bool isAPlaceholder = other.transitioning || other.needsReplug;
+  const bool isTheSameModel = other.vendorId == device.vendorId &&
+                              other.productId == device.productId;
+  return isAnotherSlot && isAPlaceholder && isTheSameModel;
+  ```
+
+  not one five-term boolean. The names are the documentation, the debugger can
+  show each value, and a test can pin each step. A named `const bool` costs
+  nothing at runtime.
+
+- **One function, one flow.** When a function would hold two algorithms chosen
+  by a condition, the condition dispatches to two named things that each do
+  one thing, and the dispatcher does nothing else. A `switch` over an enum
+  with no `default` is the preferred form, because the compiler then checks
+  that every case is handled. A guard clause is not an algorithm: do not
+  invent indirection where there is only one flow.
+
+  A function that stays long because splitting it would make it worse says so
+  at the top, in one or two lines. A long function with no such note is one
+  nobody has looked at.
+
+- **A chain of `if`s over one byte is a table.** A per-bit or per-index
+  mapping belongs in a `constexpr` array the code reads, not in a switch the
+  reader has to diff against its twin. The point is that two mappings of the
+  same thing cannot drift apart.
+
+- **A callback with a body gets a name.** A lambda is fine as a one-expression
+  forward, and fine as an argument to an algorithm that consumes it
+  immediately (`std::sort`, `std::find_if`, `std::visit`). A lambda that
+  carries an algorithm becomes a named function, so it can be found, read and
+  tested on its own. A callback that is *stored* rather than called
+  immediately -- a `QObject::connect` slot, a thread body, a
+  `std::function` member -- prefers a named member function and a pointer to
+  it:
+
+  ```cpp
+  QObject::connect(aliveTimer_, &QTimer::timeout, this, &WifiConnection::onAliveTick);
+  ```
+
+  This is Parchment's "no anonymous methods" narrowed to what C++ can
+  express.
+
+- **No singletons.** A stateless helper is a free function in the file that
+  owns it. There is no `instance()`, no `Q_GLOBAL_STATIC` and no process-wide
+  mutable object here: every collaborator is constructed by `AppModel` and
+  handed to whoever needs it, which is also what makes it replaceable in a
+  test. The statics that remain are process-wide by definition, and each is
+  there because something outside this code demands it:
+
+  - the once-per-process registrations with Qt's type and resource systems,
+    and the one-time settings migration, all spelled `std::call_once`;
+  - the sequence that keeps this process's D-Bus connection names unique;
+  - the hand-off pointer in `src/qml/chrome/ForeignTypes.h`, because a
+    `QML_SINGLETON`'s factory is a static function Qt calls, and it can only
+    return what was published to it;
+  - `main.cpp`'s `QTranslator`, which `QCoreApplication` holds by pointer.
+
+  A function-local `static` of any other kind is a singleton with the
+  constructor hidden, and does not belong here.
+
+- **No discarded results.** A value is either used or not produced. A
+  `static_cast<void>(x)` or `(void)x` exists only to quiet a warning about
+  something that should not be there, so the warning is the thing to fix.
+
+- **Member naming.** Members carry a TRAILING underscore (`host_`, `probes_`,
+  `mtx_`), which is what every class in `src/` uses. It is the same "state,
+  not scratch" signal Parchment's `m` prefix gives at the point of use.
+
+- **Prefer a test to a comment.** Behaviour that needs explaining gets a test
+  named for the behaviour. A comment is the last resort for a constraint that
+  genuinely cannot be tested -- a platform quirk, a wire-format byte layout, a
+  lock order, a declaration-order dependency -- states why in one or two
+  lines, and never narrates what the next line does.
+
+  Exempt, because the constraint is untestable by construction: the pin-map
+  headers in `.github/workflows/`, the usage headers in `scripts/`, and the
+  manifests under `packaging/`, where a comment explains what a pin or a
+  packaging rule is holding back.
+
+### Test-driven, every flow
+
+The Catch2 suite under `tests/` is not a coverage exercise. It is how a flow
+is known to work at all.
+
+- **Red first.** Write the failing test, watch it fail for the reason you
+  expect, then write the code. A test that has never failed has not been
+  shown to test anything; when adding a test for behaviour that already
+  exists, break the behaviour on purpose and watch the test catch it.
+- **Cover every flow.** Each branch a function can take gets a case named for
+  the behaviour it pins, not for the function it calls. `SECTION` is the right
+  tool when the cases share a fixture; a separate `TEST_CASE` is right when
+  they do not.
+- **Assume nothing.** Where behaviour depends on a platform, a library
+  version or the wire, prove it with a probe before writing the code that
+  assumes it, and name the probe's finding in the test.
+- **Test where the behaviour lives.** Most of `src/core/` and
+  `src/composer/` is deliberately Qt-free so it is host-testable without a
+  window. Keep it that way: a reducer that needs a `QGuiApplication` to be
+  tested is a reducer with a dependency it should not have. What does need
+  the network - pairing, the Moonlight host, the update feed - is tested
+  against a real listener on loopback, not a mock of the client's own calls.
+- **Knowledge written twice is checked by a test.** When the same fact lives
+  in two places - an enum and the names QML binds to it, a struct's fields
+  and its `operator==`, a table and its twin in another repo - a test walks
+  one and requires the other, from the metaobject or the serialized form
+  rather than from a third list kept in the test.
+- **Tests follow the same shape rules.** A fixture is a named type, not a
+  lambda that builds one; a helper with a body gets a name; a test that is
+  longer than the thing it tests is usually two tests.
 
 ## Branching & PRs
 

@@ -4,12 +4,13 @@
 // Async gateway to a Moonlight host's GameStream HTTP API: plain HTTP (47989)
 // for serverinfo and the pairing phases, HTTPS (47984) with the client
 // certificate for everything after. The host's cert is self-signed, so peer
-// verification is off and trust is the pairing-time pin: every TLS reply is
-// checked against the certificate the pairing handshake verified, and a
-// mismatch is reported as unreachable rather than handing bytes from an
-// imposter to the caller.
+// verification is off and trust is the pairing-time pin: every TLS call checks
+// the certificate the host presents against the one the pairing handshake
+// verified before a byte of the request is written, and a mismatch is reported
+// as unreachable rather than handing a request to an imposter.
 //
-// Callbacks fire on the manager's home thread (the Qt main thread).
+// Callbacks fire from the event loop of the thread this lives on (the Qt main
+// thread).
 
 #pragma once
 
@@ -20,8 +21,6 @@
 #include <QUrlQuery>
 
 #include <functional>
-
-class QNetworkAccessManager;
 
 namespace dish::source::moon {
 
@@ -57,6 +56,10 @@ class MoonlightHttp : public QObject {
     // that with a fatal alert and no log line at all.
     static QSslConfiguration tlsConfiguration(const QString& certPem, const QString& privateKeyPem);
 
+    // Whether the certificate a host presented (DER) is the one pinned at pairing (PEM). Compared
+    // as DER, so a PEM that was re-serialized still matches; nothing pinned matches nothing.
+    static bool matchesPin(const QByteArray& presentedDer, const QString& pinnedPem);
+
     static constexpr int kDefaultTimeoutMs = 10000;
     static constexpr int kPairingTimeoutMs = 120000;
 
@@ -64,7 +67,6 @@ class MoonlightHttp : public QObject {
     void perform(const QUrl& url, bool tls, const QString& pinnedServerCertPem, BodyCb cb,
                  int timeoutMs);
 
-    QNetworkAccessManager* nam_;
     QString certPem_;
     QString privateKeyPem_;
     QString uniqueId_;

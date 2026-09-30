@@ -14,8 +14,9 @@
 //          the one call that reaches them and no other SDL backend implements
 //          it (`linkStandardEffects`). Direct reads everything the pad sends
 //          AND writes its OUT reports, so it carries every actuator its
-//          family has. Mirrors dish-android's per-path rule: a capability
-//          shows only where it fires.
+//          family has. Neither path carries the mouse while this client does
+//          not route the touchpad as one. Mirrors dish-android's per-path
+//          rule: a capability shows only where it fires.
 //   Type   the catalog type's features: an Xbox 360 type carries no gyro however
 //          good the pad is
 //   Host   the satellite's hostFeatures. A Bluetooth host is the system gamepad
@@ -76,6 +77,10 @@ struct CapabilityInputs {
     // standardEffects): the Standard path's route to the adaptive triggers
     // and player LEDs. Irrelevant under linkDirect.
     bool linkStandardEffects = false;
+    // This client routes a touchpad as the host's mouse
+    // (reducer::kClientRoutesTouchpadAsMouse). Without it neither path carries
+    // the mouse, Direct included.
+    bool linkRoutesMouse = false;
 
     bool typeResolved = false; // false means the type layer refuses nothing
     bool typeMotion = false, typeTouchpad = false, typeRumble = false, typeLightbar = false;
@@ -147,6 +152,7 @@ inline bool inputCarries(const CapabilityInputs& in, CapFeature f) {
 }
 
 inline bool linkCarries(const CapabilityInputs& in, CapFeature f) {
+    if (f == CapFeature::Mouse) { return in.linkRoutesMouse; }
     if (in.linkDirect) {
         // A raw-HID claim both reads the pad's IN reports and writes its OUT
         // ones, so every actuator the family has is reachable.

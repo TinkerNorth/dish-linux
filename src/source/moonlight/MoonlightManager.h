@@ -22,6 +22,7 @@
 
 #include "core/moonlight/MoonlightPadSlots.h"
 #include "core/moonlight/MoonlightSessionUi.h"
+#include "core/moonlight/MoonlightXml.h"
 #include "repository/MoonlightHostRepository.h"
 #include "repository/MoonlightIdentityRepository.h"
 #include "source/moonlight/MoonlightDiscovery.h"
@@ -34,8 +35,10 @@
 #include <QObject>
 #include <QString>
 
+#include <functional>
 #include <memory>
 #include <optional>
+#include <string>
 
 class QThread;
 
@@ -123,9 +126,10 @@ class MoonlightManager : public QObject {
     void forget(const QString& uuid);
 
     // Tells a paired host to end whatever app it is running, tearing down our
-    // own session first when we hold one. The protocol's own way out of "an app
-    // is already running", and the only one when the host will not hand that
-    // session over. /cancel answers 200 either way, so this re-probes after.
+    // own session first when one is under way or up. The protocol's own way out
+    // of "an app is already running", and the only one when the host will not
+    // hand that session over. /cancel answers 200 either way, so this re-probes
+    // after.
     void quitHostApp(const QString& uuid);
 
     void setLastApp(const QString& uuid, const QString& appId, const QString& appName);
@@ -163,6 +167,23 @@ class MoonlightManager : public QObject {
         std::function<void(const QString& slotId, std::uint8_t r, std::uint8_t g, std::uint8_t b)>;
     void setRumbleSink(RumbleSink sink) { rumbleSink_ = std::move(sink); }
     void setLedSink(LedSink sink) { ledSink_ = std::move(sink); }
+
+    // The pad's Motion switch: whether the user lets a slot's motion reach its host. Asked on the
+    // main thread when the slot binds and again by refreshMotionSwitches, and handed to the
+    // session the slot rides, where the sensor thread reads it. The arrival still declares the
+    // pad's sensors, as dish-android's does: the switch stops the samples, and turning it back on
+    // costs the pad no replug. With no switch set, motion goes out.
+    using MotionSwitch = std::function<bool(const QString& slotId)>;
+    void setMotionSwitch(MotionSwitch motionSwitch);
+    // Asks the switch again for every bound slot, after the user turned one.
+    void refreshMotionSwitches();
+
+    // A host's touchpad pick as the store holds it, empty for a host never picked for. Read when a
+    // slot binds, which Apply does after writing the pick, and handed to the session the slot
+    // rides: a pad's touches reach the host only where the pick lets them, and the contact the host
+    // holds is lifted when they stop. With no pick to read, every host reads as never picked for.
+    using TouchpadPick = std::function<std::optional<std::string>(const QString& hostUuid)>;
+    void setTouchpadPick(TouchpadPick touchpadPick);
 
   signals:
     void rowsChanged();
@@ -212,6 +233,46 @@ class MoonlightManager : public QObject {
     // callback would otherwise re-create the record forget() just dropped and
     // leave a forgotten host rendering the trust it had before.
     quint64 epochOf(const QString& uuid) const { return epochs_.value(uuid, 0); }
+
+    // probe in order: where to ask, what the plaintext port said, what the TLS port said, and the
+    // two signals every settled probe ends with.
+    struct ProbeTarget {
+        QString address;
+        int httpPort = 47989;
+        int httpsPort = 47984;
+        QString rememberedUuid;
+        bool remembered = false;
+        QString serverCertPem;
+    };
+    std::optional<ProbeTarget> probeTargetFor(const QString& uuid) const;
+    void onPlainServerInfo(const QString& uuid, const ProbeTarget& target, quint64 epoch,
+                           int status, const QByteArray& body);
+    void onTlsServerInfo(const QString& uuid, const QString& address, quint64 epoch, int status,
+                         const QByteArray& body);
+    void finishProbe(const QString& uuid);
+    // rows()' two kinds of row, and the one question both ask of the pairing flow.
+    bool pairingWith(const QString& uuid) const;
+    MoonlightRow rememberedRow(const repository::MoonlightHost& host) const;
+    MoonlightRow discoveredRow(MoonlightRow row) const;
+    // forget's two named steps; the ordering between them lives in forget itself.
+    void cancelPairingWith(const QString& uuid);
+    void dropRecordsFor(const QString& uuid);
+
+    // refreshApps' reply: dropped if a forget outran it, then refused or read.
+    void onAppListReply(const QString& uuid, quint64 epoch, const QString& address, int status,
+                        const QByteArray& body);
+    void onAppListRefused(const QString& uuid, const QString& address, int status,
+                          const std::optional<moonxml::Status>& refusal);
+    void onAppListRead(const QString& uuid, const QString& address, const std::string& xml);
+    void forgetAPickTheHostDropped(const QString& uuid, const QList<MoonlightApp>& listed);
+    // What the Motion switch answers for a slot: yes with no switch set.
+    bool motionSwitchAllows(const QString& slotId) const;
+    // Hands the switch's answer to the session the slot rides, where sendMotion reads it.
+    void readMotionSwitch(const QString& slotId);
+    std::optional<std::string> touchpadPickFor(const QString& uuid) const;
+    // Hands the session whether the pad under `number` lets its touches reach the host.
+    void readTouchpadPick(MoonlightSession& session, std::uint8_t number, const QString& uuid,
+                          int storedType, const moonlight::SourceCapabilities& source);
     MoonlightSession* ensureSession(const repository::MoonlightHost& host);
     void wireSession(MoonlightSession* session, const QString& uuid);
     // Starts the session if nothing is running on it yet. The app comes from
@@ -249,6 +310,8 @@ class MoonlightManager : public QObject {
 
     RumbleSink rumbleSink_;
     LedSink ledSink_;
+    MotionSwitch motionSwitch_;
+    TouchpadPick touchpadPick_;
 };
 
 } // namespace dish::source::moon

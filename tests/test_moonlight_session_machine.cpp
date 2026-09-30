@@ -127,7 +127,8 @@ TEST_CASE("failure edges land in Failed with teardown + notify", "[moonlight][ma
     }
 }
 
-TEST_CASE("a resumable in-body refusal promotes the launch to a resume", "[moonlight][machine]") {
+TEST_CASE("a resumable in-body refusal promotes the launch to a resume",
+          "[moonlight][machine][h3]") {
     // /launch answered HTTP 200 with status_code="400", "An app is already
     // running on this host" and <resume>1</resume>: the host will hand that
     // session over, so ask it to, rather than giving up.
@@ -307,7 +308,7 @@ TEST_CASE("a failed resume is not a refused launch", "[moonlight][machine]") {
 }
 
 TEST_CASE("a link that dies after going live is a drop, not a setup failure",
-          "[moonlight][machine]") {
+          "[moonlight][machine][b18]") {
     // The host keeps the app and will usually let us resume it. Merging the two
     // would offer a Reconnect that cannot work, or a retry that closes a game.
     auto r = reduce(at(SessionPhase::ControlConnecting), ControlLost{});

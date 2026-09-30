@@ -508,9 +508,8 @@ TEST_CASE("the bundled catalog offers audio on the two Sony types only", "[model
         CHECK_FALSE(features->contains(cat::kFeatureMic));
         CHECK_FALSE(features->contains(cat::kFeatureSpeaker));
     }
-    // And the audio slugs stay OUT of the protocol-1 caps-gate vocabulary:
-    // reducer::allowedCapsForType passes unknown bits through untouched, which
-    // is the trigger-effects precedent audio follows.
+    // And the audio slugs stay OUT of the protocol-1 vocabulary: they ride a
+    // whitelist of their own, the trigger-effects precedent audio follows.
     CHECK_FALSE(cat::knownFeatureSlugs().contains(cat::kFeatureMic));
     CHECK_FALSE(cat::knownFeatureSlugs().contains(cat::kFeatureSpeaker));
     CHECK(cat::audioFeatureSlugs() ==

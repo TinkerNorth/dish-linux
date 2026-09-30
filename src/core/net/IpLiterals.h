@@ -16,4 +16,8 @@ namespace dish::net {
 // first. Returns false for hostnames, malformed literals, and public addresses.
 bool isPrivateHostLiteral(const std::string& host);
 
+// True iff `host` names an IPv6 address in any form: bare, bracketed, with a zone,
+// or malformed. The colon decides it, since no IPv4 literal or host name has one.
+bool isIpv6Address(const std::string& host);
+
 } // namespace dish::net

@@ -34,6 +34,8 @@ QtObject {
     property bool micOn: false
     property bool speakerOn: true
     property int touchpadMode: 0          // 0 off · 1 pad · 2 mouse
+    // What Apply sends instead for a binding that cannot carry the touchpad.
+    readonly property int touchpadKeep: -1
 
     // The app this binding will start, or the one it will join. PER SESSION,
     // not per binding: only the binding that creates a session picks one, and
@@ -117,6 +119,36 @@ QtObject {
         return true;
     }
 
+    // The draft's number for a choice the host's pick reads as ("off" | "pad" |
+    // "mouse"): the inverse of the numbering Apply reads back.
+    function touchpadModeForChoice(choice) {
+        if (choice === "pad")
+            return 1;
+        if (choice === "mouse")
+            return 2;
+        return 0;
+    }
+
+    // The pick is the host's, shared by every pad bound there, so a binding
+    // that carries neither the touchpad nor the mouse keeps it rather than
+    // writing the Off its draft collapsed to.
+    function touchpadModeToApply() {
+        const rows = draft.capabilityRows();
+        const carried = draft.layersCarry(rows, "touchpad") || draft.layersCarry(rows, "mouse");
+        return carried ? draft.touchpadMode : draft.touchpadKeep;
+    }
+
+    // Offered only where every layer carries it, so no editor offers a routing
+    // the runtime would turn off.
+    function offersMouse(rows) {
+        for (let i = 0; i < rows.length; ++i) {
+            const row = rows[i];
+            if (row.feature === "mouse")
+                return row.inOk && row.linkOk && row.typeOk && row.hostOk;
+        }
+        return false;
+    }
+
     function featureName(feature) {
         switch (feature) {
         case "gamepad":
@@ -141,6 +173,9 @@ QtObject {
             return qsTr("Microphone");
         case "speaker":
             return qsTr("Controller sound");
+        // Advertised on the wire, but never a capability row of its own.
+        case "hapticAudio":
+            return qsTr("Haptics");
         }
         return feature;
     }
@@ -202,6 +237,8 @@ QtObject {
                 return qsTr("No touchpad on this controller to drive a mouse.");
             return qsTr("%1 has no %2.").arg(draft.padName).arg(draft.featureNoun(row.feature));
         case "link":
+            if (row.feature === "mouse")
+                return qsTr("Dish can’t use the touchpad as a mouse.");
             // Which path refuses depends on the feature: Standard reaches the
             // adaptive triggers and the player LEDs only through SDL's own
             // DualSense driver, and Direct always can. Naming the wrong one
@@ -274,6 +311,11 @@ QtObject {
         // The app belongs to the destination, so it does not survive one.
         draft.appId = "";
         draft.appName = "";
+        // A host's touchpad pick is its own, so the draft starts from what the
+        // host already has: starting from Off would quietly turn its touch off
+        // on Apply. Both kinds keep one, because Apply writes it for both.
+        if (kind === "satellite" || kind === "moonlight")
+            draft.touchpadMode = draft.touchpadModeForChoice(App.touchpadModeFor(id));
         draft.sanitize();
     }
 

@@ -7,12 +7,17 @@
 
 #include "qml/AppSettingsMaps.h"
 
+#include "Network/WifiConnectionManager.h"
+#include "core/model/Protocol.h"
+#include "core/reducer/TouchpadModeResolve.h"
 #include "repository/DeadzoneRepository.h"
 #include "repository/MotionPreferenceRepository.h"
+#include "repository/TouchpadModeRepository.h"
 #include "source/store/CrashReportingStore.h"
 #include "source/store/MotionEnabledStore.h"
 #include "source/store/OnboardingPreferenceStore.h"
 #include "source/store/ThemePreferenceStore.h"
+#include "source/store/TouchpadModeStore.h"
 #include "UI/licenses/LicenseManifest.h"
 
 #include "QSettingsFixture.h"
@@ -29,6 +34,8 @@
 #include <QVariantMap>
 
 #include <memory>
+#include <optional>
+#include <string>
 
 using dish::qml::deadzoneRowFor;
 using dish::qml::kDefaultDeadzoneStickFlat;
@@ -37,20 +44,41 @@ using dish::qml::keepAwakeModeFromInt;
 using dish::qml::keepAwakeModeToInt;
 using dish::qml::keepAwakeReachToken;
 using dish::qml::licenseRows;
+using dish::qml::reversePairingPhaseToken;
 using dish::qml::themeModeFromInt;
 using dish::qml::themeModeToInt;
+using dish::qml::touchpadChoiceForDraftMode;
+using dish::qml::touchpadChoiceForMode;
+using dish::qml::touchpadChoiceForMoonlight;
+using dish::qml::touchpadChoiceForPick;
+using dish::qml::touchpadPickForChoice;
 using dish::reducer::KeepAwakeMode;
 using dish::reducer::KeepAwakeReach;
+using dish::reducer::resolveTouchpadMode;
 using dish::repository::DeadzoneRepository;
 using dish::repository::MotionPreferenceRepository;
+using dish::repository::TouchpadModeRepository;
 using dish::source::CrashReportingStore;
 using dish::source::MotionEnabledStore;
 using dish::source::OnboardingPreferenceStore;
 using dish::source::ThemeMode;
 using dish::source::ThemePreferenceStore;
+using dish::source::TouchpadModeStore;
 using dish::test::makeSharedSettings;
+namespace proto = dish::proto;
 
 namespace {
+
+const std::string kWireOff{proto::touchpadModeName(proto::kTouchpadModeOff)};
+const std::string kWireDs4{proto::touchpadModeName(proto::kTouchpadModeDs4)};
+const std::string kWireMouse{proto::touchpadModeName(proto::kTouchpadModeMouse)};
+
+constexpr bool kMouseModeShut = false;
+constexpr bool kMouseModeOpen = true;
+
+// BindingDraft.touchpadKeep: what the editors apply for a binding whose
+// touchpad row is not carried.
+constexpr int kKeepHostTouchpad = -1;
 
 // A unique temp INI, never the real HKCU registry.
 std::unique_ptr<QSettings> uniqueIniSettings(const char* tag) {
@@ -126,6 +154,134 @@ TEST_CASE("keepAwakeReachToken names the three reaches for QML", "[appvm][keepaw
     REQUIRE(keepAwakeReachToken(KeepAwakeReach::None) == QStringLiteral("off"));
     REQUIRE(keepAwakeReachToken(KeepAwakeReach::System) == QStringLiteral("system"));
     REQUIRE(keepAwakeReachToken(KeepAwakeReach::SystemAndDisplay) == QStringLiteral("display"));
+}
+
+// The pairing sheet switches on these: a phase without its own token would show another phase's
+// words, or none.
+TEST_CASE("each approval-request phase names its own token for the pairing sheet",
+          "[appvm][reverse]") {
+    using dish::net::ReversePairingPhase;
+    CHECK(reversePairingPhaseToken(ReversePairingPhase::Idle) == QStringLiteral("idle"));
+    CHECK(reversePairingPhaseToken(ReversePairingPhase::AwaitingApproval) ==
+          QStringLiteral("awaiting"));
+    CHECK(reversePairingPhaseToken(ReversePairingPhase::Approved) == QStringLiteral("approved"));
+    CHECK(reversePairingPhaseToken(ReversePairingPhase::Declined) == QStringLiteral("declined"));
+    CHECK(reversePairingPhaseToken(ReversePairingPhase::TimedOut) == QStringLiteral("timedout"));
+    CHECK(reversePairingPhaseToken(ReversePairingPhase::IdentityChanged) ==
+          QStringLiteral("identitychanged"));
+    CHECK(reversePairingPhaseToken(ReversePairingPhase::VersionMismatch) ==
+          QStringLiteral("versionmismatch"));
+}
+
+TEST_CASE("the Pad choice stores the pick the runtime routes as the DS4 pad", "[appvm][touchpad]") {
+    const auto pick = touchpadPickForChoice(QStringLiteral("pad"));
+    REQUIRE(pick.has_value());
+    CHECK(resolveTouchpadMode(*pick, /*padHasTouchpad=*/true, /*typeOffersDs4=*/true,
+                              /*hostMouseControl=*/false) == proto::kTouchpadModeDs4);
+}
+
+TEST_CASE("a Pad choice is stored as ds4 and survives a restart", "[appvm][touchpad]") {
+    // The stored value itself, not how it reads back: a host never picked for
+    // also reads as Pad, so reading back could not tell a refused write apart.
+    auto settings = makeSharedSettings();
+    TouchpadModeRepository repo(settings);
+    TouchpadModeStore store(&repo);
+    const auto pick = touchpadPickForChoice(QStringLiteral("pad"));
+    REQUIRE(pick.has_value());
+    store.setMode("sat", *pick);
+
+    TouchpadModeRepository reopenedRepo(settings);
+    const TouchpadModeStore reopened(&reopenedRepo);
+    CHECK(reopened.modeFor("sat") == std::optional<std::string>(kWireDs4));
+}
+
+TEST_CASE("Off and Mouse choices are stored under their own wire names", "[appvm][touchpad]") {
+    CHECK(touchpadPickForChoice(QStringLiteral("off")) == std::optional<std::string>(kWireOff));
+    CHECK(touchpadPickForChoice(QStringLiteral("mouse")) == std::optional<std::string>(kWireMouse));
+}
+
+TEST_CASE("a choice this client does not know stores nothing", "[appvm][touchpad]") {
+    // QML speaks choices, never wire names: "ds4" arriving here is a caller bug.
+    CHECK_FALSE(touchpadPickForChoice(QStringLiteral("ds4")).has_value());
+    CHECK_FALSE(touchpadPickForChoice(QStringLiteral("Pad")).has_value());
+    CHECK_FALSE(touchpadPickForChoice(QString()).has_value());
+}
+
+TEST_CASE("a stored ds4 pick reads as the Pad choice", "[appvm][touchpad]") {
+    CHECK(touchpadChoiceForPick(kWireDs4, kMouseModeShut) == QStringLiteral("pad"));
+}
+
+TEST_CASE("an off pick reads as Off", "[appvm][touchpad]") {
+    CHECK(touchpadChoiceForPick(kWireOff, kMouseModeShut) == QStringLiteral("off"));
+}
+
+TEST_CASE("a host never picked for reads as the Pad the runtime forwards", "[appvm][touchpad]") {
+    CHECK(touchpadChoiceForPick(std::nullopt, kMouseModeShut) == QStringLiteral("pad"));
+}
+
+TEST_CASE("a stored Mouse pick reads as Off while mouse mode is shut", "[appvm][touchpad]") {
+    // The runtime declares off for it, so an editor seeded from it must show
+    // Off, never the Mouse it cannot deliver.
+    CHECK(touchpadChoiceForPick(kWireMouse, kMouseModeShut) == QStringLiteral("off"));
+}
+
+TEST_CASE("a stored Mouse pick reads as Mouse where mouse mode is open", "[appvm][touchpad]") {
+    CHECK(touchpadChoiceForPick(kWireMouse, kMouseModeOpen) == QStringLiteral("mouse"));
+}
+
+TEST_CASE("a draft's Off, Pad and Mouse are applied as those choices", "[appvm][touchpad]") {
+    // The binding draft numbers the choices 0 off, 1 pad, 2 mouse, and both
+    // editors seed and apply through that numbering.
+    CHECK(touchpadChoiceForDraftMode(0) == std::optional<QString>(QStringLiteral("off")));
+    CHECK(touchpadChoiceForDraftMode(1) == std::optional<QString>(QStringLiteral("pad")));
+    CHECK(touchpadChoiceForDraftMode(2) == std::optional<QString>(QStringLiteral("mouse")));
+}
+
+TEST_CASE("an editor re-run over a host whose pick is ds4 applies ds4 back", "[appvm][touchpad]") {
+    // Both editors seed the draft from the host's pick when it is chosen and
+    // apply it unchanged unless the user moves it, so the seed must round-trip.
+    constexpr int kDraftPad = 1; // BindingDraft.touchpadModeForChoice("pad")
+    const QString seeded = touchpadChoiceForPick(kWireDs4, kMouseModeShut);
+    REQUIRE(seeded == QStringLiteral("pad"));
+    const auto applied = touchpadChoiceForDraftMode(kDraftPad);
+    REQUIRE(applied == std::optional<QString>(seeded));
+    CHECK(touchpadPickForChoice(*applied) == std::optional<std::string>(kWireDs4));
+}
+
+TEST_CASE("a binding that cannot carry the touchpad leaves the host's pick alone",
+          "[appvm][touchpad]") {
+    // The pick belongs to the host, shared by every pad bound there, so an Xbox
+    // pad's binding must not write the Off its draft collapsed to.
+    CHECK_FALSE(touchpadChoiceForDraftMode(kKeepHostTouchpad).has_value());
+}
+
+TEST_CASE("a Moonlight binding whose touches reach the host names the Pad routing",
+          "[appvm][touchpad]") {
+    // The satellite path knows no Moonlight binding and answers Off for every
+    // one, while the host renders the touches that reach it as its own pad's.
+    CHECK(touchpadChoiceForMoonlight(true) == QStringLiteral("pad"));
+}
+
+TEST_CASE("a Moonlight binding whose touches do not reach the host names it off",
+          "[appvm][touchpad]") {
+    CHECK(touchpadChoiceForMoonlight(false) == QStringLiteral("off"));
+}
+
+TEST_CASE("a declared routing reads as the choice that stores it", "[appvm][touchpad]") {
+    CHECK(touchpadChoiceForMode(proto::kTouchpadModeOff) == QStringLiteral("off"));
+    CHECK(touchpadChoiceForMode(proto::kTouchpadModeDs4) == QStringLiteral("pad"));
+    CHECK(touchpadChoiceForMode(proto::kTouchpadModeMouse) == QStringLiteral("mouse"));
+}
+
+TEST_CASE("a declared routing outside the wire's three reads as Off", "[appvm][touchpad]") {
+    constexpr std::uint8_t kUnknownMode = 42;
+    CHECK(touchpadChoiceForMode(kUnknownMode) == QStringLiteral("off"));
+}
+
+TEST_CASE("a stored pick this client cannot read reads as Off", "[appvm][touchpad]") {
+    // The repository rejects an unknown mode on write but not on read, so a
+    // hand-edited or corrupt blob can still hydrate one.
+    CHECK(touchpadChoiceForPick(std::string("banana"), kMouseModeShut) == QStringLiteral("off"));
 }
 
 TEST_CASE("crash-reporting toggle forwards through the store", "[appvm][crash]") {

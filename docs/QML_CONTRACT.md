@@ -171,6 +171,16 @@ and how long it has been running.
 | `applyElapsedMs` | `int` | `applyChanged` | Milliseconds on the **current** step. Show the slow hint past 4000. |
 | `applyCancellable` | `bool` | `applyChanged` | True only while the Connection step is active. |
 
+### Diagnostics: the input inspector
+
+Republished at the inspector's 33 ms poll while an inspection is armed (see
+`startInputInspection` below), and only when a value moved.
+
+| Property | Type | NOTIFY | Meaning |
+|---|---|---|---|
+| `inputSnapshot` | `map` | `inputSnapshotChanged` | The armed slot's last input: `{ hasReport, buttons, lx, ly, rx, ry, lt, rt, hasMotion, gyroX, gyroY, gyroZ, accelX, accelY, accelZ, hasTouch, finger0, finger0X, finger0Y, finger1, finger1X, finger1Y, touchClick }`. The report is the one that went on the wire, after the dead zones. `buttons` are wire-button tokens (`dpadUp`, `a`, `leftShoulder`, `micMute` and so on); sticks read -1..1 with +y up, triggers and touch 0..1, the gyro in deg/s and the accelerometer in g. A `has*` flag is false until the pad has produced that input, and the fields behind it are then absent. `{}` while nothing is armed. |
+| `stickTest` | `map` | `stickTestChanged` | `{ phase, kind, secondsLeft }` plus, once a test has finished, `{ samples, driftLeft, driftRight, suggestedDeadzone, reachLeft, reachRight, circularityLeftKnown, circularityLeft, circularityRightKnown, circularityRight }`. `phase` is `idle` / `running` / `done`, `kind` is `drift` / `range`, and every figure is a fraction (0.12 is 12%). The tests measure the sticks as the pad sent them, before the dead zones. `samples == 0` means the pad sent nothing during the test. |
+
 ## `App` signals
 
 | Signal | Args | Meaning |
@@ -199,6 +209,9 @@ and how long it has been running.
 | `applyChanged` | | Any apply field moved. |
 | `applyFinished` | `bool ok, string reasonToken, bool directFellBack` | Terminal, fired exactly once per run. `reasonToken` is `""` on success, else `"slotGone"` / `"hostUnreachable"` / `"bindRejected"` / `"cancelled"`. `directFellBack` means the Direct claim did not land and the pad streams over Standard: raise a **warning**, never an error. |
 | `rawInputCaptured` | `string slotId, int kind, int index, int value` | A raw joystick input was observed for the slot currently capturing. `kind` is `0` axis, `1` button, `2` hat; `index` is the raw source index; `value` is the axis int16, `1` for a button, or the `SDL_HAT_*` bitmask for a hat. Fires only for the capturing slot. |
+| `diagnosticsLogChanged` | | The flight recorder logged something. Re-pull `diagnosticsLog()`. |
+| `inputSnapshotChanged` | | `inputSnapshot` moved. |
+| `stickTestChanged` | | `stickTest` moved. |
 
 ## `App` methods
 
@@ -358,15 +371,11 @@ vends a sentence; QML localizes.
 
 | Method | State |
 |---|---|
-| `touchpadModeFor(connectionId)` → `"off"` / `"pad"` / `"mouse"` | Real. Per-satellite store; `"off"` when never picked. |
+| `touchpadModeFor(connectionId)` → `"off"` / `"pad"` / `"mouse"` | Real. Per-satellite store; `"pad"` when never picked, the routing the runtime forwards then. A stored mouse pick reads `"off"` while mouse mode is unavailable, which it is on this client. |
 | `setTouchpadMode(connectionId, mode)` | Real. |
-| `rumbleEnabledFor(slotId)` | **Stub: always `true`.** |
-| `setRumbleEnabled(slotId, on)` | **Stub: no-op.** |
-
-The rumble pair is honest about being a stub. No per-binding rumble store
-exists; rumble rides the descriptor capabilities. Still render the Rumble row
-and its switch: the capability verdict for it is real, so hiding the row would
-hide true information. The switch simply has no durable effect yet.
+| `touchpadRoutingFor(slotId)` → `"off"` / `"pad"` / `"mouse"` | Real. What the slot's binding declares, from the runtime's own answer: a satellite descriptor's touchpad mode, or for a Moonlight binding whether its arrival carries the touchpad (`"pad"`). The binding strip reads this, never the pick. |
+| `rumbleEnabledFor(slotId)` | Real. Per-slot store; `true` when never switched. A draft seeds from it, so applying cannot silently turn rumble back on. |
+| `setRumbleEnabled(slotId, on)` | Real. Off stops the slot's motors at once and turns every rumble a host sends it into a stop; the descriptor still offers rumble, as on Android. |
 
 ### Apply
 
@@ -385,7 +394,10 @@ draft and travels with this one call. It:
 2. switches the USB path only if it actually differs, budgeting **20 s**. A
    claim that times out is a fallback to Standard, not a failure: the run
    continues and `directFellBack` comes back true;
-3. writes the type, motion and touchpad mode, then binds, budgeting **8 s**;
+3. writes the type, motion and touchpad mode, then binds, budgeting **8 s**.
+   The touchpad mode is the host's, shared by every pad bound there: `-1`
+   (`BindingDraft.touchpadKeep`) leaves it alone, for a binding that carries
+   neither the touchpad nor the mouse;
 4. emits `applyChanged()` on every move and `applyFinished(...)` exactly once.
 
 `cancelApply()` is accepted only while `applyCancellable`. Aborting a claim
@@ -416,6 +428,26 @@ connection that never existed is worse than showing none.
 
 The setter invokables exist alongside the property writes because QML can only
 assign a `WRITE` accessor, and the pages call these as functions.
+
+### Diagnostics
+
+Read by the Diagnostics page (Settings, then Diagnostics) and its input
+inspector. Every row is tokens and numbers, shaped in
+[`DiagnosticsMaps.h`](../src/qml/DiagnosticsMaps.h); the page localizes. The
+ack-fed numbers read `-1` until a session's first enriched heartbeat ack, and
+every ack answer reads `unknown` until then.
+
+| Method | Returns / effect |
+|---|---|
+| `diagnosticsHosts()` | One card per remembered or live satellite, in Connections order: `{ id, label, ip, udpPort, chip, dotColor, live, offeredProtocol, settledProtocol, compat, appliedEpoch, hostEpoch, epoch, confirmedControllers, hostControllers, controllers, backend, activeControllers, missedAcks, rttSamples, rttCapacity, rttP50Ms, rttP99Ms, oneWayMs, mouseControl, hostMic, hostSpeaker, hostHaptics }`. `chip`, `dotColor` and `compat` are the Connections row's tokens. `epoch` compares the host's epoch with the one this client applied and `controllers` the host's active controller indices with the ones it confirmed, each `unknown` / `inStep` / `diverged`. `backend` is `unknown` / `available` / `unavailable`. The round trips are the session's 64-ping window; `oneWayMs` is half the median. Re-pull on `telemetryChanged`. |
+| `bindingDiagnostics(slotId)` | `{ bound: false }` for an unbound slot, `{}` for an unknown one, else `{ bound, hostKind, hostId, hostLabel, declared, controllerIndex, type, advertised, touchpadMode, confirmed, streaming, touchpadPick, capabilities, solvedType, typeName }`. `hostKind` is `satellite` or `moonlight`. The wire side (`declared` and the fields after it) is a satellite descriptor's: `advertised` is its caps as `capabilityForCandidate` feature tokens plus `hapticAudio`, `touchpadMode` the declared mode (`off` / `ds4` / `mouse`), `confirmed` whether the host applied it, `streaming` `unknown` / `yes` / `no` off the host's bitmap; a Moonlight binding reports nothing back, so it reads undeclared. `capabilities` is `capabilityForCandidate` solved for the binding's own stored type (`solvedType`; for a Moonlight binding the pick stored for the pad on that host, never the host's last pick), path, toggles and touchpad pick (`touchpadPick`, `0` off / `1` pad / `2` mouse). `typeName` is a satellite type's catalog short name, which a type-layer reason names; a Moonlight type is named from `solvedType` by the Moonlight type table. |
+| `diagnosticsLog()` | The flight recorder, oldest first, at most 200 events for this run: `{ atMs, kind, subject, from, to, path, failure, host }`. `kind` is `linkAppeared` / `linkChanged` / `linkRemoved` / `padAttached` / `padDetached` / `padNeedsReplug` / `padRestoreStuck` / `padDirectFailed` / `padBound` / `padUnbound`; `subject` is the host's label or the pad's name. `from` and `to` are chip tokens (a link that appeared has only `to`), `path` is `usbStandard` / `usbDirect` / `bluetooth`, `failure` a `directFailure` token, `host` the label a pad was bound to or left. `atMs` is wall-clock milliseconds. |
+| `copyToClipboard(text)` | Put the text on the clipboard. |
+| `startInputInspection(slotId)` | Arm the inspector on one slot: `inputSnapshot` and `stickTest` republish until `stopInputInspection()`. Arming another slot re-points it and drops the last slot's stick test. |
+| `stopInputInspection()` | Disarm. Call it when the page goes away. Safe when idle. |
+| `startStickTest(kind)` | `"drift"` (hands off the sticks for three seconds) or `"range"` (full circles for eight). Replaces the last result; ignored while nothing is armed. |
+| `canTestRumble(slotId)` | The slot's pad can rumble on the path it is on now. Show the rumble bench only when true. |
+| `testRumble(slotId, motor)` | A 400 ms test buzz on `"weak"`, `"strong"` or `"both"`, straight to the actuator: the binding's rumble switch does not gate it, so a pad whose rumble is off can still be tested. The bench drives rumble only; the lightbar, LEDs, trigger effects and mute lamp are host state a test would overwrite. |
 
 ## `SlotListModel`, bound as `App.slotModel`
 

@@ -79,7 +79,7 @@ layer together.
 | `src/Util/` | Leaf helpers with no domain state: endian, hex, host battery, locale install | nothing | mixed |
 | `src/UI/` | The design-token palette (`Theme`), the font-family probes (`FontStacks`), crash handling, the `SlotLiveStats` mapper, `common/ExternalLink`, `licenses/LicenseManifest` | `core/` | yes (Gui) |
 | `src/Input/` | The SDL bridge, the input processor, joystick mapping, the output command queue | `core/` | yes |
-| `src/Network/` | Sockets and the REST control plane: `SatelliteClient`, `ConnectionHub`, `WifiConnectionManager`, `HTTPClient`, `PairingClient` | `core/` | yes |
+| `src/Network/` | Sockets and the REST control plane: `SatelliteClient`, `ConnectionHub`, `WifiConnectionManager`, `HTTPClient`, `PairingOutcome` | `core/` | yes |
 | `src/update/` | The update checker's IO edge: the manifest gateway (a dedicated QNAM) and `UpdateChecker`. Dish never installs its own update, so there is no download, staging or apply path | `core/`, `source/` | yes |
 
 `src/Input/` and `src/Network/` predate the layer model and keep their
@@ -340,6 +340,11 @@ cross-thread seams are explicit and narrow:
   map's, so a feedback write on the receive thread never contends with the 1 s
   reconcile sweep. The gateway's write is overlapped, so it does not wait on
   the pending read either.
+- `ConnectionHub`'s `bindingsMtx_`. A feedback message on the receive thread
+  finds its slot through `bindings()`, a copy taken under the lock the GUI
+  thread writes the table under, and the rumble switch it then checks is read
+  in place under its store's own lock
+  ([`ConnectionHub.h`](../src/Network/ConnectionHub.h)).
 
 ### The feedback path: one owner for "may I" and "where to"
 
@@ -570,12 +575,6 @@ CI), so each needs a device-in-the-loop test pass.
   channel, so there is no Undo. Adding one needs an action slot on
   `models::DishNotification` and the queue, plus a callback lifetime story for a
   toast that outlives the page that raised it.
-- **Per-binding rumble.** No rumble store exists; rumble rides the descriptor
-  caps. `App.rumbleEnabledFor` returns `true` and `App.setRumbleEnabled` is a
-  no-op. The Feel row still renders, because the capability verdict for it is
-  real and hiding the row would hide true information. A fix mirrors
-  `MotionEnabledStore`, keyed per binding, read by the descriptor assembly in
-  `ConnectionHub::bind`.
 - **No positive bind-accepted edge.** `ConnectionHub::bind` applies the binding
   locally and the satellite answers asynchronously; only the failure is typed
   (`slotRegistrationFailed`). `ApplyBindingMachine` therefore reads success as

@@ -12,9 +12,8 @@
 > two sanitizer lanes and coverage); the old android-test-file map claimed 0
 > missing rows and said nothing a green suite does not.
 >
-> Legend: ✅ works · ⚠️ shipped, not yet verified on real hardware · 📱 works
-> through the phone's own mic/speaker, not the pad's (Android only) · ❌ not
-> available · – not applicable. Verified against the code on 2026-09-20.
+> Legend: ✅ works · ⚠️ shipped, not yet verified on real hardware · ❌ not
+> available · – not applicable. Verified against the code on 2026-09-29.
 
 ## 1. What works, per client
 
@@ -22,22 +21,22 @@
 |---|---|---|---|
 | Satellite host, protocol 3 | ✅ | ✅ | ✅ |
 | Moonlight host (Sunshine / Apollo / Wolf) | ✅ | ✅ | ✅ |
-| Mouse mode on the host | ✅ | ❌ | ❌ (deferred: `hostMouseControl=false`) |
+| Mouse mode on the host | ✅ | ❌ | ❌ (deferred: `reducer::kClientRoutesTouchpadAsMouse`) |
 | Controller audio (mic + speaker) | ✅ | ✅ | ✅ |
 | DualSense HD haptics | ⚠️ | ⚠️ | ⚠️ |
 | Adaptive triggers, player LEDs, mic lamp | ✅ | ✅ | ✅ |
 | Lightbar, motion, touchpad, battery | ✅ | ✅ | ✅ |
 | Crash reports (opt-out) | ✅ Crashlytics | ✅ Sentry | ✅ Sentry |
-| Update notice | ✅ Play · ❌ GitHub build | ✅ | ✅ |
-| Runs in the background / window closed | ✅ | ❌ (closing quits) | ✅ tray |
-| Survives PC sleep and resume | – | ❌ | ✅ |
+| Update notice | – Play (the store updates it) · ✅ GitHub build | ✅ | ✅ |
+| Runs in the background / window closed | ❌ (streaming stops when the app leaves the screen) | ✅ tray | ✅ tray |
+| Survives PC sleep and resume | – | ✅ Satellite · ❌ Moonlight | ✅ Satellite · ❌ Moonlight |
 | Keep-awake is user-configurable | ❌ (always on while streaming) | ✅ | ✅ |
-| Diagnostics screen | ✅ | ❌ | ❌ |
-| Link-tier cue on host rows (Fastest / Fast / Basic) | ✅ | ✅ | ✅ |
+| Diagnostics screen | ✅ | ✅ (rumble-only bench, see §5) | ✅ (rumble-only bench, see §5) |
+| Link-tier cue on host rows (Fastest / Fast / Basic) | ✅ (on the section header) | ✅ | ✅ |
 | Protocol chip ("Satellite update recommended / required", "Dish update required") | ✅ | ✅ | ✅ |
 | App-wide microphone chip with mute-all | ✅ | ✅ | ✅ |
 | Capability verdict word "Supported" | ✅ | ✅ | ✅ |
-| Pairing secrets stored encrypted | ✅ Keystore | ❌ plaintext (documented) | ✅ SecretService (plaintext file when no keyring) |
+| Pairing secrets stored encrypted | ✅ Moonlight key (Keystore) · ❌ Satellite key (app-private prefs) | ✅ DPAPI | ✅ Satellite key (Secret Service, else a 0600 file) · ❌ Moonlight key (0600 file) |
 | Six languages (en, bs, de, es, fr, pt-BR) | ✅ | ✅ | ✅ |
 
 ## 2. Input, pad → host, by path (cell = USB Direct · USB Standard · Bluetooth)
@@ -48,7 +47,13 @@
 | Motion | ✅ · ✅ · ✅ | ✅ · ✅ · ⚠️ | ✅ · ✅ · ⚠️ |
 | Touchpad | ✅ · ⚠️ · ⚠️ | ✅ · ✅ · ⚠️ | ✅ · ✅ · ⚠️ |
 | Battery | ⚠️ · ✅ · ✅ | ⚠️ · ✅ · ⚠️ | ⚠️ · ✅ · ⚠️ |
-| Controller mic | ✅ · ✅ · 📱 | ✅ · ⚠️ · ❌ | ✅ · ⚠️ · ❌ |
+| Controller mic | ✅ · ✅ · ❌ | ✅ · ⚠️ · ❌ | ✅ · ⚠️ · ❌ |
+
+The Battery row is what the host is sent. Over USB that is the phone's or PC's
+own battery, which a wired pad draws on; the desktops' Standard path sends
+SDL's coarse pad level instead whenever SDL reports one. Over Bluetooth the
+desktops send SDL's coarse pad level (the PC's battery when SDL has none), and
+Android the lower of the pad's and the phone's.
 
 ## 3. Receiving, host → pad, by path (cell = USB Direct · USB Standard · Bluetooth)
 
@@ -58,8 +63,8 @@
 | Lightbar | ✅ · ❌ · ⚠️ | ✅ · ✅ · ⚠️ | ✅ · ✅ · ⚠️ |
 | Adaptive triggers | ✅ · ❌ · ❌ | ✅ · ⚠️ · ⚠️ | ✅ · ⚠️ · ⚠️ |
 | Player LEDs | ✅ · ❌ · ❌ | ✅ · ⚠️ · ⚠️ | ✅ · ⚠️ · ⚠️ |
-| Mic lamp | ✅ · ❌ · ❌ | ✅ · ⚠️ · ⚠️ | ✅ · ⚠️ · ⚠️ |
-| Controller speaker | ✅ · ✅ · 📱 | ✅ · ⚠️ · ❌ | ✅ · ⚠️ · ❌ |
+| Mic lamp | ✅ · ❌ · ❌ | ✅ · ⚠️ · ❌ | ✅ · ⚠️ · ❌ |
+| Controller speaker | ✅ · ✅ · ❌ | ✅ · ⚠️ · ❌ | ✅ · ⚠️ · ❌ |
 | HD haptics | ⚠️ · ⚠️ · ❌ | ⚠️ · ⚠️ · ❌ | ⚠️ · ⚠️ · ❌ |
 
 The Android Standard column is ❌ for lightbar, triggers, LEDs and the lamp
@@ -77,16 +82,17 @@ paired one against it yet.
 | DualSense (+Edge on desktop) | ✅ | ✅ | ✅ |
 | Switch Pro | ✅ | ✅ | ✅ |
 | Generic PDP Switch pads | ✅ | ✅ | ✅ |
+| 8BitDo | ✅ known XInput models | ✅ in HID mode (generic HID parser); Standard only in XInput mode (XUSB owns it) | ✅ in HID mode (generic HID parser); Standard only in XInput mode (xpad owns it) |
 | Xbox 360 / One / Series wired | ✅ | ❌ Standard only (XUSB owns it) | ❌ Standard only (xpad owns it) |
-| Stadia | ✅ | ❌ | ❌ |
+| Stadia | ✅ | ⚠️ generic HID parser, manual pick | ⚠️ generic HID parser, manual pick |
 | Steam Controller | ✅ | ⚠️ never verified | ⚠️ never verified; the mainline hid-steam driver exposes an evdev twin and manages lizard mode itself |
 
 ## 5. Decisions, not gaps
 
-- Android routes controller audio to the phone's own mic/speaker for any
-  emulated DualSense / DualShock 4 v2; this client routes only to the pad's own
-  endpoints and refuses on ambiguity. Deliberate.
-- Xbox and Stadia Direct exist only on Android: xpad owns those pads here.
+- Android's on-screen pad takes controller audio from the phone's own mic and
+  speaker. A physical pad, on every client, uses only its own USB endpoints and
+  refuses on ambiguity; a Bluetooth pad gets none.
+- Xbox Direct exists only on Android: xpad owns those pads here.
 - Virtual-pad skins, lightbar wash, cutout theme, Play billing, store
   screenshots: phone-only by nature.
 - Android's keep-awake is fixed (screen and wake lock while streaming); the
@@ -96,6 +102,30 @@ paired one against it yet.
   reads "Dish update required" for a newer satellite that still accepts this
   build; this client keys the chip on the negotiation, so that case reads as
   fine. Red here means the session cannot open.
+- The Diagnostics page leaves out these parts of Android's. Screen hold:
+  keep-awake is the user's own setting here, and a page that held the display
+  would be a second writer to the same inhibitor. The latency profiling bench:
+  the desktop input path carries no per-stage timestamps, so the page shows the
+  session's measured round trip instead. Host cards for Moonlight and Bluetooth
+  hosts: every fact the desktop holds about a Moonlight session already renders
+  on the Moonlight hosts page, the host app and GFE versions and per-pad report
+  counts Android adds have no desktop source, and this client never pairs to a
+  host as a Bluetooth gamepad. A controller bound to a Moonlight host still
+  names it.
+- Of Android's three radio cards the page shows Bluetooth, with the adapter's
+  state; that card's permission, link-type and host-role rows have no desktop
+  counterpart. The Wi-Fi card is left out because the desktop has no WLAN
+  source, and the USB card because each controller card already shows its path
+  and poll rate, while the endpoint packet facts Android adds have no desktop
+  source.
+- The Diagnostics feature bench drives rumble only, through the ungated path, so
+  a pad whose rumble switch is off can still be tested. The lightbar, player
+  LEDs, trigger effects and mic lamp are host-owned state a test would
+  overwrite, and the lamp is the mute indicator. Controller audio has no test
+  tone in the desktop engines.
+- The Diagnostics event log is localized like every other desktop string: the
+  C++ vends tokens and the QML words them. Android keeps its log in English as
+  export material for bug reports.
 
 ## 6. Android PRs since the diary stopped (2026-08-18 → 2026-09-20)
 
@@ -109,11 +139,11 @@ paired one against it yet.
 | #174 per-type skins (+ protocol chip) | this wave (chip) | skins N/A, chip ported |
 | #175 protocol 2 | #47 | ported |
 | #176 lightbar wash | – | N/A |
-| #177 input-path-honest capabilities | this wave ("Supported") | ported; the Unknown state cannot arise here (Direct only on known models) |
+| #177 input-path-honest capabilities | this wave ("Supported") | ported; this client's capability solver has no Unknown state |
 | #178 controller audio (+ app-wide mic chip) | #48 + this wave | ported |
 | #182, #183, #186, #190, #197 changelog / notes | – | N/A |
 | #184 privacy policy | #60 | ported |
-| #185 Diagnostics | – | **gap** |
+| #185 Diagnostics | this wave | ported; what the desktop leaves out is in §5 |
 | #187 to #206 Play billing, products, screenshots, promote | – | N/A |
 | #191 cutout theme | – | N/A |
 | #198, #199 test / CI only | – | N/A |

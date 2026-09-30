@@ -26,7 +26,21 @@ namespace dish::http {
 //   * never pinned       -> pin(satelliteId, fp), return true (first use)
 //   * fingerprint match  -> true (do not re-pin)
 //   * fingerprint differ -> false, pin LEFT INTACT (anti-MITM), onMismatch once
+//   * fingerprint differ, and no pairing behind the pin
+//                        -> pin(satelliteId, fp), return true: a first use again, since a pin
+//                           with no pairing behind it protects nothing
 bool verifyPeerCertificate(const QString& satelliteId, repository::SatellitePinRepository& pins,
-                           const QByteArray& certDer, const std::function<void()>& onMismatch = {});
+                           const QByteArray& certDer, const std::function<void()>& onMismatch = {},
+                           bool pinGuardsAPairing = true);
+
+// Whether a key is on file for a satellite at `host`: the pairing the pin there stands in front of.
+using PairingAt = std::function<bool(const QString& host)>;
+
+// The check above over `pins`, in the shape HTTPClient runs on every handshake: one long-lived
+// verifier handed a fresh flag per request, raised only for a changed cert. That flag is all that
+// tells a changed identity from a dead link once the abort has erased the status and the body.
+// `pins` must outlive the verifier.
+std::function<bool(const QString& host, const QByteArray& certDer, bool& pinMismatch)>
+pinVerifierOver(repository::SatellitePinRepository& pins, PairingAt pairedAt);
 
 } // namespace dish::http

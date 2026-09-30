@@ -14,6 +14,7 @@
 #pragma once
 
 #include "architecture/StateSource.h"
+#include "core/moonlight/MoonlightProtocol.h"
 
 #include <map>
 #include <optional>
@@ -92,5 +93,13 @@ class ControllerTypeStore : public arch::StateSource<ControllerTypeMap> {
     std::map<std::string, int> slotTypesFor(const std::string& connectionId,
                                             const std::vector<std::string>& boundSlotIds) const;
 };
+
+// The type a Moonlight binding sends: the pick stored for this pad on this host,
+// or Auto while it has none, resolved against the pad at arrival. Per binding,
+// never the host's last pick, so two pads on one host keep their own types.
+inline int moonlightBindingTypeOf(const ControllerTypeStore& store, const std::string& hostId,
+                                  const std::string& slotId) {
+    return store.typeFor(hostId, slotId).value_or(moonproto::kControllerTypeAuto);
+}
 
 } // namespace dish::source

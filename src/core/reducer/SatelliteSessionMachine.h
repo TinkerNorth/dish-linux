@@ -260,238 +260,283 @@ inline bool sessionPhaseIsStaleMarker(SessionPhase phase) {
 }
 
 // Total: any (phase x event) not handled below returns the model unchanged.
-inline SessionReduction reduce(const SessionModel& s, const SessionEvent& event) {
-    using namespace session_event;
-    namespace fx = session_effect;
+namespace session_detail {
+using namespace session_event;
+namespace fx = session_effect;
 
-    const bool live = s.phase == SessionPhase::Live || s.phase == SessionPhase::Faltering;
-    const bool loud = s.intent == ConnectIntent::UserInitiated;
+// Live in the sense the retry ladder cares about: a faltering session is still up and still has a
+// heartbeat to stop.
+inline bool sessionIsLive(const SessionModel& s) {
+    return s.phase == SessionPhase::Live || s.phase == SessionPhase::Faltering;
+}
 
-    auto toReconnecting = [&](SessionFailure cause, bool emitNotify) -> SessionReduction {
+// A session the user asked for says so out loud; one the app opened by itself fails quietly.
+inline bool sessionIsLoud(const SessionModel& s) {
+    return s.intent == ConnectIntent::UserInitiated;
+}
+
+inline SessionReduction toReconnecting(const SessionModel& s, SessionFailure cause,
+                                       bool emitNotify) {
+    const bool live = sessionIsLive(s);
+    const bool loud = sessionIsLoud(s);
+    SessionModel next = s;
+    next.phase = SessionPhase::Reconnecting;
+    next.retryAttempt = s.retryAttempt + 1;
+    next.failure = cause;
+    next.nextRetryAtMs = 0;
+    const int delay = static_cast<int>(backoffDelayMs(next.retryAttempt));
+    SessionReduction r;
+    r.next = next;
+    // Reserved for the most it can hold: one allocation for the list, and the growth path never
+    // runs here. GCC 13's LTO build reports a bogus overflow inside that path when it is left
+    // reachable.
+    r.effects.reserve(3);
+    if (live) { r.effects.push_back(fx::StopHeartbeat{}); }
+    r.effects.push_back(fx::ScheduleRetry{delay});
+    if (emitNotify) { r.effects.push_back(fx::Notify{cause, loud}); }
+    return r;
+}
+
+inline SessionReduction toFailed(const SessionModel& s, SessionFailure cause, bool dropKey) {
+    const bool live = sessionIsLive(s);
+    const bool loud = sessionIsLoud(s);
+    SessionModel next = s;
+    next.phase = SessionPhase::Failed;
+    next.failure = cause;
+    next.nextRetryAtMs = 0;
+    SessionReduction r;
+    r.next = next;
+    r.effects.reserve(3); // same reason as in toReconnecting
+    if (live) { r.effects.push_back(fx::StopHeartbeat{}); }
+    if (dropKey) { r.effects.push_back(fx::DropKey{}); }
+    r.effects.push_back(fx::Notify{cause, loud});
+    return r;
+}
+
+inline SessionReduction onConnect(const SessionModel& s, const Connect& e) {
+    const bool live = sessionIsLive(s);
+    if (live) { return SessionReduction{s, {}}; }
+    SessionModel next = s;
+    next.intent = e.intent;
+    next.failure = std::nullopt;
+    next.nextRetryAtMs = 0;
+    next.missedHeartbeats = 0;
+    // A user tap restarts the backoff curve; an auto-reconnect continues it.
+    if (e.intent == ConnectIntent::UserInitiated) { next.retryAttempt = 0; }
+    SessionReduction r;
+    if (e.needsPair) {
+        next.phase = SessionPhase::Pairing;
+        r.next = next;
+        r.effects = {fx::ClearFailure{}, fx::Pair{}};
+    } else {
+        next.phase = SessionPhase::Linking;
+        r.next = next;
+        r.effects = {fx::ClearFailure{}, fx::OpenSession{}};
+    }
+    return r;
+}
+
+inline SessionReduction onPairClassified(const SessionModel& s, const PairClassified& e) {
+    if (s.phase != SessionPhase::Pairing) { return SessionReduction{s, {}}; }
+    switch (e.verdict) {
+    case PairVerdict::Success: {
         SessionModel next = s;
+        next.phase = SessionPhase::Linking;
+        return SessionReduction{next, {fx::OpenSession{}}};
+    }
+    case PairVerdict::Pending:
+        // A staged grant; the approval poll runs outside this machine.
+        return SessionReduction{s, {}};
+    case PairVerdict::AuthRequired:
+        // Reachable, but no usable key adopted: the pair was refused.
+        return toFailed(s, SessionFailure::Declined, /*dropKey=*/false);
+    case PairVerdict::VersionMismatch:
+        return toFailed(s, SessionFailure::VersionMismatch, /*dropKey=*/false);
+    case PairVerdict::Unreachable:
+        return toReconnecting(s, SessionFailure::Unreachable, /*emitNotify=*/true);
+    case PairVerdict::IdentityChanged:
+        // The key is fine; the pin is what no longer matches, and only Forget clears that.
+        // Retrying would hammer a box we cannot authenticate.
+        return toFailed(s, SessionFailure::IdentityChanged, /*dropKey=*/false);
+    }
+    return SessionReduction{s, {}};
+}
+
+inline SessionReduction onRestClassified(const SessionModel& s, const RestClassified& e) {
+    if (s.phase != SessionPhase::Linking && s.phase != SessionPhase::Reconnecting) {
+        return SessionReduction{s, {}}; // stale reply for a settled attempt
+    }
+    switch (e.verdict) {
+    case RestVerdict::Ok:
+        // Not yet live: the UDP socket must still open and send Linked.
+        return SessionReduction{s, {}};
+    case RestVerdict::Unauthorized:
+        return toFailed(s, SessionFailure::AuthRejected, /*dropKey=*/true);
+    case RestVerdict::VersionMismatch:
+        return toFailed(s, SessionFailure::VersionMismatch, /*dropKey=*/false);
+    case RestVerdict::ShuttingDown:
+        return toReconnecting(s, SessionFailure::ServerShuttingDown, /*emitNotify=*/true);
+    case RestVerdict::ServerError:
+        return toReconnecting(s, SessionFailure::ServerError, /*emitNotify=*/true);
+    case RestVerdict::Unreachable:
+        return toReconnecting(s, SessionFailure::Unreachable, /*emitNotify=*/true);
+    case RestVerdict::IdentityChanged:
+        return toFailed(s, SessionFailure::IdentityChanged, /*dropKey=*/false);
+    }
+    return SessionReduction{s, {}};
+}
+
+inline SessionReduction onLinked(const SessionModel& s) {
+    if (s.phase == SessionPhase::Discovered || s.phase == SessionPhase::Stale ||
+        s.phase == SessionPhase::Failed) {
+        return SessionReduction{s, {}}; // stray confirmation
+    }
+    SessionModel next = s;
+    next.phase = SessionPhase::Live;
+    next.failure = std::nullopt;
+    next.retryAttempt = 0; // the only place success resets the backoff curve
+    next.nextRetryAtMs = 0;
+    next.missedHeartbeats = 0;
+    return SessionReduction{next, {fx::ClearFailure{}, fx::StartHeartbeat{}}};
+}
+
+inline SessionReduction onHeartbeatMiss(const SessionModel& s, const HeartbeatMiss& e) {
+    const bool live = sessionIsLive(s);
+    if (!live) { return SessionReduction{s, {}}; }
+    SessionModel next = s;
+    next.missedHeartbeats = e.count;
+    if (e.count >= kHeartbeatMissDead) {
+        // Always a silent retry: no user tap sits behind a heartbeat death.
         next.phase = SessionPhase::Reconnecting;
         next.retryAttempt = s.retryAttempt + 1;
-        next.failure = cause;
+        next.failure = SessionFailure::Unreachable;
         next.nextRetryAtMs = 0;
         const int delay = static_cast<int>(backoffDelayMs(next.retryAttempt));
-        SessionReduction r;
-        r.next = next;
-        // Reserved for the most it can hold: one allocation for the list, and
-        // the growth path never runs here. GCC 13's LTO build reports a bogus
-        // overflow inside that path when it is left reachable.
-        r.effects.reserve(3);
-        if (live) { r.effects.push_back(fx::StopHeartbeat{}); }
-        r.effects.push_back(fx::ScheduleRetry{delay});
-        if (emitNotify) { r.effects.push_back(fx::Notify{cause, loud}); }
-        return r;
-    };
+        return SessionReduction{next, {fx::StopHeartbeat{}, fx::ScheduleRetry{delay}}};
+    }
+    if (e.count >= kHeartbeatMissNotResponding) {
+        // Degraded but still up: the socket stays open, so no effects.
+        next.phase = SessionPhase::Faltering;
+        return SessionReduction{next, {}};
+    }
+    return SessionReduction{next, {}};
+}
 
-    auto toFailed = [&](SessionFailure cause, bool dropKey) -> SessionReduction {
+inline SessionReduction onHeartbeatOk(const SessionModel& s) {
+    const bool live = sessionIsLive(s);
+    if (!live) { return SessionReduction{s, {}}; }
+    SessionModel next = s;
+    next.missedHeartbeats = 0;
+    if (s.phase == SessionPhase::Faltering) { next.phase = SessionPhase::Live; }
+    return SessionReduction{next, {}};
+}
+
+inline SessionReduction onClosed(const SessionModel& s, const Closed& e) {
+    const bool live = sessionIsLive(s);
+    if (!live) { return SessionReduction{s, {}}; }
+    switch (e.action) {
+    case CloseAction::DropKeyRePair: {
+        // Trust revoked. Stale-with-cause rather than Failed: the row
+        // stays, reading "Needs pairing".
         SessionModel next = s;
-        next.phase = SessionPhase::Failed;
-        next.failure = cause;
+        next.phase = SessionPhase::Stale;
+        next.failure = SessionFailure::AuthRejected;
+        next.retryAttempt = 0;
         next.nextRetryAtMs = 0;
-        SessionReduction r;
-        r.next = next;
-        r.effects.reserve(3); // same reason as in toReconnecting
-        if (live) { r.effects.push_back(fx::StopHeartbeat{}); }
-        if (dropKey) { r.effects.push_back(fx::DropKey{}); }
-        r.effects.push_back(fx::Notify{cause, loud});
-        return r;
-    };
+        next.missedHeartbeats = 0;
+        return SessionReduction{next, {fx::StopHeartbeat{}, fx::DropKey{}}};
+    }
+    case CloseAction::StayDown: {
+        // A newer PUT owns the session; key kept, nothing more to do.
+        SessionModel next = s;
+        next.phase = SessionPhase::Stale;
+        next.failure = std::nullopt;
+        next.retryAttempt = 0;
+        next.nextRetryAtMs = 0;
+        next.missedHeartbeats = 0;
+        return SessionReduction{next, {fx::StopHeartbeat{}}};
+    }
+    case CloseAction::RetryBackoff:
+        return toReconnecting(s, SessionFailure::Unreachable, /*emitNotify=*/false);
+    }
+    return SessionReduction{s, {}};
+}
+
+inline SessionReduction onReconcileDrift(const SessionModel& s) {
+    const bool live = sessionIsLive(s);
+    if (!live) { return SessionReduction{s, {}}; }
+    SessionModel next = s;
+    next.phase = SessionPhase::Linking;
+    next.missedHeartbeats = 0;
+    // Not a failure, so retryAttempt is preserved.
+    next.failure = std::nullopt;
+    return SessionReduction{next, {fx::StopHeartbeat{}, fx::OpenSession{}}};
+}
+
+inline SessionReduction onRetryTimerFired(const SessionModel& s) {
+    if (s.phase != SessionPhase::Reconnecting) { return SessionReduction{s, {}}; }
+    SessionModel next = s;
+    next.phase = SessionPhase::Linking;
+    next.nextRetryAtMs = 0; // deadline consumed; retryAttempt keeps running
+    return SessionReduction{next, {fx::OpenSession{}}};
+}
+
+inline SessionReduction onDisconnect(const SessionModel& s) {
+    const bool live = sessionIsLive(s);
+    SessionModel next = s;
+    next.phase = SessionPhase::Stale;
+    next.failure = std::nullopt;
+    next.retryAttempt = 0;
+    next.nextRetryAtMs = 0;
+    next.missedHeartbeats = 0;
+    SessionReduction r;
+    r.next = next;
+    if (live) { r.effects.push_back(fx::StopHeartbeat{}); }
+    return r;
+}
+
+inline SessionReduction onForget(const SessionModel& s) {
+    const bool live = sessionIsLive(s);
+    SessionReduction r;
+    r.next = std::nullopt;
+    r.effects.reserve(2); // same reason as in toReconnecting
+    if (live) { r.effects.push_back(fx::StopHeartbeat{}); }
+    r.effects.push_back(fx::DropKey{});
+    return r;
+}
+
+} // namespace session_detail
+
+inline SessionReduction reduce(const SessionModel& s, const SessionEvent& event) {
+    using namespace session_event;
 
     return std::visit(
         [&](const auto& e) -> SessionReduction {
             using E = std::decay_t<decltype(e)>;
-
             if constexpr (std::is_same_v<E, Connect>) {
-                if (live) { return SessionReduction{s, {}}; }
-                SessionModel next = s;
-                next.intent = e.intent;
-                next.failure = std::nullopt;
-                next.nextRetryAtMs = 0;
-                next.missedHeartbeats = 0;
-                // A user tap restarts the backoff curve; an auto-reconnect continues it.
-                if (e.intent == ConnectIntent::UserInitiated) { next.retryAttempt = 0; }
-                SessionReduction r;
-                if (e.needsPair) {
-                    next.phase = SessionPhase::Pairing;
-                    r.next = next;
-                    r.effects = {fx::ClearFailure{}, fx::Pair{}};
-                } else {
-                    next.phase = SessionPhase::Linking;
-                    r.next = next;
-                    r.effects = {fx::ClearFailure{}, fx::OpenSession{}};
-                }
-                return r;
-            }
-
-            else if constexpr (std::is_same_v<E, PairClassified>) {
-                if (s.phase != SessionPhase::Pairing) { return SessionReduction{s, {}}; }
-                switch (e.verdict) {
-                case PairVerdict::Success: {
-                    SessionModel next = s;
-                    next.phase = SessionPhase::Linking;
-                    return SessionReduction{next, {fx::OpenSession{}}};
-                }
-                case PairVerdict::Pending:
-                    // A staged grant; the approval poll runs outside this machine.
-                    return SessionReduction{s, {}};
-                case PairVerdict::AuthRequired:
-                    // Reachable, but no usable key adopted: the pair was refused.
-                    return toFailed(SessionFailure::Declined, /*dropKey=*/false);
-                case PairVerdict::VersionMismatch:
-                    return toFailed(SessionFailure::VersionMismatch, /*dropKey=*/false);
-                case PairVerdict::Unreachable:
-                    return toReconnecting(SessionFailure::Unreachable, /*emitNotify=*/true);
-                case PairVerdict::IdentityChanged:
-                    // The key is fine; the pin is what no longer matches, and
-                    // only Forget clears that. Retrying would hammer a box we
-                    // cannot authenticate.
-                    return toFailed(SessionFailure::IdentityChanged, /*dropKey=*/false);
-                }
-                return SessionReduction{s, {}};
-            }
-
-            else if constexpr (std::is_same_v<E, RestClassified>) {
-                if (s.phase != SessionPhase::Linking && s.phase != SessionPhase::Reconnecting) {
-                    return SessionReduction{s, {}}; // stale reply for a settled attempt
-                }
-                switch (e.verdict) {
-                case RestVerdict::Ok:
-                    // Not yet live: the UDP socket must still open and send Linked.
-                    return SessionReduction{s, {}};
-                case RestVerdict::Unauthorized:
-                    return toFailed(SessionFailure::AuthRejected, /*dropKey=*/true);
-                case RestVerdict::VersionMismatch:
-                    return toFailed(SessionFailure::VersionMismatch, /*dropKey=*/false);
-                case RestVerdict::ShuttingDown:
-                    return toReconnecting(SessionFailure::ServerShuttingDown, /*emitNotify=*/true);
-                case RestVerdict::ServerError:
-                    return toReconnecting(SessionFailure::ServerError, /*emitNotify=*/true);
-                case RestVerdict::Unreachable:
-                    return toReconnecting(SessionFailure::Unreachable, /*emitNotify=*/true);
-                case RestVerdict::IdentityChanged:
-                    return toFailed(SessionFailure::IdentityChanged, /*dropKey=*/false);
-                }
-                return SessionReduction{s, {}};
-            }
-
-            else if constexpr (std::is_same_v<E, Linked>) {
-                if (s.phase == SessionPhase::Discovered || s.phase == SessionPhase::Stale ||
-                    s.phase == SessionPhase::Failed) {
-                    return SessionReduction{s, {}}; // stray confirmation
-                }
-                SessionModel next = s;
-                next.phase = SessionPhase::Live;
-                next.failure = std::nullopt;
-                next.retryAttempt = 0; // the only place success resets the backoff curve
-                next.nextRetryAtMs = 0;
-                next.missedHeartbeats = 0;
-                return SessionReduction{next, {fx::ClearFailure{}, fx::StartHeartbeat{}}};
-            }
-
-            else if constexpr (std::is_same_v<E, HeartbeatMiss>) {
-                if (!live) { return SessionReduction{s, {}}; }
-                SessionModel next = s;
-                next.missedHeartbeats = e.count;
-                if (e.count >= kHeartbeatMissDead) {
-                    // Always a silent retry: no user tap sits behind a heartbeat death.
-                    next.phase = SessionPhase::Reconnecting;
-                    next.retryAttempt = s.retryAttempt + 1;
-                    next.failure = SessionFailure::Unreachable;
-                    next.nextRetryAtMs = 0;
-                    const int delay = static_cast<int>(backoffDelayMs(next.retryAttempt));
-                    return SessionReduction{next, {fx::StopHeartbeat{}, fx::ScheduleRetry{delay}}};
-                }
-                if (e.count >= kHeartbeatMissNotResponding) {
-                    // Degraded but still up: the socket stays open, so no effects.
-                    next.phase = SessionPhase::Faltering;
-                    return SessionReduction{next, {}};
-                }
-                return SessionReduction{next, {}};
-            }
-
-            else if constexpr (std::is_same_v<E, HeartbeatOk>) {
-                if (!live) { return SessionReduction{s, {}}; }
-                SessionModel next = s;
-                next.missedHeartbeats = 0;
-                if (s.phase == SessionPhase::Faltering) { next.phase = SessionPhase::Live; }
-                return SessionReduction{next, {}};
-            }
-
-            else if constexpr (std::is_same_v<E, Closed>) {
-                if (!live) { return SessionReduction{s, {}}; }
-                switch (e.action) {
-                case CloseAction::DropKeyRePair: {
-                    // Trust revoked. Stale-with-cause rather than Failed: the row
-                    // stays, reading "Needs pairing".
-                    SessionModel next = s;
-                    next.phase = SessionPhase::Stale;
-                    next.failure = SessionFailure::AuthRejected;
-                    next.retryAttempt = 0;
-                    next.nextRetryAtMs = 0;
-                    next.missedHeartbeats = 0;
-                    return SessionReduction{next, {fx::StopHeartbeat{}, fx::DropKey{}}};
-                }
-                case CloseAction::StayDown: {
-                    // A newer PUT owns the session; key kept, nothing more to do.
-                    SessionModel next = s;
-                    next.phase = SessionPhase::Stale;
-                    next.failure = std::nullopt;
-                    next.retryAttempt = 0;
-                    next.nextRetryAtMs = 0;
-                    next.missedHeartbeats = 0;
-                    return SessionReduction{next, {fx::StopHeartbeat{}}};
-                }
-                case CloseAction::RetryBackoff:
-                    return toReconnecting(SessionFailure::Unreachable, /*emitNotify=*/false);
-                }
-                return SessionReduction{s, {}};
-            }
-
-            else if constexpr (std::is_same_v<E, ReconcileDrift>) {
-                if (!live) { return SessionReduction{s, {}}; }
-                SessionModel next = s;
-                next.phase = SessionPhase::Linking;
-                next.missedHeartbeats = 0;
-                // Not a failure, so retryAttempt is preserved.
-                next.failure = std::nullopt;
-                return SessionReduction{next, {fx::StopHeartbeat{}, fx::OpenSession{}}};
-            }
-
-            else if constexpr (std::is_same_v<E, RetryTimerFired>) {
-                if (s.phase != SessionPhase::Reconnecting) { return SessionReduction{s, {}}; }
-                SessionModel next = s;
-                next.phase = SessionPhase::Linking;
-                next.nextRetryAtMs = 0; // deadline consumed; retryAttempt keeps running
-                return SessionReduction{next, {fx::OpenSession{}}};
-            }
-
-            else if constexpr (std::is_same_v<E, Disconnect>) {
-                SessionModel next = s;
-                next.phase = SessionPhase::Stale;
-                next.failure = std::nullopt;
-                next.retryAttempt = 0;
-                next.nextRetryAtMs = 0;
-                next.missedHeartbeats = 0;
-                SessionReduction r;
-                r.next = next;
-                if (live) { r.effects.push_back(fx::StopHeartbeat{}); }
-                return r;
-            }
-
-            else if constexpr (std::is_same_v<E, Forget>) {
-                SessionReduction r;
-                r.next = std::nullopt;
-                r.effects.reserve(2); // same reason as in toReconnecting
-                if (live) { r.effects.push_back(fx::StopHeartbeat{}); }
-                r.effects.push_back(fx::DropKey{});
-                return r;
-            }
-
-            else {
-                return SessionReduction{s, {}};
+                return session_detail::onConnect(s, e);
+            } else if constexpr (std::is_same_v<E, PairClassified>) {
+                return session_detail::onPairClassified(s, e);
+            } else if constexpr (std::is_same_v<E, RestClassified>) {
+                return session_detail::onRestClassified(s, e);
+            } else if constexpr (std::is_same_v<E, Linked>) {
+                return session_detail::onLinked(s);
+            } else if constexpr (std::is_same_v<E, HeartbeatMiss>) {
+                return session_detail::onHeartbeatMiss(s, e);
+            } else if constexpr (std::is_same_v<E, HeartbeatOk>) {
+                return session_detail::onHeartbeatOk(s);
+            } else if constexpr (std::is_same_v<E, Closed>) {
+                return session_detail::onClosed(s, e);
+            } else if constexpr (std::is_same_v<E, ReconcileDrift>) {
+                return session_detail::onReconcileDrift(s);
+            } else if constexpr (std::is_same_v<E, RetryTimerFired>) {
+                return session_detail::onRetryTimerFired(s);
+            } else if constexpr (std::is_same_v<E, Disconnect>) {
+                return session_detail::onDisconnect(s);
+            } else if constexpr (std::is_same_v<E, Forget>) {
+                return session_detail::onForget(s);
+            } else {
+                return SessionReduction{};
             }
         },
         event);

@@ -13,6 +13,7 @@
 #include "core/input/GamepadButtonLayouts.h"
 #include "core/model/Protocol.h"
 #include "core/wire/SessionCrypto.h"
+#include "ServerPacket.h"
 #include "satellite_client_test_access.h"
 
 #include <catch2/catch_test_macros.hpp>
@@ -127,24 +128,8 @@ std::vector<std::uint8_t> decryptClientPacket(const std::vector<std::uint8_t>& p
 // token(4) | counter(4 BE) | AEAD(inner), inner = msgType(BE) + len(BE) + body.
 std::vector<std::uint8_t> serverPacket(std::uint16_t msgType, const std::vector<std::uint8_t>& body,
                                        std::uint32_t counter) {
-    std::vector<std::uint8_t> inner(4 + body.size());
-    inner[0] = static_cast<std::uint8_t>(msgType >> 8);
-    inner[1] = static_cast<std::uint8_t>(msgType & 0xFF);
-    inner[2] = static_cast<std::uint8_t>(body.size() >> 8);
-    inner[3] = static_cast<std::uint8_t>(body.size() & 0xFF);
-    if (!body.empty()) { std::memcpy(inner.data() + 4, body.data(), body.size()); }
-
-    std::vector<std::uint8_t> pkt(8 + inner.size() + 16);
-    std::memcpy(pkt.data(), kToken.data(), 4);
-    pkt[4] = static_cast<std::uint8_t>(counter >> 24);
-    pkt[5] = static_cast<std::uint8_t>(counter >> 16);
-    pkt[6] = static_cast<std::uint8_t>(counter >> 8);
-    pkt[7] = static_cast<std::uint8_t>(counter & 0xFF);
-    unsigned long long ctLen = 0;
-    REQUIRE(dish::wire::encryptPacket(key32(0xA5).data(), dish::wire::kDirServerToClient, counter,
-                                      kTokenBe, inner.data(), inner.size(), pkt.data() + 8,
-                                      &ctLen));
-    pkt.resize(8 + ctLen);
+    auto pkt = dish::test::sealServerPacket(kToken, key32(0xA5), msgType, body, counter);
+    REQUIRE_FALSE(pkt.empty());
     return pkt;
 }
 

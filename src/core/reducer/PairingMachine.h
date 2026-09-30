@@ -121,85 +121,74 @@ using PairEvent = std::variant<pair_event::Submit, pair_event::ReplyClassified,
 //
 // Anything not named above is a no-op for that phase (returns the state
 // unchanged), making every combination explicit.
+
+// Start or restart an attempt, from any phase. A new attempt clears any prior reason and carries
+// the PIN for as long as it is submitting.
+inline PairingState onPairSubmit(const pair_event::Submit& e) {
+    PairingState next;
+    next.phase = PairPhase::Submitting;
+    next.failure = std::nullopt;
+    next.pin = e.pin;
+    return next;
+}
+
+// The PIN is retained, because the UI shows it back and a retry reuses it.
+inline PairingState pairFailure(const PairingState& s, const PairFailure failure) {
+    PairingState next = s;
+    next.phase = PairPhase::Failed;
+    next.failure = failure;
+    return next;
+}
+
+// A verdict only moves a Submitting attempt; anything later is a stale reply for one that has
+// already settled. Success and Pending both keep waiting: a key being adopted is not the same as
+// the session being live, and only SessionConfirmedLive says that.
+inline PairingState onPairReply(const PairingState& s, const pair_event::ReplyClassified& e) {
+    if (s.phase != PairPhase::Submitting) { return s; }
+    switch (e.verdict) {
+    case PairVerdict::Success:
+    case PairVerdict::Pending:
+        return s;
+    case PairVerdict::AuthRequired:
+        // Reachable but no usable key adopted: the PIN was rejected.
+        return pairFailure(s, PairFailure::WrongPin);
+    case PairVerdict::VersionMismatch:
+        return pairFailure(s, PairFailure::VersionMismatch);
+    case PairVerdict::Unreachable:
+        return pairFailure(s, PairFailure::Unreachable);
+    case PairVerdict::IdentityChanged:
+        return pairFailure(s, PairFailure::IdentityChanged);
+    }
+    // A bogus verdict cast lands here. The switch is exhaustive over the enum, so this is
+    // unreachable in practice; an unknown verdict keeps waiting rather than throws.
+    return s;
+}
+
+// The ONLY path to Succeeded, and only from an attempt that is awaiting confirmation. The attempt
+// is done, so the PIN is not retained.
+inline PairingState onSessionConfirmedLive(const PairingState& s) {
+    if (s.phase != PairPhase::Submitting) { return s; }
+    PairingState next;
+    next.phase = PairPhase::Succeeded;
+    next.failure = std::nullopt;
+    next.pin.clear();
+    return next;
+}
+
 inline PairingState reducePairing(const PairingState& s, const PairEvent& event) {
     return std::visit(
         [&](const auto& e) -> PairingState {
             using E = std::decay_t<decltype(e)>;
-
-            // ── Submit: start or restart an attempt from any phase ──────────
             if constexpr (std::is_same_v<E, pair_event::Submit>) {
-                PairingState next;
-                next.phase = PairPhase::Submitting;
-                next.failure = std::nullopt; // a new attempt clears any prior reason
-                next.pin = e.pin;            // carry the PIN while submitting
-                return next;
-            }
-
-            // ── ReplyClassified: map the verdict, only while Submitting ─────
-            else if constexpr (std::is_same_v<E, pair_event::ReplyClassified>) {
-                if (s.phase != PairPhase::Submitting) {
-                    return s; // late/stale reply for a settled attempt — ignore
-                }
-                switch (e.verdict) {
-                // Both stay put, for different reasons. Success: key adopted,
-                // session opening, NOT done yet; wait for SessionConfirmedLive
-                // to confirm the live session. Pending: forward Path A does not
-                // expect it and it is not a terminal failure here; keep
-                // Submitting (the manager resolves it).
-                case PairVerdict::Success:
-                case PairVerdict::Pending:
-                    return s;
-                case PairVerdict::AuthRequired: {
-                    // Reachable but no usable key adopted: the PIN was rejected.
-                    PairingState next = s;
-                    next.phase = PairPhase::Failed;
-                    next.failure = PairFailure::WrongPin;
-                    return next; // pin retained for the UI / a retry
-                }
-                case PairVerdict::VersionMismatch: {
-                    PairingState next = s;
-                    next.phase = PairPhase::Failed;
-                    next.failure = PairFailure::VersionMismatch;
-                    return next;
-                }
-                case PairVerdict::Unreachable: {
-                    PairingState next = s;
-                    next.phase = PairPhase::Failed;
-                    next.failure = PairFailure::Unreachable;
-                    return next;
-                }
-                case PairVerdict::IdentityChanged: {
-                    PairingState next = s;
-                    next.phase = PairPhase::Failed;
-                    next.failure = PairFailure::IdentityChanged;
-                    return next;
-                }
-                }
-                // Defensive: a bogus verdict cast lands here. The switch is
-                // exhaustive over the enum, so this is unreachable in practice;
-                // treat an unknown verdict as "keep waiting" rather than throw.
-                return s;
-            }
-
-            // ── SessionConfirmedLive: the ONLY path to Succeeded ────────────
-            else if constexpr (std::is_same_v<E, pair_event::SessionConfirmedLive>) {
-                if (s.phase != PairPhase::Submitting) {
-                    return s; // no attempt is awaiting confirmation — ignore
-                }
-                PairingState next;
-                next.phase = PairPhase::Succeeded;
-                next.failure = std::nullopt;
-                next.pin.clear(); // attempt is done; don't retain the PIN
-                return next;
-            }
-
-            // ── Cancel: unconditional return to Idle from any phase ─────────
-            else if constexpr (std::is_same_v<E, pair_event::Cancel>) {
-                return PairingState{}; // fresh Idle state (no failure, no pin)
-            }
-
-            // ── Total fallback (no event type reaches here) ─────────────────
-            else {
+                return onPairSubmit(e);
+            } else if constexpr (std::is_same_v<E, pair_event::ReplyClassified>) {
+                return onPairReply(s, e);
+            } else if constexpr (std::is_same_v<E, pair_event::SessionConfirmedLive>) {
+                return onSessionConfirmedLive(s);
+            } else if constexpr (std::is_same_v<E, pair_event::Cancel>) {
+                // Unconditional return to a fresh Idle: no failure, no pin.
+                return PairingState{};
+            } else {
                 return s;
             }
         },

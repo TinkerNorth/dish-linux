@@ -4,25 +4,12 @@
 // TouchpadModeStore — a StateSource over the per-satellite touchpad-mode pick:
 // satelliteId -> wire mode string ("off" | "ds4" | "mouse"). It bridges the
 // durable TouchpadModeRepository (the source of truth across launches) with a
-// reactive in-memory Observable<map> the TouchpadModeComposer reads. Mirrors
-// dish-android source/store/TouchpadModeStore (an
-// AbstractStateSource<Map<String,String>> over the same repo). Header-only.
-//
-// Behaviour the android tests pin and this preserves:
-//   * Hydrates its state from repo.all() on construction.
-//   * setMode(satelliteId, mode) persists to the repo AND republishes state.
-//   * forget(satelliteId) removes from BOTH the repo and the state (cascade
-//     forget, e.g. when a satellite is unpaired).
-//   * modeFor(satelliteId) returns nullopt for a satellite the user has never
-//     picked for — "never picked" is DISTINCT from "off", and the resolve
-//     ladder (not this store) collapses absence to the pair-time default.
-// A same-value setMode still writes through to the repo but the Observable's
-// == compare suppresses the redundant re-emit; forget of an absent satellite
-// short-circuits the state write entirely.
+// reactive in-memory Observable<map>. Header-only.
 
 #pragma once
 
 #include "architecture/StateSource.h"
+#include "core/reducer/TouchpadModeResolve.h"
 #include "repository/TouchpadModeRepository.h"
 
 #include <QString>
@@ -46,8 +33,8 @@ class TouchpadModeStore : public arch::StateSource<TouchpadModeMap> {
     explicit TouchpadModeStore(repository::TouchpadModeRepository* repo)
         : arch::StateSource<TouchpadModeMap>(hydrate(repo)), repo_(repo) {}
 
-    // The pick for a satellite, or nullopt when the user never picked one —
-    // no invented default here (the resolve ladder owns the collapse to off).
+    // The pick for a satellite, or nullopt when the user never picked one: no
+    // invented default here, because each caller decides what absence means.
     std::optional<std::string> modeFor(const std::string& satelliteId) const {
         const auto& snapshot = state().value();
         const auto it = snapshot.find(satelliteId);
@@ -55,8 +42,10 @@ class TouchpadModeStore : public arch::StateSource<TouchpadModeMap> {
         return it->second;
     }
 
-    // Persist + republish the pick for a satellite.
+    // Persist + republish the pick for a satellite. A mode the repository would
+    // refuse is refused here too, so memory never holds what disk will not.
     void setMode(const std::string& satelliteId, const std::string& mode) {
+        if (!reducer::isValidTouchpadModeName(mode)) { return; }
         if (repo_ != nullptr) {
             repo_->put(repository::TouchpadModePreference{QString::fromStdString(satelliteId),
                                                           QString::fromStdString(mode)});
@@ -64,18 +53,6 @@ class TouchpadModeStore : public arch::StateSource<TouchpadModeMap> {
         setState([&](const TouchpadModeMap& current) {
             TouchpadModeMap next = current;
             next[satelliteId] = mode;
-            return next;
-        });
-    }
-
-    // Drop the satellite from both the repo and the live state (cascade
-    // forget). A no-op (no emit) on the state side if it was absent.
-    void forget(const std::string& satelliteId) {
-        if (repo_ != nullptr) { repo_->remove(QString::fromStdString(satelliteId)); }
-        setState([&](const TouchpadModeMap& current) {
-            if (current.find(satelliteId) == current.end()) { return current; }
-            TouchpadModeMap next = current;
-            next.erase(satelliteId);
             return next;
         });
     }

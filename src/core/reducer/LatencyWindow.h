@@ -53,6 +53,23 @@ inline std::string formatLatencyMs(double oneWayMs) {
     return out;
 }
 
+inline constexpr double kLatencyMedianQuantile = 0.50;
+inline constexpr double kLatencyTailQuantile = 0.99;
+
+// What the diagnostics page reads off the window: how many round trips it holds,
+// and their median and 99th percentile. All zero while it is empty.
+struct LatencySummary {
+    int samples = 0;
+    double rttP50Ms = 0.0;
+    double rttP99Ms = 0.0;
+
+    // Half the median round trip: a symmetric-path estimate is all a
+    // single-ended measurement can say about one direction.
+    double oneWayMs() const { return rttP50Ms / 2.0; }
+
+    bool operator==(const LatencySummary&) const = default;
+};
+
 // One instance per session, guarded by the owner's lock; the class itself is
 // single-threaded.
 class LatencyWindow {
@@ -71,16 +88,21 @@ class LatencyWindow {
     // tentative.
     int count() const { return count_; }
 
-    // 0 while the window is empty; callers gate the readout on count() > 0. The
-    // nearest-rank quantile (upper-middle for even n) is shared with the other
-    // clients, so identical samples render identical figures.
-    double oneWayP50Ms() const {
-        if (count_ == 0) { return 0.0; }
+    // 0 while the window is empty; callers gate the readout on count() > 0.
+    double oneWayP50Ms() const { return summary().oneWayMs(); }
+
+    // The nearest-rank quantile (upper-middle for even n) is shared with the
+    // other clients, so identical samples render identical figures.
+    LatencySummary summary() const {
+        LatencySummary out;
+        out.samples = count_;
+        if (count_ == 0) { return out; }
         std::array<double, kLatencyWindowCapacity> sorted{};
         std::copy(samples_.begin(), samples_.begin() + count_, sorted.begin());
         std::sort(sorted.begin(), sorted.begin() + count_);
-        const auto i = static_cast<std::size_t>(std::lround(0.50 * (count_ - 1)));
-        return sorted[i] / 2.0;
+        out.rttP50Ms = sorted[nearestRank(kLatencyMedianQuantile)];
+        out.rttP99Ms = sorted[nearestRank(kLatencyTailQuantile)];
+        return out;
     }
 
     void reset() {
@@ -89,6 +111,10 @@ class LatencyWindow {
     }
 
   private:
+    std::size_t nearestRank(double quantile) const {
+        return static_cast<std::size_t>(std::lround(quantile * (count_ - 1)));
+    }
+
     std::array<double, kLatencyWindowCapacity> samples_{};
     int head_ = 0;
     int count_ = 0;

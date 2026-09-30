@@ -13,6 +13,7 @@
 #include <QString>
 
 #include <functional>
+#include <mutex>
 #include <utility>
 
 namespace dish::net {
@@ -40,7 +41,9 @@ class ConnectionHub : public QObject {
     ConnectionHub(WifiConnectionManager* wifi, ConnectionStore* store, QObject* parent = nullptr);
 
     QList<models::ConnectionSummary> connections() const { return summaries_; }
-    QHash<QString, QString> bindings() const { return bindings_; }
+    // A copy taken under the lock the UI thread writes under: the SatelliteClient
+    // receive threads call this while the UI thread binds and unbinds.
+    QHash<QString, QString> bindings() const;
 
     // Empty when nothing is bound. The returned closure does one mutex-guarded
     // shared_ptr load, so it is safe to call from the SDL input thread.
@@ -123,11 +126,22 @@ class ConnectionHub : public QObject {
 
   private:
     void rebuild();
+    void publishBindings(QHash<QString, QString> next);
+
+    // rebuild's three steps, each answerable on its own.
+    QSet<QString> knownIds(const QHash<QString, models::RememberedWifi>& remembered) const;
+    std::optional<QString> boundSlotFor(const QString& id) const;
+    std::optional<models::ConnectionSummary>
+    summaryFor(const QString& id, const QHash<QString, models::RememberedWifi>& remembered,
+               const QSet<QString>& discoveredIds) const;
 
     WifiConnectionManager* wifi_;
     ConnectionStore* store_;
     QList<models::ConnectionSummary> summaries_;
-    QHash<QString, QString> bindings_; // slotId -> connectionId
+    // slotId -> connectionId. Written only on the UI thread, and only through
+    // publishBindings; any other thread reads it only through bindings().
+    QHash<QString, QString> bindings_;
+    mutable std::mutex bindingsMtx_;
     LightbarCapabilityFn lightbarCapabilityFn_;
     MotionCapabilityFn motionCapabilityFn_;
     RumbleCapabilityFn rumbleCapabilityFn_;

@@ -15,6 +15,8 @@
 #include <QVariantMap>
 
 #include <cstdint>
+#include <optional>
+#include <string>
 
 namespace dish::ui {
 struct LicenseManifest;
@@ -22,6 +24,10 @@ struct LicenseManifest;
 
 namespace dish::input {
 class SDLGamepadBridge;
+}
+
+namespace dish::net {
+enum class ReversePairingPhase : std::uint8_t;
 }
 
 namespace dish::repository {
@@ -46,6 +52,34 @@ reducer::KeepAwakeMode keepAwakeModeFromInt(int value);
 
 // "off" | "system" | "display": how far the hold currently reaches.
 QString keepAwakeReachToken(reducer::KeepAwakeReach reach);
+
+// The token the pairing sheet switches on for an approval request's phase: "idle" | "awaiting" |
+// "approved" | "declined" | "timedout" | "identitychanged" | "versionmismatch".
+QString reversePairingPhaseToken(net::ReversePairingPhase phase);
+
+// The Off / Pad / Mouse choice QML shows ("off" | "pad" | "mouse") for the pick
+// the per-satellite store holds, which is a wire name ("off" | "ds4" | "mouse").
+// A pick never made reads as the default the runtime forwards, and a Mouse pick
+// reads "off" while mouse mode is unavailable, because the runtime declares off.
+QString touchpadChoiceForPick(const std::optional<std::string>& pick, bool mouseModeAvailable);
+
+// The pick a choice is stored as, or nullopt for a choice this client does not know.
+std::optional<std::string> touchpadPickForChoice(const QString& choice);
+
+// The choice a wire mode reads as, so a declared mode can be shown in the
+// editors' own words. A mode outside the table reads "off".
+QString touchpadChoiceForMode(std::uint8_t mode);
+
+// The choice a Moonlight binding's touchpad reads as: "pad" where the pad's
+// touches reach the host (moonlight::touchReachesHost), which renders them as
+// its own pad's, and otherwise "off".
+QString touchpadChoiceForMoonlight(bool touchReachesHost);
+
+// The choice a binding draft's touchpadMode stands for: 0 off, 1 pad, 2 mouse,
+// the order of the choice table. Any other value is the editors' keep: the
+// binding cannot carry the touchpad, so Apply leaves the host's pick, which
+// every pad bound there shares, alone.
+std::optional<QString> touchpadChoiceForDraftMode(int draftMode);
 
 // The profile the SDL bridge installs at attach; a row with no stored override
 // seeds from it, so the two must not drift.

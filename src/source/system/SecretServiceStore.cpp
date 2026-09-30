@@ -16,6 +16,8 @@
 #include <QTimer>
 #include <QVariant>
 
+#include <mutex>
+
 namespace dish::source {
 
 namespace {
@@ -75,12 +77,14 @@ const QDBusArgument& operator>>(const QDBusArgument& arg, SecretValue& s) {
     return arg;
 }
 
+// Once per process, and safe to reach from two threads at once, which the plain
+// `static bool` this replaces was not.
 void registerTypes() {
-    static bool done = false;
-    if (done) { return; }
-    done = true;
-    qDBusRegisterMetaType<SecretValue>();
-    qDBusRegisterMetaType<StringMap>();
+    static std::once_flag once;
+    std::call_once(once, [] {
+        qDBusRegisterMetaType<SecretValue>();
+        qDBusRegisterMetaType<StringMap>();
+    });
 }
 
 StringMap attributesFor(const QString& id) {
@@ -169,40 +173,31 @@ SecretServiceStore::SecretServiceStore() {
     qCInfo(lcSecret) << "pairing keys are stored in the desktop keyring";
 }
 
-std::optional<QString> SecretServiceStore::read(const QString& id) const {
-    if (!available_) { return std::nullopt; }
+namespace {
 
-    QDBusInterface service(QLatin1String(kService), QLatin1String(kServicePath),
-                           QLatin1String(kServiceIface), QDBusConnection::sessionBus());
-    service.setTimeout(kCallTimeoutMs);
-
-    const QDBusMessage found =
-        service.call(QStringLiteral("SearchItems"), QVariant::fromValue(attributesFor(id)));
-    if (found.type() == QDBusMessage::ErrorMessage || found.arguments().isEmpty()) {
-        return std::nullopt;
-    }
-
+// The item paths a search found, unlocked. A locked keyring is asked to unlock, which may put a
+// password prompt on screen; empty when nothing matched or the unlock was refused.
+QList<QDBusObjectPath> unlockedItems(QDBusInterface& service, const QDBusMessage& found) {
     auto unlocked = qdbus_cast<QList<QDBusObjectPath>>(found.arguments().at(0));
-    if (unlocked.isEmpty() && found.arguments().size() > 1) {
-        // Locked: ask for an unlock, which may put a password prompt on screen.
-        auto locked = qdbus_cast<QList<QDBusObjectPath>>(found.arguments().at(1));
-        if (locked.isEmpty()) { return std::nullopt; }
+    if (!unlocked.isEmpty() || found.arguments().size() < 2) { return unlocked; }
+    const auto locked = qdbus_cast<QList<QDBusObjectPath>>(found.arguments().at(1));
+    if (locked.isEmpty()) { return {}; }
 
-        const QDBusMessage unlockReply =
-            service.call(QStringLiteral("Unlock"), QVariant::fromValue(locked));
-        if (unlockReply.type() == QDBusMessage::ErrorMessage ||
-            unlockReply.arguments().size() < 2) {
-            return std::nullopt;
-        }
-        if (!awaitPrompt(qdbus_cast<QDBusObjectPath>(unlockReply.arguments().at(1)))) {
-            return std::nullopt;
-        }
-        unlocked = qdbus_cast<QList<QDBusObjectPath>>(unlockReply.arguments().at(0));
-        if (unlocked.isEmpty()) { unlocked = locked; }
+    const QDBusMessage unlockReply =
+        service.call(QStringLiteral("Unlock"), QVariant::fromValue(locked));
+    if (unlockReply.type() == QDBusMessage::ErrorMessage || unlockReply.arguments().size() < 2) {
+        return {};
     }
-    if (unlocked.isEmpty()) { return std::nullopt; }
+    if (!awaitPrompt(qdbus_cast<QDBusObjectPath>(unlockReply.arguments().at(1)))) { return {}; }
+    unlocked = qdbus_cast<QList<QDBusObjectPath>>(unlockReply.arguments().at(0));
+    return unlocked.isEmpty() ? locked : unlocked;
+}
 
-    QDBusInterface item(QLatin1String(kService), unlocked.first().path(), QLatin1String(kItemIface),
+} // namespace
+
+// The secret one item holds, read through the session opened at construction.
+std::optional<QString> SecretServiceStore::secretAt(const QDBusObjectPath& itemPath) const {
+    QDBusInterface item(QLatin1String(kService), itemPath.path(), QLatin1String(kItemIface),
                         QDBusConnection::sessionBus());
     item.setTimeout(kCallTimeoutMs);
     const QDBusMessage secret =
@@ -210,12 +205,27 @@ std::optional<QString> SecretServiceStore::read(const QString& id) const {
     if (secret.type() == QDBusMessage::ErrorMessage || secret.arguments().isEmpty()) {
         return std::nullopt;
     }
-
     SecretValue value;
     const auto arg = secret.arguments().at(0).value<QDBusArgument>();
     arg >> value;
     if (value.value.isEmpty()) { return std::nullopt; }
     return QString::fromUtf8(value.value);
+}
+
+std::optional<QString> SecretServiceStore::read(const QString& id) const {
+    if (!available_) { return std::nullopt; }
+
+    QDBusInterface service(QLatin1String(kService), QLatin1String(kServicePath),
+                           QLatin1String(kServiceIface), QDBusConnection::sessionBus());
+    service.setTimeout(kCallTimeoutMs);
+    const QDBusMessage found =
+        service.call(QStringLiteral("SearchItems"), QVariant::fromValue(attributesFor(id)));
+    if (found.type() == QDBusMessage::ErrorMessage || found.arguments().isEmpty()) {
+        return std::nullopt;
+    }
+    const auto items = unlockedItems(service, found);
+    if (items.isEmpty()) { return std::nullopt; }
+    return secretAt(items.first());
 }
 
 bool SecretServiceStore::write(const QString& id, const QString& secretHex) {

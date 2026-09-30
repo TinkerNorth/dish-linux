@@ -9,15 +9,13 @@
 #include <QStringLiteral>
 
 #include <cstdint>
+#include <mutex>
 
 // Outside the namespace, as Q_INIT_RESOURCE requires. dish_core is a static
 // library, so nothing else forces the linker to keep the resource object.
 static void initTrayResource() {
-    static const bool sInitialised = [] {
-        Q_INIT_RESOURCE(tray);
-        return true;
-    }();
-    static_cast<void>(sInitialised);
+    static std::once_flag once;
+    std::call_once(once, [] { Q_INIT_RESOURCE(tray); });
 }
 
 namespace dish::source {
