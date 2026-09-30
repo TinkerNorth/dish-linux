@@ -31,7 +31,7 @@
 | Runs in the background / window closed | ❌ (streaming stops when the app leaves the screen) | ✅ tray | ✅ tray |
 | Survives PC sleep and resume | – | ✅ Satellite · ❌ Moonlight | ✅ Satellite · ❌ Moonlight |
 | Keep-awake is user-configurable | ❌ (always on while streaming) | ✅ | ✅ |
-| Diagnostics screen | ✅ | ❌ | ❌ |
+| Diagnostics screen | ✅ | ✅ (rumble-only bench, see §5) | ✅ (rumble-only bench, see §5) |
 | Link-tier cue on host rows (Fastest / Fast / Basic) | ✅ (on the section header) | ✅ | ✅ |
 | Protocol chip ("Satellite update recommended / required", "Dish update required") | ✅ | ✅ | ✅ |
 | App-wide microphone chip with mute-all | ✅ | ✅ | ✅ |
@@ -102,6 +102,24 @@ paired one against it yet.
   reads "Dish update required" for a newer satellite that still accepts this
   build; this client keys the chip on the negotiation, so that case reads as
   fine. Red here means the session cannot open.
+- The Diagnostics page leaves out four Android sections. Screen hold: keep-awake
+  is the user's own setting here, and a page that held the display would be a
+  second writer to the same inhibitor. The Wi-Fi radio card: the desktop has no
+  WLAN source. The latency profiling bench: the desktop input path carries no
+  per-stage timestamps, so the page shows the session's measured round trip
+  instead. Host cards for Moonlight and Bluetooth hosts: every fact the desktop
+  holds about a Moonlight session already renders on the Moonlight hosts page,
+  the host app and GFE versions and per-pad report counts Android adds have no
+  desktop source, and this client never pairs to a host as a Bluetooth gamepad.
+  A controller bound to a Moonlight host still names it.
+- The Diagnostics feature bench drives rumble only, through the ungated path, so
+  a pad whose rumble switch is off can still be tested. The lightbar, player
+  LEDs, trigger effects and mic lamp are host-owned state a test would
+  overwrite, and the lamp is the mute indicator. Controller audio has no test
+  tone in the desktop engines.
+- The Diagnostics event log is localized like every other desktop string: the
+  C++ vends tokens and the QML words them. Android keeps its log in English as
+  export material for bug reports.
 
 ## 6. Android PRs since the diary stopped (2026-08-18 → 2026-09-20)
 
@@ -119,7 +137,7 @@ paired one against it yet.
 | #178 controller audio (+ app-wide mic chip) | #48 + this wave | ported |
 | #182, #183, #186, #190, #197 changelog / notes | – | N/A |
 | #184 privacy policy | #60 | ported |
-| #185 Diagnostics | – | **gap** |
+| #185 Diagnostics | this wave | ported; what the desktop leaves out is in §5 |
 | #187 to #206 Play billing, products, screenshots, promote | – | N/A |
 | #191 cutout theme | – | N/A |
 | #198, #199 test / CI only | – | N/A |
