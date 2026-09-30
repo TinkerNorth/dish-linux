@@ -21,7 +21,7 @@
 |---|---|---|---|
 | Satellite host, protocol 3 | ✅ | ✅ | ✅ |
 | Moonlight host (Sunshine / Apollo / Wolf) | ✅ | ✅ | ✅ |
-| Mouse mode on the host | ✅ | ❌ | ❌ (deferred: `hostMouseControl=false`) |
+| Mouse mode on the host | ✅ | ❌ | ❌ (deferred: `reducer::kClientRoutesTouchpadAsMouse`) |
 | Controller audio (mic + speaker) | ✅ | ✅ | ✅ |
 | DualSense HD haptics | ⚠️ | ⚠️ | ⚠️ |
 | Adaptive triggers, player LEDs, mic lamp | ✅ | ✅ | ✅ |
@@ -36,7 +36,7 @@
 | Protocol chip ("Satellite update recommended / required", "Dish update required") | ✅ | ✅ | ✅ |
 | App-wide microphone chip with mute-all | ✅ | ✅ | ✅ |
 | Capability verdict word "Supported" | ✅ | ✅ | ✅ |
-| Pairing secrets stored encrypted | ✅ Moonlight key (Keystore) · ❌ Satellite key (app-private prefs) | ✅ DPAPI (older builds' `wifi_shared_key/` copies stay plaintext) | ✅ Satellite key (Secret Service, else a 0600 file) · ❌ Moonlight key (0600 file) |
+| Pairing secrets stored encrypted | ✅ Moonlight key (Keystore) · ❌ Satellite key (app-private prefs) | ✅ DPAPI | ✅ Satellite key (Secret Service, else a 0600 file) · ❌ Moonlight key (0600 file) |
 | Six languages (en, bs, de, es, fr, pt-BR) | ✅ | ✅ | ✅ |
 
 ## 2. Input, pad → host, by path (cell = USB Direct · USB Standard · Bluetooth)
