@@ -246,6 +246,7 @@ class MoonlightManager : public QObject {
     void onAppListRefused(const QString& uuid, const QString& address, int status,
                           const std::optional<moonxml::Status>& refusal);
     void onAppListRead(const QString& uuid, const QString& address, const std::string& xml);
+    void forgetAPickTheHostDropped(const QString& uuid, const QList<MoonlightApp>& listed);
     MoonlightSession* ensureSession(const repository::MoonlightHost& host);
     void wireSession(MoonlightSession* session, const QString& uuid);
     // Starts the session if nothing is running on it yet. The app comes from

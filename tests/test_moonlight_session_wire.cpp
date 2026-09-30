@@ -30,6 +30,7 @@
 
 #include <QSslSocket>
 #include <QString>
+#include <QStringList>
 #include <QUrlQuery>
 
 #include <chrono>
@@ -113,6 +114,18 @@ struct Rig {
     moonlight::SessionUiState uiFor(const QString& slotId) const {
         return moonlight::sessionUiState(manager->uiInputs(kHostId, slotId));
     }
+
+    // Reads the host's app list the way entering the binding screen does, and
+    // waits for the read to end either way.
+    bool readApps() {
+        manager->refreshApps(kHostId);
+        return spinFor([this] {
+            const auto inputs = manager->uiInputs(kHostId, QString());
+            return !inputs.appsInFlight && (inputs.appsRead || inputs.appsFailed);
+        });
+    }
+
+    QString storedPick() const { return repo->get(kHostId)->lastAppId; }
 };
 
 // The TLS half of the fixture needs a working backend; a Qt built without one
@@ -631,6 +644,68 @@ TEST_CASE("a launch refused in the status line is a refusal, not a silent host",
     CHECK(rig.uiFor(QStringLiteral("pad-a")) == moonlight::SessionUiState::Refused);
     // A refused launch started nothing of ours, so there is nothing to close.
     CHECK(rig.host.seen(QStringLiteral("/cancel")) == 0);
+}
+
+// ── The app a launch asks for ────────────────────────────────────────────────
+
+TEST_CASE("an app the host no longer lists is forgotten as the pick when its list is read",
+          "[moonlight][wire][b7][h3]") {
+    // Launched, it is refused every time (Wolf answers an unknown app with HTTP
+    // 400), and the refusal hides the picker it could be changed in.
+    if (!tlsAvailable()) { SKIP("no TLS backend for the fixture host"); }
+    Rig rig;
+    REQUIRE(rig.host.listening());
+    rig.manager->setLastApp(kHostId, QStringLiteral("9"), QStringLiteral("Removed"));
+
+    REQUIRE(rig.readApps());
+
+    CHECK(rig.storedPick().isEmpty());
+    CHECK(rig.repo->get(kHostId)->lastAppName.isEmpty());
+}
+
+TEST_CASE("an app the host still lists stays the pick", "[moonlight][wire][b7]") {
+    if (!tlsAvailable()) { SKIP("no TLS backend for the fixture host"); }
+    Rig rig;
+    REQUIRE(rig.host.listening());
+    rig.manager->setLastApp(kHostId, QStringLiteral("1"), QStringLiteral("Desktop"));
+
+    REQUIRE(rig.readApps());
+
+    CHECK(rig.storedPick() == QStringLiteral("1"));
+}
+
+TEST_CASE("a pick stays when the host's app list cannot be read", "[moonlight][wire][b7]") {
+    // A list that did not come back says nothing about what the host can start.
+    if (!tlsAvailable()) { SKIP("no TLS backend for the fixture host"); }
+    Rig rig;
+    REQUIRE(rig.host.listening());
+    rig.host.answer(QStringLiteral("/applist"), 401,
+                    QByteArrayLiteral("<root status_code=\"401\"/>"));
+    rig.manager->setLastApp(kHostId, QStringLiteral("9"), QStringLiteral("Removed"));
+
+    REQUIRE(rig.readApps());
+
+    CHECK(rig.storedPick() == QStringLiteral("9"));
+}
+
+TEST_CASE("a session on a host that no longer lists the picked app starts the first app it lists",
+          "[moonlight][wire][b7]") {
+    if (!tlsAvailable()) { SKIP("no TLS backend for the fixture host"); }
+    Rig rig;
+    REQUIRE(rig.host.listening());
+    rig.manager->setLastApp(kHostId, QStringLiteral("9"), QStringLiteral("Removed"));
+    REQUIRE(rig.readApps());
+    rig.host.forgetRequests();
+
+    REQUIRE(rig.bindLive(QStringLiteral("pad-a")));
+
+    QStringList launched;
+    for (const auto& request : rig.host.requests()) {
+        if (request.path == QLatin1String("/launch")) {
+            launched.append(request.query.queryItemValue(QStringLiteral("appid")));
+        }
+    }
+    CHECK(launched == QStringList{QStringLiteral("1")});
 }
 
 // ── A launch still in flight when the last pad leaves ────────────────────────

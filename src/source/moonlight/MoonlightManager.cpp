@@ -479,8 +479,29 @@ void MoonlightManager::onAppListRead(const QString& uuid, const QString& address
     result.read = true;
     result.failed = false;
     qCInfo(lcMoon) << "applist on" << address << "returned" << result.apps.size() << "apps";
+    forgetAPickTheHostDropped(uuid, result.apps);
     emit appsChanged(uuid);
     emit rowsChanged();
+}
+
+// The host's app list is its own word on what it can start. A pick it no longer lists is refused
+// on every launch, behind a refusal that hides the picker it could be changed in, so it is
+// forgotten and the host's first app starts, as the binding flow promises for a host with no pick.
+void MoonlightManager::forgetAPickTheHostDropped(const QString& uuid,
+                                                 const QList<MoonlightApp>& listed) {
+    auto host = hostRepo_.get(uuid);
+    if (!host) { return; }
+    const QString pick = host->lastAppId;
+    const bool stillListed =
+        std::any_of(listed.cbegin(), listed.cend(),
+                    [&pick](const MoonlightApp& app) { return app.id == pick; });
+    const bool theHostDroppedIt = !pick.isEmpty() && !stillListed;
+    if (!theHostDroppedIt) { return; }
+    qCInfo(lcMoon) << uuid << "no longer lists app" << pick << "; forgetting it as the pick";
+    host->lastAppId.clear();
+    host->lastAppName.clear();
+    // put, not upsert: upsert keeps a stored pick the incoming row leaves empty.
+    hostRepo_.put(uuid, *host);
 }
 
 void MoonlightManager::onAppListReply(const QString& uuid, quint64 epoch, const QString& address,
