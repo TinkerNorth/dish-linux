@@ -565,6 +565,8 @@ class AppModel : public QObject {
     // writes into the store, so it comes after both and is destroyed first.
     source::DiagnosticsLogStore diagnosticsLog_;
     composer::DiagnosticsRecorder diagnosticsRecorder_;
+    // The Diagnostics bench's buzzes, so a stop ends only the buzz it was set for.
+    reducer::TestBuzzTickets buzzTickets_;
     input::GamepadInputProcessor processor_;
     input::SDLGamepadBridge* bridge_;
     FeatureSettings* featureSettings_;

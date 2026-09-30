@@ -1452,10 +1452,14 @@ bool AppModel::slotCarriesRumble(const QString& slotId) const {
 }
 
 // The raw-HID path has no duration and runs the motors until the next write, so
-// the buzz always ends with an explicit stop, which SDL takes harmlessly.
+// the buzz always ends with an explicit stop, which SDL takes harmlessly. A stop
+// ends only its own buzz: one started meanwhile runs its full length.
 void AppModel::testRumble(const QString& slotId, reducer::TestBuzz buzz) {
+    const std::uint64_t ticket = buzzTickets_.issue(slotId.toStdString());
     actuateRumble(slotId, buzz.strong, buzz.weak, buzz.durationMs);
-    QTimer::singleShot(buzz.durationMs, this, [this, slotId] { actuateRumble(slotId, 0, 0, 0); });
+    QTimer::singleShot(buzz.durationMs, this, [this, slotId, ticket] {
+        if (buzzTickets_.isLatest(slotId.toStdString(), ticket)) { actuateRumble(slotId, 0, 0, 0); }
+    });
 }
 
 reducer::HostAudioVerdict AppModel::hostControllerAudioFor(const QString& hostId) const {

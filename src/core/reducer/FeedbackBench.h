@@ -11,6 +11,8 @@
 #pragma once
 
 #include <cstdint>
+#include <string>
+#include <unordered_map>
 
 namespace dish::reducer {
 
@@ -38,5 +40,23 @@ inline TestBuzz testBuzzFor(BuzzMotor motor) {
     }
     return {};
 }
+
+// Each test buzz ends with its own stop, scheduled for when it runs out. A buzz
+// started before the last one's stop falls due must not be cut short by that
+// stop, so every buzz takes a ticket and its stop is honoured only while the
+// ticket is still the pad's latest: dish-android's inspector cancels the
+// pending stop to the same end.
+class TestBuzzTickets {
+  public:
+    std::uint64_t issue(const std::string& slotId) { return ++latest_[slotId]; }
+
+    bool isLatest(const std::string& slotId, std::uint64_t ticket) const {
+        const auto it = latest_.find(slotId);
+        return it != latest_.end() && it->second == ticket;
+    }
+
+  private:
+    std::unordered_map<std::string, std::uint64_t> latest_;
+};
 
 } // namespace dish::reducer
