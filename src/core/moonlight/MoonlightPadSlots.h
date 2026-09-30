@@ -23,6 +23,7 @@
 #pragma once
 
 #include "core/moonlight/MoonlightProtocol.h"
+#include "core/reducer/TouchpadModeResolve.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -233,6 +234,20 @@ inline bool hostBuildsAnotherPad(const AnnouncedPad& held, const AnnouncedPad& w
     const int changedBits = held.capabilities ^ wanted.capabilities;
     const bool anotherMotion = (changedBits & kCapsReadAtArrival) != 0;
     return anotherType || anotherMotion;
+}
+
+// Whether a pad's touches reach a Moonlight host: where the host's touchpad pick, read as the Pad
+// a host never picked for is, takes the pad render rung of the ladder a satellite's descriptor is
+// declared by, on a type whose pad has a touchpad. A Mouse pick puts no touches on the pad whether
+// or not the mouse is open, so the mouse rung is not asked.
+inline bool touchReachesHost(const std::optional<std::string>& storedPick, bool padHasTouchpad,
+                             std::uint8_t controllerType) {
+    const bool typeRendersPad =
+        (typeCapabilityCeiling(controllerType) & moonproto::kCapTouchpad) != 0;
+    const std::uint8_t mode =
+        reducer::resolveTouchpadMode(reducer::touchpadPickOrDefault(storedPick), padHasTouchpad,
+                                     typeRendersPad, /*hostMouseControl=*/false);
+    return mode == proto::kTouchpadModeDs4;
 }
 
 } // namespace dish::moonlight

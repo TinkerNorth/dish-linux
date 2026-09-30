@@ -173,6 +173,7 @@ MoonlightSession::attachController(const QString& slotId, int storedType,
     if (!number) { return std::nullopt; }
     const PadDeclaration pad = declarationFor(*number, storedType, source);
     pads_.insert(slotId, pad);
+    forgetTouchFrame(pad.number);
     activeMask_.store(slots_.activeMask(), std::memory_order_relaxed);
     qCInfo(lcMoon) << "pad" << slotId << "takes controller" << pad.number << "on" << host_.address
                    << "type" << pad.type << "caps" << pad.capabilities << "mask"
@@ -184,6 +185,7 @@ MoonlightSession::attachController(const QString& slotId, int storedType,
 std::size_t MoonlightSession::detachController(const QString& slotId) {
     const auto released = slots_.release(slotId.toStdString());
     pads_.remove(slotId);
+    if (released) { forgetTouchFrame(*released); }
     const std::uint16_t mask = slots_.activeMask();
     activeMask_.store(mask, std::memory_order_relaxed);
     // The unplug IS the packet: the controller is still named, its bit is gone.
@@ -208,8 +210,9 @@ MoonlightSession::reannounceController(const QString& slotId, int storedType,
         return wanted.number;
     }
     *it = wanted;
-    // The pad the host builds next has asked for no motion yet.
+    // The pad the host builds next has asked for no motion yet, and holds no contact.
     motionGate_.clear(wanted.number);
+    forgetTouchFrame(wanted.number);
     replugPad(wanted);
     return wanted.number;
 }
@@ -630,6 +633,7 @@ void MoonlightSession::startStreaming() {
     wentLive_ = true;
     qCInfo(lcMoon) << "session live on" << host_.address << "announcing" << pads_.size() << "pads";
     for (auto it = pads_.constBegin(); it != pads_.constEnd(); ++it) {
+        forgetTouchFrame(it->number);
         control_->sendControllerArrival(it->number, it->type, it->capabilities, it->buttons);
         control_->sendControllerMulti(it->number, activeMask_.load(std::memory_order_relaxed), 0, 0,
                                       0, 0, 0, 0, 0);
@@ -753,10 +757,35 @@ void MoonlightSession::sendBattery(std::uint8_t controllerNumber, std::uint8_t s
     control_->sendControllerBattery(controllerNumber, state, percentage);
 }
 
-void MoonlightSession::sendTouch(std::uint8_t controllerNumber,
-                                 const moonlight::TouchEvent& event) {
-    control_->sendControllerTouch(controllerNumber, event.eventType, event.pointerId, event.x,
-                                  event.y, event.pressure);
+void MoonlightSession::sendTouchFrame(std::uint8_t controllerNumber,
+                                      const moonlight::TouchFinger& finger0,
+                                      const moonlight::TouchFinger& finger1) {
+    if (controllerNumber >= moonlight::kMaxPads) { return; }
+    std::vector<moonlight::TouchEvent> events;
+    {
+        std::lock_guard<std::mutex> lock(touchMtx_);
+        PadTouch& pad = touch_[controllerNumber];
+        const moonlight::TouchFinger nothing;
+        events = pad.reaches ? pad.lastFrame.diff(finger0, finger1)
+                             : pad.lastFrame.diff(nothing, nothing);
+    }
+    for (const auto& event : events) {
+        control_->sendControllerTouch(controllerNumber, event.eventType, event.pointerId, event.x,
+                                      event.y, event.pressure);
+    }
+}
+
+void MoonlightSession::setTouchReaches(std::uint8_t controllerNumber, bool reaches) {
+    if (controllerNumber >= moonlight::kMaxPads) { return; }
+    std::lock_guard<std::mutex> lock(touchMtx_);
+    touch_[controllerNumber].reaches = reaches;
+}
+
+// The pad the host builds next under this number holds no contact.
+void MoonlightSession::forgetTouchFrame(std::uint8_t controllerNumber) {
+    if (controllerNumber >= moonlight::kMaxPads) { return; }
+    std::lock_guard<std::mutex> lock(touchMtx_);
+    touch_[controllerNumber].lastFrame.reset();
 }
 
 void MoonlightSession::onHostEvent(const moonwire::HostEvent& event) {

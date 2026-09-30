@@ -135,15 +135,6 @@ moonlight::TouchFinger touchFinger(bool active, std::uint8_t id, std::int16_t x,
     return f;
 }
 
-// The pad click has no packet of its own here: it rides the pad frame as BTN_TOUCHPAD, which the
-// report sender already carries, so only the finger positions come this way. The differ is the
-// pad's last frame, because the host wants transitions and the pad reports full state.
-void sendMoonlightTouch(source::moon::MoonlightSession& session, std::uint8_t pad,
-                        moonlight::MoonlightTouchDiffer& differ, const moonlight::TouchFinger& a,
-                        const moonlight::TouchFinger& b) {
-    for (const auto& event : differ.diff(a, b)) { session.sendTouch(pad, event); }
-}
-
 } // namespace
 
 AppModel::AppModel(QObject* parent)
@@ -263,6 +254,10 @@ AppModel::AppModel(std::unique_ptr<source::WakeInhibitor> inhibitor, QObject* pa
     motionSwitchSub_ = motionEnabledStore_.state().subscribe(
         [this](const source::MotionEnabledMap&) { moonlight_->refreshMotionSwitches(); },
         /*emitCurrent=*/false);
+    // The host's touchpad pick, which Apply writes before it binds.
+    moonlight_->setTouchpadPick([this](const QString& hostUuid) {
+        return touchpadModeStore_.modeFor(hostUuid.toStdString());
+    });
 
     // Hot path, called on the SDL gamepad thread: look the sender up under a
     // short-held mutex, then forward outside it.
@@ -606,14 +601,15 @@ AppModel::MoonlightRoutes AppModel::moonlightRoutesFor(source::moon::MoonlightSe
         session->sendBattery(pad, moonlight::batteryStateFromSatelliteStatus(status),
                              moonlight::batteryPercentage(level));
     };
-    // Per bound pad, because the differ IS the pad's last frame.
-    auto differ = std::make_shared<moonlight::MoonlightTouchDiffer>();
-    routes.touch = [session, pad, differ](bool f0Active, std::uint8_t f0Id, std::int16_t f0X,
-                                          std::int16_t f0Y, bool f1Active, std::uint8_t f1Id,
-                                          std::int16_t f1X, std::int16_t f1Y,
-                                          bool /*buttonPressed*/, std::uint32_t /*eventTimeMs*/) {
-        sendMoonlightTouch(*session, pad, *differ, touchFinger(f0Active, f0Id, f0X, f0Y),
-                           touchFinger(f1Active, f1Id, f1X, f1Y));
+    // The pad click has no packet of its own here: it rides the pad frame as BTN_TOUCHPAD, which
+    // the report sender already carries, so only the finger positions come this way. The session
+    // diffs them, because the host wants transitions and the pad reports full state.
+    routes.touch = [session, pad](bool f0Active, std::uint8_t f0Id, std::int16_t f0X,
+                                  std::int16_t f0Y, bool f1Active, std::uint8_t f1Id,
+                                  std::int16_t f1X, std::int16_t f1Y, bool /*buttonPressed*/,
+                                  std::uint32_t /*eventTimeMs*/) {
+        session->sendTouchFrame(pad, touchFinger(f0Active, f0Id, f0X, f0Y),
+                                touchFinger(f1Active, f1Id, f1X, f1Y));
     };
     return routes;
 }

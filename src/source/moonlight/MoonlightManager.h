@@ -178,6 +178,13 @@ class MoonlightManager : public QObject {
     // Asks the switch again for every bound slot, after the user turned one.
     void refreshMotionSwitches();
 
+    // A host's touchpad pick as the store holds it, empty for a host never picked for. Read when a
+    // slot binds, which Apply does after writing the pick, and handed to the session the slot
+    // rides: a pad's touches reach the host only where the pick lets them, and the contact the host
+    // holds is lifted when they stop. With no pick to read, every host reads as never picked for.
+    using TouchpadPick = std::function<std::optional<std::string>(const QString& hostUuid)>;
+    void setTouchpadPick(TouchpadPick touchpadPick);
+
   signals:
     void rowsChanged();
     void scanningChanged();
@@ -262,6 +269,10 @@ class MoonlightManager : public QObject {
     bool motionSwitchAllows(const QString& slotId) const;
     // Hands the switch's answer to the session the slot rides, where sendMotion reads it.
     void readMotionSwitch(const QString& slotId);
+    std::optional<std::string> touchpadPickFor(const QString& uuid) const;
+    // Hands the session whether the pad under `number` lets its touches reach the host.
+    void readTouchpadPick(MoonlightSession& session, std::uint8_t number, const QString& uuid,
+                          int storedType, const moonlight::SourceCapabilities& source);
     MoonlightSession* ensureSession(const repository::MoonlightHost& host);
     void wireSession(MoonlightSession* session, const QString& uuid);
     // Starts the session if nothing is running on it yet. The app comes from
@@ -300,6 +311,7 @@ class MoonlightManager : public QObject {
     RumbleSink rumbleSink_;
     LedSink ledSink_;
     MotionSwitch motionSwitch_;
+    TouchpadPick touchpadPick_;
 };
 
 } // namespace dish::source::moon

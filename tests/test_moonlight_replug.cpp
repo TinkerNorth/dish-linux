@@ -74,6 +74,17 @@ int padPacketsAfter(const FakeMoonlightHost& host, std::size_t seen) {
     return count;
 }
 
+int downsAfter(const FakeMoonlightHost& host, std::size_t seen) {
+    int count = 0;
+    const auto packets = host.controlPackets();
+    for (std::size_t i = seen; i < packets.size(); ++i) {
+        const bool down = packets[i].inputType == moonproto::kInputControllerTouch &&
+                          packets[i].touchEvent == moonproto::kTouchEventDown;
+        if (down) { ++count; }
+    }
+    return count;
+}
+
 // A listening host, a store holding its record, and a manager over that store.
 struct Rig {
     std::shared_ptr<QSettings> settings = test::makeSharedSettings();
@@ -95,6 +106,16 @@ struct Rig {
     }
 
     MoonlightSession* session() const { return manager->session(kHostId); }
+
+    // Finger 7 down on controller 0's pad, as one full-state frame.
+    void fingerDown() const {
+        moonlight::TouchFinger finger;
+        finger.active = true;
+        finger.id = 7;
+        finger.x = 0.25F;
+        finger.y = 0.5F;
+        session()->sendTouchFrame(0, finger, moonlight::TouchFinger{});
+    }
 
     bool streaming() const {
         return session() != nullptr &&
@@ -271,4 +292,25 @@ TEST_CASE("a replugged pad streams motion only once the pad the host built asks 
     settle();
     CHECK_FALSE(rig.session()->motionRequested(0, moonproto::kMotionGyroscope));
     CHECK_FALSE(rig.session()->motionRequested(0, moonproto::kMotionAcceleration));
+}
+
+TEST_CASE("a replugged pad's touch starts from nothing", "[moonlight][replug][h5]") {
+    // A finger that stayed on the pad through the replug is a contact the new pad never saw go
+    // down, so the next frame has to put it down again rather than move it. The pad loses its gyro
+    // in between, which is a replug that keeps a type whose pad has a touchpad.
+    if (!tlsAvailable()) { SKIP("no TLS backend for the fixture host"); }
+    Rig rig;
+    REQUIRE(rig.host.listening());
+    REQUIRE(rig.bindLive(QStringLiteral("pad-a"), moonproto::kControllerTypePs, pad(true, false)));
+    REQUIRE(spinFor([&rig] { return padPacketsAfter(rig.host, 0) == 2; }, 5000));
+    rig.fingerDown();
+    REQUIRE(spinFor([&rig] { return downsAfter(rig.host, 0) == 1; }, 5000));
+    const std::size_t before = rig.host.controlPackets().size();
+
+    REQUIRE(rig.bind(QStringLiteral("pad-a"), moonproto::kControllerTypePs, pad(false, false)) ==
+            0);
+    REQUIRE(spinFor([&rig, before] { return padPacketsAfter(rig.host, before) >= 2; }, 5000));
+    rig.fingerDown();
+
+    CHECK(spinFor([&rig] { return downsAfter(rig.host, 0) == 2; }, 5000));
 }

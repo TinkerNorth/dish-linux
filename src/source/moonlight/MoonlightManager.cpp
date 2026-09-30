@@ -680,6 +680,7 @@ MoonlightManager::bindController(const QString& slotId, const QString& uuid, int
         return std::nullopt;
     }
     readMotionSwitch(slotId);
+    readTouchpadPick(*session, *number, uuid, storedType, source);
     ensureSessionRunning(session, *host);
     qCInfo(lcMoon) << "bound" << slotId << "to" << uuid << "as controller" << *number;
     emit rowsChanged();
@@ -902,6 +903,24 @@ MoonlightSession* MoonlightManager::session(const QString& uuid) const {
 
 void MoonlightManager::setMotionSwitch(MotionSwitch motionSwitch) {
     motionSwitch_ = std::move(motionSwitch);
+}
+
+void MoonlightManager::setTouchpadPick(TouchpadPick touchpadPick) {
+    touchpadPick_ = std::move(touchpadPick);
+}
+
+std::optional<std::string> MoonlightManager::touchpadPickFor(const QString& uuid) const {
+    if (!touchpadPick_) { return std::nullopt; }
+    return touchpadPick_(uuid);
+}
+
+// The type is the one the session declares for the pad, resolved the same way.
+void MoonlightManager::readTouchpadPick(MoonlightSession& session, std::uint8_t number,
+                                        const QString& uuid, int storedType,
+                                        const moonlight::SourceCapabilities& source) {
+    const std::uint8_t type = moonlight::resolveControllerType(storedType, source.motion);
+    session.setTouchReaches(
+        number, moonlight::touchReachesHost(touchpadPickFor(uuid), source.touchpad, type));
 }
 
 void MoonlightManager::refreshMotionSwitches() {

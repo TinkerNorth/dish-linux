@@ -39,6 +39,7 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <mutex>
 #include <optional>
 
 class QTimer;
@@ -118,9 +119,15 @@ class MoonlightSession : public QObject {
     // Battery, on the same thread as motion. Unconditional: a host that
     // declared the capability gets the level whenever the pad reports one.
     void sendBattery(std::uint8_t controllerNumber, std::uint8_t state, std::uint8_t percentage);
-    // One diffed touch event. Never rate-gated: the events are transitions, and
-    // dropping one strands a contact on the host.
-    void sendTouch(std::uint8_t controllerNumber, const moonlight::TouchEvent& event);
+    // The pad's full-state touch frame, on the SDL input thread, diffed here against the last
+    // frame the host was told about and sent as the transitions between them. Never rate-gated:
+    // the events are transitions, and dropping one strands a contact on the host. A pad whose
+    // touches do not reach the host is diffed against nothing touching, which lifts a contact the
+    // host still holds and sends nothing after it.
+    void sendTouchFrame(std::uint8_t controllerNumber, const moonlight::TouchFinger& finger0,
+                        const moonlight::TouchFinger& finger1);
+    // Whether the host's touchpad pick lets this pad's touches reach it, on the Qt thread.
+    void setTouchReaches(std::uint8_t controllerNumber, bool reaches);
 
     bool motionRequested(std::uint8_t controllerNumber, std::uint8_t motionType) const {
         return motionGate_.wanted(controllerNumber, motionType);
@@ -248,6 +255,18 @@ class MoonlightSession : public QObject {
     std::atomic<std::uint16_t> activeMask_{0};
     // One bit per pad whose Motion switch is off, read on the sensor thread.
     std::atomic<std::uint16_t> motionOffMask_{0};
+    // Per controller number, the last touch frame the host was told about and whether the pad's
+    // touches reach it. It lives with the session rather than with a binding's routes, so applying
+    // a binding again keeps it: the host still holds the contacts it was told about. Written on the
+    // Qt thread when a pad is attached, replugged, detached, announced or bound, and on the SDL
+    // input thread by every frame.
+    struct PadTouch {
+        moonlight::MoonlightTouchDiffer lastFrame;
+        bool reaches = true;
+    };
+    std::mutex touchMtx_;
+    std::array<PadTouch, moonlight::kMaxPads> touch_;
+    void forgetTouchFrame(std::uint8_t controllerNumber);
 
     bool everStarted_ = false;
     QString refusalMessage_;
