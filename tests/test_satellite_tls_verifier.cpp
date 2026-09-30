@@ -16,6 +16,7 @@
 
 #include <functional>
 
+using dish::http::pinVerifierOver;
 using dish::http::verifyPeerCertificate;
 using dish::repository::SatellitePinRepository;
 using dish::test::makeSharedSettings;
@@ -92,24 +93,19 @@ TEST_CASE("pins are kept per satellite id", "[tlsverify]") {
     CHECK(pins.pinnedFingerprint(QStringLiteral("b")).value().size() == 64);
 }
 
-// The shape WifiConnectionManager installs on both HTTP clients: one long-lived
-// verifier over a shared pin store, handed a FRESH flag per request. The flag is
-// the only thing that separates a changed identity from a dropped link once the
-// abort has erased the status and the body.
+// The shape WifiConnectionManager installs: one long-lived verifier over a
+// shared pin store, handed a FRESH flag per request. The flag is the only thing
+// that separates a changed identity from a dropped link once the abort has
+// erased the status and the body.
 namespace {
-using PinVerifier = std::function<bool(const QString&, const QByteArray&, bool&)>;
-
-PinVerifier makeVerifier(SatellitePinRepository& pins) {
-    return [&pins](const QString& satelliteId, const QByteArray& certDer, bool& pinMismatch) {
-        return verifyPeerCertificate(satelliteId, pins, certDer,
-                                     [&pinMismatch] { pinMismatch = true; });
-    };
-}
+// Every address has a pairing behind its pin, or none has.
+bool pairedEverywhere(const QString&) { return true; }
+bool pairedNowhere(const QString&) { return false; }
 } // namespace
 
 TEST_CASE("the per-request flag is raised only by a changed cert", "[tlsverify]") {
     SatellitePinRepository pins(makeSharedSettings());
-    const auto verify = makeVerifier(pins);
+    const auto verify = pinVerifierOver(pins, &pairedEverywhere);
 
     bool firstUse = false;
     CHECK(verify(kSat, der({1, 2, 3}), firstUse));
@@ -130,7 +126,7 @@ TEST_CASE("the per-request flag is raised only by a changed cert", "[tlsverify]"
 
 TEST_CASE("a raised flag does not leak into the next request", "[tlsverify]") {
     SatellitePinRepository pins(makeSharedSettings());
-    const auto verify = makeVerifier(pins);
+    const auto verify = pinVerifierOver(pins, &pairedEverywhere);
     CHECK(verifyPeerCertificate(kSat, pins, der({1, 2, 3})));
 
     bool changed = false;
@@ -142,4 +138,37 @@ TEST_CASE("a raised flag does not leak into the next request", "[tlsverify]") {
     bool again = false;
     CHECK(verify(kSat, der({1, 2, 3}), again));
     CHECK_FALSE(again);
+}
+
+// A pin with no pairing behind it protects nothing: it was set by a handshake that never led to a
+// key, typically an approval request the operator never answered. A satellite reinstalled since
+// then must still be able to pair.
+
+TEST_CASE("a changed cert at an address nothing is paired with is trusted as a first use",
+          "[tlsverify]") {
+    SatellitePinRepository pins(makeSharedSettings());
+    const auto verify = pinVerifierOver(pins, &pairedNowhere);
+    bool firstUse = false;
+    CHECK(verify(kSat, der({1, 2, 3}), firstUse));
+
+    bool changed = false;
+    CHECK(verify(kSat, der({9, 9, 9}), changed));
+
+    CHECK_FALSE(changed);
+    // Pinned in the old one's place.
+    CHECK(pins.pinnedFingerprint(kSat).has_value());
+    CHECK(pins.pinnedFingerprint(kSat) != kFp123);
+}
+
+TEST_CASE("a changed cert at an address with a pairing behind it is still refused", "[tlsverify]") {
+    SatellitePinRepository pins(makeSharedSettings());
+    const auto verify = pinVerifierOver(pins, &pairedEverywhere);
+    bool firstUse = false;
+    CHECK(verify(kSat, der({1, 2, 3}), firstUse));
+
+    bool changed = false;
+    CHECK_FALSE(verify(kSat, der({9, 9, 9}), changed));
+
+    CHECK(changed);
+    CHECK(pins.pinnedFingerprint(kSat) == kFp123);
 }

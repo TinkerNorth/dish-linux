@@ -33,6 +33,11 @@ Kit.ContentDialog {
     // openFor cancels any stale reverse request first, so idle == not ours.
     readonly property bool reverseLive:
         serverId.length > 0 && App.reversePairingPhase !== "idle"
+    // A changed identity or another protocol version ends the request as surely as a decline, and
+    // unlike a decline no new code can rescue it, so only a decline and a timeout offer one.
+    readonly property bool reverseEndedInError:
+        App.reversePairingPhase === "declined" || App.reversePairingPhase === "identitychanged"
+        || App.reversePairingPhase === "versionmismatch"
 
     property bool pinRejected: false
     property string pinReason: ""
@@ -268,8 +273,13 @@ Kit.ContentDialog {
                           ? qsTr("The operator declined the pairing.")
                       : App.reversePairingPhase === "timedout"
                           ? qsTr("No approval — the code expired.")
+                      : App.reversePairingPhase === "identitychanged"
+                          ? qsTr("This satellite's security identity changed. If it was reinstalled, forget it here and pair again.")
+                      : App.reversePairingPhase === "versionmismatch"
+                          ? qsTr("%1 is running a different Satellite version. Update both, then pair again.")
+                                .arg(pairDialog.serverName)
                       : ""
-                color: App.reversePairingPhase === "declined" ? Theme.error
+                color: pairDialog.reverseEndedInError ? Theme.error
                      : App.reversePairingPhase === "approved" ? Theme.success
                      : Theme.muted
                 font.pixelSize: Tokens.textSummary

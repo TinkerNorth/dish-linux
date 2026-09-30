@@ -3630,6 +3630,10 @@
         <translation>No approval — the code expired.</translation>
     </message>
     <message>
+        <source>This satellite&apos;s security identity changed. If it was reinstalled, forget it here and pair again.</source>
+        <translation>This satellite&apos;s security identity changed. If it was reinstalled, forget it here and pair again.</translation>
+    </message>
+    <message>
         <source>New code</source>
         <translation>New code</translation>
     </message>

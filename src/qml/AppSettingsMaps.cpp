@@ -4,6 +4,7 @@
 #include "qml/AppSettingsMaps.h"
 
 #include "Input/SDLGamepadBridge.h"
+#include "Network/WifiConnectionManager.h"
 #include "core/model/Protocol.h"
 #include "core/reducer/TouchpadModeResolve.h"
 #include "repository/DeadzoneRepository.h"
@@ -104,6 +105,26 @@ QString keepAwakeReachToken(reducer::KeepAwakeReach reach) {
         break;
     }
     return QStringLiteral("off");
+}
+
+QString reversePairingPhaseToken(net::ReversePairingPhase phase) {
+    switch (phase) {
+    case net::ReversePairingPhase::AwaitingApproval:
+        return QStringLiteral("awaiting");
+    case net::ReversePairingPhase::Approved:
+        return QStringLiteral("approved");
+    case net::ReversePairingPhase::Declined:
+        return QStringLiteral("declined");
+    case net::ReversePairingPhase::TimedOut:
+        return QStringLiteral("timedout");
+    case net::ReversePairingPhase::IdentityChanged:
+        return QStringLiteral("identitychanged");
+    case net::ReversePairingPhase::VersionMismatch:
+        return QStringLiteral("versionmismatch");
+    case net::ReversePairingPhase::Idle:
+        break;
+    }
+    return QStringLiteral("idle");
 }
 
 QString touchpadChoiceForPick(const std::optional<std::string>& pick, bool mouseModeAvailable) {

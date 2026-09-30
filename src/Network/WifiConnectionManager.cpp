@@ -210,16 +210,19 @@ WifiConnectionManager::WifiConnectionManager(ConnectionStore* store, QObject* pa
     if (deviceName_.isEmpty()) { deviceName_ = QStringLiteral("Linux"); }
     // TOFU on every HTTPS call, pairing included, keyed by host to match the
     // ConnectionStore pin-migration convention: the first pair pins, and every
-    // later call must present the pinned cert. `pins` is captured by reference
-    // below, so the store must outlive this manager.
-    auto& pins = store_->facade().pins();
-    // Reporting the mismatch per request is the whole point: a changed cert and a
-    // dead link both abort the transfer, and only this flag tells them apart.
+    // later call must present the pinned cert. The verifier holds the pin store
+    // by reference, so the store must outlive this manager.
     http_->setPinVerifier(
-        [&pins](const QString& host, const QByteArray& certDer, bool& pinMismatch) {
-            return http::verifyPeerCertificate(host, pins, certDer,
-                                               [&pinMismatch] { pinMismatch = true; });
-        });
+        http::pinVerifierOver(store_->facade().pins(),
+                              [this](const QString& host) { return pinGuardsAPairingAt(host); }));
+}
+
+bool WifiConnectionManager::pinGuardsAPairingAt(const QString& host) const {
+    for (auto* conn : connections_) {
+        if (conn->server().ip != host) { continue; }
+        if (store_->sharedKey(conn->id()).has_value()) { return true; }
+    }
+    return false;
 }
 
 WifiConnectionManager::~WifiConnectionManager() {
@@ -390,21 +393,23 @@ void WifiConnectionManager::pairWithPin(const models::DiscoveredServer& server,
 
     pairingInFlight_.insert(conn->id());
     emit pairingInFlightChanged();
-    http_->pair(
-        server.ip, server.pairPort, deviceId_, deviceName_, pin, QString(),
-        [this, id = conn->id(), server](const models::PairResponse& response, bool pinMismatch) {
-            onPinPairReply(id, server, PairingOutcome::classify(response, pinMismatch));
-        });
+    http_->pair(server.ip, server.pairPort, deviceId_, deviceName_, pin, QString(),
+                [this, id = conn->id(), sentOn = QPointer<WifiConnection>(conn),
+                 server](const models::PairResponse& response, bool pinMismatch) {
+                    onPinPairReply(id, sentOn, server,
+                                   PairingOutcome::classify(response, pinMismatch));
+                });
 }
 
 // Path A: the PIN the operator read off the satellite, typed into the sheet here.
 void WifiConnectionManager::onPinPairReply(const QString& id,
+                                           const QPointer<WifiConnection>& sentOn,
                                            const models::DiscoveredServer& server,
                                            const PairingOutcome::Arm& outcome) {
-    pairingInFlight_.remove(id);
-    emit pairingInFlightChanged();
-    // Forgotten while the POST was out: keeping the key would pair a satellite the user removed.
-    auto* conn = connections_.value(id, nullptr);
+    endPairingRequest(id, sentOn);
+    // Forgotten while the POST was out, or forgotten and paired afresh: keeping the key would pair
+    // a satellite the user removed, or key a newer attempt with an older answer.
+    auto* conn = replyTarget(id, sentOn);
     if (conn == nullptr) { return; }
     std::visit(
         [&](auto&& arm) {
@@ -440,6 +445,22 @@ void WifiConnectionManager::onPinPairReply(const QString& id,
             }
         },
         outcome);
+}
+
+WifiConnection* WifiConnectionManager::replyTarget(const QString& id,
+                                                   const QPointer<WifiConnection>& sentOn) const {
+    auto* current = connections_.value(id, nullptr);
+    const bool isTheConnectionItWentOutOn = current != nullptr && current == sentOn.data();
+    return isTheConnectionItWentOutOn ? current : nullptr;
+}
+
+void WifiConnectionManager::endPairingRequest(const QString& id,
+                                              const QPointer<WifiConnection>& sentOn) {
+    auto* current = connections_.value(id, nullptr);
+    const bool aNewerConnectionOwnsTheFlag = current != nullptr && current != sentOn.data();
+    if (aNewerConnectionOwnsTheFlag) { return; }
+    pairingInFlight_.remove(id);
+    emit pairingInFlightChanged();
 }
 
 // The value is random but the shape is fixed by the pure formatter, so the displayed PIN is always
@@ -504,12 +525,16 @@ void WifiConnectionManager::applyReverseOutcome(const models::DiscoveredServer& 
                 startReversePoll();
             } else if constexpr (std::is_same_v<T, PairingOutcome::VersionMismatch>) {
                 emit connectionEvent(makeError(versionMsg()));
-                finishReverse(ReversePairingPhase::Declined);
+                finishReverse(ReversePairingPhase::VersionMismatch);
             } else if constexpr (std::is_same_v<T, PairingOutcome::IdentityChanged>) {
                 emit connectionEvent(makeError(identityChangedMsg()));
-                finishReverse(ReversePairingPhase::Declined);
+                finishReverse(ReversePairingPhase::IdentityChanged);
+            } else if constexpr (std::is_same_v<T, PairingOutcome::Unreachable>) {
+                // The transport's own words ("connect failed") are not a sentence for a user.
+                emit connectionEvent(makeError(unreachableMsg()));
+                finishReverse(ReversePairingPhase::TimedOut);
             } else {
-                // AuthRequired or Unreachable: no pending grant was staged.
+                // AuthRequired: reachable, but no pending grant was staged.
                 emit connectionEvent(makeError(response.error.value_or(unreachableMsg())));
                 finishReverse(ReversePairingPhase::TimedOut);
             }
@@ -518,12 +543,12 @@ void WifiConnectionManager::applyReverseOutcome(const models::DiscoveredServer& 
 }
 
 void WifiConnectionManager::onReversePairReply(const QString& id,
+                                               const QPointer<WifiConnection>& sentOn,
                                                const models::DiscoveredServer& server,
                                                const QString& pin,
                                                const models::PairResponse& response,
                                                bool pinMismatch) {
-    pairingInFlight_.remove(id);
-    emit pairingInFlightChanged();
+    endPairingRequest(id, sentOn);
     if (!reverseAttemptIsCurrent(server, pin)) { return; }
     applyReverseOutcome(server, response, pinMismatch);
 }
@@ -544,9 +569,9 @@ void WifiConnectionManager::requestReversePairing(const models::DiscoveredServer
     emit pairingInFlightChanged();
     // Empty operator pin, displayed pin as clientPin: that is what selects Path B server-side.
     http_->pair(server.ip, server.pairPort, deviceId_, deviceName_, QString(), pin,
-                [this, id = conn->id(), server, pin](const models::PairResponse& response,
-                                                     bool pinMismatch) {
-                    onReversePairReply(id, server, pin, response, pinMismatch);
+                [this, id = conn->id(), sentOn = QPointer<WifiConnection>(conn), server,
+                 pin](const models::PairResponse& response, bool pinMismatch) {
+                    onReversePairReply(id, sentOn, server, pin, response, pinMismatch);
                 });
 }
 
@@ -598,7 +623,7 @@ void WifiConnectionManager::onReverseStatusReply(const models::PairResponse& sta
     // window against a box we can no longer authenticate.
     if (pinMismatch) {
         emit connectionEvent(makeError(identityChangedMsg()));
-        finishReverse(ReversePairingPhase::Declined);
+        finishReverse(ReversePairingPhase::IdentityChanged);
         return;
     }
     const auto reply = approvalReplyOf(status);
@@ -655,21 +680,21 @@ void WifiConnectionManager::pairAndConnect(WifiConnection* conn,
     pairingInFlight_.insert(conn->id());
     emit pairingInFlightChanged();
     http_->pair(server.ip, server.pairPort, deviceId_, deviceName_, QString(), QString(),
-                [this, id = conn->id(), server, intent](const models::PairResponse& response,
-                                                        bool pinMismatch) {
-                    onConnectPairReply(id, server, intent,
+                [this, id = conn->id(), sentOn = QPointer<WifiConnection>(conn), server,
+                 intent](const models::PairResponse& response, bool pinMismatch) {
+                    onConnectPairReply(id, sentOn, server, intent,
                                        PairingOutcome::classify(response, pinMismatch));
                 });
 }
 
 // The pair a connect starts with when no key is on file, sent without a PIN.
 void WifiConnectionManager::onConnectPairReply(const QString& id,
+                                               const QPointer<WifiConnection>& sentOn,
                                                const models::DiscoveredServer& server,
                                                ConnectIntent intent,
                                                const PairingOutcome::Arm& outcome) {
-    pairingInFlight_.remove(id);
-    emit pairingInFlightChanged();
-    auto* conn = connections_.value(id, nullptr);
+    endPairingRequest(id, sentOn);
+    auto* conn = replyTarget(id, sentOn);
     if (conn == nullptr) { return; }
     std::visit(
         [&](auto&& arm) {
@@ -722,10 +747,11 @@ void WifiConnectionManager::openSession(WifiConnection* conn,
 
     http_->putSession(server.ip, server.httpPort, deviceId_, deviceName_, creds->proof, descriptors,
                       conn->wantsMouseControl(), conn->offeredProtocolVersion(),
-                      [this, id, server, intent, pairingKey = creds->pairingKey,
+                      [this, id, sentOn = QPointer<WifiConnection>(conn), server, intent,
+                       pairingKey = creds->pairingKey,
                        sentDescriptors](const models::SessionResponse& resp, bool pinMismatch) {
-                          onSessionReply(id, server, intent, pairingKey, sentDescriptors, resp,
-                                         pinMismatch);
+                          onSessionReply(id, sentOn, server, intent, pairingKey, sentDescriptors,
+                                         resp, pinMismatch);
                       });
 }
 
@@ -749,13 +775,20 @@ WifiConnectionManager::sessionMaterialFrom(const models::SessionResponse& resp,
 }
 
 void WifiConnectionManager::onSessionReply(const QString& id,
+                                           const QPointer<WifiConnection>& sentOn,
                                            const models::DiscoveredServer& server,
                                            ConnectIntent intent,
                                            const std::array<std::uint8_t, 32>& pairingKey,
                                            const std::vector<reducer::DesiredSlot>& sentDescriptors,
                                            const models::SessionResponse& resp, bool pinMismatch) {
-    auto* conn = connections_.value(id, nullptr);
+    // Forgotten while the PUT was out, or forgotten and paired afresh: a session started now would
+    // bring back what the user removed, or land on a newer attempt it does not belong to.
+    auto* conn = replyTarget(id, sentOn);
     if (conn == nullptr) { return; }
+    if (conn->state() != SessionState::Linking) {
+        handBackLateGrant(id, server, resp);
+        return;
+    }
     const auto verdict = reducer::classifyRest(restReplyOf(resp, pinMismatch));
     if (verdict != reducer::RestVerdict::Ok || !resp.connectionId || !resp.token ||
         !resp.sessionSalt) {
@@ -1196,7 +1229,16 @@ void WifiConnectionManager::releaseSession(const QString& id,
                          [](int, bool, const QString&) {});
 }
 
+void WifiConnectionManager::handBackLateGrant(const QString& id,
+                                              const models::DiscoveredServer& server,
+                                              const models::SessionResponse& resp) {
+    if (resp.connectionId.has_value()) { releaseSession(id, server, *resp.connectionId); }
+}
+
 void WifiConnectionManager::forget(const QString& id) {
+    // An approval request still aimed at this satellite would re-create it, keyed, when it lands.
+    const bool anApprovalRequestAimsAtIt = reverseServer_.id() == id;
+    if (anApprovalRequestAimsAtIt) { cancelReversePairing(); }
     auto* conn = connections_.value(id, nullptr);
     // Self-unpair BEFORE dropping the key, since the proof needs it. Otherwise a
     // forgotten dish leaves a paired ghost row on the satellite.
@@ -1207,6 +1249,9 @@ void WifiConnectionManager::forget(const QString& id) {
             http_->unpair(server.ip, server.httpPort, deviceId_, creds->proof,
                           [](int, bool, const QString&) {});
         }
+        // The store drops a pin through the remembered row, and a satellite never remembered has
+        // none: its pin, left by a handshake that never led to a key, would outlive the Forget.
+        store_->facade().pins().forget(server.ip);
     }
     disconnect(id);
     store_->forget(id);

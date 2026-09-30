@@ -13,6 +13,7 @@
 #include "Network/WifiConnection.h"
 #include "Network/WifiConnectionManager.h"
 #include "core/model/Protocol.h"
+#include "core/net/Tofu.h"
 #include "core/reducer/ProtocolNegotiation.h"
 
 #include "FakePairingListener.h"
@@ -20,10 +21,12 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <QByteArray>
 #include <QHostAddress>
 #include <QJsonObject>
 #include <QString>
 
+#include <cstdint>
 #include <functional>
 
 using dish::net::ConnectIntent;
@@ -84,6 +87,23 @@ int releasesOfTheGrant(const ManagerRig& rig) {
         if (isTheGrant && isARelease) { ++n; }
     }
     return n;
+}
+
+// What an older install of the satellite presented, pinned for its address.
+const QString kOlderFingerprint = QString(64, QLatin1Char('0'));
+
+void pinAnOlderCertificate(ManagerRig& rig) {
+    rig.store->facade().pins().pin(rig.server.ip, kOlderFingerprint);
+}
+
+QString pinnedFor(const ManagerRig& rig) {
+    return rig.store->facade().pins().pinnedFingerprint(rig.server.ip).value_or(QString());
+}
+
+QString fingerprintOf(const QByteArray& certDer) {
+    return QString::fromStdString(
+        dish::net::sha256FingerprintHex(reinterpret_cast<const std::uint8_t*>(certDer.constData()),
+                                        static_cast<std::size_t>(certDer.size())));
 }
 
 } // namespace
@@ -241,10 +261,11 @@ TEST_CASE("session open: a 409 with no overlap says which end must update", "[wi
 TEST_CASE("session open: a changed certificate stops before the proof is sent, key kept",
           "[wifi][session]") {
     // The pin guards the old certificate, so no retry can succeed and only a Forget clears it.
-    // Unlike a 401, nothing says the key is bad, so it stays.
+    // Unlike a 401, nothing says the key is bad, so it stays, and so does the pin: with a key
+    // behind it, the pin is what keeps the proof from a machine that is not the one that paired.
     ManagerRig rig;
     REQUIRE(rig.listener.listening());
-    rig.store->facade().pins().pin(rig.server.ip, QString(64, QLatin1Char('0')));
+    pinAnOlderCertificate(rig);
     rig.listener.respond = dish::test::grantingEverything;
     keyed(rig);
 
@@ -254,6 +275,25 @@ TEST_CASE("session open: a changed certificate stops before the proof is sent, k
     CHECK(inState(rig, SessionState::Idle));
     CHECK(rig.listener.seen(kSessionPath) == 0);
     CHECK(rig.store->sharedKey(rig.server.id()).has_value());
+    CHECK(pinnedFor(rig) == kOlderFingerprint);
+}
+
+TEST_CASE("session open: a satellite pinned before it ever paired, then reinstalled, pairs again",
+          "[wifi][session][identity]") {
+    // A pin with no pairing behind it was set by a handshake that never led to a key, typically an
+    // approval request the operator never answered, and protects nothing: the new certificate is
+    // trusted as a first use, in the old one's place.
+    ManagerRig rig;
+    REQUIRE(rig.listener.listening());
+    pinAnOlderCertificate(rig);
+    rig.listener.respond = dish::test::grantingEverything;
+
+    rig.wifi->pairWithPin(rig.server, QStringLiteral("1234"));
+    REQUIRE(spinFor([&] { return !rig.wifi->isPairingInFlight(rig.server.id()); }));
+
+    CHECK(rig.store->sharedKey(rig.server.id()).has_value());
+    CHECK(pinnedFor(rig) == fingerprintOf(rig.listener.certDer()));
+    CHECK(rig.errors() == 0);
 }
 
 TEST_CASE("session open: a silent reconnect to a dead port parks and says nothing",
@@ -427,6 +467,48 @@ TEST_CASE("user disconnect: pairing again lifts the hold", "[wifi][session][hold
     REQUIRE(spinFor([&] { return inState(rig, SessionState::Live); }));
 
     CHECK_FALSE(rig.wifi->isHeldByUser(rig.server.id()));
+}
+
+TEST_CASE("user disconnect: a grant that lands after the Disconnect is handed back, not adopted",
+          "[wifi][session][hold]") {
+    // The Disconnect ended the attempt the PUT was part of; a session started on its grant would
+    // bring back what the user just ended, and a grant nobody uses holds the satellite's slot until
+    // its own timeout.
+    ManagerRig rig;
+    REQUIRE(rig.listener.listening());
+    rig.listener.respond = dish::test::grantingEverything;
+    keyed(rig);
+    rig.listener.hold();
+
+    rig.wifi->connectTo(rig.server, ConnectIntent::UserInitiated);
+    REQUIRE(spinFor([&] { return rig.listener.seen(kSessionPath) == 1; }));
+    rig.wifi->disconnectByUser(rig.server.id());
+    rig.listener.release();
+
+    CHECK(spinFor([&] { return releasesOfTheGrant(rig) == 1; }));
+    CHECK(inState(rig, SessionState::Idle));
+    CHECK_FALSE(rig.remembered());
+    CHECK(rig.errors() == 0);
+}
+
+TEST_CASE("user disconnect: a refusal that lands after the Disconnect leaves the row as the user "
+          "left it",
+          "[wifi][session][hold]") {
+    ManagerRig rig;
+    REQUIRE(rig.listener.listening());
+    rig.listener.respond = answeringSessions(503, QJsonObject{});
+    keyed(rig);
+    rig.listener.hold();
+
+    rig.wifi->connectTo(rig.server, ConnectIntent::AutoReconnect);
+    REQUIRE(spinFor([&] { return rig.listener.seen(kSessionPath) == 1; }));
+    rig.wifi->disconnectByUser(rig.server.id());
+    rig.listener.release();
+    settle(kNothingFollowsMs);
+
+    // Not parked as Stale on the backoff curve: the user left it Idle.
+    CHECK(inState(rig, SessionState::Idle));
+    CHECK(rig.errors() == 0);
 }
 
 TEST_CASE("user disconnect: forget lifts the hold", "[wifi][session][hold]") {

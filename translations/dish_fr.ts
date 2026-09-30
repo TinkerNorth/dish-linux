@@ -3602,6 +3602,10 @@
         <translation>Aucune approbation — le code a expiré.</translation>
     </message>
     <message>
+        <source>This satellite&apos;s security identity changed. If it was reinstalled, forget it here and pair again.</source>
+        <translation>L&apos;identité de sécurité de ce satellite a changé. S&apos;il a été réinstallé, oubliez-le ici et appairez-le de nouveau.</translation>
+    </message>
+    <message>
         <source>New code</source>
         <translation>Nouveau code</translation>
     </message>

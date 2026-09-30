@@ -33,10 +33,10 @@
 #include <QUrl>
 #include <QUrlQuery>
 
+#include <algorithm>
 #include <functional>
 #include <memory>
 #include <optional>
-#include <utility>
 #include <vector>
 
 namespace dish::test {
@@ -137,15 +137,34 @@ class FakePairingListener : public QObject {
     void hold() { holding_ = true; }
     void release() {
         holding_ = false;
-        for (const auto& [sock, answer] : held_) {
-            if (sock) { write(sock, answer); }
+        for (const auto& held : held_) {
+            if (held.sock) { write(held.sock, held.answer); }
         }
         held_.clear();
+    }
+
+    // Lets the oldest held answer to one request (method and path) through and keeps holding the
+    // rest: how a test lands an old reply while a newer request's reply is still on its way.
+    void releaseFirst(const QByteArray& method, const QString& path) {
+        const auto held = std::find_if(held_.begin(), held_.end(), [&](const HeldAnswer& h) {
+            return h.method == method && h.path == path;
+        });
+        if (held == held_.end()) { return; }
+        if (held->sock) { write(held->sock, held->answer); }
+        held_.erase(held);
     }
 
   private:
     // Long enough that the client has read the first part on its own before the rest exists.
     static constexpr int kSplitPauseMs = 100;
+
+    // An answer hold() kept back, with the request it answers.
+    struct HeldAnswer {
+        QByteArray method;
+        QString path;
+        QPointer<QSslSocket> sock;
+        QByteArray answer;
+    };
 
     void acceptAll() {
         while (auto* sock = qobject_cast<QSslSocket*>(server_.nextPendingConnection())) {
@@ -169,7 +188,8 @@ class FakePairingListener : public QObject {
         const QByteArray answer =
             respondRaw ? respondRaw(*seenRequest) : encoded(respond(*seenRequest));
         if (holding_) {
-            held_.emplace_back(QPointer<QSslSocket>(sock), answer);
+            held_.push_back(HeldAnswer{seenRequest->method, seenRequest->path,
+                                       QPointer<QSslSocket>(sock), answer});
             return;
         }
         write(sock, answer);
@@ -240,7 +260,7 @@ class FakePairingListener : public QObject {
     bool holding_ = false;
     qsizetype bytesReceived_ = 0;
     std::vector<SeenRequest> requests_;
-    std::vector<std::pair<QPointer<QSslSocket>, QByteArray>> held_;
+    std::vector<HeldAnswer> held_;
 };
 
 } // namespace dish::test

@@ -3602,6 +3602,10 @@
         <translation>Keine Bestätigung — der Code ist abgelaufen.</translation>
     </message>
     <message>
+        <source>This satellite&apos;s security identity changed. If it was reinstalled, forget it here and pair again.</source>
+        <translation>Die Sicherheitsidentität dieses Satelliten hat sich geändert. Falls er neu installiert wurde, entferne ihn hier und koppele erneut.</translation>
+    </message>
+    <message>
         <source>New code</source>
         <translation>Neuer Code</translation>
     </message>

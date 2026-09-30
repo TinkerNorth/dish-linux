@@ -7,6 +7,7 @@
 
 #include "qml/AppSettingsMaps.h"
 
+#include "Network/WifiConnectionManager.h"
 #include "core/model/Protocol.h"
 #include "core/reducer/TouchpadModeResolve.h"
 #include "repository/DeadzoneRepository.h"
@@ -43,6 +44,7 @@ using dish::qml::keepAwakeModeFromInt;
 using dish::qml::keepAwakeModeToInt;
 using dish::qml::keepAwakeReachToken;
 using dish::qml::licenseRows;
+using dish::qml::reversePairingPhaseToken;
 using dish::qml::themeModeFromInt;
 using dish::qml::themeModeToInt;
 using dish::qml::touchpadChoiceForArrival;
@@ -152,6 +154,23 @@ TEST_CASE("keepAwakeReachToken names the three reaches for QML", "[appvm][keepaw
     REQUIRE(keepAwakeReachToken(KeepAwakeReach::None) == QStringLiteral("off"));
     REQUIRE(keepAwakeReachToken(KeepAwakeReach::System) == QStringLiteral("system"));
     REQUIRE(keepAwakeReachToken(KeepAwakeReach::SystemAndDisplay) == QStringLiteral("display"));
+}
+
+// The pairing sheet switches on these: a phase without its own token would show another phase's
+// words, or none.
+TEST_CASE("each approval-request phase names its own token for the pairing sheet",
+          "[appvm][reverse]") {
+    using dish::net::ReversePairingPhase;
+    CHECK(reversePairingPhaseToken(ReversePairingPhase::Idle) == QStringLiteral("idle"));
+    CHECK(reversePairingPhaseToken(ReversePairingPhase::AwaitingApproval) ==
+          QStringLiteral("awaiting"));
+    CHECK(reversePairingPhaseToken(ReversePairingPhase::Approved) == QStringLiteral("approved"));
+    CHECK(reversePairingPhaseToken(ReversePairingPhase::Declined) == QStringLiteral("declined"));
+    CHECK(reversePairingPhaseToken(ReversePairingPhase::TimedOut) == QStringLiteral("timedout"));
+    CHECK(reversePairingPhaseToken(ReversePairingPhase::IdentityChanged) ==
+          QStringLiteral("identitychanged"));
+    CHECK(reversePairingPhaseToken(ReversePairingPhase::VersionMismatch) ==
+          QStringLiteral("versionmismatch"));
 }
 
 TEST_CASE("the Pad choice stores the pick the runtime routes as the DS4 pad", "[appvm][touchpad]") {

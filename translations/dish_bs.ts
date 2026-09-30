@@ -3621,6 +3621,10 @@
         <translation>Nema odobrenja — kod je istekao.</translation>
     </message>
     <message>
+        <source>This satellite&apos;s security identity changed. If it was reinstalled, forget it here and pair again.</source>
+        <translation>Sigurnosni identitet ovog satelita se promijenio. Ako je ponovo instaliran, zaboravite ga ovdje i uparite ponovo.</translation>
+    </message>
+    <message>
         <source>New code</source>
         <translation>Novi kod</translation>
     </message>

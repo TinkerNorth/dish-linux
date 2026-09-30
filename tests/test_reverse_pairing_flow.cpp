@@ -35,6 +35,11 @@ using dish::test::spinFor;
 
 namespace {
 
+// What the manager says for a satellite that does not answer, as WifiConnectionManager.cpp words
+// it.
+const QString kUnreachableMsg =
+    QStringLiteral("Server unreachable — check it's powered on and on the same Wi-Fi.");
+
 // The satellite's answers, by path: the first POST is the Path-B grant it stages for the operator,
 // and every status poll gets `statusReply`.
 std::function<PairingAnswer(const SeenRequest&)> satelliteAnswering(QJsonObject statusReply) {
@@ -111,18 +116,55 @@ TEST_CASE("reverse pairing: a changed certificate ends it before the PIN is writ
     // must stop the POST, so the PIN never reaches a box this client cannot authenticate.
     ManagerRig rig;
     REQUIRE(rig.listener.listening());
+    // A key on file: the pin guards a pairing. A pin with none behind it is trusted again on a
+    // changed certificate (test_session_open_flow's pin-without-pairing case).
+    rig.store->setSharedKey(dish::test::kFixtureSharedKey, rig.server.id());
     rig.store->facade().pins().pin(rig.server.ip, QString(64, QLatin1Char('0')));
     rig.listener.respond =
         satelliteAnswering(QJsonObject{{QStringLiteral("status"), QStringLiteral("pending")}});
 
     rig.wifi->requestReversePairing(rig.server);
-    REQUIRE(
-        spinFor([&] { return rig.wifi->reversePairingPhase() == ReversePairingPhase::Declined; }));
+    REQUIRE(spinFor(
+        [&] { return rig.wifi->reversePairingPhase() == ReversePairingPhase::IdentityChanged; }));
 
-    // Declined, not TimedOut: that is the identity-changed arm, not a dead link. Whether the
-    // listener counted a handshake is not asserted; under TLS 1.3 the client can abort before the
-    // server finishes its side.
+    // IdentityChanged, not TimedOut: a changed identity, not a dead link, and not Declined, which
+    // would offer a new code that cannot help. Whether the listener counted a handshake is not
+    // asserted; under TLS 1.3 the client can abort before the server finishes its side.
     CHECK(rig.listener.seen(QStringLiteral("/api/pair")) == 0);
     CHECK(rig.listener.seen(QStringLiteral("/api/pair/status")) == 0);
+    // Unlike a 401, a changed identity says nothing about the key, which stays.
+    CHECK(rig.store->sharedKey(rig.server.id()) == dish::test::kFixtureSharedKey);
+}
+
+TEST_CASE("reverse pairing: a satellite on another protocol version ends it on the version, not "
+          "a decline",
+          "[reverse][flow]") {
+    ManagerRig rig;
+    REQUIRE(rig.listener.listening());
+    rig.listener.respond = [](const SeenRequest&) {
+        return PairingAnswer{409,
+                             QJsonObject{{QStringLiteral("ok"), false},
+                                         {QStringLiteral("error"), QStringLiteral("protocol")}}};
+    };
+
+    rig.wifi->requestReversePairing(rig.server);
+    REQUIRE(spinFor(
+        [&] { return rig.wifi->reversePairingPhase() == ReversePairingPhase::VersionMismatch; }));
+
+    CHECK(rig.errors() == 1);
     CHECK_FALSE(rig.store->sharedKey(rig.server.id()).has_value());
+}
+
+TEST_CASE("reverse pairing: a satellite nobody answers at is unreachable, in the user's words",
+          "[reverse][flow]") {
+    ManagerRig rig;
+    rig.server.pairPort = dish::test::closedLoopbackPort();
+
+    rig.wifi->requestReversePairing(rig.server);
+    REQUIRE(
+        spinFor([&] { return rig.wifi->reversePairingPhase() == ReversePairingPhase::TimedOut; }));
+
+    REQUIRE(rig.errors() == 1);
+    // The transport's own words ("connect failed") are not a sentence for a user.
+    CHECK(rig.events.back().message == kUnreachableMsg);
 }

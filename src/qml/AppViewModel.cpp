@@ -1033,28 +1033,8 @@ void AppViewModel::clearPairingTarget() { model_->clearPairingTarget(); }
 
 // ── Reverse (host-initiated) pairing ─────────────────────────────────────────
 
-namespace {
-// Kept out of the manager so the token the QML sheet switches on stays a
-// view-model concern.
-QString reversePhaseString(net::ReversePairingPhase phase) {
-    switch (phase) {
-    case net::ReversePairingPhase::Idle:
-        return QStringLiteral("idle");
-    case net::ReversePairingPhase::AwaitingApproval:
-        return QStringLiteral("awaiting");
-    case net::ReversePairingPhase::Approved:
-        return QStringLiteral("approved");
-    case net::ReversePairingPhase::Declined:
-        return QStringLiteral("declined");
-    case net::ReversePairingPhase::TimedOut:
-        return QStringLiteral("timedout");
-    }
-    return QStringLiteral("idle");
-}
-} // namespace
-
 QString AppViewModel::reversePairingPhase() const {
-    return reversePhaseString(model_->wifi()->reversePairingPhase());
+    return reversePairingPhaseToken(model_->wifi()->reversePairingPhase());
 }
 
 QString AppViewModel::reversePairingPin() const { return model_->wifi()->reversePairingPin(); }
