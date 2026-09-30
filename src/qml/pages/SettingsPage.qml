@@ -316,6 +316,13 @@ Kit.Page {
 
                 Kit.SectionHeader { label: qsTr("Diagnostics") }
 
+                Kit.RowButton {
+                    Layout.fillWidth: true
+                    title: qsTr("Diagnostics…")
+                    subtitle: qsTr("Each host's session, each controller down to the wire, and a log of what changed.")
+                    onClicked: settingsPage.pushDetail("DiagnosticsPage.qml", qsTr("Diagnostics"))
+                }
+
                 Kit.Card {
                     Layout.fillWidth: true
                     contentItem: Kit.LabeledSwitch {

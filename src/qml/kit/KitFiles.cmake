@@ -54,6 +54,8 @@ set(DISH_KIT_QML_FILES
     src/qml/kit/StepList.qml
     src/qml/kit/BindingStrip.qml
     src/qml/kit/CapabilityTable.qml
+    # One stick on its gate, for the controller inspector.
+    src/qml/kit/StickPlot.qml
     src/qml/kit/WizardBanner.qml
     src/qml/kit/ConfirmDialog.qml
     src/qml/kit/ApplyOverlay.qml

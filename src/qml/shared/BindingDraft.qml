@@ -152,6 +152,9 @@ QtObject {
             return qsTr("Microphone");
         case "speaker":
             return qsTr("Controller sound");
+        // Advertised on the wire, but never a capability row of its own.
+        case "hapticAudio":
+            return qsTr("Haptics");
         }
         return feature;
     }

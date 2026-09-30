@@ -162,6 +162,10 @@
         <translation>Sonido del mando</translation>
     </message>
     <message>
+        <source>Haptics</source>
+        <translation>Háptica</translation>
+    </message>
+    <message>
         <source>buttons or sticks</source>
         <translation>botones o sticks</translation>
     </message>
@@ -1504,6 +1508,396 @@
     </message>
 </context>
 <context>
+    <name>DiagnosticsPage</name>
+    <message>
+        <source>Diagnostics</source>
+        <translation>Diagnóstico</translation>
+    </message>
+    <message>
+        <source>Controller inspector</source>
+        <translation>Inspector de mando</translation>
+    </message>
+    <message>
+        <source>in step</source>
+        <translation>coincide</translation>
+    </message>
+    <message>
+        <source>out of step</source>
+        <translation>no coincide</translation>
+    </message>
+    <message>
+        <source>waiting for the first heartbeat</source>
+        <translation>esperando el primer latido</translation>
+    </message>
+    <message>
+        <source>none</source>
+        <translation>ninguno</translation>
+    </message>
+    <message>
+        <source>v%1</source>
+        <translation>v%1</translation>
+    </message>
+    <message>
+        <source>%1 (offered v%2)</source>
+        <translation>%1 (ofrecido: v%2)</translation>
+    </message>
+    <message>
+        <source>applied: %1</source>
+        <translation>aplicado: %1</translation>
+    </message>
+    <message>
+        <source>on the host: %1 · applied: %2</source>
+        <translation>en el host: %1 · aplicado: %2</translation>
+    </message>
+    <message>
+        <source>confirmed: %1</source>
+        <translation>confirmado: %1</translation>
+    </message>
+    <message>
+        <source>on the host: %1 · confirmed: %2</source>
+        <translation>en el host: %1 · confirmado: %2</translation>
+    </message>
+    <message>
+        <source>available</source>
+        <translation>disponible</translation>
+    </message>
+    <message>
+        <source>unavailable</source>
+        <translation>no disponible</translation>
+    </message>
+    <message>
+        <source>unknown</source>
+        <translation>desconocido</translation>
+    </message>
+    <message numerus="yes">
+        <source>%n in use</source>
+        <translation>
+            <numerusform>%n en uso</numerusform>
+            <numerusform>%n en uso</numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>no samples yet</source>
+        <translation>aún no hay muestras</translation>
+    </message>
+    <message>
+        <source>%1 p50 · %2 p99 · %3 one way</source>
+        <translation>%1 p50 · %2 p99 · %3 solo ida</translation>
+    </message>
+    <message>
+        <source>%1 of %2 pings</source>
+        <translation>%1 de %2 pings</translation>
+    </message>
+    <message>
+        <source>Address</source>
+        <translation>Dirección</translation>
+    </message>
+    <message>
+        <source>%1 • UDP %2</source>
+        <translation>%1 • UDP %2</translation>
+    </message>
+    <message>
+        <source>Protocol</source>
+        <translation>Protocolo</translation>
+    </message>
+    <message>
+        <source>Session</source>
+        <translation>Sesión</translation>
+    </message>
+    <message>
+        <source>No session right now</source>
+        <translation>Ninguna sesión ahora mismo</translation>
+    </message>
+    <message>
+        <source>Epoch</source>
+        <translation>Época</translation>
+    </message>
+    <message>
+        <source>Controllers</source>
+        <translation>Mandos</translation>
+    </message>
+    <message>
+        <source>Virtual controllers</source>
+        <translation>Mandos virtuales</translation>
+    </message>
+    <message>
+        <source>Round trip</source>
+        <translation>Ida y vuelta</translation>
+    </message>
+    <message>
+        <source>Missed heartbeats</source>
+        <translation>Latidos perdidos</translation>
+    </message>
+    <message>
+        <source>Mouse control</source>
+        <translation>Control del ratón</translation>
+    </message>
+    <message>
+        <source>granted</source>
+        <translation>concedido</translation>
+    </message>
+    <message>
+        <source>not granted</source>
+        <translation>no concedido</translation>
+    </message>
+    <message>
+        <source>USB direct</source>
+        <translation>USB directo</translation>
+    </message>
+    <message>
+        <source>Bluetooth</source>
+        <translation>Bluetooth</translation>
+    </message>
+    <message>
+        <source>USB standard</source>
+        <translation>USB estándar</translation>
+    </message>
+    <message>
+        <source>through the system driver</source>
+        <translation>a través del controlador del sistema</translation>
+    </message>
+    <message>
+        <source>claiming</source>
+        <translation>tomando el control</translation>
+    </message>
+    <message>
+        <source>claimed</source>
+        <translation>bajo control</translation>
+    </message>
+    <message>
+        <source>waiting for the system to hand it back</source>
+        <translation>esperando a que el sistema lo devuelva</translation>
+    </message>
+    <message>
+        <source>stuck returning to Standard</source>
+        <translation>atascado al volver a Estándar</translation>
+    </message>
+    <message>
+        <source>needs a replug</source>
+        <translation>hay que volver a conectarlo</translation>
+    </message>
+    <message>
+        <source>access denied</source>
+        <translation>acceso denegado</translation>
+    </message>
+    <message>
+        <source>held by another app</source>
+        <translation>en uso por otra app</translation>
+    </message>
+    <message>
+        <source>sent no reports</source>
+        <translation>no envió informes</translation>
+    </message>
+    <message>
+        <source>dropped during the claim</source>
+        <translation>se desconectó durante la toma de control</translation>
+    </message>
+    <message>
+        <source>Direct</source>
+        <translation>Directo</translation>
+    </message>
+    <message>
+        <source>Standard</source>
+        <translation>Estándar</translation>
+    </message>
+    <message>
+        <source>poll %1</source>
+        <translation>sondeo %1</translation>
+    </message>
+    <message>
+        <source>motion %1</source>
+        <translation>movimiento %1</translation>
+    </message>
+    <message>
+        <source>no reports yet</source>
+        <translation>aún sin informes</translation>
+    </message>
+    <message>
+        <source>wired</source>
+        <translation>con cable</translation>
+    </message>
+    <message>
+        <source>full</source>
+        <translation>llena</translation>
+    </message>
+    <message>
+        <source>%1%, charging</source>
+        <translation>%1 %, cargando</translation>
+    </message>
+    <message>
+        <source>%1%</source>
+        <translation>%1 %</translation>
+    </message>
+    <message>
+        <source>Moonlight</source>
+        <translation>Moonlight</translation>
+    </message>
+    <message>
+        <source>Satellite</source>
+        <translation>Satélite</translation>
+    </message>
+    <message>
+        <source>yes</source>
+        <translation>sí</translation>
+    </message>
+    <message>
+        <source>no</source>
+        <translation>no</translation>
+    </message>
+    <message>
+        <source>nothing</source>
+        <translation>nada</translation>
+    </message>
+    <message>
+        <source>pad</source>
+        <translation>pad</translation>
+    </message>
+    <message>
+        <source>mouse</source>
+        <translation>ratón</translation>
+    </message>
+    <message>
+        <source>off</source>
+        <translation>desactivado</translation>
+    </message>
+    <message>
+        <source>Connection</source>
+        <translation>Conexión</translation>
+    </message>
+    <message>
+        <source>Path</source>
+        <translation>Ruta</translation>
+    </message>
+    <message>
+        <source>Input rate</source>
+        <translation>Frecuencia de entrada</translation>
+    </message>
+    <message>
+        <source>Battery</source>
+        <translation>Batería</translation>
+    </message>
+    <message>
+        <source>Binding</source>
+        <translation>Vinculación</translation>
+    </message>
+    <message>
+        <source>Not bound</source>
+        <translation>Sin vincular</translation>
+    </message>
+    <message>
+        <source>On the wire</source>
+        <translation>Hacia el host</translation>
+    </message>
+    <message>
+        <source>A Moonlight host reports nothing back about its controllers</source>
+        <translation>Un host de Moonlight no informa nada sobre sus mandos</translation>
+    </message>
+    <message>
+        <source>Not declared to the host yet</source>
+        <translation>Aún no se ha declarado al host</translation>
+    </message>
+    <message>
+        <source>Controller index</source>
+        <translation>Índice del mando</translation>
+    </message>
+    <message>
+        <source>Confirmed by host</source>
+        <translation>Confirmado por el host</translation>
+    </message>
+    <message>
+        <source>Streaming</source>
+        <translation>Transmitiendo</translation>
+    </message>
+    <message>
+        <source>Advertised</source>
+        <translation>Anunciado</translation>
+    </message>
+    <message>
+        <source>Touchpad on the wire</source>
+        <translation>Panel táctil hacia el host</translation>
+    </message>
+    <message>
+        <source>%1: appeared, %2</source>
+        <translation>%1: apareció, %2</translation>
+    </message>
+    <message>
+        <source>%1: %2 → %3</source>
+        <translation>%1: %2 → %3</translation>
+    </message>
+    <message>
+        <source>%1: removed</source>
+        <translation>%1: eliminado</translation>
+    </message>
+    <message>
+        <source>%1: attached (%2)</source>
+        <translation>%1: conectado (%2)</translation>
+    </message>
+    <message>
+        <source>%1: detached</source>
+        <translation>%1: desconectado</translation>
+    </message>
+    <message>
+        <source>%1: needs a replug</source>
+        <translation>%1: hay que volver a conectarlo</translation>
+    </message>
+    <message>
+        <source>%1: stuck returning to Standard</source>
+        <translation>%1: atascado al volver a Estándar</translation>
+    </message>
+    <message>
+        <source>%1: Direct claim failed (%2)</source>
+        <translation>%1: falló el control en Directo (%2)</translation>
+    </message>
+    <message>
+        <source>%1: bound to %2</source>
+        <translation>%1: vinculado a %2</translation>
+    </message>
+    <message>
+        <source>%1: unbound from %2</source>
+        <translation>%1: desvinculado de %2</translation>
+    </message>
+    <message>
+        <source>Events copied.</source>
+        <translation>Eventos copiados.</translation>
+    </message>
+    <message>
+        <source>Hosts</source>
+        <translation>Hosts</translation>
+    </message>
+    <message>
+        <source>No satellites yet. Pair one on the Connections page and its session shows here.</source>
+        <translation>Aún no hay satélites. Empareja uno en la página Conexiones y su sesión aparecerá aquí.</translation>
+    </message>
+    <message>
+        <source>Controller audio</source>
+        <translation>Audio del mando</translation>
+    </message>
+    <message>
+        <source>No controllers connected.</source>
+        <translation>No hay mandos conectados.</translation>
+    </message>
+    <message>
+        <source>Inspect input</source>
+        <translation>Inspeccionar entrada</translation>
+    </message>
+    <message>
+        <source>Events</source>
+        <translation>Eventos</translation>
+    </message>
+    <message>
+        <source>No events yet.</source>
+        <translation>Aún no hay eventos.</translation>
+    </message>
+    <message>
+        <source>Copy events</source>
+        <translation>Copiar eventos</translation>
+    </message>
+    <message>
+        <source>Newest first. The log covers this run of Dish and is not saved.</source>
+        <translation>Los más recientes primero. El registro cubre esta ejecución de Dish y no se guarda.</translation>
+    </message>
+</context>
+<context>
     <name>DonatePage</name>
     <message>
         <source>Support Dish</source>
@@ -2054,6 +2448,173 @@
     </message>
 </context>
 <context>
+    <name>InputInspectorPage</name>
+    <message>
+        <source>Controller inspector</source>
+        <translation>Inspector de mando</translation>
+    </message>
+    <message>
+        <source>%1%</source>
+        <translation>%1 %</translation>
+    </message>
+    <message>
+        <source>Start</source>
+        <translation>Start</translation>
+    </message>
+    <message>
+        <source>Back</source>
+        <translation>Atrás</translation>
+    </message>
+    <message>
+        <source>Guide</source>
+        <translation>Guía</translation>
+    </message>
+    <message>
+        <source>Mute</source>
+        <translation>Silencio</translation>
+    </message>
+    <message>
+        <source>Pressed: %1</source>
+        <translation>Pulsados: %1</translation>
+    </message>
+    <message>
+        <source>none</source>
+        <translation>ninguno</translation>
+    </message>
+    <message>
+        <source>%1 across, %2 down</source>
+        <translation>%1 en horizontal, %2 en vertical</translation>
+    </message>
+    <message>
+        <source>lifted</source>
+        <translation>levantado</translation>
+    </message>
+    <message>
+        <source>Capturing… %1 s</source>
+        <translation>Midiendo… %1 s</translation>
+    </message>
+    <message>
+        <source>The controller sent nothing during the test.</source>
+        <translation>El mando no envió nada durante la prueba.</translation>
+    </message>
+    <message>
+        <source>Resting drift: L %1 · R %2. Suggested dead zone: %3.</source>
+        <translation>Deriva en reposo: L %1 · R %2. Zona muerta sugerida: %3.</translation>
+    </message>
+    <message>
+        <source>Reach: L %1 · R %2. Circularity error: L %3 · R %4.</source>
+        <translation>Recorrido: L %1 · R %2. Error de circularidad: L %3 · R %4.</translation>
+    </message>
+    <message>
+        <source>n/a</source>
+        <translation>n/d</translation>
+    </message>
+    <message>
+        <source>Left stick</source>
+        <translation>Stick izquierdo</translation>
+    </message>
+    <message>
+        <source>Right stick</source>
+        <translation>Stick derecho</translation>
+    </message>
+    <message>
+        <source>Left trigger</source>
+        <translation>Gatillo izquierdo</translation>
+    </message>
+    <message>
+        <source>Right trigger</source>
+        <translation>Gatillo derecho</translation>
+    </message>
+    <message>
+        <source>Live input</source>
+        <translation>Entrada en vivo</translation>
+    </message>
+    <message>
+        <source>Waiting for this controller&apos;s first report. Move a stick or press a button.</source>
+        <translation>Esperando el primer informe de este mando. Mueve un stick o pulsa un botón.</translation>
+    </message>
+    <message>
+        <source>%1: %2</source>
+        <translation>%1: %2</translation>
+    </message>
+    <message>
+        <source>This is the input as it goes to the host, after the dead zones.</source>
+        <translation>Así va la entrada al host, después de las zonas muertas.</translation>
+    </message>
+    <message>
+        <source>Motion and touch</source>
+        <translation>Movimiento y tacto</translation>
+    </message>
+    <message>
+        <source>Gyro: %1 · %2 · %3 deg/s</source>
+        <translation>Giro: %1 · %2 · %3 °/s</translation>
+    </message>
+    <message>
+        <source>No motion data from this controller.</source>
+        <translation>No hay datos de movimiento de este mando.</translation>
+    </message>
+    <message>
+        <source>Accel: %1 · %2 · %3 g</source>
+        <translation>Acel: %1 · %2 · %3 g</translation>
+    </message>
+    <message>
+        <source>Finger 1: %1 · Finger 2: %2 · Click: %3</source>
+        <translation>Dedo 1: %1 · Dedo 2: %2 · Clic: %3</translation>
+    </message>
+    <message>
+        <source>pressed</source>
+        <translation>pulsado</translation>
+    </message>
+    <message>
+        <source>released</source>
+        <translation>suelto</translation>
+    </message>
+    <message>
+        <source>No touch data from this controller.</source>
+        <translation>No hay datos táctiles de este mando.</translation>
+    </message>
+    <message>
+        <source>Stick tests</source>
+        <translation>Pruebas de stick</translation>
+    </message>
+    <message>
+        <source>The tests read the sticks as the controller sends them, before the dead zones.</source>
+        <translation>Las pruebas leen los sticks tal como los envía el mando, antes de las zonas muertas.</translation>
+    </message>
+    <message>
+        <source>Drift test (hands off the sticks)</source>
+        <translation>Prueba de deriva (no toques los sticks)</translation>
+    </message>
+    <message>
+        <source>Range test (sweep full circles)</source>
+        <translation>Prueba de recorrido (dibuja círculos completos)</translation>
+    </message>
+    <message>
+        <source>Rumble test</source>
+        <translation>Prueba de vibración</translation>
+    </message>
+    <message>
+        <source>A short buzz straight to the controller, whatever its rumble switch says.</source>
+        <translation>Una vibración corta directa al mando, diga lo que diga su interruptor de vibración.</translation>
+    </message>
+    <message>
+        <source>This controller has no rumble motors on the path it is on now.</source>
+        <translation>Este mando no tiene motores de vibración en la vía que usa ahora.</translation>
+    </message>
+    <message>
+        <source>Weak</source>
+        <translation>Suave</translation>
+    </message>
+    <message>
+        <source>Strong</source>
+        <translation>Fuerte</translation>
+    </message>
+    <message>
+        <source>Both</source>
+        <translation>Ambos</translation>
+    </message>
+</context>
+<context>
     <name>KitGallery</name>
     <message>
         <source>Light</source>
@@ -2440,6 +3001,26 @@
         <translation>Todo aquello sobre lo que se construye Dish.</translation>
     </message>
     <message>
+        <source>StickPlot</source>
+        <translation>StickPlot</translation>
+    </message>
+    <message>
+        <source>At rest</source>
+        <translation>En reposo</translation>
+    </message>
+    <message>
+        <source>Deflected</source>
+        <translation>Desplazado</translation>
+    </message>
+    <message>
+        <source>At the rim</source>
+        <translation>En el borde</translation>
+    </message>
+    <message>
+        <source>Not reporting</source>
+        <translation>Sin informes</translation>
+    </message>
+    <message>
         <source>DishProgressBar · LoadingSpinner</source>
         <translation>DishProgressBar · LoadingSpinner</translation>
     </message>
@@ -2696,6 +3277,34 @@
     <message>
         <source>Dish update required</source>
         <translation>Actualización de Dish obligatoria</translation>
+    </message>
+    <message>
+        <source>Found</source>
+        <translation>Encontrado</translation>
+    </message>
+    <message>
+        <source>Needs pairing</source>
+        <translation>Emparejar</translation>
+    </message>
+    <message>
+        <source>Offline</source>
+        <translation>Desconectado</translation>
+    </message>
+    <message>
+        <source>Ready</source>
+        <translation>Listo</translation>
+    </message>
+    <message>
+        <source>Connecting…</source>
+        <translation>Conectando…</translation>
+    </message>
+    <message>
+        <source>Online</source>
+        <translation>En línea</translation>
+    </message>
+    <message>
+        <source>Unsteady</source>
+        <translation>Inestable</translation>
     </message>
 </context>
 <context>
@@ -3175,6 +3784,14 @@
     <message>
         <source>Diagnostics</source>
         <translation>Diagnóstico</translation>
+    </message>
+    <message>
+        <source>Diagnostics…</source>
+        <translation>Diagnóstico…</translation>
+    </message>
+    <message>
+        <source>Each host&apos;s session, each controller down to the wire, and a log of what changed.</source>
+        <translation>La sesión de cada host, cada mando hasta la conexión y un registro de los cambios.</translation>
     </message>
     <message>
         <source>Your package manager installs updates. Dish only tells you one exists.</source>

@@ -67,4 +67,41 @@ QtObject {
             return Kit.CapabilityChip.Warn;
         return Kit.CapabilityChip.Error;
     }
+
+    // ── Link state ──────────────────────────────────────────────────────────
+    // The status chip a satellite row wears, by the chip token the rows and the
+    // diagnostics log vend.
+    function chipText(token) {
+        switch (token) {
+        case "found":
+            return qsTr("Found");
+        case "needsPairing":
+            return qsTr("Needs pairing");
+        case "offline":
+            return qsTr("Offline");
+        case "ready":
+            return qsTr("Ready");
+        case "connecting":
+            return qsTr("Connecting…");
+        case "online":
+            return qsTr("Online");
+        case "unstable":
+            return qsTr("Unsteady");
+        }
+        return token;
+    }
+
+    function chipTone(token) {
+        switch (token) {
+        case "online":
+            return Kit.CapabilityChip.Ok;
+        case "connecting":
+        case "unstable":
+        case "needsPairing":
+            return Kit.CapabilityChip.Warn;
+        case "ready":
+            return Kit.CapabilityChip.Present;
+        }
+        return Kit.CapabilityChip.Neutral;
+    }
 }
