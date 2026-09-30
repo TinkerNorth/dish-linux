@@ -663,8 +663,7 @@ void AppModel::bindMoonlightSlot(const QString& slotId, const QString& hostUuid)
                                                        net::SatelliteClient::kBatteryLevelUnknown);
     // The type is a property of the BINDING, so it comes from the per-slot override the binding
     // flow writes; Auto resolves against the pad above.
-    const int storedType = typeStore_.typeFor(hostUuid.toStdString(), slotId.toStdString())
-                               .value_or(repository::kMoonlightControllerTypeAuto);
+    const int storedType = moonlightBindingType(hostUuid, slotId);
 
     const auto number = moonlight_->bindController(slotId, hostUuid, storedType, source);
     installMoonlightRoutes(slotId, number
@@ -672,6 +671,10 @@ void AppModel::bindMoonlightSlot(const QString& slotId, const QString& hostUuid)
                                        : MoonlightRoutes{});
     // rebuild() re-derives the slot list against the new binding and emits.
     rebuild();
+}
+
+int AppModel::moonlightBindingType(const QString& hostUuid, const QString& slotId) const {
+    return source::moonlightBindingTypeOf(typeStore_, hostUuid.toStdString(), slotId.toStdString());
 }
 
 void AppModel::unbindMoonlightSlot(const QString& slotId) {

@@ -1892,12 +1892,13 @@ QVariantMap AppViewModel::satelliteBindingDiagnostics(const models::ControllerSl
 
 // No descriptor and no ack on this path: GameStream declares a pad on arrival
 // and reports nothing back, so the wire side stays undeclared. The type is the
-// host's own controller type and the touchpad pick the host's, both as the
-// binding editor seeds them; the host is named as its row names it.
+// binding's own, the one bindMoonlightSlot sends, never the host's last pick; the
+// touchpad pick is the host's, as the binding editor seeds it, and the host is
+// named as its row names it.
 QVariantMap AppViewModel::moonlightBindingDiagnostics(const models::ControllerSlot& slot,
                                                       const QString& hostId) const {
     const auto host = moonlightRowFor(model_, hostId);
-    const int type = host ? host->controllerType : repository::kMoonlightControllerTypeAuto;
+    const int type = model_->moonlightBindingType(hostId, slot.id);
     QString label = hostId;
     if (host) { label = !host->name.isEmpty() ? host->name : host->address; }
     const int touchpadPick = touchpadPickIndex(touchpadModeFor(hostId));

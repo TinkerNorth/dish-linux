@@ -254,6 +254,11 @@ class AppModel : public QObject {
     bool slotCarriesRumble(const QString& slotId) const;
     void testRumble(const QString& slotId, reducer::TestBuzz buzz);
 
+    // The type a Moonlight binding sends, which bindMoonlightSlot declares and the
+    // Diagnostics card solves for: the pick stored for the pad on that host, Auto
+    // while it has none.
+    int moonlightBindingType(const QString& hostUuid, const QString& slotId) const;
+
     // Per-slot hardware truth read from the source layer that owns the slot:
     // the parser family for a synthetic (USB-direct) id, the SDL probe for a
     // framework id. The bind capability seams and the capability table read
