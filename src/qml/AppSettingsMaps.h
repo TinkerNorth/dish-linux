@@ -62,6 +62,12 @@ std::optional<std::string> touchpadPickForChoice(const QString& choice);
 // editors' own words. A mode outside the table reads "off".
 QString touchpadChoiceForMode(std::uint8_t mode);
 
+// The choice a binding draft's touchpadMode stands for: 0 off, 1 pad, 2 mouse,
+// the order of the choice table. Any other value is the editors' keep: the
+// binding cannot carry the touchpad, so Apply leaves the host's pick, which
+// every pad bound there shares, alone.
+std::optional<QString> touchpadChoiceForDraftMode(int draftMode);
+
 // The profile the SDL bridge installs at attach; a row with no stored override
 // seeds from it, so the two must not drift.
 constexpr int kDefaultDeadzoneStickFlat = 3277;

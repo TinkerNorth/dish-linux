@@ -45,6 +45,7 @@ using dish::qml::keepAwakeReachToken;
 using dish::qml::licenseRows;
 using dish::qml::themeModeFromInt;
 using dish::qml::themeModeToInt;
+using dish::qml::touchpadChoiceForDraftMode;
 using dish::qml::touchpadChoiceForMode;
 using dish::qml::touchpadChoiceForPick;
 using dish::qml::touchpadPickForChoice;
@@ -71,6 +72,10 @@ const std::string kWireMouse{proto::touchpadModeName(proto::kTouchpadModeMouse)}
 
 constexpr bool kMouseModeShut = false;
 constexpr bool kMouseModeOpen = true;
+
+// BindingDraft.touchpadKeep: what the editors apply for a binding whose
+// touchpad row is not carried.
+constexpr int kKeepHostTouchpad = -1;
 
 // A unique temp INI, never the real HKCU registry.
 std::unique_ptr<QSettings> uniqueIniSettings(const char* tag) {
@@ -202,6 +207,21 @@ TEST_CASE("a stored Mouse pick reads as Off while mouse mode is shut", "[appvm][
 
 TEST_CASE("a stored Mouse pick reads as Mouse where mouse mode is open", "[appvm][touchpad]") {
     CHECK(touchpadChoiceForPick(kWireMouse, kMouseModeOpen) == QStringLiteral("mouse"));
+}
+
+TEST_CASE("a draft's Off, Pad and Mouse are applied as those choices", "[appvm][touchpad]") {
+    // The binding draft numbers the choices 0 off, 1 pad, 2 mouse, and both
+    // editors seed and apply through that numbering.
+    CHECK(touchpadChoiceForDraftMode(0) == std::optional<QString>(QStringLiteral("off")));
+    CHECK(touchpadChoiceForDraftMode(1) == std::optional<QString>(QStringLiteral("pad")));
+    CHECK(touchpadChoiceForDraftMode(2) == std::optional<QString>(QStringLiteral("mouse")));
+}
+
+TEST_CASE("a binding that cannot carry the touchpad leaves the host's pick alone",
+          "[appvm][touchpad]") {
+    // The pick belongs to the host, shared by every pad bound there, so an Xbox
+    // pad's binding must not write the Off its draft collapsed to.
+    CHECK_FALSE(touchpadChoiceForDraftMode(kKeepHostTouchpad).has_value());
 }
 
 TEST_CASE("a declared routing reads as the choice that stores it", "[appvm][touchpad]") {

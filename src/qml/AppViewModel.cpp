@@ -1668,9 +1668,9 @@ void AppViewModel::beginApplyBind() {
                                      applyType_);
     }
     setMotionEnabled(applySlotId_, applyMotionOn_);
-    setTouchpadMode(applyConnectionId_, applyTouchpadMode_ == 2   ? QStringLiteral("mouse")
-                                        : applyTouchpadMode_ == 1 ? QStringLiteral("pad")
-                                                                  : QStringLiteral("off"));
+    if (const auto choice = touchpadChoiceForDraftMode(applyTouchpadMode_)) {
+        setTouchpadMode(applyConnectionId_, *choice);
+    }
     setRumbleEnabled(applySlotId_, applyRumbleOn_);
     setMicEnabled(applySlotId_, applyMicOn_);
     setSpeakerEnabled(applySlotId_, applySpeakerOn_);

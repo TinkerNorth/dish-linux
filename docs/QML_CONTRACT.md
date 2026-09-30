@@ -394,7 +394,10 @@ draft and travels with this one call. It:
 2. switches the USB path only if it actually differs, budgeting **20 s**. A
    claim that times out is a fallback to Standard, not a failure: the run
    continues and `directFellBack` comes back true;
-3. writes the type, motion and touchpad mode, then binds, budgeting **8 s**;
+3. writes the type, motion and touchpad mode, then binds, budgeting **8 s**.
+   The touchpad mode is the host's, shared by every pad bound there: `-1`
+   (`BindingDraft.touchpadKeep`) leaves it alone, for a binding that carries
+   neither the touchpad nor the mouse;
 4. emits `applyChanged()` on every move and `applyFinished(...)` exactly once.
 
 `cancelApply()` is accepted only while `applyCancellable`. Aborting a claim

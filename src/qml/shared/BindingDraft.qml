@@ -34,6 +34,8 @@ QtObject {
     property bool micOn: false
     property bool speakerOn: true
     property int touchpadMode: 0          // 0 off · 1 pad · 2 mouse
+    // What Apply sends instead for a binding that cannot carry the touchpad.
+    readonly property int touchpadKeep: -1
 
     // The app this binding will start, or the one it will join. PER SESSION,
     // not per binding: only the binding that creates a session picks one, and
@@ -115,6 +117,15 @@ QtObject {
             return row.inOk && row.linkOk && row.typeOk && row.hostOk;
         }
         return true;
+    }
+
+    // The pick is the host's, shared by every pad bound there, so a binding
+    // that carries neither the touchpad nor the mouse keeps it rather than
+    // writing the Off its draft collapsed to.
+    function touchpadModeToApply() {
+        const rows = draft.capabilityRows();
+        const carried = draft.layersCarry(rows, "touchpad") || draft.layersCarry(rows, "mouse");
+        return carried ? draft.touchpadMode : draft.touchpadKeep;
     }
 
     // Offered only where every layer carries it, so no editor offers a routing
