@@ -155,7 +155,9 @@ TEST_CASE("the Pad choice stores the pick the runtime routes as the DS4 pad", "[
                               /*hostMouseControl=*/false) == proto::kTouchpadModeDs4);
 }
 
-TEST_CASE("a Pad choice survives a restart and still reads as Pad", "[appvm][touchpad]") {
+TEST_CASE("a Pad choice is stored as ds4 and survives a restart", "[appvm][touchpad]") {
+    // The stored value itself, not how it reads back: a host never picked for
+    // also reads as Pad, so reading back could not tell a refused write apart.
     auto settings = makeSharedSettings();
     TouchpadModeRepository repo(settings);
     TouchpadModeStore store(&repo);
@@ -165,7 +167,7 @@ TEST_CASE("a Pad choice survives a restart and still reads as Pad", "[appvm][tou
 
     TouchpadModeRepository reopenedRepo(settings);
     const TouchpadModeStore reopened(&reopenedRepo);
-    CHECK(touchpadChoiceForPick(reopened.modeFor("sat"), kMouseModeShut) == QStringLiteral("pad"));
+    CHECK(reopened.modeFor("sat") == std::optional<std::string>(kWireDs4));
 }
 
 TEST_CASE("Off and Mouse choices are stored under their own wire names", "[appvm][touchpad]") {
