@@ -209,6 +209,24 @@ TEST_CASE("Bosnian selects all three plural forms", "[i18n]") {
     CHECK(at(0) == other);
 }
 
+// The Diagnostics page's ping window reads "12 of 64 pings", and the window's size
+// governs the noun: Bosnian says 64 in its few form and 65 in its other.
+TEST_CASE("the ping window counts in Bosnian's plural forms", "[i18n]") {
+    if (!catalogsBuilt()) { SKIP("built without Qt LinguistTools: no .qm to check"); }
+    const auto catalog = readCatalog(tsPath(QStringLiteral("bs")));
+    const QString source = QStringLiteral("%1 of %n pings");
+    const QString context = contextFor(catalog, source);
+    REQUIRE_FALSE(context.isEmpty());
+
+    QTranslator translator;
+    REQUIRE(dish::i18n::loadCatalog(translator, QLocale(QStringLiteral("bs_BA")), qmDir()));
+    const auto at = [&](int n) {
+        return translator.translate(context.toUtf8(), source.toUtf8(), nullptr, n);
+    };
+    CHECK(at(64) == QStringLiteral("%1 od %n pinga"));
+    CHECK(at(65) == QStringLiteral("%1 od %n pingova"));
+}
+
 // The broad net. A translated string whose placeholders drifted from its source
 // renders a stray "%2" or silently drops a value, and only in that language.
 TEST_CASE("translations keep their source's placeholders", "[i18n]") {

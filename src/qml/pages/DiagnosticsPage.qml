@@ -123,7 +123,7 @@ Kit.Page {
             .arg(formatter.roundTripText(host.rttP50Ms, host.rttSamples))
             .arg(formatter.roundTripText(host.rttP99Ms, host.rttSamples))
             .arg(formatter.latencyText(host.oneWayMs, host.rttSamples));
-        return figures + " · " + qsTr("%1 of %2 pings").arg(host.rttSamples).arg(host.rttCapacity);
+        return figures + " · " + qsTr("%1 of %n pings", "", host.rttCapacity).arg(host.rttSamples);
     }
 
     function hostLines(host) {

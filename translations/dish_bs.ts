@@ -1591,9 +1591,13 @@
         <source>%1 p50 · %2 p99 · %3 one way</source>
         <translation>%1 p50 · %2 p99 · %3 u jednom smjeru</translation>
     </message>
-    <message>
-        <source>%1 of %2 pings</source>
-        <translation>%1 od %2 pingova</translation>
+    <message numerus="yes">
+        <source>%1 of %n pings</source>
+        <translation>
+            <numerusform>%1 od %n pinga</numerusform>
+            <numerusform>%1 od %n pinga</numerusform>
+            <numerusform>%1 od %n pingova</numerusform>
+        </translation>
     </message>
     <message>
         <source>Address</source>

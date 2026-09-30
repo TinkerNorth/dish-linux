@@ -1580,9 +1580,12 @@
         <source>%1 p50 · %2 p99 · %3 one way</source>
         <translation>%1 p50 · %2 p99 · %3 one way</translation>
     </message>
-    <message>
-        <source>%1 of %2 pings</source>
-        <translation>%1 of %2 pings</translation>
+    <message numerus="yes">
+        <source>%1 of %n pings</source>
+        <translation>
+            <numerusform>%1 of %n ping</numerusform>
+            <numerusform>%1 of %n pings</numerusform>
+        </translation>
     </message>
     <message>
         <source>Address</source>
