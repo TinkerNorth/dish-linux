@@ -449,10 +449,6 @@
         <translation>Claiming controller…</translation>
     </message>
     <message>
-        <source>Auto</source>
-        <translation>Auto</translation>
-    </message>
-    <message>
         <source>Paired</source>
         <translation>Paired</translation>
     </message>
@@ -3306,6 +3302,10 @@
         <source>Unsteady</source>
         <translation>Unsteady</translation>
     </message>
+    <message>
+        <source>Auto</source>
+        <translation>Auto</translation>
+    </message>
 </context>
 <context>
     <name>Main</name>
@@ -5036,10 +5036,6 @@
     <message>
         <source>Types offered by %1’s catalog.</source>
         <translation>Types offered by %1’s catalog.</translation>
-    </message>
-    <message>
-        <source>Auto</source>
-        <translation>Auto</translation>
     </message>
     <message>
         <source>Rumble</source>

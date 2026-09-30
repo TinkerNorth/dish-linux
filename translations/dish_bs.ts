@@ -450,10 +450,6 @@
         <translation>Preuzimanje kontrolera…</translation>
     </message>
     <message>
-        <source>Auto</source>
-        <translation>Automatski</translation>
-    </message>
-    <message>
         <source>Paired</source>
         <translation>Uparen</translation>
     </message>
@@ -3319,6 +3315,10 @@
         <source>Unsteady</source>
         <translation>Nestabilan</translation>
     </message>
+    <message>
+        <source>Auto</source>
+        <translation>Automatski</translation>
+    </message>
 </context>
 <context>
     <name>Main</name>
@@ -5058,10 +5058,6 @@
     <message>
         <source>Types offered by %1’s catalog.</source>
         <translation>Tipovi koje nudi katalog hosta %1.</translation>
-    </message>
-    <message>
-        <source>Auto</source>
-        <translation>Automatski</translation>
     </message>
     <message>
         <source>Rumble</source>

@@ -104,4 +104,28 @@ QtObject {
         }
         return Kit.CapabilityChip.Neutral;
     }
+
+    // ── Moonlight types ─────────────────────────────────────────────────────
+    // The four CONTROLLER_ARRIVAL types in the order the pickers offer them, with
+    // `autoType` being App.moonlightAutoType. The three brand names are not
+    // translated: they are the devices the host plugs in, named the same in
+    // every language.
+    function moonlightTypes(autoType) {
+        return [
+            { "type": autoType, "name": qsTr("Auto") },
+            { "type": 1, "name": "Xbox" },
+            { "type": 2, "name": "PlayStation" },
+            { "type": 3, "name": "Nintendo" }
+        ];
+    }
+
+    // A type outside the table reads as Auto, the pickers' own fallback.
+    function moonlightTypeName(type, autoType) {
+        const types = vocab.moonlightTypes(autoType);
+        for (let i = 0; i < types.length; ++i) {
+            if (types[i].type === type)
+                return types[i].name;
+        }
+        return types[0].name;
+    }
 }

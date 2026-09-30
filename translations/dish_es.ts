@@ -449,10 +449,6 @@
         <translation>Tomando el control del mando…</translation>
     </message>
     <message>
-        <source>Auto</source>
-        <translation>Automático</translation>
-    </message>
-    <message>
         <source>Paired</source>
         <translation>Vinculado</translation>
     </message>
@@ -3306,6 +3302,10 @@
         <source>Unsteady</source>
         <translation>Inestable</translation>
     </message>
+    <message>
+        <source>Auto</source>
+        <translation>Automático</translation>
+    </message>
 </context>
 <context>
     <name>Main</name>
@@ -5036,10 +5036,6 @@
     <message>
         <source>Types offered by %1’s catalog.</source>
         <translation>Tipos que ofrece el catálogo de %1.</translation>
-    </message>
-    <message>
-        <source>Auto</source>
-        <translation>Automático</translation>
     </message>
     <message>
         <source>Rumble</source>

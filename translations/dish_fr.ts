@@ -449,10 +449,6 @@
         <translation>Acquisition de la manette…</translation>
     </message>
     <message>
-        <source>Auto</source>
-        <translation>Automatique</translation>
-    </message>
-    <message>
         <source>Paired</source>
         <translation>Associé</translation>
     </message>
@@ -3306,6 +3302,10 @@
         <source>Unsteady</source>
         <translation>Instable</translation>
     </message>
+    <message>
+        <source>Auto</source>
+        <translation>Automatique</translation>
+    </message>
 </context>
 <context>
     <name>Main</name>
@@ -5036,10 +5036,6 @@
     <message>
         <source>Types offered by %1’s catalog.</source>
         <translation>Types proposés par le catalogue de %1.</translation>
-    </message>
-    <message>
-        <source>Auto</source>
-        <translation>Automatique</translation>
     </message>
     <message>
         <source>Rumble</source>

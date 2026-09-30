@@ -449,10 +449,6 @@
         <translation>Controller wird übernommen…</translation>
     </message>
     <message>
-        <source>Auto</source>
-        <translation>Automatisch</translation>
-    </message>
-    <message>
         <source>Paired</source>
         <translation>Gekoppelt</translation>
     </message>
@@ -3306,6 +3302,10 @@
         <source>Unsteady</source>
         <translation>Instabil</translation>
     </message>
+    <message>
+        <source>Auto</source>
+        <translation>Automatisch</translation>
+    </message>
 </context>
 <context>
     <name>Main</name>
@@ -5036,10 +5036,6 @@
     <message>
         <source>Types offered by %1’s catalog.</source>
         <translation>Typen aus dem Katalog von %1.</translation>
-    </message>
-    <message>
-        <source>Auto</source>
-        <translation>Automatisch</translation>
     </message>
     <message>
         <source>Rumble</source>

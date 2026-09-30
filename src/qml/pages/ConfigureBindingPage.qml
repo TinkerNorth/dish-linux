@@ -210,7 +210,7 @@ Kit.Page {
             page.refreshCatalog();
             if (draft.hostIsMoonlight) {
                 const moonType = page.moonlightTypeFor(boundId);
-                draft.chooseType(moonType, page.moonlightTypeName(moonType));
+                draft.chooseType(moonType, linkWords.moonlightTypeName(moonType, page.autoType));
             } else {
                 const current = App.emulateCurrentTypeForHost(boundId, page.slotId);
                 if (current >= 0) {
@@ -246,23 +246,12 @@ Kit.Page {
                                           && !draft.hostIsMoonlight
 
     readonly property int autoType: App.moonlightAutoType
-    readonly property var moonlightTypes: [
-        { "type": page.autoType, "name": qsTr("Auto") },
-        { "type": 1,             "name": "Xbox" },
-        { "type": 2,             "name": "PlayStation" },
-        { "type": 3,             "name": "Nintendo" }
-    ]
+    LinkVocabulary { id: linkWords }
+    readonly property var moonlightTypes: linkWords.moonlightTypes(page.autoType)
     readonly property int autoResolved: draft.hasInput
         ? App.moonlightResolvedType(page.slotId, page.autoType) : 1
-    readonly property string autoResolvedName: page.autoResolved === 2 ? "PlayStation" : "Xbox"
-
-    function moonlightTypeName(wireType) {
-        for (let i = 0; i < page.moonlightTypes.length; ++i) {
-            if (page.moonlightTypes[i].type === wireType)
-                return page.moonlightTypes[i].name;
-        }
-        return page.moonlightTypes[0].name;
-    }
+    readonly property string autoResolvedName:
+        linkWords.moonlightTypeName(page.autoResolved, page.autoType)
 
     // The host's remembered seed for a binding that has not chosen yet.
     function moonlightTypeFor(hostId) {
