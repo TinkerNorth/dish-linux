@@ -775,7 +775,8 @@ class AppViewModel : public QObject {
     source::UiPreferenceStore uiPrefs_;
 
     // ── Diagnostics internals ────────────────────────────────────────────────
-    QVariantMap satelliteBindingDiagnostics(const models::ControllerSlot& slot) const;
+    QVariantMap satelliteBindingDiagnostics(const models::ControllerSlot& slot,
+                                            const QString& hostId) const;
     QVariantMap moonlightBindingDiagnostics(const models::ControllerSlot& slot,
                                             const QString& hostId) const;
     // One poll: the snapshot, and the stick test's sample and clock.

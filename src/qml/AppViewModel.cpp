@@ -1863,12 +1863,14 @@ QVariantMap AppViewModel::bindingDiagnostics(const QString& slotId) const {
     if (slot == nullptr) { return {}; }
     const QString moonlightHost = model_->moonlightBoundHostFor(slotId);
     if (!moonlightHost.isEmpty()) { return moonlightBindingDiagnostics(*slot, moonlightHost); }
-    if (slot->boundConnectionId.has_value()) { return satelliteBindingDiagnostics(*slot); }
+    if (slot->boundConnectionId.has_value()) {
+        return satelliteBindingDiagnostics(*slot, *slot->boundConnectionId);
+    }
     return {{QStringLiteral("bound"), false}};
 }
 
-QVariantMap AppViewModel::satelliteBindingDiagnostics(const models::ControllerSlot& slot) const {
-    const QString hostId = *slot.boundConnectionId;
+QVariantMap AppViewModel::satelliteBindingDiagnostics(const models::ControllerSlot& slot,
+                                                      const QString& hostId) const {
     const auto* conn = model_->wifi()->get(hostId);
     const BindingWireFacts wire =
         conn != nullptr ? bindingWireFactsOf(*conn, slot.id) : BindingWireFacts{};
