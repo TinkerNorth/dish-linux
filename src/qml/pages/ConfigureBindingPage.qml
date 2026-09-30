@@ -217,7 +217,6 @@ Kit.Page {
                     draft.chooseType(current, page.typeNameFor(current));
                 }
             }
-            draft.touchpadMode = page.touchpadIndex(App.touchpadModeFor(boundId));
         }
         draft.motionOn = App.motionEnabledFor(page.slotId);
         draft.rumbleOn = App.rumbleEnabledFor(page.slotId);
@@ -439,16 +438,6 @@ Kit.Page {
     readonly property var touchpadOptions: page.mouseOffered
                                            ? [qsTr("Off"), qsTr("Pad"), qsTr("Mouse")]
                                            : [qsTr("Off"), qsTr("Pad")]
-
-    function touchpadIndex(token) {
-        if (token === "pad") {
-            return 1;
-        }
-        if (token === "mouse") {
-            return 2;
-        }
-        return 0;
-    }
 
     // ── Link vocabulary ─────────────────────────────────────────────────────
     function chipText(token) {

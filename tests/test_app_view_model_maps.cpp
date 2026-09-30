@@ -217,6 +217,17 @@ TEST_CASE("a draft's Off, Pad and Mouse are applied as those choices", "[appvm][
     CHECK(touchpadChoiceForDraftMode(2) == std::optional<QString>(QStringLiteral("mouse")));
 }
 
+TEST_CASE("an editor re-run over a host whose pick is ds4 applies ds4 back", "[appvm][touchpad]") {
+    // Both editors seed the draft from the host's pick when it is chosen and
+    // apply it unchanged unless the user moves it, so the seed must round-trip.
+    constexpr int kDraftPad = 1; // BindingDraft.touchpadModeForChoice("pad")
+    const QString seeded = touchpadChoiceForPick(kWireDs4, kMouseModeShut);
+    REQUIRE(seeded == QStringLiteral("pad"));
+    const auto applied = touchpadChoiceForDraftMode(kDraftPad);
+    REQUIRE(applied == std::optional<QString>(seeded));
+    CHECK(touchpadPickForChoice(*applied) == std::optional<std::string>(kWireDs4));
+}
+
 TEST_CASE("a binding that cannot carry the touchpad leaves the host's pick alone",
           "[appvm][touchpad]") {
     // The pick belongs to the host, shared by every pad bound there, so an Xbox
