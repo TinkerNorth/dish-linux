@@ -1444,6 +1444,17 @@ std::uint8_t AppModel::declaredTouchpadMode(const QString& slotId) const {
                                          resolveControllerType(slotId), catalog);
 }
 
+bool AppModel::slotCarriesRumble(const QString& slotId) const {
+    return reducer::slotCarriesFeedback(feedbackInputs(slotId), reducer::FeedbackKind::Rumble);
+}
+
+// The raw-HID path has no duration and runs the motors until the next write, so
+// the buzz always ends with an explicit stop, which SDL takes harmlessly.
+void AppModel::testRumble(const QString& slotId, reducer::TestBuzz buzz) {
+    actuateRumble(slotId, buzz.strong, buzz.weak, buzz.durationMs);
+    QTimer::singleShot(buzz.durationMs, this, [this, slotId] { actuateRumble(slotId, 0, 0, 0); });
+}
+
 reducer::HostAudioVerdict AppModel::hostControllerAudioFor(const QString& hostId) const {
     const auto* conn = wifi_->get(hostId);
     if (conn == nullptr) { return {}; } // conservative: no probe, no audio

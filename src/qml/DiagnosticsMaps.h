@@ -12,6 +12,7 @@
 #include "composer/ConnectionsComposer.h"
 #include "core/input/StickHealth.h"
 #include "core/reducer/DiagnosticsLog.h"
+#include "core/reducer/FeedbackBench.h"
 #include "core/reducer/HostAudioVerdict.h"
 #include "core/reducer/LatencyWindow.h"
 #include "core/reducer/ProtocolNegotiation.h"
@@ -98,6 +99,9 @@ QVariantMap stickTestRow(const input::StickBench& bench, std::int64_t nowMs);
 
 // The kind a stickTestRow names, read back: empty for a word it never writes.
 std::optional<input::StickTestKind> stickTestKindFrom(const QString& token);
+
+// The bench's motor words, "weak", "strong" and "both": empty for any other.
+std::optional<reducer::BuzzMotor> buzzMotorFrom(const QString& token);
 
 // Oldest first, the order the recorder wrote them.
 QVariantList diagnosticsLogRows(const std::vector<reducer::DiagnosticsEvent>& events);

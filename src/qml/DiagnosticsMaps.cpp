@@ -172,6 +172,17 @@ QString stickTestPhaseToken(input::StickTestPhase phase) {
 constexpr std::array<input::StickTestKind, 2> kStickTestKinds{input::StickTestKind::Drift,
                                                               input::StickTestKind::Range};
 
+struct BuzzMotorWord {
+    reducer::BuzzMotor motor = reducer::BuzzMotor::Weak;
+    const char* token = "";
+};
+
+constexpr std::array<BuzzMotorWord, 3> kBuzzMotorWords{{
+    {reducer::BuzzMotor::Weak, "weak"},
+    {reducer::BuzzMotor::Strong, "strong"},
+    {reducer::BuzzMotor::Both, "both"},
+}};
+
 QString stickTestKindToken(input::StickTestKind kind) {
     switch (kind) {
     case input::StickTestKind::Drift:
@@ -400,6 +411,13 @@ QVariantMap stickTestRow(const input::StickBench& bench, std::int64_t nowMs) {
 std::optional<input::StickTestKind> stickTestKindFrom(const QString& token) {
     for (const auto kind : kStickTestKinds) {
         if (stickTestKindToken(kind) == token) { return kind; }
+    }
+    return std::nullopt;
+}
+
+std::optional<reducer::BuzzMotor> buzzMotorFrom(const QString& token) {
+    for (const auto& word : kBuzzMotorWords) {
+        if (token == QLatin1String(word.token)) { return word.motor; }
     }
     return std::nullopt;
 }

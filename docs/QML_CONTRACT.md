@@ -443,6 +443,8 @@ every ack answer reads `unknown` until then.
 | `startInputInspection(slotId)` | Arm the inspector on one slot: `inputSnapshot` and `stickTest` republish until `stopInputInspection()`. Arming another slot re-points it and drops the last slot's stick test. |
 | `stopInputInspection()` | Disarm. Call it when the page goes away. Safe when idle. |
 | `startStickTest(kind)` | `"drift"` (hands off the sticks for three seconds) or `"range"` (full circles for eight). Replaces the last result; ignored while nothing is armed. |
+| `canTestRumble(slotId)` | The slot's pad can rumble on the path it is on now. Show the rumble bench only when true. |
+| `testRumble(slotId, motor)` | A 400 ms test buzz on `"weak"`, `"strong"` or `"both"`, straight to the actuator: the binding's rumble switch does not gate it, so a pad whose rumble is off can still be tested. The bench drives rumble only; the lightbar, LEDs, trigger effects and mute lamp are host state a test would overwrite. |
 
 ## `SlotListModel`, bound as `App.slotModel`
 

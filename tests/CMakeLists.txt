@@ -229,7 +229,8 @@ set(DISH_TEST_SOURCES
     test_stick_health.cpp
     test_diagnostics_log.cpp
     test_diagnostics_recorder.cpp
-    test_diagnostics_maps.cpp)
+    test_diagnostics_maps.cpp
+    test_feedback_bench.cpp)
 
 add_executable(DishTests ${DISH_TEST_SOURCES})
 target_link_libraries(DishTests

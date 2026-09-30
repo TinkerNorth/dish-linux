@@ -32,6 +32,7 @@
 #include "core/model/Protocol.h"
 #include "core/reducer/BindingPresence.h"
 #include "core/reducer/BatteryRouting.h"
+#include "core/reducer/FeedbackBench.h"
 #include "core/reducer/FeedbackRouting.h"
 #include "core/reducer/HostAudioVerdict.h"
 #include "core/reducer/MicIndicatorState.h"
@@ -245,6 +246,13 @@ class AppModel : public QObject {
     // Direct-claimed pad that decodes its own touch block declares it: "off"
     // makes the satellite drop every MSG_TOUCHPAD the forward path sends.
     std::uint8_t declaredTouchpadMode(const QString& slotId) const;
+
+    // The Diagnostics bench. Whether the slot's pad can rumble on the path it is
+    // on now, and a test buzz that goes straight to the actuator: ungated by the
+    // binding's rumble switch, as dish-android's testBuzz is, so a pad whose
+    // rumble is switched off can still be tested.
+    bool slotCarriesRumble(const QString& slotId) const;
+    void testRumble(const QString& slotId, reducer::TestBuzz buzz);
 
     // Per-slot hardware truth read from the source layer that owns the slot:
     // the parser family for a synthetic (USB-direct) id, the SDL probe for a

@@ -228,6 +228,7 @@ set(DISH_CORE_SOURCES
     src/core/reducer/DiagnosticsLog.h
     src/core/input/InputReadout.h
     src/core/input/StickHealth.h
+    src/core/reducer/FeedbackBench.h
     src/core/reducer/CapabilitySolver.h
     src/core/reducer/CapabilitySolver.cpp
     src/core/reducer/HostAudioVerdict.h

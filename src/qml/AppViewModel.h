@@ -575,6 +575,10 @@ class AppViewModel : public QObject {
     Q_INVOKABLE void stopInputInspection();
     // "drift" or "range"; ignored while no inspection is armed.
     Q_INVOKABLE void startStickTest(const QString& kind);
+    // The inspector's rumble bench: whether the slot's pad can rumble on its
+    // current path, and a short test buzz on "weak", "strong" or "both".
+    Q_INVOKABLE bool canTestRumble(const QString& slotId) const;
+    Q_INVOKABLE void testRumble(const QString& slotId, const QString& motor);
     QVariantMap inputSnapshot() const { return inputSnapshot_; }
     QVariantMap stickTest() const { return stickTest_; }
 

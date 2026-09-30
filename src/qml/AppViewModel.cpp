@@ -1944,6 +1944,16 @@ void AppViewModel::startStickTest(const QString& kind) {
     publishStickTest(now);
 }
 
+bool AppViewModel::canTestRumble(const QString& slotId) const {
+    return model_->slotCarriesRumble(slotId);
+}
+
+void AppViewModel::testRumble(const QString& slotId, const QString& motor) {
+    const auto parsed = buzzMotorFrom(motor);
+    if (!parsed.has_value()) { return; }
+    model_->testRumble(slotId, reducer::testBuzzFor(*parsed));
+}
+
 // The stick tests read the report as the pad sent it: a drift the dead zone
 // hides is still the drift they have to measure.
 void AppViewModel::onInspectionTick() {

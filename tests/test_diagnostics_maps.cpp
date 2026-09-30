@@ -47,6 +47,7 @@ using dish::qml::bindingTypeOf;
 using dish::qml::BindingWireFacts;
 using dish::qml::bindingWireFactsOf;
 using dish::qml::bindingWireRow;
+using dish::qml::buzzMotorFrom;
 using dish::qml::diagnosticsLogRows;
 using dish::qml::hostCardRow;
 using dish::qml::hostDiagnosticsRow;
@@ -462,6 +463,13 @@ TEST_CASE("a stick test's kind reads back from the word its row writes", "[diagn
           StickTestKind::Range);
     CHECK(stickTestKindFrom(QStringLiteral("drift")) == StickTestKind::Drift);
     CHECK_FALSE(stickTestKindFrom(QStringLiteral("sweep")).has_value());
+}
+
+TEST_CASE("the bench's motor words read as the motors they run", "[diagnostics][maps]") {
+    CHECK(buzzMotorFrom(QStringLiteral("weak")) == dish::reducer::BuzzMotor::Weak);
+    CHECK(buzzMotorFrom(QStringLiteral("strong")) == dish::reducer::BuzzMotor::Strong);
+    CHECK(buzzMotorFrom(QStringLiteral("both")) == dish::reducer::BuzzMotor::Both);
+    CHECK_FALSE(buzzMotorFrom(QStringLiteral("left")).has_value());
 }
 
 TEST_CASE("a log row reads a link change as the chips it moved between", "[diagnostics][maps]") {
