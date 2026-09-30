@@ -649,7 +649,7 @@ class AppModel : public QObject {
     // it on the main thread.
     mutable std::mutex audioRoutesMtx_;
     std::map<int, audio::PadAudioRoute> padAudioRoutes_;
-    // Absent = the ds4 pair-time default.
+    // Absent = never picked; declaredTouchpadMode sends ds4 for it.
     repository::TouchpadModeRepository touchpadModeRepo_;
     source::TouchpadModeStore touchpadModeStore_{&touchpadModeRepo_};
 

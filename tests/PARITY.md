@@ -82,7 +82,7 @@ paired one against it yet.
 | DualSense (+Edge on desktop) | ✅ | ✅ | ✅ |
 | Switch Pro | ✅ | ✅ | ✅ |
 | Generic PDP Switch pads | ✅ | ✅ | ✅ |
-| 8BitDo | ✅ known XInput models | ✅ generic HID parser | ✅ generic HID parser |
+| 8BitDo | ✅ known XInput models | ✅ in HID mode (generic HID parser); Standard only in XInput mode (XUSB owns it) | ✅ in HID mode (generic HID parser); Standard only in XInput mode (xpad owns it) |
 | Xbox 360 / One / Series wired | ✅ | ❌ Standard only (XUSB owns it) | ❌ Standard only (xpad owns it) |
 | Stadia | ✅ | ⚠️ generic HID parser, manual pick | ⚠️ generic HID parser, manual pick |
 | Steam Controller | ✅ | ⚠️ never verified | ⚠️ never verified; the mainline hid-steam driver exposes an evdev twin and manages lizard mode itself |
