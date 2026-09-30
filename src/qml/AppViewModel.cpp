@@ -957,6 +957,10 @@ QString AppViewModel::moonlightBoundHost(const QString& slotId) const {
     return model_->moonlightBoundHostFor(slotId);
 }
 
+int AppViewModel::moonlightBindingType(const QString& hostId, const QString& slotId) const {
+    return model_->moonlightBindingType(hostId, slotId);
+}
+
 void AppViewModel::setMoonlightControllerType(const QString& uuid, int type) {
     model_->moonlight()->setControllerType(uuid, type);
 }

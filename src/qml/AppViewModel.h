@@ -419,6 +419,9 @@ class AppViewModel : public QObject {
     Q_INVOKABLE int moonlightResolvedType(const QString& slotId, int candidateType) const;
     // The Moonlight host this slot drives, or empty.
     Q_INVOKABLE QString moonlightBoundHost(const QString& slotId) const;
+    // The type a Moonlight binding sends: the pick stored for this pad on this host, Auto while it
+    // has none. Per binding, never the host's last pick.
+    Q_INVOKABLE int moonlightBindingType(const QString& hostId, const QString& slotId) const;
     // The host's own seed for the next binding's type pick.
     Q_INVOKABLE void setMoonlightControllerType(const QString& uuid, int type);
     // Routes a controller slot's live input to a Moonlight host.

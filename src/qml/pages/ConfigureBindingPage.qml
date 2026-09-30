@@ -209,7 +209,9 @@ Kit.Page {
             // no binding, and the slot-keyed read resolves through one.
             page.refreshCatalog();
             if (draft.hostIsMoonlight) {
-                const moonType = page.moonlightTypeFor(boundId);
+                // The binding's own type, never the host's last pick: two pads on one host keep
+                // their own.
+                const moonType = App.moonlightBindingType(boundId, page.slotId);
                 draft.chooseType(moonType, linkWords.moonlightTypeName(moonType, page.autoType));
             } else {
                 const current = App.emulateCurrentTypeForHost(boundId, page.slotId);
@@ -251,16 +253,6 @@ Kit.Page {
         ? App.moonlightResolvedType(page.slotId, page.autoType) : 1
     readonly property string autoResolvedName:
         linkWords.moonlightTypeName(page.autoResolved, page.autoType)
-
-    // The host's remembered seed for a binding that has not chosen yet.
-    function moonlightTypeFor(hostId) {
-        const rows = App.moonlightHosts;
-        for (let i = 0; i < rows.length; ++i) {
-            if (rows[i].uuid === hostId)
-                return rows[i].controllerType;
-        }
-        return page.autoType;
-    }
 
     function reloadTypes() {
         page.types = draft.hostIsMoonlight ? page.moonlightTypes
