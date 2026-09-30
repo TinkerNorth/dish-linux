@@ -493,7 +493,9 @@ set(DISH_CORE_SOURCES
     src/qml/AppViewModel.cpp
     # Split out of AppViewModel so the mapping is testable without AppModel.
     src/qml/AppSettingsMaps.h
-    src/qml/AppSettingsMaps.cpp)
+    src/qml/AppSettingsMaps.cpp
+    src/qml/DiagnosticsMaps.h
+    src/qml/DiagnosticsMaps.cpp)
 
 # Crash reporting (Sentry). Two gates, and only one of them is load-bearing.
 #

@@ -8,8 +8,10 @@
 #pragma once
 
 #include "core/reducer/ConnectionRows.h"
+#include "core/reducer/DirectClaimFailure.h"
 #include "core/reducer/LinkTier.h"
 #include "core/reducer/MicIndicatorState.h"
+#include "core/reducer/PathChoice.h"
 #include "core/reducer/ProtocolNegotiation.h"
 #include "core/reducer/SatelliteLinkState.h"
 
@@ -109,6 +111,35 @@ inline QString compatToken(reducer::ProtocolCompat c) {
         return QStringLiteral("satelliteUpdateRequired");
     case reducer::ProtocolCompat::DishUpdateRequired:
         return QStringLiteral("dishUpdateRequired");
+    }
+    return {};
+}
+
+// Only two strings appear: the value is always the FSM's RESOLVED choice.
+// "auto" is an input to setSlotPath, never a reflected desired path. The slot
+// card and the capability rows of a diagnosed binding read the same one.
+inline QString desiredPathToken(reducer::PathChoice choice) {
+    switch (choice) {
+    case reducer::PathChoice::Direct:
+        return QStringLiteral("direct");
+    case reducer::PathChoice::Standard:
+        return QStringLiteral("standard");
+    }
+    return {};
+}
+
+// Why a Direct claim did not complete. The slot card and the diagnostics log
+// name the same failures, so they read the one switch.
+inline QString directFailureToken(reducer::DirectClaimFailure f) {
+    switch (f) {
+    case reducer::DirectClaimFailure::PermissionDenied:
+        return QStringLiteral("permissionDenied");
+    case reducer::DirectClaimFailure::Busy:
+        return QStringLiteral("busy");
+    case reducer::DirectClaimFailure::InitFailed:
+        return QStringLiteral("initFailed");
+    case reducer::DirectClaimFailure::Dropped:
+        return QStringLiteral("dropped");
     }
     return {};
 }

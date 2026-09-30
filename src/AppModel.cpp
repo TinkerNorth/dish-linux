@@ -31,6 +31,7 @@
 #include <unordered_set>
 #include <vector>
 
+#include <QDateTime>
 #include <QLocale>
 #include <QStringList>
 
@@ -44,6 +45,10 @@ std::int64_t steadyNowMs() {
                std::chrono::steady_clock::now().time_since_epoch())
         .count();
 }
+
+// The flight recorder's stamps: wall clock, so a copied log reads in the
+// user's own time.
+std::int64_t wallClockMs() { return QDateTime::currentMSecsSinceEpoch(); }
 
 // Shared so both the SDL-slot and synthetic-slot rebuild arms thread through
 // the same cross-reference.
@@ -149,6 +154,7 @@ AppModel::AppModel(std::unique_ptr<source::WakeInhibitor> inhibitor, QObject* pa
       wifi_(new net::WifiConnectionManager(store_.get(), this)),
       hub_(new net::ConnectionHub(wifi_, store_.get(), this)),
       connections_(new composer::ConnectionCoordinator(wifi_, hub_, this)),
+      diagnosticsRecorder_(connections_->connections(), &diagnosticsLog_, &wallClockMs),
       bridge_(new input::SDLGamepadBridge(&processor_, this)),
       featureSettings_(new FeatureSettings(this)), autoReconnectTimer_(new QTimer(this)),
       inhibitor_(std::move(inhibitor)),
@@ -1288,6 +1294,7 @@ void AppModel::rebuild() {
     // setSlotMicMuted), so the engines converge here and nowhere else.
     reconcileAudioEngines();
 
+    diagnosticsRecorder_.observeSlots(state_.slotList);
     emit stateChanged();
 
     // Rides the same rebuild the Live transition triggered; the reducer's edge guard makes the

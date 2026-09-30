@@ -13,10 +13,12 @@
 #include "Network/WifiConnectionManager.h"
 #include "composer/CatalogComposer.h"
 #include "composer/ConnectionCoordinator.h"
+#include "composer/DiagnosticsRecorder.h"
 #include "composer/StreamingSlotCount.h"
 #include "UI/CrashReport.h"
 #include "core/catalog/BundledCatalog.h"
 #include "core/input/Deadzones.h"
+#include "core/input/InputReadout.h"
 #include "core/moonlight/MoonlightPadSlots.h"
 #include "core/moonlight/MoonlightProtocol.h"
 #include "core/moonlight/MoonlightSessionUi.h"
@@ -32,6 +34,7 @@
 #include "core/reducer/SlotPathFields.h"
 #include "source/usb/UsbGamepadManager.h"
 #include "qml/AppSettingsMaps.h"
+#include "qml/DiagnosticsMaps.h"
 #include "repository/DeadzoneRepository.h"
 #include "source/store/AudioEnabledStore.h"
 #include "source/store/CrashReportingStore.h"
@@ -55,6 +58,7 @@
 #include <QVariantMap>
 #include <QWindow>
 
+#include <chrono>
 #include <map>
 #include <optional>
 
@@ -295,6 +299,26 @@ constexpr int kPathBudgetMs = 20'000;
 constexpr int kBindBudgetMs = 8'000;
 constexpr int kApplyTickMs = 250;
 
+// The input inspector's poll: about thirty readings a second, the rate
+// dish-android's inspector draws at.
+constexpr int kInspectionPollMs = 33;
+
+// The stick tests' clock. Monotonic, so a wall-clock step cannot end a capture.
+std::int64_t steadyNowMs() {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(
+               std::chrono::steady_clock::now().time_since_epoch())
+        .count();
+}
+
+// The host row a Moonlight binding rides. A copy: rows() hands out a fresh list.
+std::optional<source::moon::MoonlightRow> moonlightRowFor(dish::AppModel* model,
+                                                          const QString& hostId) {
+    for (const auto& row : model->moonlight()->rows()) {
+        if (row.uuid == hostId) { return row; }
+    }
+    return std::nullopt;
+}
+
 } // namespace
 
 AppViewModel::AppViewModel(dish::AppModel* model, QObject* parent)
@@ -450,6 +474,15 @@ AppViewModel::AppViewModel(dish::AppModel* model, QObject* parent)
     telemetryTimer_->setInterval(1'000);
     QObject::connect(telemetryTimer_, &QTimer::timeout, this, &AppViewModel::onTelemetryTick);
     telemetryTimer_->start();
+
+    // The recorder writes on the main thread, so the relay needs no hop.
+    diagnosticsLogSub_ = model_->diagnosticsLog().subscribe(
+        [this](const std::vector<reducer::DiagnosticsEvent>&) { emit diagnosticsLogChanged(); },
+        false);
+    // Idle until a page arms an inspection.
+    inspectionTimer_ = new QTimer(this);
+    inspectionTimer_->setInterval(kInspectionPollMs);
+    QObject::connect(inspectionTimer_, &QTimer::timeout, this, &AppViewModel::onInspectionTick);
 
     onStateChanged();
     onConnectionsChanged();
@@ -1808,6 +1841,134 @@ void AppViewModel::openReleaseNotes() {
     const QString url =
         update_.notesUrl.isEmpty() ? QString::fromLatin1(kReleasesPageUrl) : update_.notesUrl;
     openExternalUrl(url);
+}
+
+// ── Diagnostics ─────────────────────────────────────────────────────────────
+
+QVariantList AppViewModel::diagnosticsHosts() const {
+    QVariantList out;
+    for (const auto& link : model_->connections()->connections().value()) {
+        const auto* conn = model_->wifi()->get(QString::fromStdString(link.id));
+        const HostSessionFacts facts =
+            conn != nullptr ? hostSessionFactsOf(*conn) : HostSessionFacts{};
+        out.append(hostCardRow(link, facts));
+    }
+    return out;
+}
+
+// A slot drives one destination at a time, and the two host kinds keep separate
+// tables, so the Moonlight side is asked first and the satellite side after.
+QVariantMap AppViewModel::bindingDiagnostics(const QString& slotId) const {
+    const auto* slot = slotById(slotId);
+    if (slot == nullptr) { return {}; }
+    const QString moonlightHost = model_->moonlightBoundHostFor(slotId);
+    if (!moonlightHost.isEmpty()) { return moonlightBindingDiagnostics(*slot, moonlightHost); }
+    if (slot->boundConnectionId.has_value()) { return satelliteBindingDiagnostics(*slot); }
+    return {{QStringLiteral("bound"), false}};
+}
+
+QVariantMap AppViewModel::satelliteBindingDiagnostics(const models::ControllerSlot& slot) const {
+    const QString hostId = *slot.boundConnectionId;
+    const auto* conn = model_->wifi()->get(hostId);
+    const BindingWireFacts wire =
+        conn != nullptr ? bindingWireFactsOf(*conn, slot.id) : BindingWireFacts{};
+    const int type = bindingTypeOf(wire, model_->currentTypeForConnection(hostId, slot.id));
+    const int touchpadPick = touchpadPickIndex(touchpadModeFor(hostId));
+    QVariantMap row = bindingWireRow(wire);
+    row[QStringLiteral("bound")] = true;
+    row[QStringLiteral("hostKind")] = QStringLiteral("satellite");
+    row[QStringLiteral("hostId")] = hostId;
+    row[QStringLiteral("hostLabel")] = composer::boundHostLabelOf(slot);
+    row[QStringLiteral("touchpadPick")] = touchpadPick;
+    row[QStringLiteral("capabilities")] =
+        capabilityForCandidate(slot.id, type, QStringLiteral("satellite"), hostId,
+                               tokens::desiredPathToken(slot.desiredPath),
+                               motionEnabledFor(slot.id), rumbleEnabledFor(slot.id), touchpadPick,
+                               micEnabledFor(slot.id), speakerEnabledFor(slot.id));
+    return row;
+}
+
+// No descriptor and no ack on this path: GameStream declares a pad on arrival
+// and reports nothing back, so the wire side stays undeclared. The type is the
+// host's own controller type and the touchpad pick the host's, both as the
+// binding editor seeds them; the host is named as its row names it.
+QVariantMap AppViewModel::moonlightBindingDiagnostics(const models::ControllerSlot& slot,
+                                                      const QString& hostId) const {
+    const auto host = moonlightRowFor(model_, hostId);
+    const int type = host ? host->controllerType : repository::kMoonlightControllerTypeAuto;
+    QString label = hostId;
+    if (host) { label = !host->name.isEmpty() ? host->name : host->address; }
+    const int touchpadPick = touchpadPickIndex(touchpadModeFor(hostId));
+    QVariantMap row = bindingWireRow(BindingWireFacts{});
+    row[QStringLiteral("bound")] = true;
+    row[QStringLiteral("hostKind")] = QStringLiteral("moonlight");
+    row[QStringLiteral("hostId")] = hostId;
+    row[QStringLiteral("hostLabel")] = label;
+    row[QStringLiteral("touchpadPick")] = touchpadPick;
+    row[QStringLiteral("capabilities")] =
+        capabilityForCandidate(slot.id, type, QStringLiteral("moonlight"), hostId,
+                               tokens::desiredPathToken(slot.desiredPath),
+                               motionEnabledFor(slot.id), rumbleEnabledFor(slot.id), touchpadPick,
+                               micEnabledFor(slot.id), speakerEnabledFor(slot.id));
+    return row;
+}
+
+QVariantList AppViewModel::diagnosticsLog() const {
+    return diagnosticsLogRows(model_->diagnosticsLog().value());
+}
+
+void AppViewModel::copyToClipboard(const QString& text) const {
+    if (auto* clipboard = QGuiApplication::clipboard()) { clipboard->setText(text); }
+}
+
+void AppViewModel::startInputInspection(const QString& slotId) {
+    if (slotId != inspectedSlotId_) { stickBench_ = input::StickBench{}; }
+    inspectedSlotId_ = slotId;
+    inspectionTimer_->start();
+    onInspectionTick();
+}
+
+void AppViewModel::stopInputInspection() {
+    inspectionTimer_->stop();
+    inspectedSlotId_.clear();
+    stickBench_ = input::StickBench{};
+    publishInputSnapshot({});
+    publishStickTest(steadyNowMs());
+}
+
+void AppViewModel::startStickTest(const QString& kind) {
+    const auto parsed = stickTestKindFrom(kind);
+    if (inspectedSlotId_.isEmpty() || !parsed.has_value()) { return; }
+    const std::int64_t now = steadyNowMs();
+    stickBench_.start(*parsed, now);
+    publishStickTest(now);
+}
+
+// The stick tests read the report as the pad sent it: a drift the dead zone
+// hides is still the drift they have to measure.
+void AppViewModel::onInspectionTick() {
+    const auto seen = model_->processor()->inspect(inspectedSlotId_.toStdString());
+    publishInputSnapshot(inputSnapshotRow(seen));
+    if (seen.raw.has_value()) {
+        stickBench_.sample(input::stickSampleOf(seen.raw->lx, seen.raw->ly),
+                           input::stickSampleOf(seen.raw->rx, seen.raw->ry));
+    }
+    const std::int64_t now = steadyNowMs();
+    stickBench_.advance(now);
+    publishStickTest(now);
+}
+
+void AppViewModel::publishInputSnapshot(const QVariantMap& snapshot) {
+    if (snapshot == inputSnapshot_) { return; }
+    inputSnapshot_ = snapshot;
+    emit inputSnapshotChanged();
+}
+
+void AppViewModel::publishStickTest(std::int64_t nowMs) {
+    const QVariantMap next = stickTestRow(stickBench_, nowMs);
+    if (next == stickTest_) { return; }
+    stickTest_ = next;
+    emit stickTestChanged();
 }
 
 } // namespace dish::qml

@@ -35,26 +35,8 @@ QString pathPhaseToken(reducer::UsbPhase phase) {
     return QStringLiteral("routed"); // unreachable; total switch
 }
 
-// Only two strings appear: the stamped value is always the FSM's RESOLVED
-// choice. "auto" is an input to setSlotPath, never a reflected desired.
-QString desiredPathToken(reducer::PathChoice choice) {
-    return choice == reducer::PathChoice::Direct ? QStringLiteral("direct")
-                                                 : QStringLiteral("standard");
-}
-
 QString directFailureToken(const std::optional<reducer::DirectClaimFailure>& failure) {
-    if (!failure.has_value()) { return {}; }
-    switch (*failure) {
-    case reducer::DirectClaimFailure::PermissionDenied:
-        return QStringLiteral("permissionDenied");
-    case reducer::DirectClaimFailure::Busy:
-        return QStringLiteral("busy");
-    case reducer::DirectClaimFailure::InitFailed:
-        return QStringLiteral("initFailed");
-    case reducer::DirectClaimFailure::Dropped:
-        return QStringLiteral("dropped");
-    }
-    return {}; // unreachable; total switch
+    return failure.has_value() ? tokens::directFailureToken(*failure) : QString();
 }
 
 QString dotColorToken(const models::ControllerSlot& s) {
@@ -212,7 +194,7 @@ std::optional<QVariant> SlotListModel::pathFieldFor(const models::ControllerSlot
     case PathPhaseRole:
         return pathPhaseToken(s.pathPhase);
     case DesiredPathRole:
-        return desiredPathToken(s.desiredPath);
+        return tokens::desiredPathToken(s.desiredPath);
     case PathSupportedRole:
         return s.pathSupported;
     case ClaimInProgressRole:

@@ -21,6 +21,7 @@
 #include <vector>
 
 using dish::arch::Observable;
+using dish::composer::boundHostLabelOf;
 using dish::composer::ConnectionRow;
 using dish::composer::DiagnosticsRecorder;
 using dish::composer::padSnapshotOf;
@@ -138,4 +139,9 @@ TEST_CASE("a binding whose host row is gone falls back to the host's id",
     ControllerSlot orphan = slot(QStringLiteral("sdl:1"));
     orphan.boundConnectionId = QStringLiteral("mid:desk");
     CHECK(padSnapshotOf(orphan).boundLabel == "mid:desk");
+    CHECK(boundHostLabelOf(orphan) == QStringLiteral("mid:desk"));
+}
+
+TEST_CASE("an unbound slot names no host", "[diagnostics][recorder]") {
+    CHECK(boundHostLabelOf(slot(QStringLiteral("sdl:1"))).isEmpty());
 }

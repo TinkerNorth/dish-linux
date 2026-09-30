@@ -3,7 +3,6 @@
 
 #include "composer/DiagnosticsRecorder.h"
 
-#include <string>
 #include <utility>
 
 namespace dish::composer {
@@ -16,14 +15,12 @@ reducer::PadPath padPathOf(const models::ControllerSlot& slot) {
     return reducer::PadPath::UsbStandard;
 }
 
-// A binding whose connection row has gone keeps its id, which is still better
-// than a blank in a bug report.
-std::string boundLabelOf(const models::ControllerSlot& slot) {
-    if (slot.boundStatus.has_value()) { return slot.boundStatus->label.toStdString(); }
-    return slot.boundConnectionId.value_or(QString()).toStdString();
-}
-
 } // namespace
+
+QString boundHostLabelOf(const models::ControllerSlot& slot) {
+    if (slot.boundStatus.has_value()) { return slot.boundStatus->label; }
+    return slot.boundConnectionId.value_or(QString());
+}
 
 reducer::LinkSnapshot linkSnapshotOf(const ConnectionRow& row) {
     return {row.id, row.label, row.live};
@@ -37,7 +34,7 @@ reducer::PadSnapshot padSnapshotOf(const models::ControllerSlot& slot) {
     pad.phase = slot.pathPhase;
     pad.failure = slot.directFailure;
     pad.boundId = slot.boundConnectionId.value_or(QString()).toStdString();
-    pad.boundLabel = boundLabelOf(slot);
+    pad.boundLabel = boundHostLabelOf(slot).toStdString();
     return pad;
 }
 

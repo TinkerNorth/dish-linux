@@ -26,6 +26,10 @@ namespace dish::composer {
 reducer::LinkSnapshot linkSnapshotOf(const ConnectionRow& row);
 reducer::PadSnapshot padSnapshotOf(const models::ControllerSlot& slot);
 
+// The name of the host a slot is bound to: its row's label, or the host's id
+// once the row has gone, which is still better than a blank in a bug report.
+QString boundHostLabelOf(const models::ControllerSlot& slot);
+
 class DiagnosticsRecorder {
   public:
     // Wall-clock milliseconds, so a copied log lines up with the user's own
