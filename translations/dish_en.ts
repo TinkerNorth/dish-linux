@@ -1816,6 +1816,18 @@
         <translation>Touchpad on the wire</translation>
     </message>
     <message>
+        <source>Not available</source>
+        <translation>Not available</translation>
+    </message>
+    <message>
+        <source>On</source>
+        <translation>On</translation>
+    </message>
+    <message>
+        <source>Off</source>
+        <translation>Off</translation>
+    </message>
+    <message>
         <source>%1: appeared, %2</source>
         <translation>%1: appeared, %2</translation>
     </message>
@@ -1878,6 +1890,14 @@
     <message>
         <source>Inspect input</source>
         <translation>Inspect input</translation>
+    </message>
+    <message>
+        <source>Radios</source>
+        <translation>Radios</translation>
+    </message>
+    <message>
+        <source>Adapter</source>
+        <translation>Adapter</translation>
     </message>
     <message>
         <source>Events</source>

@@ -1816,6 +1816,18 @@
         <translation>Pavé tactile vers l&apos;hôte</translation>
     </message>
     <message>
+        <source>Not available</source>
+        <translation>Indisponible</translation>
+    </message>
+    <message>
+        <source>On</source>
+        <translation>Activé</translation>
+    </message>
+    <message>
+        <source>Off</source>
+        <translation>Désactivé</translation>
+    </message>
+    <message>
         <source>%1: appeared, %2</source>
         <translation>%1 : apparu, %2</translation>
     </message>
@@ -1878,6 +1890,14 @@
     <message>
         <source>Inspect input</source>
         <translation>Inspecter l&apos;entrée</translation>
+    </message>
+    <message>
+        <source>Radios</source>
+        <translation>Radios</translation>
+    </message>
+    <message>
+        <source>Adapter</source>
+        <translation>Adaptateur</translation>
     </message>
     <message>
         <source>Events</source>

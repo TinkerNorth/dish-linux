@@ -1816,6 +1816,18 @@
         <translation>Touchpad para o host</translation>
     </message>
     <message>
+        <source>Not available</source>
+        <translation>Indisponível</translation>
+    </message>
+    <message>
+        <source>On</source>
+        <translation>Ligado</translation>
+    </message>
+    <message>
+        <source>Off</source>
+        <translation>Desligado</translation>
+    </message>
+    <message>
         <source>%1: appeared, %2</source>
         <translation>%1: apareceu, %2</translation>
     </message>
@@ -1878,6 +1890,14 @@
     <message>
         <source>Inspect input</source>
         <translation>Inspecionar entrada</translation>
+    </message>
+    <message>
+        <source>Radios</source>
+        <translation>Rádios</translation>
+    </message>
+    <message>
+        <source>Adapter</source>
+        <translation>Adaptador</translation>
     </message>
     <message>
         <source>Events</source>

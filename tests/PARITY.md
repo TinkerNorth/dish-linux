@@ -102,16 +102,22 @@ paired one against it yet.
   reads "Dish update required" for a newer satellite that still accepts this
   build; this client keys the chip on the negotiation, so that case reads as
   fine. Red here means the session cannot open.
-- The Diagnostics page leaves out four Android sections. Screen hold: keep-awake
-  is the user's own setting here, and a page that held the display would be a
-  second writer to the same inhibitor. The Wi-Fi radio card: the desktop has no
-  WLAN source. The latency profiling bench: the desktop input path carries no
-  per-stage timestamps, so the page shows the session's measured round trip
-  instead. Host cards for Moonlight and Bluetooth hosts: every fact the desktop
-  holds about a Moonlight session already renders on the Moonlight hosts page,
-  the host app and GFE versions and per-pad report counts Android adds have no
-  desktop source, and this client never pairs to a host as a Bluetooth gamepad.
-  A controller bound to a Moonlight host still names it.
+- The Diagnostics page leaves out these parts of Android's. Screen hold:
+  keep-awake is the user's own setting here, and a page that held the display
+  would be a second writer to the same inhibitor. The latency profiling bench:
+  the desktop input path carries no per-stage timestamps, so the page shows the
+  session's measured round trip instead. Host cards for Moonlight and Bluetooth
+  hosts: every fact the desktop holds about a Moonlight session already renders
+  on the Moonlight hosts page, the host app and GFE versions and per-pad report
+  counts Android adds have no desktop source, and this client never pairs to a
+  host as a Bluetooth gamepad. A controller bound to a Moonlight host still
+  names it.
+- Of Android's three radio cards the page shows Bluetooth, with the adapter's
+  state; that card's permission, link-type and host-role rows have no desktop
+  counterpart. The Wi-Fi card is left out because the desktop has no WLAN
+  source, and the USB card because each controller card already shows its path
+  and poll rate, while the endpoint packet facts Android adds have no desktop
+  source.
 - The Diagnostics feature bench drives rumble only, through the ungated path, so
   a pad whose rumble switch is off can still be tested. The lightbar, player
   LEDs, trigger effects and mic lamp are host-owned state a test would

@@ -41,6 +41,9 @@ Kit.Page {
     property int revision: 0
     property int logRevision: 0
 
+    // The adapter can have been switched since the probe last ran.
+    Component.onCompleted: App.refreshBluetoothState()
+
     Connections {
         target: App
         function onTelemetryChanged() { page.revision += 1; }
@@ -290,6 +293,14 @@ Kit.Page {
         lines.push({ "key": qsTr("Touchpad on the wire"),
                      "value": page.touchpadText(binding.touchpadMode) });
         return lines;
+    }
+
+    // ── Radios ───────────────────────────────────────────────────────────────
+
+    function adapterText() {
+        if (!App.bluetoothPresent)
+            return qsTr("Not available");
+        return App.bluetoothEnabled ? qsTr("On") : qsTr("Off");
     }
 
     // ── Events ───────────────────────────────────────────────────────────────
@@ -570,6 +581,33 @@ Kit.Page {
                             visible: pad.bound
                             rows: pad.capabilityRows
                         }
+                    }
+                }
+            }
+        }
+
+        // ── Radios ───────────────────────────────────────────────────────────
+        ColumnLayout {
+            Layout.fillWidth: true
+            spacing: Tokens.s4
+
+            Kit.SectionHeader { label: qsTr("Radios") }
+
+            Kit.Card {
+                Layout.fillWidth: true
+                contentItem: ColumnLayout {
+                    spacing: Tokens.s3
+
+                    Label {
+                        Layout.fillWidth: true
+                        text: qsTr("Bluetooth")
+                        color: Theme.onSurface
+                        font.pixelSize: Tokens.textBase
+                        font.weight: Font.DemiBold
+                    }
+                    Repeater {
+                        model: [{ "key": qsTr("Adapter"), "value": page.adapterText() }]
+                        delegate: factLine
                     }
                 }
             }

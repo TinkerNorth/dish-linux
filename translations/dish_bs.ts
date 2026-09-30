@@ -1828,6 +1828,18 @@
         <translation>Dodirna ploča prema hostu</translation>
     </message>
     <message>
+        <source>Not available</source>
+        <translation>Nije dostupan</translation>
+    </message>
+    <message>
+        <source>On</source>
+        <translation>Uključen</translation>
+    </message>
+    <message>
+        <source>Off</source>
+        <translation>Isključen</translation>
+    </message>
+    <message>
         <source>%1: appeared, %2</source>
         <translation>%1: pojavio se, %2</translation>
     </message>
@@ -1890,6 +1902,14 @@
     <message>
         <source>Inspect input</source>
         <translation>Pregledaj unos</translation>
+    </message>
+    <message>
+        <source>Radios</source>
+        <translation>Radiji</translation>
+    </message>
+    <message>
+        <source>Adapter</source>
+        <translation>Adapter</translation>
     </message>
     <message>
         <source>Events</source>
