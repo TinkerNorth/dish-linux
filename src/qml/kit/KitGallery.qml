@@ -415,6 +415,27 @@ Item {
                 }
 
                 Specimen {
+                    Eyebrow { text: qsTr("StickPlot") }
+                    Row {
+                        spacing: Tokens.s8
+                        StickPlot { accessibleName: qsTr("At rest") }
+                        StickPlot {
+                            stickX: 0.45
+                            stickY: 0.6
+                            accessibleName: qsTr("Deflected")
+                        }
+                        StickPlot {
+                            stickX: -1
+                            accessibleName: qsTr("At the rim")
+                        }
+                        StickPlot {
+                            reporting: false
+                            accessibleName: qsTr("Not reporting")
+                        }
+                    }
+                }
+
+                Specimen {
                     Eyebrow { text: qsTr("DishProgressBar · LoadingSpinner") }
                     DishProgressBar { width: parent.width }
                     DishProgressBar {

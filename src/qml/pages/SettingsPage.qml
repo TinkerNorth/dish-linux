@@ -316,6 +316,13 @@ Kit.Page {
 
                 Kit.SectionHeader { label: qsTr("Diagnostics") }
 
+                Kit.RowButton {
+                    Layout.fillWidth: true
+                    title: qsTr("Diagnostics…")
+                    subtitle: qsTr("Each host's session, each controller down to the wire, and a log of what changed.")
+                    onClicked: settingsPage.pushDetail("DiagnosticsPage.qml", qsTr("Diagnostics"))
+                }
+
                 Kit.Card {
                     Layout.fillWidth: true
                     contentItem: Kit.LabeledSwitch {
@@ -342,7 +349,8 @@ Kit.Page {
                             Layout.fillWidth: true
                             wrapMode: Text.WordWrap
                             text: qsTr("Dish closed unexpectedly last time. The report below has had your home folder, network addresses and any key-like values removed.")
-                            color: Tokens.textMeta
+                            color: Theme.muted
+                            font.pixelSize: Tokens.textMeta
                         }
 
                         ScrollView {

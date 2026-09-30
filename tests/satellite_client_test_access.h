@@ -32,6 +32,12 @@ class SatelliteClientTestAccess {
                               const std::uint8_t* payload, std::size_t len) {
         return client.sendEncrypted(msgType, payload, len);
     }
+
+    // Stamps an in-flight heartbeat ping the way the heartbeat thread does, so
+    // an ack fed through processIncoming lands a round trip in the window.
+    static void armPing(SatelliteClient& client, std::int64_t sentUs) {
+        client.pingSentUs_.store(sentUs, std::memory_order_relaxed);
+    }
 };
 
 } // namespace dish::net

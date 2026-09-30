@@ -65,6 +65,10 @@ class SentryCrashReportingBackend : public CrashReportingBackend {
     // setEnabled() would inherit every throwing path in it.
     void disarm() noexcept;
 
+    // The on half of setEnabled: the DSN gate, then the SDK. Separate because the gate refuses on
+    // most builds and the SDK work below it is the part only a release build ever runs.
+    void arm();
+
     bool active_ = false;
 };
 

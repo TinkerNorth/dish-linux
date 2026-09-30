@@ -296,6 +296,13 @@ class WifiConnection : public QObject {
     models::ControllerDescriptor descriptorOf(const SlotBinding& b) const;
     int lowestFreeIndex() const;
     void onAliveTick();
+
+    // The tick's four jobs, in the order it does them. reportedGone answers true when the session
+    // is over, which is the only thing that ends a tick early.
+    void publishLatency(const SatelliteClient& c);
+    bool reportedGone(const SatelliteClient& c);
+    void applySteadyState(const SatelliteClient& c);
+    void maybeRequestRekey(const SatelliteClient& c);
     void teardownClient();
 };
 

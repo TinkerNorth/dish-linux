@@ -6,7 +6,7 @@
 // query. Reuses that module's DNS wire helpers (net::detail::skipName /
 // readName) and adds an SRV-target -> A record resolve, since GameStream hosts
 // advertise their address indirectly. Blocking: call from a background thread.
-// Manual host entry (source/moonlight/MoonlightSession) is the fallback when a
+// Manual host entry (source/moonlight/MoonlightManager) is the fallback when a
 // network drops the multicast query.
 
 #pragma once

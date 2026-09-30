@@ -79,6 +79,14 @@ template <class S> class Observable {
         return impl_->value;
     }
 
+    // Hands `reader` the held value in place, under the lock, for a hot path that
+    // must not copy it. The lock is not recursive: `reader` must not call back into
+    // this Observable.
+    template <class Reader> auto read(Reader&& reader) const {
+        std::lock_guard<std::mutex> lock(impl_->mutex);
+        return std::forward<Reader>(reader)(std::as_const(impl_->value));
+    }
+
     // Subscribers are invoked outside the lock so a callback may re-enter.
     void set(S next) {
         std::vector<std::function<void(const S&)>> toNotify;

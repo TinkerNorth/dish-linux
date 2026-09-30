@@ -278,7 +278,7 @@ Kit.Page {
                     page.carryingLines(connectionId, App.boundSlotCount)
 
                 Accessible.role: Accessible.ListItem
-                Accessible.name: qsTr("%1, %2").arg(host.label).arg(page.chipText(host.chip))
+                Accessible.name: qsTr("%1, %2").arg(host.label).arg(linkVocab.chipText(host.chip))
                                  + " · " + linkVocab.tierText(host.tier)
                                  + (host.showLatency ? " · " + host.latencyText : "")
                                  + (linkVocab.compatText(host.compat).length > 0
@@ -342,8 +342,8 @@ Kit.Page {
                             Layout.alignment: Qt.AlignVCenter
                         }
                         Kit.CapabilityChip {
-                            text: page.chipText(host.chip)
-                            tone: page.chipTone(host.chip)
+                            text: linkVocab.chipText(host.chip)
+                            tone: linkVocab.chipTone(host.chip)
                             Layout.alignment: Qt.AlignVCenter
                         }
                     }
@@ -576,30 +576,5 @@ Kit.Page {
                    ? qsTr("%1 — as %2").arg(pad.name).arg(pad.emulateName)
                    : pad.name;
         });
-    }
-
-    // Localized chip text/tone for a link-state token — the same ladders Home
-    // renders from the identical tokens. The C++ vends the token, not the copy.
-    function chipText(token) {
-        switch (token) {
-        case "found":        return qsTr("Found");
-        case "needsPairing": return qsTr("Needs pairing");
-        case "offline":      return qsTr("Offline");
-        case "ready":        return qsTr("Ready");
-        case "connecting":   return qsTr("Connecting…");
-        case "online":       return qsTr("Online");
-        case "unstable":     return qsTr("Unsteady");
-        default:             return token;
-        }
-    }
-    function chipTone(token) {
-        switch (token) {
-        case "online":       return Kit.CapabilityChip.Ok;
-        case "connecting":   return Kit.CapabilityChip.Warn;
-        case "unstable":     return Kit.CapabilityChip.Warn;
-        case "needsPairing": return Kit.CapabilityChip.Warn;
-        case "ready":        return Kit.CapabilityChip.Present;
-        default:             return Kit.CapabilityChip.Neutral;
-        }
     }
 }

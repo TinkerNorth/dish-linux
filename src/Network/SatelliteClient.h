@@ -381,6 +381,9 @@ class SatelliteClient {
     };
     LatencySnapshot latencySnapshot() const;
 
+    // The same window's round trips for the diagnostics page, emptied with it.
+    reducer::LatencySummary latencySummary() const;
+
   private:
     // Test-only seam to park the send counter near exhaustion.
     friend class SatelliteClientTestAccess;
@@ -393,6 +396,17 @@ class SatelliteClient {
     void heartbeatLoop();
     void receiveLoop();
     void processIncoming(const std::uint8_t* buf, std::size_t n);
+
+    // processIncoming's two halves: getting a packet open, and doing something with what was in
+    // it. Seven of the nine message kinds share one dispatch, so only these three have bodies.
+    struct IncomingMaterial;
+    IncomingMaterial takeIncomingMaterial();
+    bool decryptIncoming(const std::uint8_t* buf, std::size_t n, std::vector<std::uint8_t>& plain,
+                         unsigned long long& plainLen);
+    void dispatchIncoming(std::uint16_t msgType, const std::uint8_t* body, std::size_t bodyLen);
+    void recordAckLatency();
+    void onHeartbeatAck(const std::uint8_t* body, std::size_t bodyLen);
+    void onSessionClose(const std::uint8_t* body, std::size_t bodyLen);
 
     int sock_ = -1;
     sockaddr_in dest_{};

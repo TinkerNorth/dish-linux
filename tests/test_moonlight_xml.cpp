@@ -124,7 +124,7 @@ TEST_CASE("parseLaunch rejects a missing or malformed session url", "[moonlight]
                     .has_value());
 }
 
-TEST_CASE("a host refuses in the BODY, not in the status line", "[moonlight][xml]") {
+TEST_CASE("a host refuses in the BODY, not in the status line", "[moonlight][xml][h3]") {
     // Measured against a live Sunshine host: asking /launch to start a second
     // app answers HTTP 200 with status_code="400" and "An app is already
     // running on this host". Code that reads only the HTTP status treats that

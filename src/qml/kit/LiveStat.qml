@@ -34,4 +34,12 @@ Text {
             return "<1 ms";
         return "~" + (tenths / 10).toFixed(1) + " ms";
     }
+
+    // A measured round trip, as the diagnostics page shows the session's window:
+    // one decimal and no "~", because it is a measurement and not an estimate.
+    function roundTripText(ms, samples) {
+        if (!samples || samples <= 0)
+            return "";
+        return (Math.round(Math.max(0, Number(ms)) * 10) / 10).toFixed(1) + " ms";
+    }
 }

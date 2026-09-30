@@ -66,19 +66,14 @@ ColumnLayout {
     readonly property int autoType: App.moonlightAutoType
 
     // The four CONTROLLER_ARRIVAL types, in the order the picker offers them.
-    // The three brand names are NOT translated: they are the devices the host
-    // plugs in, and their names are the same in every language.
-    readonly property var moonlightTypes: [
-        { "type": page.autoType,  "name": qsTr("Auto") },
-        { "type": 1,              "name": "Xbox" },
-        { "type": 2,              "name": "PlayStation" },
-        { "type": 3,              "name": "Nintendo" }
-    ]
+    LinkVocabulary { id: linkWords }
+    readonly property var moonlightTypes: linkWords.moonlightTypes(page.autoType)
 
     // What Auto would send for THIS pad, named so the Auto card can say it.
     readonly property int autoResolved: page.draft.hasInput
         ? App.moonlightResolvedType(page.draft.slotId, page.autoType) : 1
-    readonly property string autoResolvedName: page.autoResolved === 2 ? "PlayStation" : "Xbox"
+    readonly property string autoResolvedName:
+        linkWords.moonlightTypeName(page.autoResolved, page.autoType)
 
     readonly property bool loadingOnly: !page.moonlight && App.emulateLoading
                                         && page.types.length === 0

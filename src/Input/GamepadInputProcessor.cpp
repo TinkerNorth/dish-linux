@@ -39,6 +39,7 @@ void GamepadInputProcessor::publish(const DeviceId& id, const DeviceState& state
         if (auto it = deadzones_.find(id); it != deadzones_.end()) { dz = it->second; }
         filtered = applyDeadzones(state, dz);
         states_[id] = filtered;
+        rawStates_[id] = state;
         if (DeviceState& ref = activityRef_[id]; isActuation(ref, filtered)) {
             ref = filtered;
             actuations_.fetch_add(1, std::memory_order_relaxed);
@@ -74,10 +75,24 @@ void GamepadInputProcessor::zeroAndSendAll() {
 void GamepadInputProcessor::remove(const DeviceId& id) {
     std::lock_guard<std::mutex> lock(mtx_);
     states_.erase(id);
+    rawStates_.erase(id);
+    touchpads_.erase(id);
     activityRef_.erase(id);
     deadzones_.erase(id);
     lastMotionUs_.erase(id);
     rateCounters_.erase(id);
+}
+
+GamepadInputProcessor::Inspection GamepadInputProcessor::inspect(const DeviceId& id) const {
+    std::lock_guard<std::mutex> lock(mtx_);
+    Inspection seen;
+    if (const auto it = states_.find(id); it != states_.end()) { seen.wire = it->second; }
+    if (const auto it = rawStates_.find(id); it != rawStates_.end()) { seen.raw = it->second; }
+    if (const auto it = lastMotionUs_.find(id); it != lastMotionUs_.end()) {
+        seen.motion = it->second.lastSample;
+    }
+    if (const auto it = touchpads_.find(id); it != touchpads_.end()) { seen.touchpad = it->second; }
+    return seen;
 }
 
 GamepadInputProcessor::InputRateCounters
@@ -111,6 +126,7 @@ bool GamepadInputProcessor::publishMotionAt(const DeviceId& id, const MotionSamp
         }
         gate.lastUs = nowUs;
         gate.hasEmitted = true;
+        gate.lastSample = sample;
         rateCounters_[id].motion.fetch_add(1, std::memory_order_relaxed);
         snapshot = motionSender_;
     }
@@ -147,6 +163,7 @@ void GamepadInputProcessor::publishTouchpad(const DeviceId& id, const TouchpadSa
     {
         std::lock_guard<std::mutex> lock(mtx_);
         snapshot = touchpadSender_;
+        touchpads_[id] = sample;
         // No threshold: a touchpad sample is a finger, not a poll.
         actuations_.fetch_add(1, std::memory_order_relaxed);
     }

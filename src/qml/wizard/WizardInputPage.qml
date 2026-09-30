@@ -77,9 +77,11 @@ ColumnLayout {
         page.draft.chooseInput(slotId, name,
                                usable && currentPath === "direct" ? "direct" : "standard",
                                usable);
-        // Motion is a persisted per-pad preference (Dead zones writes it too);
-        // seeding from the default would silently re-enable a gyro turned off.
+        // Motion and rumble are persisted per-pad preferences (Dead zones writes
+        // motion too); seeding from the default would silently re-enable one
+        // the user turned off.
         page.draft.setMotion(App.motionEnabledFor(slotId));
+        page.draft.setRumble(App.rumbleEnabledFor(slotId));
         // Same rule for the audio pair: a re-run of the wizard over a pad whose
         // mic the user enabled must not silently reset it — and the other way
         // round, which for a microphone is the reset that matters.

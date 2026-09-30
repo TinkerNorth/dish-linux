@@ -38,13 +38,34 @@ MicCaptureEngine::~MicCaptureEngine() {
     } catch (...) { qCWarning(lcDishAudio) << "mic capture teardown failed"; }
 }
 
-void MicCaptureEngine::reconcile(const std::vector<MicCaptureTarget>& targets) {
-    if (gateway_ == nullptr) { return; }
+// The whole per-window pipeline, on the gateway's audio thread: window, re-check enabled, encode,
+// seq++, send.
+//
+// The enabled re-check inside the window emit, and not only per chunk, is the half of the privacy
+// invariant that bounds a mute landing mid-close to one frame.
+void MicCaptureEngine::WindowPublisher::operator()(const std::int16_t* samples,
+                                                   std::size_t count) const {
+    if (!session_->enabled.load(std::memory_order_relaxed)) { return; }
+    session_->windower.feed(samples, count, [this](const std::int16_t* pcm, std::size_t frames) {
+        sendWindow(pcm, frames);
+    });
+}
 
-    // Close first — narrowing before widening, so a slot that moved endpoints
-    // is never captured from two devices at once, and a slot that fell out of
-    // eligibility (a mute among the causes) is closed before anything new
-    // starts.
+void MicCaptureEngine::WindowPublisher::sendWindow(const std::int16_t* pcm,
+                                                   std::size_t frames) const {
+    if (!session_->enabled.load(std::memory_order_relaxed)) { return; }
+    std::uint8_t packet[proto::kAudioWireMaxOpusBytes];
+    const std::size_t bytes = session_->encoder->encode(pcm, frames, packet, sizeof(packet));
+    // The window happened whether or not it encoded, so the seq slot is spent either way; a
+    // failed encode becomes the receiver's concealment, not a shortened stream.
+    const std::uint16_t seq = session_->seq++;
+    if (bytes == 0) { return; }
+    session_->send(seq, packet, bytes);
+}
+
+// A slot that moved endpoints, or fell out of eligibility (a mute among the causes), loses its
+// capture here.
+void MicCaptureEngine::closeDeparted(const std::vector<MicCaptureTarget>& targets) {
     for (auto it = entries_.begin(); it != entries_.end();) {
         const MicCaptureTarget* wanted = nullptr;
         for (const auto& t : targets) {
@@ -60,44 +81,33 @@ void MicCaptureEngine::reconcile(const std::vector<MicCaptureTarget>& targets) {
             ++it;
         }
     }
+}
 
+void MicCaptureEngine::openMissing(const std::vector<MicCaptureTarget>& targets) {
     for (const auto& t : targets) {
         if (t.slotId.empty() || t.captureDeviceName.empty() || !t.send) { continue; }
         if (entries_.find(t.slotId) != entries_.end()) { continue; }
+
         auto session = std::make_shared<Session>();
         session->encoder = encoderFactory_();
         if (session->encoder == nullptr) { continue; } // no codec, no capture
         session->send = t.send;
 
-        // The whole per-window pipeline lives in this callback, on the
-        // gateway's audio thread: window -> re-check enabled -> encode ->
-        // seq++ -> send. The enabled re-check inside the window emit (not just
-        // per chunk) is the half of the privacy invariant that bounds a mute
-        // landing mid-close to one frame.
-        auto onSamples = [session](const std::int16_t* samples, std::size_t count) {
-            if (!session->enabled.load(std::memory_order_relaxed)) { return; }
-            session->windower.feed(
-                samples, count, [&session](const std::int16_t* pcm, std::size_t frames) {
-                    if (!session->enabled.load(std::memory_order_relaxed)) { return; }
-                    std::uint8_t packet[proto::kAudioWireMaxOpusBytes];
-                    const std::size_t bytes =
-                        session->encoder->encode(pcm, frames, packet, sizeof(packet));
-                    // The window happened whether or not it encoded, so the
-                    // seq slot is spent either way; a failed encode becomes
-                    // the receiver's concealment, not a shortened stream.
-                    const std::uint16_t seq = session->seq++;
-                    if (bytes == 0) { return; }
-                    session->send(seq, packet, bytes);
-                });
-        };
-
         Entry entry;
         entry.deviceName = t.captureDeviceName;
         entry.session = session;
-        entry.handle = gateway_->openCapture(t.captureDeviceName, onSamples);
+        entry.handle = gateway_->openCapture(t.captureDeviceName, WindowPublisher{session});
         if (entry.handle == kNoAudioDevice) { continue; }
         entries_.emplace(t.slotId, std::move(entry));
     }
+}
+
+void MicCaptureEngine::reconcile(const std::vector<MicCaptureTarget>& targets) {
+    if (gateway_ == nullptr) { return; }
+    // Narrowing before widening, so a slot that moved endpoints is never captured from two
+    // devices at once.
+    closeDeparted(targets);
+    openMissing(targets);
 }
 
 bool MicCaptureEngine::capturingFor(const std::string& slotId) const {

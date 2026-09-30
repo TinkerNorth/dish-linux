@@ -31,6 +31,113 @@ constexpr int kControllerTypeXbox = 0;
 // as LinkState::Unstable's missed-ack rule.
 constexpr int kDepartedScanThreshold = 2;
 
+// The publish path a claimed pad's read loop runs, once per report, on the gateway thread. It is
+// the SAME path the SDL bridge uses, so the routing table, deadzones and motion rate-limit all
+// apply identically. The decoder already produced the XUSB button word, so there is no per-report
+// conversion and no allocation here.
+//
+// A class rather than a lambda for the shape rules, and because it makes one hazard impossible:
+// a by-copy lambda capture carries the captured entity's cv-qualifiers into the closure, so a
+// `const std::string` slot id became a const closure member, which forces the closure's implicit
+// move constructor to fall back to std::string's copy ctor -- a throwing move plus a heap copy of
+// the slot id on every claim. `slotId_` is a plain member, so do not make it const.
+class ClaimedPadPublisher {
+  public:
+    ClaimedPadPublisher(input::GamepadInputProcessor* processor, std::string slotId,
+                        UsbDirectObserver* observer, int vendorId, int productId)
+        : processor_(processor), slotId_(std::move(slotId)), observer_(observer),
+          vendorId_(vendorId), productId_(productId) {}
+
+    void operator()(const UsbReport& r) const {
+        mirrorMicMute(r);
+        mirrorBattery(r);
+        if (processor_ == nullptr) { return; }
+        publishInput(r);
+        publishMotion(r);
+        publishTouchpad(r);
+    }
+
+  private:
+    // The decoder owns the mute latch (the wire bit is folded in on the read thread, with nothing
+    // in the way); the observer is told only on the edge, so the mirror costs one relaxed load per
+    // report. Fires on THIS thread, which is padMicMuteChanged's contract.
+    void mirrorMicMute(const UsbReport& r) const {
+        if (r.micMuted == lastMicMuted_->load(std::memory_order_relaxed)) { return; }
+        lastMicMuted_->store(r.micMuted, std::memory_order_relaxed);
+        if (observer_ != nullptr) {
+            observer_->padMicMuteChanged(vendorId_, productId_, r.micMuted);
+        }
+    }
+
+    // The charge the same way: the card shows it, the wire does not (a wired pad puts the host
+    // battery on the wire, see AppModel's heartbeat), and a level in tenths moves minutes apart.
+    void mirrorBattery(const UsbReport& r) const {
+        if (!r.batteryValid) { return; }
+        const auto packed = static_cast<std::uint16_t>((r.batteryLevel << 8) | r.batteryStatus);
+        if (packed == lastBattery_->load(std::memory_order_relaxed)) { return; }
+        lastBattery_->store(packed, std::memory_order_relaxed);
+        if (observer_ != nullptr) {
+            observer_->padBatteryChanged(vendorId_, productId_, r.batteryLevel, r.batteryStatus);
+        }
+    }
+
+    void publishInput(const UsbReport& r) const {
+        input::GamepadInputProcessor::DeviceState st;
+        st.wButtons = r.wButtons;
+        st.lt = r.lt;
+        st.rt = r.rt;
+        st.lx = r.lx;
+        st.ly = r.ly;
+        st.rx = r.rx;
+        st.ry = r.ry;
+        processor_->publish(slotId_, st);
+    }
+
+    // Rate-limited to <=250 Hz inside the processor.
+    void publishMotion(const UsbReport& r) const {
+        if (!r.motionValid) { return; }
+        input::GamepadInputProcessor::MotionSample m;
+        m.gyroX = r.gyroX;
+        m.gyroY = r.gyroY;
+        m.gyroZ = r.gyroZ;
+        m.accelX = r.accelX;
+        m.accelY = r.accelY;
+        m.accelZ = r.accelZ;
+        processor_->publishMotion(slotId_, m);
+    }
+
+    // DS4 and DualSense only; every other decoder leaves touchpadValid false.
+    void publishTouchpad(const UsbReport& r) const {
+        if (!r.touchpadValid) { return; }
+        input::GamepadInputProcessor::TouchpadSample t;
+        t.finger0Active = r.finger0Active;
+        t.finger0Id = r.finger0Id;
+        t.finger0X = r.finger0X;
+        t.finger0Y = r.finger0Y;
+        t.finger1Active = r.finger1Active;
+        t.finger1Id = r.finger1Id;
+        t.finger1X = r.finger1X;
+        t.finger1Y = r.finger1Y;
+        t.buttonPressed = r.touchpadButton;
+        processor_->publishTouchpad(slotId_, t);
+    }
+
+    input::GamepadInputProcessor* processor_ = nullptr;
+    std::string slotId_;
+    UsbDirectObserver* observer_ = nullptr;
+    int vendorId_ = 0;
+    int productId_ = 0;
+
+    // Per claim, and shared across the copies std::function makes so the edge is tracked in one
+    // place. Mic mute starts unmuted, which is what a freshly claimed pad's latch says too, so the
+    // first edge is a real press and not a startup echo. The battery sentinel (status 0xFF) is a
+    // value no report can produce, so the first valid reading is an edge and the card fills in at
+    // once.
+    std::shared_ptr<std::atomic<bool>> lastMicMuted_ = std::make_shared<std::atomic<bool>>(false);
+    std::shared_ptr<std::atomic<std::uint16_t>> lastBattery_ =
+        std::make_shared<std::atomic<std::uint16_t>>(0xFFFF);
+};
+
 } // namespace
 
 UsbGamepadManager::UsbGamepadManager(UsbDeviceGateway* gateway,
@@ -444,100 +551,14 @@ ClaimResult UsbGamepadManager::doClaim(const UsbDeviceInfo& device) {
     if (gateway_ == nullptr) {
         return ClaimResult::fail(reducer::DirectClaimFailure::Busy, /*frameworkStolen=*/false);
     }
-    // The read loop publishes each decoded XUSB report to GamepadInputProcessor
-    // on the gateway thread — the SAME publish path the SDL bridge uses (so the
-    // routing table, deadzones, and motion rate-limit all apply identically). The
-    // decoder already produced the XUSB button word, so there is no per-report
-    // conversion and no allocation here; INPUT goes through publish(), MOTION
-    // through publishMotion() (rate-limited to <=250 Hz by the processor), and the
-    // DS4/DualSense TOUCHPAD through publishTouchpad().
-    const std::string deviceTag = device.name;
-    const int vp = device.vpKey();
-    // Not const on purpose: a by-copy capture carries the captured entity's
-    // cv-qualifiers into the closure, so a `const std::string` local becomes a
-    // const closure member — and a const member forces the closure's implicit
-    // MOVE constructor to fall back to std::string's copy ctor. That move is how
-    // the lambda gets into the gateway's std::function, so const here would buy a
-    // throwing move ctor plus a heap copy of the slot id on every claim.
-    std::string slotId = std::to_string(vp);
-    input::GamepadInputProcessor* processor = processor_;
-    // Last mute state mirrored up, per claim. Starts unmuted, which is what a
-    // freshly claimed pad's latch says too, so the first edge is a real press
-    // and not a startup echo. shared_ptr because the closure is copied into
-    // the gateway and the edge must be tracked in one place.
-    auto lastMicMuted = std::make_shared<std::atomic<bool>>(false);
-    // The last charge mirrored up, packed level<<8|status; a sentinel no
-    // report can produce (status 0xFF) marks "nothing mirrored yet", so the
-    // first valid reading is an edge and the card fills in at once.
-    auto lastBattery = std::make_shared<std::atomic<std::uint16_t>>(0xFFFF);
-    UsbDirectObserver* observer = observer_;
-    const int vendorId = device.vendorId;
-    const int productId = device.productId;
-    const ClaimResult outcome = gateway_->claim(device, [processor, slotId, lastMicMuted,
-                                                         lastBattery, observer, vendorId,
-                                                         productId](const UsbReport& r) {
-        // The decoder owns the mute latch (the wire bit is folded in on the
-        // read thread, with nothing in the way); the observer is told only on
-        // the edge, so the mirror costs one relaxed load per report. Fires on
-        // THIS thread — padMicMuteChanged's contract says so.
-        if (r.micMuted != lastMicMuted->load(std::memory_order_relaxed)) {
-            lastMicMuted->store(r.micMuted, std::memory_order_relaxed);
-            if (observer != nullptr) {
-                observer->padMicMuteChanged(vendorId, productId, r.micMuted);
-            }
-        }
-        // The charge the same way: the card shows it, the wire does not (a
-        // wired pad puts the host battery on the wire, see AppModel's
-        // heartbeat), and a level in tenths moves minutes apart.
-        if (r.batteryValid) {
-            const auto packed = static_cast<std::uint16_t>((r.batteryLevel << 8) | r.batteryStatus);
-            if (packed != lastBattery->load(std::memory_order_relaxed)) {
-                lastBattery->store(packed, std::memory_order_relaxed);
-                if (observer != nullptr) {
-                    observer->padBatteryChanged(vendorId, productId, r.batteryLevel,
-                                                r.batteryStatus);
-                }
-            }
-        }
-        if (processor == nullptr) { return; }
-        input::GamepadInputProcessor::DeviceState st;
-        st.wButtons = r.wButtons;
-        st.lt = r.lt;
-        st.rt = r.rt;
-        st.lx = r.lx;
-        st.ly = r.ly;
-        st.rx = r.rx;
-        st.ry = r.ry;
-        // The synthetic device id for the input pipeline is the model key as a
-        // string; one claimed pad per model on this path.
-        processor->publish(slotId, st);
-        if (r.motionValid) {
-            input::GamepadInputProcessor::MotionSample m;
-            m.gyroX = r.gyroX;
-            m.gyroY = r.gyroY;
-            m.gyroZ = r.gyroZ;
-            m.accelX = r.accelX;
-            m.accelY = r.accelY;
-            m.accelZ = r.accelZ;
-            processor->publishMotion(slotId, m);
-        }
-        if (r.touchpadValid) {
-            input::GamepadInputProcessor::TouchpadSample t;
-            t.finger0Active = r.finger0Active;
-            t.finger0Id = r.finger0Id;
-            t.finger0X = r.finger0X;
-            t.finger0Y = r.finger0Y;
-            t.finger1Active = r.finger1Active;
-            t.finger1Id = r.finger1Id;
-            t.finger1X = r.finger1X;
-            t.finger1Y = r.finger1Y;
-            t.buttonPressed = r.touchpadButton;
-            processor->publishTouchpad(slotId, t);
-        }
-    });
+    // The synthetic device id for the input pipeline is the model key as a string; one claimed pad
+    // per model on this path.
+    const ClaimResult outcome =
+        gateway_->claim(device, ClaimedPadPublisher{processor_, std::to_string(device.vpKey()),
+                                                    observer_, device.vendorId, device.productId});
     if (outcome.ok && observer_ != nullptr) {
         observer_->syntheticAdded(
-            outcome.syntheticId, deviceTag, device.hasImu,
+            outcome.syntheticId, device.name, device.hasImu,
             reducer::computeUsbPollRateHz(device.endpointInInterval, device.endpointInMaxPacket),
             device.vendorId, device.productId);
     }

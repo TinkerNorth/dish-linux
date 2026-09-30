@@ -30,6 +30,8 @@
 #include <optional>
 #include <vector>
 
+class QDBusObjectPath;
+
 namespace dish::source {
 
 class SecretServiceStore {
@@ -57,6 +59,9 @@ class SecretServiceStore {
     std::vector<QString> ids() const;
 
   private:
+    // read()'s last step, once the search has an unlocked item to read.
+    std::optional<QString> secretAt(const QDBusObjectPath& itemPath) const;
+
     bool available_ = false;
     QString sessionPath_;
 };

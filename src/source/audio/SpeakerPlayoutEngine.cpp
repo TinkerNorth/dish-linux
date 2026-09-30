@@ -64,10 +64,9 @@ SpeakerPlayoutEngine::~SpeakerPlayoutEngine() {
     } catch (...) { qCWarning(lcDishAudio) << "speaker playout teardown failed"; }
 }
 
-void SpeakerPlayoutEngine::reconcile(const std::vector<SpeakerVoiceTarget>& targets) {
-    if (gateway_ == nullptr) { return; }
-    std::lock_guard<std::mutex> lock(mtx_);
-
+// A changed channel count is a changed device (the endpoint was re-enumerated), so the stream
+// reopens at the new width rather than writing the old one's lanes.
+void SpeakerPlayoutEngine::closeDepartedLocked(const std::vector<SpeakerVoiceTarget>& targets) {
     for (auto it = voices_.begin(); it != voices_.end();) {
         const SpeakerVoiceTarget* wanted = nullptr;
         for (const auto& t : targets) {
@@ -77,8 +76,6 @@ void SpeakerPlayoutEngine::reconcile(const std::vector<SpeakerVoiceTarget>& targ
                 break;
             }
         }
-        // A changed channel count is a changed device (the endpoint was
-        // re-enumerated), so the stream reopens at the new width.
         if (wanted == nullptr || wanted->playbackDeviceName != it->second->deviceName ||
             wanted->slotId != it->second->slotId ||
             wanted->deviceChannels != it->second->channels) {
@@ -88,13 +85,16 @@ void SpeakerPlayoutEngine::reconcile(const std::vector<SpeakerVoiceTarget>& targ
             ++it;
         }
     }
+}
 
+void SpeakerPlayoutEngine::openMissingLocked(const std::vector<SpeakerVoiceTarget>& targets) {
     for (const auto& t : targets) {
         if (t.connectionId.empty() || t.playbackDeviceName.empty()) { continue; }
         // A lane needs at least its own pair to exist at the offset it writes.
         if (t.deviceChannels < laneOffset(t.lane) + proto::kAudioSpeakerChannels) { continue; }
         const VoiceKey key{t.connectionId, t.controllerIndex, t.lane};
         if (voices_.find(key) != voices_.end()) { continue; }
+
         auto voice = std::make_unique<Voice>();
         voice->slotId = t.slotId;
         voice->deviceName = t.playbackDeviceName;
@@ -106,6 +106,15 @@ void SpeakerPlayoutEngine::reconcile(const std::vector<SpeakerVoiceTarget>& targ
         if (voice->handle == kNoAudioDevice) { continue; }
         voices_.emplace(key, std::move(voice));
     }
+}
+
+void SpeakerPlayoutEngine::reconcile(const std::vector<SpeakerVoiceTarget>& targets) {
+    if (gateway_ == nullptr) { return; }
+    std::lock_guard<std::mutex> lock(mtx_);
+    // Narrowing before widening, the same order the capture engine uses, so a voice that moved
+    // endpoints is never open on two devices at once.
+    closeDepartedLocked(targets);
+    openMissingLocked(targets);
 }
 
 void SpeakerPlayoutEngine::deliver(const std::string& connectionId, int controllerIndex,

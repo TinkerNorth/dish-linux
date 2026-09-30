@@ -82,7 +82,7 @@ void addFixture(MoonlightManager& manager, const FakeMoonlightHost& host) {
 } // namespace
 
 TEST_CASE("a pairing that succeeds is written down, certificate and all",
-          "[moonlight][pairing][wire]") {
+          "[moonlight][pairing][wire][b3][b4]") {
     if (!tlsAvailable()) { SKIP("no TLS backend for the fixture host"); }
     FakeMoonlightHost host;
     REQUIRE(host.listening());
@@ -118,7 +118,8 @@ TEST_CASE("a pairing that succeeds is written down, certificate and all",
     CHECK_FALSE(manager.pairingActive());
 }
 
-TEST_CASE("a pairing outlives the timeout an ordinary call gets", "[moonlight][pairing][wire]") {
+TEST_CASE("a pairing outlives the timeout an ordinary call gets",
+          "[moonlight][pairing][wire][b3]") {
     if (!tlsAvailable()) { SKIP("no TLS backend for the fixture host"); }
     FakeMoonlightHost host;
     REQUIRE(host.listening());
@@ -154,7 +155,7 @@ TEST_CASE("a pairing outlives the timeout an ordinary call gets", "[moonlight][p
     CHECK_FALSE(manager.pairingActive());
 }
 
-TEST_CASE("a pairing that fails names why and writes nothing", "[moonlight][pairing][wire]") {
+TEST_CASE("a pairing that fails names why and writes nothing", "[moonlight][pairing][wire][b5]") {
     if (!tlsAvailable()) { SKIP("no TLS backend for the fixture host"); }
 
     SECTION("the code did not match") {
@@ -173,6 +174,9 @@ TEST_CASE("a pairing that fails names why and writes nothing", "[moonlight][pair
         CHECK_FALSE(outcome.ok);
         CHECK(outcome.reason == QStringLiteral("wrongPin"));
         CHECK(manager.pairingRefusedReason(kTypedId) == QStringLiteral("wrongPin"));
+        // It STOPPED at the phase that found the mismatch: the third reply is
+        // the first that carries it, and no fourth request goes out.
+        CHECK(host.seen(QStringLiteral("/pair")) == 3);
         CHECK(moonlight::sessionUiState(manager.uiInputs(kTypedId, QString())) ==
               moonlight::SessionUiState::PairingRefused);
 
@@ -210,6 +214,8 @@ TEST_CASE("a pairing that fails names why and writes nothing", "[moonlight][pair
         // A refusal and a wrong code want different advice, so they are
         // different tokens rather than one indistinguishable failure.
         CHECK(outcome.reason == QStringLiteral("declined"));
+        // And it stopped where the host said no, at the first phase.
+        CHECK(host.seen(QStringLiteral("/pair")) == 1);
         repository::MoonlightHostRepository repo(settings);
         CHECK(repo.get(kTypedId)->serverCertPem.isEmpty());
     }
@@ -237,7 +243,7 @@ TEST_CASE("a pairing that fails names why and writes nothing", "[moonlight][pair
     }
 }
 
-TEST_CASE("a host typed in by address is asked what it is", "[moonlight][pairing][wire]") {
+TEST_CASE("a host typed in by address is asked what it is", "[moonlight][pairing][wire][b2]") {
     FakeMoonlightHost host;
     REQUIRE(host.listening());
     host.uniqueId = kTypedId;
@@ -264,7 +270,7 @@ TEST_CASE("a host typed in by address is asked what it is", "[moonlight][pairing
 }
 
 TEST_CASE("a host typed in by address outlives the sweep and the process",
-          "[moonlight][pairing][wire]") {
+          "[moonlight][pairing][wire][b2]") {
     FakeMoonlightHost host;
     REQUIRE(host.listening());
 

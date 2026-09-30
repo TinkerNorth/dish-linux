@@ -226,6 +226,11 @@ class HidrawGateway : public UsbDeviceGateway {
     };
 
     void readLoop(Claimed* c);
+    // readLoop's two decisions about one report: whether it was a dongle event rather than input,
+    // and which decoder reads it.
+    bool handleSteamWirelessEvent(Claimed* c, const std::uint8_t* data, std::size_t len);
+    static bool decodeOneReport(Claimed* c, const std::uint8_t* data, std::size_t len,
+                                input::usbparse::ParsedReport& parsed);
 
     // Negative and decreasing, mirroring the android synthetic-id space so they
     // never collide with positive SDL ids.

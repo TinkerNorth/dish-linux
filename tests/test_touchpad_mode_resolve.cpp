@@ -51,6 +51,21 @@ TEST_CASE("resolve: an unknown pick string collapses to off", "[touchpad-mode][r
     REQUIRE(reducer::resolveTouchpadMode("banana", true, true, true) == proto::kTouchpadModeOff);
 }
 
+TEST_CASE("default: a host never picked for renders the pad", "[touchpad-mode][default]") {
+    REQUIRE(reducer::touchpadPickOrDefault(std::nullopt) == kDs4);
+}
+
+TEST_CASE("mouse mode: shut where the host advertises mouse control", "[touchpad-mode][mouse]") {
+    // Routing the touchpad as the host's mouse is a deferral on this client, so
+    // the host's word cannot open the rung by itself.
+    REQUIRE_FALSE(reducer::mouseModeAvailable(/*hostAdvertisesMouseControl=*/true));
+}
+
+TEST_CASE("default: a pick the user made is kept as made", "[touchpad-mode][default]") {
+    REQUIRE(reducer::touchpadPickOrDefault(kOff) == kOff);
+    REQUIRE(reducer::touchpadPickOrDefault(kMouse) == kMouse);
+}
+
 TEST_CASE("typeOffersDs4Touchpad: supported + ds4 mode offers", "[touchpad-mode][gate]") {
     REQUIRE(reducer::typeOffersDs4Touchpad(true, {"ds4"}));
     REQUIRE(reducer::typeOffersDs4Touchpad(true, {"mouse", "ds4"}));

@@ -3,7 +3,7 @@
 
 #include "core/reducer/RestOutcome.h"
 #include "core/wire/SessionCrypto.h"
-#include "Network/PairingClient.h"
+#include "Network/PairingOutcome.h"
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -127,18 +127,18 @@ TEST_CASE("classifyPair: without a mismatch every existing verdict is unchanged"
     REQUIRE(reducer::classifyPair(pairReply(0, false)) == reducer::PairVerdict::Unreachable);
 }
 
-// PairingClient::classify is the arm the manager actually visits; it lives here
+// PairingOutcome::classify is the arm the manager actually visits; it lives here
 // beside the verdict it wraps rather than in the PIN-path suite.
-TEST_CASE("PairingClient::classify: a pin mismatch yields the IdentityChanged arm",
+TEST_CASE("PairingOutcome::classify: a pin mismatch yields the IdentityChanged arm",
           "[rest][classify]") {
-    using dish::net::PairingClient;
+    using dish::net::PairingOutcome;
     dish::models::PairResponse r;
     r.httpStatus = 0;
     r.reachable = false;
-    REQUIRE(std::holds_alternative<PairingClient::IdentityChanged>(
-        PairingClient::classify(r, /*pinMismatch=*/true)));
+    REQUIRE(std::holds_alternative<PairingOutcome::IdentityChanged>(
+        PairingOutcome::classify(r, /*pinMismatch=*/true)));
     // The default keeps the pre-existing single-argument reading of the reply.
-    REQUIRE(std::holds_alternative<PairingClient::Unreachable>(PairingClient::classify(r)));
+    REQUIRE(std::holds_alternative<PairingOutcome::Unreachable>(PairingOutcome::classify(r)));
 }
 
 TEST_CASE("classifyApproval: approved with a key", "[rest][approval]") {

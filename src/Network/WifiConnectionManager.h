@@ -6,17 +6,22 @@
 #include "ConnectionStore.h"
 #include "HTTPClient.h"
 #include "Models/Models.h"
+#include "PairingOutcome.h"
 #include "WifiConnection.h"
+#include "core/reducer/Reconcile.h"
 #include "core/reducer/RestOutcome.h"
+#include "core/reducer/ReversePairing.h"
 
 #include <QHash>
 #include <QObject>
+#include <QPointer>
 #include <QSet>
 #include <QString>
 
 #include <array>
 #include <cstdint>
 #include <optional>
+#include <vector>
 
 class QTimer;
 
@@ -26,13 +31,17 @@ enum class ConnectionEventKind : std::uint8_t { PairingRequired, Error };
 
 // Reverse (host-initiated) pairing: the dish shows a clientPin, the operator
 // types it on the satellite, and the poll loop resolves. The terminal arms are
-// sticky until the next request or cancel clears them.
+// sticky until the next request or cancel clears them. IdentityChanged and
+// VersionMismatch end an attempt no new code can rescue, so each keeps its own
+// arm rather than reading as the operator's decline.
 enum class ReversePairingPhase : std::uint8_t {
     Idle,
     AwaitingApproval,
     Approved,
     Declined,
-    TimedOut
+    TimedOut,
+    IdentityChanged,
+    VersionMismatch
 };
 
 struct ConnectionEvent {
@@ -71,8 +80,8 @@ class WifiConnectionManager : public QObject {
     // Posts a generated clientPin, then polls /api/pair/status until the operator
     // approves. On approval it adopts the key and opens the session exactly like
     // a forward pair. A second request while one is live cancels the first.
-    // Untestable in the unit suite since it drives real network; the decision core
-    // it leans on, reducer::nextReversePairingAction, is exhaustively tested.
+    // Driven end to end in test_reverse_pairing_flow against a loopback TLS listener; the decision
+    // core it leans on, reducer::nextReversePairingAction, is tested on its own as well.
     void requestReversePairing(const models::DiscoveredServer& server);
     void cancelReversePairing();
 
@@ -80,7 +89,14 @@ class WifiConnectionManager : public QObject {
     QString reversePairingPin() const { return reversePin_; }
     QString reversePairingServerName() const { return reverseServerName_; }
 
+    // The plain teardown: a session death, a suspend and a forget all take it, and the silent
+    // reconnects still pick the satellite up afterwards.
     void disconnect(const QString& id);
+    // The Disconnect the user pressed. The same teardown, and the satellite is then held down:
+    // no silent reconnect (the periodic sweep, a discovery scan, a backoff retry) dials it again
+    // until the user connects or pairs it, or forgets it. Held for this run only, never saved.
+    void disconnectByUser(const QString& id);
+    bool isHeldByUser(const QString& id) const { return heldByUser_.contains(id); }
     void forget(const QString& id);
     void autoReconnectAll();
 
@@ -118,15 +134,79 @@ class WifiConnectionManager : public QObject {
     void wireSlotSync(WifiConnection* conn);
     void pairAndConnect(WifiConnection* conn, const models::DiscoveredServer& server,
                         ConnectIntent intent);
+    // The forward pairs' replies: a connect's PIN-less one, and the operator's PIN from the sheet.
+    // `sentOn` is the connection the request went out on.
+    void onConnectPairReply(const QString& id, const QPointer<WifiConnection>& sentOn,
+                            const models::DiscoveredServer& server, ConnectIntent intent,
+                            const PairingOutcome::Arm& outcome);
+    void onPinPairReply(const QString& id, const QPointer<WifiConnection>& sentOn,
+                        const models::DiscoveredServer& server, const PairingOutcome::Arm& outcome);
+    // What a reply for `id` may act on: the connection its request went out on, while that is still
+    // the one filed under the id. A Forget in between leaves none, and a Forget and a fresh pair
+    // leave a newer one, which an older reply must not reach. Null for either.
+    WifiConnection* replyTarget(const QString& id, const QPointer<WifiConnection>& sentOn) const;
+    // A pairing reply ends its own request, unless a Forget and a fresh pair have since filed a
+    // newer connection under the id, whose own request the flag now stands for.
+    void endPairingRequest(const QString& id, const QPointer<WifiConnection>& sentOn);
     // One PUT /api/connections carrying identity, the key proof and the FULL
     // topology, which is what drives the session live.
     void openSession(WifiConnection* conn, const models::DiscoveredServer& server,
                      ConnectIntent intent);
+    // What a granted PUT carries to key the session with: the token the satellite assigned, and
+    // the per-session key derived from it, the salt and the pairing key. The pairing key itself
+    // never reaches the UDP path; only this derived key does. Null when the token or the salt is
+    // missing or malformed. The connect and the rekey read it the same way.
+    struct SessionMaterial {
+        std::array<std::uint8_t, 4> token{};
+        std::array<std::uint8_t, 32> sessionKey{};
+    };
+    static std::optional<SessionMaterial>
+    sessionMaterialFrom(const models::SessionResponse& resp,
+                        const std::array<std::uint8_t, 32>& pairingKey);
+    // The connect PUT's reply, in steps: a refusal settles itself; a grant starts the session and
+    // then converges the slot changes that raced the round trip. `sentOn` is the connection the
+    // PUT went out on.
+    void onSessionReply(const QString& id, const QPointer<WifiConnection>& sentOn,
+                        const models::DiscoveredServer& server, ConnectIntent intent,
+                        const std::array<std::uint8_t, 32>& pairingKey,
+                        const std::vector<reducer::DesiredSlot>& sentDescriptors,
+                        const models::SessionResponse& resp, bool pinMismatch);
+    // The attempt a PUT answers already ended here, by a user's Disconnect or a sleep. A session
+    // the satellite granted meanwhile is handed straight back rather than left holding a slot until
+    // its own timeout; any other answer has nobody left to tell.
+    void handBackLateGrant(const QString& id, const models::DiscoveredServer& server,
+                           const models::SessionResponse& resp);
+    // A grant this end cannot carry: the token or salt does not decode, or the controller socket
+    // will not open.
+    void onGrantUnusable(WifiConnection* conn, const models::DiscoveredServer& server,
+                         ConnectIntent intent, const QString& connectionId);
+    // Hands a granted session back to the satellite with a REST disconnect.
+    void releaseSession(const QString& id, const models::DiscoveredServer& server,
+                        const QString& connectionId);
+    void onSessionRefused(WifiConnection* conn, const models::DiscoveredServer& server,
+                          ConnectIntent intent, reducer::RestVerdict verdict,
+                          const models::SessionResponse& resp);
+    void onSessionVersionRefused(WifiConnection* conn, const models::DiscoveredServer& server,
+                                 ConnectIntent intent, const models::SessionResponse& resp);
+    // `connectionId` rides beside `resp` because onSessionReply is where its presence is checked.
+    void startSession(WifiConnection* conn, const models::DiscoveredServer& server,
+                      const std::shared_ptr<SatelliteClient>& client, const QString& connectionId,
+                      const models::SessionResponse& resp, const SessionMaterial& material);
+    void convergeLateSlots(WifiConnection* conn, const std::vector<reducer::DesiredSlot>& sent);
     // GET-then-maybe-rePUT, fired when the enriched ack drifts.
     void reconcile(WifiConnection* conn, const models::DiscoveredServer& server);
     // Re-PUT for a fresh token/salt/key on the SAME socket, so there is no state
     // blip visible to the UI.
     void rekey(WifiConnection* conn, const models::DiscoveredServer& server);
+
+    // The rekey PUT's reply, in three steps: is this still the session that asked, does the reply
+    // carry material, and adopt it. The same steps dish-windows names the same way.
+    void onRekeyReply(const QString& id, const std::shared_ptr<SatelliteClient>& client,
+                      const std::array<std::uint8_t, 32>& pairingKey,
+                      const models::SessionResponse& resp, bool pinMismatch);
+    void adoptRekey(WifiConnection* c, const QString& id,
+                    const std::shared_ptr<SatelliteClient>& client,
+                    const models::SessionResponse& resp, const SessionMaterial& material);
     // Reads GET /api/server/capabilities for the host's controller-audio
     // verdict and folds it into the connection (reducer/HostAudioVerdict.h).
     // Fired after EVERY successful session PUT — connect, reconnect-after-death
@@ -144,13 +224,44 @@ class WifiConnectionManager : public QObject {
     // or how long we retry. The curve stays a pure function of the attempt.
     void scheduleRetry(const models::DiscoveredServer& server, ConnectIntent intent,
                        reducer::TransportFailure failure = reducer::TransportFailure::None);
+    // A backoff timer's end: retries unless a disconnect came after it was armed.
+    void onRetryDue(const QString& id, const models::DiscoveredServer& server,
+                    std::uint64_t generation);
 
     void emitErrorIfUserInitiated(ConnectIntent intent, const QString& message);
+    // The addresses no request may go to: an IPv6 one, which the IPv4-only satellite can never
+    // answer, and a public one. True when refused, with the error already raised.
+    bool refusesAddress(const models::DiscoveredServer& server, ConnectIntent intent);
+    // Whether a key is on file for a satellite at `host`: what a pin there stands in front of.
+    // Every request goes out on a connection, so the connections are where to look.
+    bool pinGuardsAPairingAt(const QString& host) const;
+    // Every user action on a satellite starts its reconnect story over: the backoff, the logged
+    // cause and a hold from an earlier Disconnect.
+    void clearForUserAction(const QString& id);
     void markStale(const QString& id);
 
-    // One pairStatus round-trip off the thread pool, fed with the elapsed clock
-    // through reducer::nextReversePairingAction to decide re-arm / open / abort.
+    // One pairStatus round-trip, fed with the elapsed clock through
+    // reducer::nextReversePairingAction to decide re-arm / open / abort.
     void pollReverseStatus();
+
+    // Reverse pairing in order: arm an attempt, send it, read the reply, and poll for the
+    // operator's answer. The same names dish-windows uses for the same steps.
+    static QString drawReversePin();
+    void armReverseAttempt(const models::DiscoveredServer& server);
+    bool reverseAttemptIsCurrent(const models::DiscoveredServer& server, const QString& pin) const;
+    void startReversePoll();
+    void adoptReverseGrant(const models::DiscoveredServer& server, const QString& sharedKeyHex);
+    void applyReverseOutcome(const models::DiscoveredServer& server,
+                             const models::PairResponse& response, bool pinMismatch);
+    // `sentOn` is the connection the POST went out on.
+    void onReversePairReply(const QString& id, const QPointer<WifiConnection>& sentOn,
+                            const models::DiscoveredServer& server, const QString& pin,
+                            const models::PairResponse& response, bool pinMismatch);
+    static reducer::ApprovalReply approvalReplyOf(const models::PairResponse& status);
+    void applyReverseAction(reducer::ReversePairingAction action, const QString& sharedKeyHex,
+                            const models::DiscoveredServer& server);
+    void onReverseStatusReply(const models::PairResponse& status, bool pinMismatch,
+                              const models::DiscoveredServer& server);
     void setReversePhase(ReversePairingPhase phase);
     void finishReverse(ReversePairingPhase terminal);
 
@@ -170,6 +281,10 @@ class WifiConnectionManager : public QObject {
     QString deviceId_;
     QString deviceName_;
 
+    // A reply looks its connection up here by id and acts on it only if it is still the object the
+    // request went out on: forget() hands a connection to deleteLater, so a pointer held across a
+    // round trip can dangle, and a Forget followed by a fresh pair files a new object under the
+    // same id, which a reply from before the Forget must not reach.
     QHash<QString, WifiConnection*> connections_;
     QList<models::DiscoveredServer> discovered_;
     bool scanning_ = false;
@@ -179,6 +294,13 @@ class WifiConnectionManager : public QObject {
     // Last logged cause per satellite, so a box that stays off does not write
     // one identical line per backoff tick. Cleared whenever the id settles.
     QHash<QString, reducer::TransportFailure> lastFailure_;
+    // Bumped by every disconnect. A retry carries the value it was armed under, so one armed before
+    // a disconnect does not dial again after it. Never erased: a retry armed before a forget must
+    // not match a connection re-created later under the same id.
+    QHash<QString, std::uint64_t> retryGeneration_;
+    // Satellites the user disconnected, which no silent reconnect may dial. Per run on purpose:
+    // at launch every remembered satellite reconnects, and Forget is the lasting way out.
+    QSet<QString> heldByUser_;
     // Single-flight guard: the ack ticks every second but the GET can take longer.
     QSet<QString> reconcileInFlight_;
 

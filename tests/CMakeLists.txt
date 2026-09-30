@@ -21,6 +21,7 @@ set(DISH_TEST_SOURCES
     test_kernel.cpp
     test_async_state.cpp
     test_session_crypto.cpp
+    test_http_framing.cpp
     test_moonlight_wire.cpp
     test_moonlight_touch_differ.cpp
     test_moonlight_telemetry.cpp
@@ -41,7 +42,11 @@ set(DISH_TEST_SOURCES
     test_moonlight_host_repository.cpp
     test_moonlight_discovery.cpp
     test_moonlight_session_wire.cpp
+    test_moonlight_replug.cpp
+    test_moonlight_motion_switch.cpp
+    test_moonlight_touchpad_pick.cpp
     test_moonlight_pairing_wire.cpp
+    test_moonlight_http_wire.cpp
     test_atomic_counter.cpp
     test_hex.cpp
     test_endian.cpp
@@ -70,10 +75,20 @@ set(DISH_TEST_SOURCES
     test_deadzone_repository.cpp
     test_motion_preference_repository.cpp
     test_motion_enabled_store.cpp
+    test_rumble_preference_repository.cpp
+    test_rumble_enabled_store.cpp
+    test_rumble_switch_controller.cpp
+    test_slot_switch_carry.cpp
     test_motion_backend_status_store.cpp
     test_motion_capability_composer.cpp
     test_physical_motion_source.cpp
-    test_pairing_client_classify.cpp
+    test_pairing_outcome.cpp
+    test_pairing_wire.cpp
+    test_http_client_wire.cpp
+    test_http_exchange.cpp
+    test_forget_in_flight.cpp
+    test_session_open_flow.cpp
+    test_reverse_pairing_flow.cpp
     test_rest_control_plane.cpp
     test_reverse_pairing.cpp
     test_battery_ui.cpp
@@ -95,6 +110,7 @@ set(DISH_TEST_SOURCES
     test_pad_identity_seed.cpp
     test_connections_composer.cpp
     test_connection_coordinator.cpp
+    test_connection_hub_bindings.cpp
     test_found_visibility.cpp
     test_session_lifecycle.cpp
     test_session_manager.cpp
@@ -204,10 +220,24 @@ set(DISH_TEST_SOURCES
     test_hidraw_admission.cpp
     test_http_gateways.cpp
     test_ui_preference_store.cpp
+    test_remembered_wifi_eq.cpp
+    test_legacy_catalog.cpp
+    test_list_model_roles.cpp
+    test_usb_hid_items.cpp
+    test_ip_literals_parse.cpp
+    test_moonlight_host_identity.cpp
     test_catalog_feature_gate.cpp
     test_crash_log_path.cpp
     test_unix_signal_watcher.cpp
-    test_reduced_motion.cpp)
+    test_reduced_motion.cpp
+    # Diagnostics page.
+    test_session_diagnostics.cpp
+    test_input_readout.cpp
+    test_stick_health.cpp
+    test_diagnostics_log.cpp
+    test_diagnostics_recorder.cpp
+    test_diagnostics_maps.cpp
+    test_feedback_bench.cpp)
 
 add_executable(DishTests ${DISH_TEST_SOURCES})
 target_link_libraries(DishTests

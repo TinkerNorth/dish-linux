@@ -80,94 +80,124 @@ inline bool applyInFlight(const ApplyState& s) {
 // True iff the escape hatch is offered: the Connection step, and only it.
 inline bool applyCancellable(const ApplyState& s) { return s.phase == ApplyPhase::SwitchingPath; }
 
-inline ApplyState reduceApply(const ApplyState& s, const ApplyEvent& e) {
+// Shared by the three ways Connection can end: settled, timed out, skipped.
+inline void enterBinding(ApplyState& st) {
+    st.phase = ApplyPhase::Binding;
+    st.destination = ApplyStepState::Active;
+    st.elapsedMsOnStep = 0;
+}
+
+// True once the run has reached a result, whichever one. Those states absorb every later event.
+inline bool applySettled(const ApplyState& s) {
+    return s.phase == ApplyPhase::Succeeded || s.phase == ApplyPhase::Failed ||
+           s.phase == ApplyPhase::Cancelled;
+}
+
+// Start always restarts: a retry after a failure is the same call, and the draft is still intact.
+inline ApplyState onApplyStart(const apply_event::Start& ev) {
+    ApplyState next{};
+    next.wantsDirect = ev.wantsDirect;
+    if (!ev.needsPathSwitch) {
+        next.connection = ApplyStepState::Skipped;
+        enterBinding(next);
+        return next;
+    }
+    next.phase = ApplyPhase::SwitchingPath;
+    next.connection = ApplyStepState::Active;
+    return next;
+}
+
+// Asked for Direct and got Standard: the claim lost. Warned rather than failed, since the pad
+// streams either way.
+inline ApplyState onPathSettled(const ApplyState& s, const apply_event::PathSettled& ev) {
+    if (s.phase != ApplyPhase::SwitchingPath) { return s; }
     ApplyState next = s;
+    next.connection = ApplyStepState::Done;
+    next.directFellBack = next.wantsDirect && !ev.direct;
+    enterBinding(next);
+    return next;
+}
 
-    // Shared by the three ways Connection can end: settled, timed out, skipped.
-    const auto enterBinding = [](ApplyState& st) {
-        st.phase = ApplyPhase::Binding;
-        st.destination = ApplyStepState::Active;
-        st.elapsedMsOnStep = 0;
-    };
+// A path switch that never settles is the same warning: the pad is on whichever path it kept.
+inline ApplyState onPathTimedOut(const ApplyState& s) {
+    if (s.phase != ApplyPhase::SwitchingPath) { return s; }
+    ApplyState next = s;
+    next.connection = ApplyStepState::Done;
+    next.directFellBack = true;
+    enterBinding(next);
+    return next;
+}
 
+inline ApplyState onBindAccepted(const ApplyState& s) {
+    if (s.phase != ApplyPhase::Binding) { return s; }
+    ApplyState next = s;
+    next.destination = ApplyStepState::Done;
+    next.phase = ApplyPhase::Succeeded;
+    return next;
+}
+
+inline ApplyState onBindFailed(const ApplyState& s, const ApplyFailure failure) {
+    if (s.phase != ApplyPhase::Binding) { return s; }
+    ApplyState next = s;
+    next.destination = ApplyStepState::Failed;
+    next.phase = ApplyPhase::Failed;
+    next.failure = failure;
+    return next;
+}
+
+// The pad went away mid-apply, as a Direct claim retiring the framework slot id does. Terminal
+// from any live phase; a run that already finished keeps its result.
+inline ApplyState onSlotVanished(const ApplyState& s) {
+    if (applySettled(s)) { return s; }
+    ApplyState next = s;
+    if (next.connection == ApplyStepState::Active) { next.connection = ApplyStepState::Failed; }
+    if (next.destination == ApplyStepState::Active) { next.destination = ApplyStepState::Failed; }
+    next.phase = ApplyPhase::Failed;
+    next.failure = ApplyFailure::SlotGone;
+    return next;
+}
+
+inline ApplyState onApplyCancel(const ApplyState& s) {
+    if (s.phase != ApplyPhase::SwitchingPath) { return s; }
+    ApplyState next = s;
+    next.connection = ApplyStepState::Failed;
+    next.phase = ApplyPhase::Cancelled;
+    next.failure = ApplyFailure::Cancelled;
+    return next;
+}
+
+inline ApplyState onApplyTick(const ApplyState& s, const apply_event::Tick& ev) {
+    if (!applyInFlight(s)) { return s; }
+    ApplyState next = s;
+    next.elapsedMsOnStep += ev.deltaMs;
+    return next;
+}
+
+inline ApplyState reduceApply(const ApplyState& s, const ApplyEvent& e) {
     return std::visit(
         [&](auto&& ev) -> ApplyState {
             using E = std::decay_t<decltype(ev)>;
-
             if constexpr (std::is_same_v<E, apply_event::Start>) {
-                // Start always restarts: a retry after a failure is the same
-                // call, and the draft is still intact.
-                next = ApplyState{};
-                next.wantsDirect = ev.wantsDirect;
-                if (ev.needsPathSwitch) {
-                    next.phase = ApplyPhase::SwitchingPath;
-                    next.connection = ApplyStepState::Active;
-                } else {
-                    next.connection = ApplyStepState::Skipped;
-                    enterBinding(next);
-                }
-                return next;
+                return onApplyStart(ev);
             } else if constexpr (std::is_same_v<E, apply_event::PathSettled>) {
-                if (next.phase != ApplyPhase::SwitchingPath) { return next; }
-                next.connection = ApplyStepState::Done;
-                // Asked for Direct and got Standard: the claim lost. Warn rather
-                // than fail, since the pad streams either way.
-                next.directFellBack = next.wantsDirect && !ev.direct;
-                enterBinding(next);
-                return next;
+                return onPathSettled(s, ev);
             } else if constexpr (std::is_same_v<E, apply_event::PathTimedOut>) {
-                if (next.phase != ApplyPhase::SwitchingPath) { return next; }
-                next.connection = ApplyStepState::Done;
-                next.directFellBack = true;
-                enterBinding(next);
-                return next;
+                return onPathTimedOut(s);
             } else if constexpr (std::is_same_v<E, apply_event::BindAccepted>) {
-                if (next.phase != ApplyPhase::Binding) { return next; }
-                next.destination = ApplyStepState::Done;
-                next.phase = ApplyPhase::Succeeded;
-                return next;
+                return onBindAccepted(s);
             } else if constexpr (std::is_same_v<E, apply_event::BindRejected>) {
-                if (next.phase != ApplyPhase::Binding) { return next; }
-                next.destination = ApplyStepState::Failed;
-                next.phase = ApplyPhase::Failed;
-                next.failure =
-                    ev.unreachable ? ApplyFailure::HostUnreachable : ApplyFailure::BindRejected;
-                return next;
+                return onBindFailed(s, ev.unreachable ? ApplyFailure::HostUnreachable
+                                                      : ApplyFailure::BindRejected);
             } else if constexpr (std::is_same_v<E, apply_event::BindTimedOut>) {
-                if (next.phase != ApplyPhase::Binding) { return next; }
-                next.destination = ApplyStepState::Failed;
-                next.phase = ApplyPhase::Failed;
                 // A REST round-trip that never answers is an unreachable host.
-                next.failure = ApplyFailure::HostUnreachable;
-                return next;
+                return onBindFailed(s, ApplyFailure::HostUnreachable);
             } else if constexpr (std::is_same_v<E, apply_event::SlotVanished>) {
-                // The pad went away mid-apply, as a Direct claim retiring the
-                // framework slot id does. Terminal from any live phase; a run
-                // that already finished keeps its result.
-                if (next.phase == ApplyPhase::Succeeded || next.phase == ApplyPhase::Failed ||
-                    next.phase == ApplyPhase::Cancelled) {
-                    return next;
-                }
-                if (next.connection == ApplyStepState::Active) {
-                    next.connection = ApplyStepState::Failed;
-                }
-                if (next.destination == ApplyStepState::Active) {
-                    next.destination = ApplyStepState::Failed;
-                }
-                next.phase = ApplyPhase::Failed;
-                next.failure = ApplyFailure::SlotGone;
-                return next;
+                return onSlotVanished(s);
             } else if constexpr (std::is_same_v<E, apply_event::Cancel>) {
-                if (next.phase != ApplyPhase::SwitchingPath) { return next; }
-                next.connection = ApplyStepState::Failed;
-                next.phase = ApplyPhase::Cancelled;
-                next.failure = ApplyFailure::Cancelled;
-                return next;
+                return onApplyCancel(s);
             } else {
                 static_assert(std::is_same_v<E, apply_event::Tick>);
-                if (!applyInFlight(next)) { return next; }
-                next.elapsedMsOnStep += ev.deltaMs;
-                return next;
+                return onApplyTick(s, ev);
             }
         },
         e);

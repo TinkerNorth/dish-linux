@@ -36,6 +36,7 @@ CapabilityInputs everythingCarries() {
     in.linkUsb = true;
     in.padClaimable = true;
     in.linkStandardEffects = true;
+    in.linkRoutesMouse = true;
     in.typeResolved = true;
     in.typeMotion = true;
     in.typeTouchpad = true;
@@ -358,6 +359,33 @@ TEST_CASE("capability solver: an older satellite without mouse control fails Mou
     REQUIRE(mouse.linkOk);
     REQUIRE(mouse.typeOk);
     REQUIRE_FALSE(mouse.hostOk);
+}
+
+TEST_CASE("capability solver: a client that does not route the mouse fails Mouse on Link",
+          "[capability][solver]") {
+    // The host advertises mouse control, so the Host cell must stay honest: it
+    // is this client's link that cannot carry the routing.
+    auto in = everythingCarries();
+    in.linkRoutesMouse = false;
+    in.userTouchpadMode = 2; // mouse
+    const auto mouse = rowFor(solveCapabilities(in), CapFeature::Mouse);
+    REQUIRE(mouse.verdict == CapVerdict::Unavailable);
+    REQUIRE(mouse.failingLayer == CapLayer::Link);
+    REQUIRE_FALSE(mouse.linkOk);
+    REQUIRE(mouse.hostOk);
+}
+
+TEST_CASE("capability solver: a Direct claim does not open a mouse routing the client lacks",
+          "[capability][solver]") {
+    // Direct carries every actuator the pad has, which is no reason to carry a
+    // routing this client does not do.
+    auto in = everythingCarries();
+    in.linkDirect = true;
+    in.linkRoutesMouse = false;
+    in.userTouchpadMode = 2; // mouse
+    const auto mouse = rowFor(solveCapabilities(in), CapFeature::Mouse);
+    REQUIRE(mouse.verdict == CapVerdict::Unavailable);
+    REQUIRE(mouse.failingLayer == CapLayer::Link);
 }
 
 TEST_CASE("capability solver: a host that does not advertise rumble return fails Rumble on Host",

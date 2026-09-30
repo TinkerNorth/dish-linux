@@ -32,9 +32,9 @@ inline const QString kFeatureMotion = QStringLiteral("motion");
 inline const QString kFeatureLightbar = QStringLiteral("lightbar");
 inline const QString kFeatureTouchpad = QStringLiteral("touchpad");
 // Controller audio (protocol 2). Deliberately NOT in knownFeatureSlugs():
-// that list is the protocol-1 caps-gate vocabulary (reducer::allowedCapsForType),
-// and the audio caps follow the trigger-effects precedent of passing through it
-// untouched. The capability solver's type layer reads these two directly.
+// that list is the protocol-1 vocabulary, and the audio slugs follow the
+// trigger-effects precedent of a whitelist of their own. The capability
+// solver's type layer reads these two directly.
 inline const QString kFeatureMic = QStringLiteral("mic");
 inline const QString kFeatureSpeaker = QStringLiteral("speaker");
 // Protocol 3: the DualSense's HD-haptics lanes. Reads through the same audio
@@ -47,6 +47,9 @@ inline const QString kFeatureHapticAudio = QStringLiteral("hapticAudio");
 // that carry them, so the legacy translation must not claim them.
 inline const QString kFeatureTriggerEffects = QStringLiteral("triggerEffects");
 inline const QString kFeaturePlayerLeds = QStringLiteral("playerLeds");
+
+// The catalog's hostFeatures slug for touchpad-driven host mouse control.
+inline const QString kHostFeatureMouseControl = QStringLiteral("mouseControl");
 
 // The `known` whitelist reducer::isFeatureOffered gates on, owned here so every
 // caller passes the same vocabulary instead of re-listing it.

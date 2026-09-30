@@ -8,6 +8,7 @@
 using dish::reducer::formatLatencyMs;
 using dish::reducer::kLatencyRttMaxUs;
 using dish::reducer::kLatencyWindowCapacity;
+using dish::reducer::LatencySummary;
 using dish::reducer::LatencyWindow;
 using dish::reducer::shouldArmPing;
 
@@ -92,6 +93,47 @@ TEST_CASE("window: reset drops every sample", "[latency]") {
     REQUIRE(w.oneWayP50Ms() == 0.0);
     w.push(4.0);
     REQUIRE(w.oneWayP50Ms() == 2.0);
+}
+
+TEST_CASE("window summary: an empty window holds no samples and no round trip", "[latency]") {
+    const LatencyWindow w;
+    REQUIRE(w.summary() == LatencySummary{});
+}
+
+TEST_CASE("window summary: reads the median and the 99th-percentile round trip", "[latency]") {
+    LatencyWindow w;
+    // Pushed out of order: the quantiles read the sorted window, not arrival.
+    for (int i = kLatencyWindowCapacity; i >= 1; --i) { w.push(static_cast<double>(i)); }
+    const LatencySummary s = w.summary();
+    REQUIRE(s.samples == kLatencyWindowCapacity);
+    // Sorted {1..64}: nearest rank round(0.50 * 63) = 32 -> 33, round(0.99 * 63) = 62 -> 63.
+    REQUIRE(s.rttP50Ms == 33.0);
+    REQUIRE(s.rttP99Ms == 63.0);
+}
+
+TEST_CASE("window summary: one sample is both its median and its tail", "[latency]") {
+    LatencyWindow w;
+    w.push(6.8);
+    const LatencySummary s = w.summary();
+    REQUIRE(s.samples == 1);
+    REQUIRE(s.rttP50Ms == 6.8);
+    REQUIRE(s.rttP99Ms == 6.8);
+}
+
+TEST_CASE("window summary: the one-way figure is half the median round trip", "[latency]") {
+    LatencySummary s;
+    s.samples = 3;
+    s.rttP50Ms = 6.8;
+    s.rttP99Ms = 9.0;
+    REQUIRE(s.oneWayMs() == 3.4);
+}
+
+TEST_CASE("window summary: the window's one-way figure is its summary's", "[latency]") {
+    LatencyWindow w;
+    w.push(10.0);
+    w.push(2.0);
+    w.push(4.0);
+    REQUIRE(w.oneWayP50Ms() == w.summary().oneWayMs());
 }
 
 TEST_CASE("formatLatencyMs: one decimal, half away from zero", "[latency]") {

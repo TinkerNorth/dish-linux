@@ -4,17 +4,12 @@
 #include "source/moonlight/MoonlightDiscovery.h"
 
 #include "source/connection/MdnsDiscovery.h" // net::detail::skipName / readName
+#include "source/connection/MdnsScan.h"
 
 #include <arpa/inet.h>
-#include <netinet/in.h>
-#include <sys/socket.h>
-#include <sys/time.h>
-#include <unistd.h>
 
 #include <QSet>
 
-#include <algorithm>
-#include <chrono>
 #include <cstring>
 #include <string>
 #include <unordered_map>
@@ -22,14 +17,10 @@
 namespace dish::source::moon {
 namespace {
 
-constexpr const char* kMulticastGroup = "224.0.0.251";
-constexpr std::uint16_t kMulticastPort = 5353;
-
 constexpr std::uint16_t kTypeA = 1;
 constexpr std::uint16_t kTypePtr = 12;
 constexpr std::uint16_t kTypeSrv = 33;
 constexpr std::uint16_t kClassInQu = 0x8001;
-constexpr int kGraceMs = 600;
 
 std::uint16_t read16(const std::uint8_t* p) {
     return static_cast<std::uint16_t>((p[0] << 8) | p[1]);
@@ -128,53 +119,17 @@ std::optional<DiscoveredMoonlightHost> parseMoonlightResponse(const std::uint8_t
 } // namespace detail
 
 QList<DiscoveredMoonlightHost> MoonlightDiscovery::discover(int timeoutMs) {
-    using namespace std::chrono;
-
-    const int sock = ::socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
-    if (sock < 0) { return {}; }
-
-    sockaddr_in local{};
-    local.sin_family = AF_INET;
-    local.sin_addr.s_addr = INADDR_ANY;
-    local.sin_port = 0;
-    if (::bind(sock, reinterpret_cast<sockaddr*>(&local), sizeof(local)) < 0) {
-        ::close(sock);
-        return {};
-    }
-
-    timeval rcvTimeout{};
-    rcvTimeout.tv_sec = 0;
-    rcvTimeout.tv_usec = 300'000;
-    ::setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &rcvTimeout, sizeof(rcvTimeout));
-    int ttl = 255;
-    ::setsockopt(sock, IPPROTO_IP, IP_MULTICAST_TTL, &ttl, sizeof(ttl));
-
-    sockaddr_in dest{};
-    dest.sin_family = AF_INET;
-    dest.sin_port = htons(kMulticastPort);
-    ::inet_pton(AF_INET, kMulticastGroup, &dest.sin_addr);
-
-    const auto query = buildQuery();
-    ::sendto(sock, query.data(), query.size(), 0, reinterpret_cast<sockaddr*>(&dest), sizeof(dest));
-
     QList<DiscoveredMoonlightHost> result;
     QSet<QString> seen;
-    const auto hardDeadline = steady_clock::now() + milliseconds(timeoutMs);
-    auto deadline = hardDeadline;
-    std::uint8_t buf[2048];
-
-    while (steady_clock::now() < deadline) {
-        const ssize_t n = ::recvfrom(sock, buf, sizeof(buf), 0, nullptr, nullptr);
-        if (n <= 0) { continue; }
-        const auto host = detail::parseMoonlightResponse(buf, static_cast<std::size_t>(n));
-        if (!host) { continue; }
-        if (seen.contains(host->address)) { continue; }
+    // Keyed on the address alone: a Moonlight host serves one session, whatever ports it names.
+    net::mdnsScan(buildQuery(), timeoutMs, [&](const std::uint8_t* p, std::size_t n) {
+        const auto host = detail::parseMoonlightResponse(p, n);
+        if (!host) { return false; }
+        if (seen.contains(host->address)) { return false; }
         seen.insert(host->address);
         result.append(*host);
-        deadline = std::min(hardDeadline, steady_clock::now() + milliseconds(kGraceMs));
-    }
-
-    ::close(sock);
+        return true;
+    });
     return result;
 }
 

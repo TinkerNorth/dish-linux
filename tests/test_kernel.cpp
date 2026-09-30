@@ -45,6 +45,51 @@ TEST_CASE("Observable replays the latest and emits only on change", "[kernel][ob
     REQUIRE(seen.size() == 3);
 }
 
+namespace {
+
+// Counts its own copies, which is how a test tells a read of the held value from a read of a copy.
+// Default-constructible because Observable builds its notification snapshot that way.
+struct CopyCounted {
+    int* copies = nullptr;
+    int payload = 0;
+
+    CopyCounted() = default;
+    CopyCounted(int* counter, int value) : copies(counter), payload(value) {}
+    CopyCounted(const CopyCounted& other) : copies(other.copies), payload(other.payload) {
+        countCopy();
+    }
+    CopyCounted& operator=(const CopyCounted& other) {
+        copies = other.copies;
+        payload = other.payload;
+        countCopy();
+        return *this;
+    }
+    bool operator==(const CopyCounted& other) const { return payload == other.payload; }
+
+    void countCopy() const {
+        if (copies != nullptr) { ++*copies; }
+    }
+};
+
+int payloadOf(const CopyCounted& held) { return held.payload; }
+
+} // namespace
+
+TEST_CASE("Observable read hands the reader the held value without copying it",
+          "[kernel][observable]") {
+    int copies = 0;
+    Observable<CopyCounted> o{CopyCounted{&copies, 7}};
+
+    const int beforeFirstRead = copies;
+    CHECK(o.read(payloadOf) == 7);
+    CHECK(copies == beforeFirstRead);
+
+    o.set(CopyCounted{&copies, 8});
+    const int beforeSecondRead = copies;
+    CHECK(o.read(payloadOf) == 8);
+    CHECK(copies == beforeSecondRead);
+}
+
 TEST_CASE("Observable subscribe(emitCurrent=false) skips the initial value",
           "[kernel][observable]") {
     Observable<int> o{5};

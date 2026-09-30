@@ -47,6 +47,8 @@ Kit.Page {
     readonly property var shellStack: StackView.view
     readonly property var shellApi: shellStack ? shellStack.shellApi : null
 
+    LinkVocabulary { id: linkWords }
+
     // Signal-path geometry. The nodes flex between these bounds and elide with a
     // full-name tooltip; below the stack breakpoint the row goes vertical rather
     // than squeezing (a DPI-scaled window cannot hold three fixed columns).
@@ -236,7 +238,7 @@ Kit.Page {
                 Accessible.name: rowRoot.bound
                                  ? qsTr("%1, bound to %2, %3")
                                        .arg(rowRoot.name).arg(rowRoot.boundLabel)
-                                       .arg(page.chipText(rowRoot.satChip))
+                                       .arg(linkWords.chipText(rowRoot.satChip))
                                    + (rowRoot.showLatency ? " · " + rowRoot.satLatencyText : "")
                                  : qsTr("%1, not bound").arg(rowRoot.name)
 
@@ -407,8 +409,8 @@ Kit.Page {
                                         }
                                     }
                                     Kit.CapabilityChip {
-                                        text: page.chipText(rowRoot.satChip)
-                                        tone: page.chipTone(rowRoot.satChip)
+                                        text: linkWords.chipText(rowRoot.satChip)
+                                        tone: linkWords.chipTone(rowRoot.satChip)
                                         Layout.alignment: Qt.AlignVCenter
                                     }
                                 }
@@ -723,7 +725,7 @@ Kit.Page {
         var chips = [];
         var direct = row.pathPhase === "direct";
         var dz = page.deadzoneRowFor(row.slotId);
-        var motionOn = dz ? dz.forwardMotion : true;
+        var motionOn = App.motionEnabledFor(row.slotId);
 
         if (row.emulateName.length > 0) {
             chips.push({ text: qsTr("as %1").arg(row.emulateName),
@@ -732,15 +734,11 @@ Kit.Page {
         chips.push(direct
                    ? { text: qsTr("direct · raw HID"),
                        tone: Kit.CapabilityChip.Present, reason: "" }
-                   : { text: qsTr("standard"), tone: Kit.CapabilityChip.Neutral,
-                       reason: qsTr("Standard mode can’t carry it — switch to Direct.") });
+                   : { text: qsTr("standard"), tone: Kit.CapabilityChip.Neutral, reason: "" });
 
         if (!row.hasMotion) {
             chips.push({ text: qsTr("no gyro · pad"), tone: Kit.CapabilityChip.Absent,
                          reason: qsTr("No gyro on this controller.") });
-        } else if (!direct) {
-            chips.push({ text: qsTr("no gyro · link"), tone: Kit.CapabilityChip.Absent,
-                         reason: qsTr("Standard mode can’t carry it — switch to Direct.") });
         } else if (!motionOn) {
             chips.push({ text: qsTr("gyro off"), tone: Kit.CapabilityChip.Neutral,
                          reason: qsTr("Motion forwarding is off for this device.") });
@@ -751,11 +749,8 @@ Kit.Page {
         if (!row.hasTouchpad) {
             chips.push({ text: qsTr("no touchpad · pad"), tone: Kit.CapabilityChip.Absent,
                          reason: qsTr("No touchpad on this controller.") });
-        } else if (!direct) {
-            chips.push({ text: qsTr("no touchpad · link"), tone: Kit.CapabilityChip.Absent,
-                         reason: qsTr("Standard mode can’t carry it — switch to Direct.") });
         } else {
-            var mode = App.touchpadModeFor(row.boundConnectionId);
+            var mode = App.touchpadRoutingFor(row.slotId);
             chips.push(mode === "off"
                        ? { text: qsTr("touchpad off"), tone: Kit.CapabilityChip.Neutral,
                            reason: qsTr("Touchpad routing is off for this binding.") }
@@ -802,30 +797,5 @@ Kit.Page {
     // Dead zones page's sliders use).
     function percentOf(raw, range) {
         return Math.round(raw / range * 100);
-    }
-
-    // Localized chip text/tone for a link-state token — the same ladders the
-    // Connections page renders from the identical tokens.
-    function chipText(token) {
-        switch (token) {
-        case "found":        return qsTr("Found");
-        case "needsPairing": return qsTr("Needs pairing");
-        case "offline":      return qsTr("Offline");
-        case "ready":        return qsTr("Ready");
-        case "connecting":   return qsTr("Connecting…");
-        case "online":       return qsTr("Online");
-        case "unstable":     return qsTr("Unsteady");
-        default:             return token;
-        }
-    }
-    function chipTone(token) {
-        switch (token) {
-        case "online":       return Kit.CapabilityChip.Ok;
-        case "connecting":   return Kit.CapabilityChip.Warn;
-        case "unstable":     return Kit.CapabilityChip.Warn;
-        case "needsPairing": return Kit.CapabilityChip.Warn;
-        case "ready":        return Kit.CapabilityChip.Present;
-        default:             return Kit.CapabilityChip.Neutral;
-        }
     }
 }

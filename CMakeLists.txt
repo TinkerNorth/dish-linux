@@ -161,6 +161,8 @@ set(DISH_CORE_SOURCES
     src/core/AsyncState.h
     src/core/wire/SessionCrypto.h
     src/core/wire/SessionCrypto.cpp
+    src/core/wire/HttpFraming.h
+    src/core/wire/HttpFraming.cpp
     # Moonlight (Sunshine/Apollo/Wolf) host protocol: the Qt-free core.
     src/core/moonlight/MoonlightProtocol.h
     src/core/moonlight/MoonlightWire.h
@@ -220,6 +222,13 @@ set(DISH_CORE_SOURCES
     src/core/reducer/InputRateTracker.h
     src/core/reducer/MotionIndicatorState.h
     src/core/reducer/LatencyWindow.h
+    # The Diagnostics page: the session's own account of itself, the flight
+    # recorder's diff, and the input inspector's readout and stick tests.
+    src/core/reducer/SessionDiagnostics.h
+    src/core/reducer/DiagnosticsLog.h
+    src/core/input/InputReadout.h
+    src/core/input/StickHealth.h
+    src/core/reducer/FeedbackBench.h
     src/core/reducer/CapabilitySolver.h
     src/core/reducer/CapabilitySolver.cpp
     src/core/reducer/HostAudioVerdict.h
@@ -280,8 +289,8 @@ set(DISH_CORE_SOURCES
     src/Models/Models.cpp
     src/Network/SatelliteClient.h
     src/Network/SatelliteClient.cpp
-    src/Network/PairingClient.h
-    src/Network/PairingClient.cpp
+    src/Network/PairingOutcome.h
+    src/Network/PairingOutcome.cpp
     src/Network/HTTPClient.h
     src/Network/HTTPClient.cpp
     src/Network/WifiConnection.h
@@ -296,6 +305,7 @@ set(DISH_CORE_SOURCES
     src/source/connection/LANDiscovery.cpp
     src/source/connection/MdnsDiscovery.h
     src/source/connection/MdnsDiscovery.cpp
+    src/source/connection/MdnsScan.cpp
     src/source/connection/DiscoveryGateway.h
     src/source/connection/DiscoveryGateway.cpp
     # Moonlight-host IO edge: HTTP/RTSP/ENet transports, discovery, pairing,
@@ -316,6 +326,10 @@ set(DISH_CORE_SOURCES
     src/source/moonlight/MoonlightSession.cpp
     src/source/moonlight/MoonlightManager.h
     src/source/moonlight/MoonlightManager.cpp
+    # The HTTP/1.1 transport both REST clients ride: one socket per call, on
+    # the caller's thread.
+    src/source/http/HttpExchange.h
+    src/source/http/HttpExchange.cpp
     src/source/http/SatelliteTlsVerifier.h
     src/source/http/SatelliteTlsVerifier.cpp
     # An ETag cache over HTTPClient::getCatalog, not a durable Repository,
@@ -326,6 +340,10 @@ set(DISH_CORE_SOURCES
     src/source/store/ControllerTypeStore.cpp
     src/source/store/MotionEnabledStore.h
     src/source/store/MotionEnabledStore.cpp
+    src/source/store/RumbleEnabledStore.h
+    src/source/store/RumbleEnabledStore.cpp
+    src/source/store/SlotSwitches.h
+    src/source/store/SlotSwitches.cpp
     src/source/store/AudioEnabledStore.h
     src/source/store/AudioEnabledStore.cpp
     src/source/store/MicMuteStore.h
@@ -410,6 +428,8 @@ set(DISH_CORE_SOURCES
     src/repository/DeadzoneRepository.cpp
     src/repository/MotionPreferenceRepository.h
     src/repository/MotionPreferenceRepository.cpp
+    src/repository/RumblePreferenceRepository.h
+    src/repository/RumblePreferenceRepository.cpp
     src/repository/AudioPreferenceRepository.h
     src/repository/AudioPreferenceRepository.cpp
     src/repository/TouchpadModeRepository.h
@@ -426,9 +446,14 @@ set(DISH_CORE_SOURCES
     src/composer/MotionCapabilityComposer.h
     src/composer/MotionCapabilityComposer.cpp
     src/composer/StreamingSlotCount.h
+    src/source/store/DiagnosticsLogStore.h
+    src/composer/DiagnosticsRecorder.h
+    src/composer/DiagnosticsRecorder.cpp
     src/composer/WakeStateComposer.h
     src/composer/WakeStateController.h
     src/composer/WakeStateController.cpp
+    src/composer/RumbleSwitchController.h
+    src/composer/RumbleSwitchController.cpp
     src/composer/TrayComposer.h
     src/composer/TrayController.h
     src/composer/TrayController.cpp
@@ -473,7 +498,9 @@ set(DISH_CORE_SOURCES
     src/qml/AppViewModel.cpp
     # Split out of AppViewModel so the mapping is testable without AppModel.
     src/qml/AppSettingsMaps.h
-    src/qml/AppSettingsMaps.cpp)
+    src/qml/AppSettingsMaps.cpp
+    src/qml/DiagnosticsMaps.h
+    src/qml/DiagnosticsMaps.cpp)
 
 # Crash reporting (Sentry). Two gates, and only one of them is load-bearing.
 #
@@ -658,6 +685,8 @@ qt_add_qml_module(Dish
         src/qml/pages/LicensesPage.qml
         src/qml/pages/ControlsRemapPage.qml
         src/qml/pages/ConfigureBindingPage.qml
+        src/qml/pages/DiagnosticsPage.qml
+        src/qml/pages/InputInspectorPage.qml
         src/qml/pages/MoonlightHostsPage.qml
         src/qml/pages/PairingDialog.qml
         src/qml/onboarding/OnboardingFlow.qml

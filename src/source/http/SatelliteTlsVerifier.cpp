@@ -5,10 +5,30 @@
 
 #include "core/net/Tofu.h"
 
+#include <utility>
+
 namespace dish::http {
 
+namespace {
+
+// A satellite reinstalled after an approval request it never finished presents a new certificate
+// to a pin nothing was ever paired behind; refusing it would leave that satellite unpairable.
+bool onChangedCertificate(const QString& satelliteId, repository::SatellitePinRepository& pins,
+                          const std::string& presented, const std::function<void()>& onMismatch,
+                          bool pinGuardsAPairing) {
+    if (!pinGuardsAPairing) {
+        pins.pin(satelliteId, QString::fromStdString(presented));
+        return true;
+    }
+    if (onMismatch) { onMismatch(); }
+    return false; // leave the trusted pin intact
+}
+
+} // namespace
+
 bool verifyPeerCertificate(const QString& satelliteId, repository::SatellitePinRepository& pins,
-                           const QByteArray& certDer, const std::function<void()>& onMismatch) {
+                           const QByteArray& certDer, const std::function<void()>& onMismatch,
+                           bool pinGuardsAPairing) {
     // No peer certificate at all: reject, but this is NOT a pin mismatch.
     if (certDer.isEmpty()) { return false; }
 
@@ -27,10 +47,18 @@ bool verifyPeerCertificate(const QString& satelliteId, repository::SatellitePinR
     case net::TofuVerdict::Match:
         return true;
     case net::TofuVerdict::Mismatch:
-        if (onMismatch) { onMismatch(); }
-        return false; // leave the trusted pin intact
+        return onChangedCertificate(satelliteId, pins, presented, onMismatch, pinGuardsAPairing);
     }
     return false;
+}
+
+std::function<bool(const QString& host, const QByteArray& certDer, bool& pinMismatch)>
+pinVerifierOver(repository::SatellitePinRepository& pins, PairingAt pairedAt) {
+    return [&pins, pairedAt = std::move(pairedAt)](const QString& host, const QByteArray& certDer,
+                                                   bool& pinMismatch) {
+        return verifyPeerCertificate(
+            host, pins, certDer, [&pinMismatch] { pinMismatch = true; }, pairedAt(host));
+    };
 }
 
 } // namespace dish::http

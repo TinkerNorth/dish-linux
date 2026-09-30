@@ -9,6 +9,7 @@
 #include <cstdint>
 #include <functional>
 #include <mutex>
+#include <optional>
 #include <unordered_map>
 
 namespace dish::input {
@@ -132,6 +133,20 @@ class GamepadInputProcessor {
     // and takes the existing mtx_, so the send path gains no new lock.
     InputRateCounters inputCounters(const DeviceId& id) const;
 
+    // What the input inspector reads for one device: its last report as it went
+    // on the wire (after the dead zones) and as the pad sent it, and the last
+    // motion sample and touch frame it forwarded. Each is empty until the
+    // device has produced one.
+    struct Inspection {
+        std::optional<DeviceState> wire;
+        std::optional<DeviceState> raw;
+        std::optional<MotionSample> motion;
+        std::optional<TouchpadSample> touchpad;
+    };
+
+    // Polled by the open inspector, off the hot path, under the existing mtx_.
+    Inspection inspect(const DeviceId& id) const;
+
     // Reports that actually moved something, across every device. Unlike the
     // per-device rate counters this excludes an untouched pad's idle stream, so
     // it answers "is anyone playing" rather than "is anything arriving".
@@ -163,6 +178,10 @@ class GamepadInputProcessor {
   private:
     mutable std::mutex mtx_;
     std::unordered_map<DeviceId, DeviceState> states_;
+    // The same reports before the dead zones, for the inspector's stick tests:
+    // a drift the dead zone hides is still the drift the test has to measure.
+    std::unordered_map<DeviceId, DeviceState> rawStates_;
+    std::unordered_map<DeviceId, TouchpadSample> touchpads_;
     // The baseline actuation is measured against. Distinct from states_, which
     // follows every report: a stick drifting under the epsilon never moves this,
     // so a slow deliberate push still accumulates against it and trips.
@@ -173,12 +192,14 @@ class GamepadInputProcessor {
     BatterySender batterySender_;
     TouchpadSender touchpadSender_;
 
-    // `lastUs` is the last *emitted* sample. `hasEmitted` is a separate flag,
-    // not a `lastUs == 0` sentinel: a monotonic clock can legitimately read 0,
-    // which would make the second sample look like another first sample.
+    // `lastUs` and `lastSample` are the last *emitted* sample. `hasEmitted` is a
+    // separate flag, not a `lastUs == 0` sentinel: a monotonic clock can
+    // legitimately read 0, which would make the second sample look like another
+    // first sample.
     struct MotionGate {
         std::uint64_t lastUs = 0;
         bool hasEmitted = false;
+        MotionSample lastSample;
     };
     std::unordered_map<DeviceId, MotionGate> lastMotionUs_;
 

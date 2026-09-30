@@ -43,7 +43,7 @@ TEST_CASE("M1 checking: a probe in flight with nothing cached", "[moonlight][ui]
     CHECK(tokenOf(in) == "checking");
 }
 
-TEST_CASE("M2 not paired: answered, PairStatus 0, nothing remembered", "[moonlight][ui]") {
+TEST_CASE("M2 not paired: answered, with no pairing on file", "[moonlight][ui]") {
     SessionUiInputs in;
     in.probeAttempted = true;
     in.probeAnswered = true;
@@ -53,7 +53,7 @@ TEST_CASE("M2 not paired: answered, PairStatus 0, nothing remembered", "[moonlig
     CHECK(tokenOf(in) == "notPaired");
 }
 
-TEST_CASE("M2 again: the host's word alone is not a pairing", "[moonlight][ui]") {
+TEST_CASE("M2 again: the host's word alone is not a pairing", "[moonlight][ui][h1]") {
     // The disagreement a Forget leaves behind. A host reports PairStatus
     // against the uniqueid on the request, and the client identity outlives a
     // Forget, so a box we forgot still answers 1. Trust is MUTUAL: every
@@ -212,7 +212,7 @@ TEST_CASE("a host nobody has asked yet is checking, never silent", "[moonlight][
     CHECK(sessionUiState(untouched) == SessionUiState::Checking);
 }
 
-TEST_CASE("M7 trust lost: answered unpaired with a certificate stored", "[moonlight][ui]") {
+TEST_CASE("M7 trust lost: the pairing on file is not confirmed, or a 401", "[moonlight][ui]") {
     SessionUiInputs in;
     in.probeAttempted = true;
     in.probeAnswered = true;
@@ -289,7 +289,7 @@ TEST_CASE("M13 joining: a session of ours is already up", "[moonlight][ui]") {
     CHECK(sessionUiState(in) == SessionUiState::Joining);
 }
 
-TEST_CASE("M14 host full is the ONE state that blocks", "[moonlight][ui]") {
+TEST_CASE("M14 host full is the ONE state that blocks", "[moonlight][ui][b11]") {
     SessionUiInputs in = paired();
     in.otherControllers = 4;
     CHECK(sessionUiState(in) == SessionUiState::HostFull);
@@ -353,7 +353,7 @@ TEST_CASE("M19 live is this binding's own place in the session", "[moonlight][ui
     CHECK(sessionUiState(in) == SessionUiState::Live);
 }
 
-TEST_CASE("M20 and M21 are never merged", "[moonlight][ui]") {
+TEST_CASE("M20 and M21 are never merged", "[moonlight][ui][b17][b18]") {
     // A drop is recoverable and the host will usually let us resume; a session
     // the host ended is not.
     SessionUiInputs dropped = paired();
@@ -389,7 +389,7 @@ TEST_CASE("every state has its own token and all twenty-one are reachable", "[mo
     }
 }
 
-TEST_CASE("apply is blocked by exactly one state", "[moonlight][ui]") {
+TEST_CASE("apply is blocked by exactly one state", "[moonlight][ui][b11]") {
     const SessionUiState all[] = {
         SessionUiState::Checking,       SessionUiState::NotPaired,    SessionUiState::PairingPin,
         SessionUiState::PairingRefused, SessionUiState::Unreachable,  SessionUiState::Remembered,
@@ -402,7 +402,7 @@ TEST_CASE("apply is blocked by exactly one state", "[moonlight][ui]") {
     CHECK(sessionUiBlocksApply(SessionUiState::HostFull));
 }
 
-TEST_CASE("the host row says trust, and never liveness", "[moonlight][ui]") {
+TEST_CASE("the host row says trust, and never liveness", "[moonlight][ui][b1]") {
     SessionUiInputs verified = paired();
     CHECK(hostTrust(verified) == HostTrust::Paired);
     CHECK(std::string(hostTrustToken(HostTrust::Paired)) == "paired");

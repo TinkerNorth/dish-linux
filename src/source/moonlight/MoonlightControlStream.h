@@ -26,6 +26,7 @@
 #include <mutex>
 #include <string>
 #include <thread>
+#include <vector>
 
 namespace dish::source::moon {
 
@@ -69,6 +70,13 @@ class MoonlightControlStream {
                              std::int16_t rightX, std::int16_t rightY);
     void sendControllerArrival(std::uint8_t controllerNumber, std::uint8_t controllerType,
                                std::uint8_t capabilities, std::uint32_t supportedButtons);
+    // The CONTROLLER_MULTI that names `controllerNumber` with its bit cleared (the unplug), then
+    // the arrival that plugs it back in as another pad. One hold of the link lock covers both: an
+    // input frame for the number sent between them would make Wolf plug a default Xbox pad there
+    // and skip the arrival.
+    void sendControllerReplug(std::uint8_t controllerNumber, std::uint16_t otherPadsMask,
+                              std::uint8_t controllerType, std::uint8_t capabilities,
+                              std::uint32_t supportedButtons);
     void sendControllerMotion(std::uint8_t controllerNumber, std::uint8_t motionType, float x,
                               float y, float z);
     void sendControllerBattery(std::uint8_t controllerNumber, std::uint8_t state,
@@ -97,9 +105,23 @@ class MoonlightControlStream {
     struct Link;
 
     void serviceLoop();
+
+    // What one bounded pass over ENet saw, gathered under the link lock and acted on after it.
+    struct ServicePass {
+        std::vector<moonwire::HostEvent> events;
+        bool linkUp = false;
+        bool linkDown = false;
+        bool hostGone = false; // torn down under us: the loop ends
+    };
+    ServicePass serviceUnderLock();
+    void pingIfDue();
     void notifyLink(bool connected);
     // Seals `plaintext` and queues it. Caller must NOT hold linkMtx_.
     void sealAndSend(const std::uint8_t* plaintext, std::size_t len);
+    // sealAndSend's body: linkMtx_ held, over a link that is up.
+    void sealAndQueueLocked(const std::uint8_t* plaintext, std::size_t len);
+    // linkMtx_ held.
+    bool linkUpLocked() const;
     // linkMtx_ held. Sends the pre-sealed slot/fallback packet.
     bool queuePacket(const std::uint8_t* sealed, std::size_t sealedLen, Slot* slot);
 

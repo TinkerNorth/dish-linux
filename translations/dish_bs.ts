@@ -162,6 +162,10 @@
         <translation>Zvuk kontrolera</translation>
     </message>
     <message>
+        <source>Haptics</source>
+        <translation>Haptika</translation>
+    </message>
+    <message>
         <source>buttons or sticks</source>
         <translation>dugmad ili palice</translation>
     </message>
@@ -232,6 +236,10 @@
     <message>
         <source>%1 has no %2.</source>
         <translation>%1 nema podršku za %2.</translation>
+    </message>
+    <message>
+        <source>Dish can’t use the touchpad as a mouse.</source>
+        <translation>Dish ne može koristiti dodirnu ploču kao miš.</translation>
     </message>
     <message>
         <source>The driver this controller is on can’t drive it.</source>
@@ -440,10 +448,6 @@
     <message>
         <source>Claiming controller…</source>
         <translation>Preuzimanje kontrolera…</translation>
-    </message>
-    <message>
-        <source>Auto</source>
-        <translation>Automatski</translation>
     </message>
     <message>
         <source>Paired</source>
@@ -853,24 +857,8 @@
         <translation>Pronađen</translation>
     </message>
     <message>
-        <source>Needs pairing</source>
-        <translation>Potrebno uparivanje</translation>
-    </message>
-    <message>
-        <source>Offline</source>
-        <translation>Van veze</translation>
-    </message>
-    <message>
-        <source>Ready</source>
-        <translation>Spreman</translation>
-    </message>
-    <message>
         <source>Connecting…</source>
         <translation>Povezivanje…</translation>
-    </message>
-    <message>
-        <source>Online</source>
-        <translation>Na vezi</translation>
     </message>
     <message>
         <source>Scanning…</source>
@@ -1035,10 +1023,6 @@
     <message>
         <source>%1 — as %2</source>
         <translation>%1 — kao %2</translation>
-    </message>
-    <message>
-        <source>Unsteady</source>
-        <translation>Nestabilan</translation>
     </message>
 </context>
 <context>
@@ -1510,6 +1494,421 @@
     </message>
 </context>
 <context>
+    <name>DiagnosticsPage</name>
+    <message>
+        <source>Diagnostics</source>
+        <translation>Dijagnostika</translation>
+    </message>
+    <message>
+        <source>Controller inspector</source>
+        <translation>Inspektor kontrolera</translation>
+    </message>
+    <message>
+        <source>in step</source>
+        <translation>usklađeno</translation>
+    </message>
+    <message>
+        <source>out of step</source>
+        <translation>neusklađeno</translation>
+    </message>
+    <message>
+        <source>waiting for the first heartbeat</source>
+        <translation>čeka se prvi signal veze</translation>
+    </message>
+    <message>
+        <source>none</source>
+        <translation>nema</translation>
+    </message>
+    <message>
+        <source>v%1</source>
+        <translation>v%1</translation>
+    </message>
+    <message>
+        <source>%1 (offered v%2)</source>
+        <translation>%1 (ponuđeno: v%2)</translation>
+    </message>
+    <message>
+        <source>applied: %1</source>
+        <translation>primijenjeno: %1</translation>
+    </message>
+    <message>
+        <source>on the host: %1 · applied: %2</source>
+        <translation>na hostu: %1 · primijenjeno: %2</translation>
+    </message>
+    <message>
+        <source>confirmed: %1</source>
+        <translation>potvrđeno: %1</translation>
+    </message>
+    <message>
+        <source>on the host: %1 · confirmed: %2</source>
+        <translation>na hostu: %1 · potvrđeno: %2</translation>
+    </message>
+    <message>
+        <source>available</source>
+        <translation>dostupno</translation>
+    </message>
+    <message>
+        <source>unavailable</source>
+        <translation>nedostupno</translation>
+    </message>
+    <message>
+        <source>unknown</source>
+        <translation>nepoznato</translation>
+    </message>
+    <message numerus="yes">
+        <source>%n in use</source>
+        <translation>
+            <numerusform>%n u upotrebi</numerusform>
+            <numerusform>%n u upotrebi</numerusform>
+            <numerusform>%n u upotrebi</numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>no samples yet</source>
+        <translation>još nema uzoraka</translation>
+    </message>
+    <message>
+        <source>%1 p50 · %2 p99 · %3 one way</source>
+        <translation>%1 p50 · %2 p99 · %3 u jednom smjeru</translation>
+    </message>
+    <message numerus="yes">
+        <source>%1 of %n pings</source>
+        <translation>
+            <numerusform>%1 od %n pinga</numerusform>
+            <numerusform>%1 od %n pinga</numerusform>
+            <numerusform>%1 od %n pingova</numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>Address</source>
+        <translation>Adresa</translation>
+    </message>
+    <message>
+        <source>%1 • UDP %2</source>
+        <translation>%1 • UDP %2</translation>
+    </message>
+    <message>
+        <source>Protocol</source>
+        <translation>Protokol</translation>
+    </message>
+    <message>
+        <source>Session</source>
+        <translation>Sesija</translation>
+    </message>
+    <message>
+        <source>No session right now</source>
+        <translation>Trenutno nema sesije</translation>
+    </message>
+    <message>
+        <source>Epoch</source>
+        <translation>Epoha</translation>
+    </message>
+    <message>
+        <source>Controllers</source>
+        <translation>Kontroleri</translation>
+    </message>
+    <message>
+        <source>Virtual controllers</source>
+        <translation>Virtualni kontroleri</translation>
+    </message>
+    <message>
+        <source>Round trip</source>
+        <translation>Povratni put</translation>
+    </message>
+    <message>
+        <source>Missed heartbeats</source>
+        <translation>Propušteni signali veze</translation>
+    </message>
+    <message>
+        <source>Mouse control</source>
+        <translation>Kontrola miša</translation>
+    </message>
+    <message>
+        <source>granted</source>
+        <translation>odobreno</translation>
+    </message>
+    <message>
+        <source>not granted</source>
+        <translation>nije odobreno</translation>
+    </message>
+    <message>
+        <source>USB direct</source>
+        <translation>USB direktno</translation>
+    </message>
+    <message>
+        <source>Bluetooth</source>
+        <translation>Bluetooth</translation>
+    </message>
+    <message>
+        <source>USB standard</source>
+        <translation>USB standardno</translation>
+    </message>
+    <message>
+        <source>through the system driver</source>
+        <translation>preko sistemskog drajvera</translation>
+    </message>
+    <message>
+        <source>claiming</source>
+        <translation>preuzimanje</translation>
+    </message>
+    <message>
+        <source>claimed</source>
+        <translation>preuzeto</translation>
+    </message>
+    <message>
+        <source>waiting for the system to hand it back</source>
+        <translation>čeka da ga sistem vrati</translation>
+    </message>
+    <message>
+        <source>stuck returning to Standard</source>
+        <translation>zapelo pri povratku na Standardni</translation>
+    </message>
+    <message>
+        <source>needs a replug</source>
+        <translation>treba ponovo priključiti</translation>
+    </message>
+    <message>
+        <source>access denied</source>
+        <translation>pristup odbijen</translation>
+    </message>
+    <message>
+        <source>held by another app</source>
+        <translation>zauzeto drugom aplikacijom</translation>
+    </message>
+    <message>
+        <source>sent no reports</source>
+        <translation>nije poslao izvještaje</translation>
+    </message>
+    <message>
+        <source>dropped during the claim</source>
+        <translation>nestao tokom preuzimanja</translation>
+    </message>
+    <message>
+        <source>Direct</source>
+        <translation>Brzi</translation>
+    </message>
+    <message>
+        <source>Standard</source>
+        <translation>Standardni</translation>
+    </message>
+    <message>
+        <source>poll %1</source>
+        <translation>očitavanje %1</translation>
+    </message>
+    <message>
+        <source>motion %1</source>
+        <translation>pokret %1</translation>
+    </message>
+    <message>
+        <source>no reports yet</source>
+        <translation>još nema izvještaja</translation>
+    </message>
+    <message>
+        <source>wired</source>
+        <translation>napajanje kablom</translation>
+    </message>
+    <message>
+        <source>full</source>
+        <translation>puna</translation>
+    </message>
+    <message>
+        <source>%1%, charging</source>
+        <translation>%1 %, puni se</translation>
+    </message>
+    <message>
+        <source>%1%</source>
+        <translation>%1 %</translation>
+    </message>
+    <message>
+        <source>Moonlight</source>
+        <translation>Moonlight</translation>
+    </message>
+    <message>
+        <source>Satellite</source>
+        <translation>Satelit</translation>
+    </message>
+    <message>
+        <source>yes</source>
+        <translation>da</translation>
+    </message>
+    <message>
+        <source>no</source>
+        <translation>ne</translation>
+    </message>
+    <message>
+        <source>nothing</source>
+        <translation>ništa</translation>
+    </message>
+    <message>
+        <source>pad</source>
+        <translation>pad</translation>
+    </message>
+    <message>
+        <source>mouse</source>
+        <translation>miš</translation>
+    </message>
+    <message>
+        <source>off</source>
+        <translation>isključena</translation>
+    </message>
+    <message>
+        <source>Connection</source>
+        <translation>Veza</translation>
+    </message>
+    <message>
+        <source>Path</source>
+        <translation>Način</translation>
+    </message>
+    <message>
+        <source>Input rate</source>
+        <translation>Učestalost unosa</translation>
+    </message>
+    <message>
+        <source>Battery</source>
+        <translation>Baterija</translation>
+    </message>
+    <message>
+        <source>Binding</source>
+        <translation>Povezivanje</translation>
+    </message>
+    <message>
+        <source>Not bound</source>
+        <translation>Nije povezano</translation>
+    </message>
+    <message>
+        <source>On the wire</source>
+        <translation>Prema hostu</translation>
+    </message>
+    <message>
+        <source>A Moonlight host reports nothing back about its controllers</source>
+        <translation>Moonlight host ne javlja ništa o svojim kontrolerima</translation>
+    </message>
+    <message>
+        <source>Not declared to the host yet</source>
+        <translation>Još nije prijavljeno hostu</translation>
+    </message>
+    <message>
+        <source>Controller index</source>
+        <translation>Indeks kontrolera</translation>
+    </message>
+    <message>
+        <source>Confirmed by host</source>
+        <translation>Host potvrdio</translation>
+    </message>
+    <message>
+        <source>Streaming</source>
+        <translation>Prenosi</translation>
+    </message>
+    <message>
+        <source>Advertised</source>
+        <translation>Objavljeno</translation>
+    </message>
+    <message>
+        <source>Touchpad on the wire</source>
+        <translation>Dodirna ploča prema hostu</translation>
+    </message>
+    <message>
+        <source>Not available</source>
+        <translation>Nije dostupan</translation>
+    </message>
+    <message>
+        <source>On</source>
+        <translation>Uključen</translation>
+    </message>
+    <message>
+        <source>Off</source>
+        <translation>Isključen</translation>
+    </message>
+    <message>
+        <source>%1: appeared, %2</source>
+        <translation>%1: pojavio se, %2</translation>
+    </message>
+    <message>
+        <source>%1: %2 → %3</source>
+        <translation>%1: %2 → %3</translation>
+    </message>
+    <message>
+        <source>%1: removed</source>
+        <translation>%1: uklonjen</translation>
+    </message>
+    <message>
+        <source>%1: attached (%2)</source>
+        <translation>%1: priključen (%2)</translation>
+    </message>
+    <message>
+        <source>%1: detached</source>
+        <translation>%1: odspojen</translation>
+    </message>
+    <message>
+        <source>%1: needs a replug</source>
+        <translation>%1: treba ponovo priključiti</translation>
+    </message>
+    <message>
+        <source>%1: stuck returning to Standard</source>
+        <translation>%1: zapelo pri povratku na Standardni</translation>
+    </message>
+    <message>
+        <source>%1: Direct claim failed (%2)</source>
+        <translation>%1: Brzi način nije preuzeo uređaj (%2)</translation>
+    </message>
+    <message>
+        <source>%1: bound to %2</source>
+        <translation>%1: povezan s %2</translation>
+    </message>
+    <message>
+        <source>%1: unbound from %2</source>
+        <translation>%1: povezivanje s %2 prekinuto</translation>
+    </message>
+    <message>
+        <source>Events copied.</source>
+        <translation>Događaji kopirani.</translation>
+    </message>
+    <message>
+        <source>Hosts</source>
+        <translation>Hostovi</translation>
+    </message>
+    <message>
+        <source>No satellites yet. Pair one on the Connections page and its session shows here.</source>
+        <translation>Još nema satelita. Uparite jedan na stranici Veze i njegova sesija će se pojaviti ovdje.</translation>
+    </message>
+    <message>
+        <source>Controller audio</source>
+        <translation>Audio kontrolera</translation>
+    </message>
+    <message>
+        <source>No controllers connected.</source>
+        <translation>Nema povezanih kontrolera.</translation>
+    </message>
+    <message>
+        <source>Inspect input</source>
+        <translation>Pregledaj unos</translation>
+    </message>
+    <message>
+        <source>Radios</source>
+        <translation>Radiji</translation>
+    </message>
+    <message>
+        <source>Adapter</source>
+        <translation>Adapter</translation>
+    </message>
+    <message>
+        <source>Events</source>
+        <translation>Događaji</translation>
+    </message>
+    <message>
+        <source>No events yet.</source>
+        <translation>Još nema događaja.</translation>
+    </message>
+    <message>
+        <source>Copy events</source>
+        <translation>Kopiraj događaje</translation>
+    </message>
+    <message>
+        <source>Newest first. The log covers this run of Dish and is not saved.</source>
+        <translation>Najnovije prvo. Zapisnik obuhvata ovo pokretanje Disha i ne čuva se.</translation>
+    </message>
+</context>
+<context>
     <name>DonatePage</name>
     <message>
         <source>Support Dish</source>
@@ -1832,30 +2231,6 @@
         <translation>aktivan</translation>
     </message>
     <message>
-        <source>Found</source>
-        <translation>Pronađen</translation>
-    </message>
-    <message>
-        <source>Needs pairing</source>
-        <translation>Potrebno uparivanje</translation>
-    </message>
-    <message>
-        <source>Offline</source>
-        <translation>Van veze</translation>
-    </message>
-    <message>
-        <source>Ready</source>
-        <translation>Spreman</translation>
-    </message>
-    <message>
-        <source>Connecting…</source>
-        <translation>Povezivanje…</translation>
-    </message>
-    <message>
-        <source>Online</source>
-        <translation>Na vezi</translation>
-    </message>
-    <message>
         <source>Set up a controller</source>
         <translation>Postavi kontroler</translation>
     </message>
@@ -1972,20 +2347,12 @@
         <translation>standardni</translation>
     </message>
     <message>
-        <source>Standard mode can’t carry it — switch to Direct.</source>
-        <translation>Standardni način to ne može prenijeti — prebacite na Brzi.</translation>
-    </message>
-    <message>
         <source>no gyro · pad</source>
         <translation>nema žira · pad</translation>
     </message>
     <message>
         <source>No gyro on this controller.</source>
         <translation>Ovaj kontroler nema žiroskop.</translation>
-    </message>
-    <message>
-        <source>no gyro · link</source>
-        <translation>nema žira · veza</translation>
     </message>
     <message>
         <source>gyro off</source>
@@ -2006,10 +2373,6 @@
     <message>
         <source>No touchpad on this controller.</source>
         <translation>Ovaj kontroler nema dodirnu ploču.</translation>
-    </message>
-    <message>
-        <source>no touchpad · link</source>
-        <translation>nema dodirne ploče · veza</translation>
     </message>
     <message>
         <source>touchpad off</source>
@@ -2064,13 +2427,176 @@
         <translation>mrtve zone palica %1 % · okidač %2 %</translation>
     </message>
     <message>
-        <source>Unsteady</source>
-        <translation>Nestabilan</translation>
-    </message>
-    <message>
         <source>Pad</source>
         <comment>the controller column of the wire diagram</comment>
         <translation>Kontroler</translation>
+    </message>
+</context>
+<context>
+    <name>InputInspectorPage</name>
+    <message>
+        <source>Controller inspector</source>
+        <translation>Inspektor kontrolera</translation>
+    </message>
+    <message>
+        <source>%1%</source>
+        <translation>%1 %</translation>
+    </message>
+    <message>
+        <source>Start</source>
+        <translation>Start</translation>
+    </message>
+    <message>
+        <source>Back</source>
+        <translation>Natrag</translation>
+    </message>
+    <message>
+        <source>Guide</source>
+        <translation>Guide</translation>
+    </message>
+    <message>
+        <source>Mute</source>
+        <translation>Utišaj</translation>
+    </message>
+    <message>
+        <source>Pressed: %1</source>
+        <translation>Pritisnuto: %1</translation>
+    </message>
+    <message>
+        <source>none</source>
+        <translation>ništa</translation>
+    </message>
+    <message>
+        <source>%1 across, %2 down</source>
+        <translation>%1 vodoravno, %2 okomito</translation>
+    </message>
+    <message>
+        <source>lifted</source>
+        <translation>podignut</translation>
+    </message>
+    <message>
+        <source>Capturing… %1 s</source>
+        <translation>Mjerenje… %1 s</translation>
+    </message>
+    <message>
+        <source>The controller sent nothing during the test.</source>
+        <translation>Kontroler tokom testa nije poslao ništa.</translation>
+    </message>
+    <message>
+        <source>Resting drift: L %1 · R %2. Suggested dead zone: %3.</source>
+        <translation>Drift u mirovanju: L %1 · R %2. Predložena mrtva zona: %3.</translation>
+    </message>
+    <message>
+        <source>Reach: L %1 · R %2. Circularity error: L %3 · R %4.</source>
+        <translation>Domet: L %1 · R %2. Greška kružnosti: L %3 · R %4.</translation>
+    </message>
+    <message>
+        <source>n/a</source>
+        <translation>n/d</translation>
+    </message>
+    <message>
+        <source>Left stick</source>
+        <translation>Lijeva palica</translation>
+    </message>
+    <message>
+        <source>Right stick</source>
+        <translation>Desna palica</translation>
+    </message>
+    <message>
+        <source>Left trigger</source>
+        <translation>Lijevi okidač</translation>
+    </message>
+    <message>
+        <source>Right trigger</source>
+        <translation>Desni okidač</translation>
+    </message>
+    <message>
+        <source>Live input</source>
+        <translation>Unos uživo</translation>
+    </message>
+    <message>
+        <source>Waiting for this controller&apos;s first report. Move a stick or press a button.</source>
+        <translation>Čeka se prvi izvještaj ovog kontrolera. Pomjerite palicu ili pritisnite dugme.</translation>
+    </message>
+    <message>
+        <source>%1: %2</source>
+        <translation>%1: %2</translation>
+    </message>
+    <message>
+        <source>This is the input as it goes to the host, after the dead zones.</source>
+        <translation>Ovo je unos kakav ide hostu, nakon mrtvih zona.</translation>
+    </message>
+    <message>
+        <source>Motion and touch</source>
+        <translation>Pokret i dodir</translation>
+    </message>
+    <message>
+        <source>Gyro: %1 · %2 · %3 deg/s</source>
+        <translation>Žiroskop: %1 · %2 · %3 °/s</translation>
+    </message>
+    <message>
+        <source>No motion data from this controller.</source>
+        <translation>Nema podataka o pokretu s ovog kontrolera.</translation>
+    </message>
+    <message>
+        <source>Accel: %1 · %2 · %3 g</source>
+        <translation>Akcel: %1 · %2 · %3 g</translation>
+    </message>
+    <message>
+        <source>Finger 1: %1 · Finger 2: %2 · Click: %3</source>
+        <translation>Prst 1: %1 · Prst 2: %2 · Klik: %3</translation>
+    </message>
+    <message>
+        <source>pressed</source>
+        <translation>pritisnut</translation>
+    </message>
+    <message>
+        <source>released</source>
+        <translation>otpušten</translation>
+    </message>
+    <message>
+        <source>No touch data from this controller.</source>
+        <translation>Nema podataka o dodiru s ovog kontrolera.</translation>
+    </message>
+    <message>
+        <source>Stick tests</source>
+        <translation>Testovi palica</translation>
+    </message>
+    <message>
+        <source>The tests read the sticks as the controller sends them, before the dead zones.</source>
+        <translation>Testovi čitaju palice onako kako ih kontroler šalje, prije mrtvih zona.</translation>
+    </message>
+    <message>
+        <source>Drift test (hands off the sticks)</source>
+        <translation>Test drifta (ne dirajte palice)</translation>
+    </message>
+    <message>
+        <source>Range test (sweep full circles)</source>
+        <translation>Test dometa (pravite pune krugove)</translation>
+    </message>
+    <message>
+        <source>Rumble test</source>
+        <translation>Test vibracije</translation>
+    </message>
+    <message>
+        <source>A short buzz straight to the controller, whatever its rumble switch says.</source>
+        <translation>Kratka vibracija direktno na kontroler, bez obzira na prekidač vibracije.</translation>
+    </message>
+    <message>
+        <source>This controller has no rumble motors on the path it is on now.</source>
+        <translation>Ovaj kontroler nema motore za vibraciju na putu na kojem je sada.</translation>
+    </message>
+    <message>
+        <source>Weak</source>
+        <translation>Slabo</translation>
+    </message>
+    <message>
+        <source>Strong</source>
+        <translation>Jako</translation>
+    </message>
+    <message>
+        <source>Both</source>
+        <translation>Oboje</translation>
     </message>
 </context>
 <context>
@@ -2460,6 +2986,26 @@
         <translation>Sve na čemu je Dish izgrađen.</translation>
     </message>
     <message>
+        <source>StickPlot</source>
+        <translation>StickPlot</translation>
+    </message>
+    <message>
+        <source>At rest</source>
+        <translation>U mirovanju</translation>
+    </message>
+    <message>
+        <source>Deflected</source>
+        <translation>Pomjerena</translation>
+    </message>
+    <message>
+        <source>At the rim</source>
+        <translation>Na rubu</translation>
+    </message>
+    <message>
+        <source>Not reporting</source>
+        <translation>Ne javlja se</translation>
+    </message>
+    <message>
         <source>DishProgressBar · LoadingSpinner</source>
         <translation>DishProgressBar · LoadingSpinner</translation>
     </message>
@@ -2717,6 +3263,38 @@
         <source>Dish update required</source>
         <translation>Obavezno ažuriranje Disha</translation>
     </message>
+    <message>
+        <source>Found</source>
+        <translation>Pronađen</translation>
+    </message>
+    <message>
+        <source>Needs pairing</source>
+        <translation>Potrebno uparivanje</translation>
+    </message>
+    <message>
+        <source>Offline</source>
+        <translation>Van veze</translation>
+    </message>
+    <message>
+        <source>Ready</source>
+        <translation>Spreman</translation>
+    </message>
+    <message>
+        <source>Connecting…</source>
+        <translation>Povezivanje…</translation>
+    </message>
+    <message>
+        <source>Online</source>
+        <translation>Na vezi</translation>
+    </message>
+    <message>
+        <source>Unsteady</source>
+        <translation>Nestabilan</translation>
+    </message>
+    <message>
+        <source>Auto</source>
+        <translation>Automatski</translation>
+    </message>
 </context>
 <context>
     <name>Main</name>
@@ -2820,10 +3398,6 @@
         <translation>%1, Moonlight host, %2</translation>
     </message>
     <message>
-        <source>Moonlight host (Sunshine/Apollo)</source>
-        <translation>Moonlight host (Sunshine/Apollo)</translation>
-    </message>
-    <message>
         <source>In use by %1</source>
         <translation>Koristi ga %1</translation>
     </message>
@@ -2910,6 +3484,10 @@
     <message>
         <source>Waiting for the host to accept the PIN…</source>
         <translation>Čeka se da host prihvati PIN…</translation>
+    </message>
+    <message>
+        <source>Moonlight host (Sunshine, Apollo or Wolf)</source>
+        <translation>Moonlight host (Sunshine, Apollo ili Wolf)</translation>
     </message>
     <message>
         <source>Dish deletes its half of the pairing and will need the PIN again. %1 keeps its own record of this device until somebody removes it there.</source>
@@ -3041,6 +3619,10 @@
     <message>
         <source>No approval — the code expired.</source>
         <translation>Nema odobrenja — kod je istekao.</translation>
+    </message>
+    <message>
+        <source>This satellite&apos;s security identity changed. If it was reinstalled, forget it here and pair again.</source>
+        <translation>Sigurnosni identitet ovog satelita se promijenio. Ako je ponovo instaliran, zaboravite ga ovdje i uparite ponovo.</translation>
     </message>
     <message>
         <source>New code</source>
@@ -3200,6 +3782,14 @@
     <message>
         <source>Diagnostics</source>
         <translation>Dijagnostika</translation>
+    </message>
+    <message>
+        <source>Diagnostics…</source>
+        <translation>Dijagnostika…</translation>
+    </message>
+    <message>
+        <source>Each host&apos;s session, each controller down to the wire, and a log of what changed.</source>
+        <translation>Sesija svakog hosta, svaki kontroler do same veze i zapisnik promjena.</translation>
     </message>
     <message>
         <source>Your package manager installs updates. Dish only tells you one exists.</source>
@@ -3894,6 +4484,10 @@
         <translation>Pošaljite dodirnu ploču kao dodirnu ploču ili je preusmjerite kao miš.</translation>
     </message>
     <message>
+        <source>Forwards this pad’s touchpad to the game as a touchpad.</source>
+        <translation>Prosljeđuje dodirnu ploču ovog pada igri kao dodirnu ploču.</translation>
+    </message>
+    <message>
         <source>Lightbar</source>
         <translation>Svjetlosna traka</translation>
     </message>
@@ -4446,10 +5040,6 @@
         <translation>Tipovi koje nudi katalog hosta %1.</translation>
     </message>
     <message>
-        <source>Auto</source>
-        <translation>Automatski</translation>
-    </message>
-    <message>
         <source>Rumble</source>
         <translation>Vibracija</translation>
     </message>
@@ -4557,7 +5147,7 @@
     </message>
 </context>
 <context>
-    <name>dish::net::PairingClient</name>
+    <name>dish::net::PairingOutcome</name>
     <message>
         <source>Server unreachable</source>
         <translation>Server nedostupan</translation>
@@ -4580,6 +5170,14 @@
     <message>
         <source>Could not set up a secure connection to the satellite.</source>
         <translation>Nije moguće uspostaviti sigurnu vezu sa satelitom.</translation>
+    </message>
+    <message>
+        <source>The satellite accepted, but the controller link would not open. Try again.</source>
+        <translation>Satelit je prihvatio, ali veza kontrolera se nije mogla otvoriti. Pokušajte ponovo.</translation>
+    </message>
+    <message>
+        <source>This satellite&apos;s address is IPv6, and a satellite can only be reached over IPv4.</source>
+        <translation>Adresa ovog satelita je IPv6, a satelit je dostupan samo preko IPv4.</translation>
     </message>
     <message>
         <source>This satellite no longer recognizes this device. Re-pair needed.</source>

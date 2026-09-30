@@ -195,7 +195,7 @@ Kit.Page {
                             }
                             // The kind, in words: a glyph alone would not say it.
                             Label {
-                                text: qsTr("Moonlight host (Sunshine/Apollo)")
+                                text: qsTr("Moonlight host (Sunshine, Apollo or Wolf)")
                                 color: Theme.muted
                                 font.pixelSize: Tokens.textMeta
                                 elide: Text.ElideRight

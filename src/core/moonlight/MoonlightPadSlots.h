@@ -23,6 +23,7 @@
 #pragma once
 
 #include "core/moonlight/MoonlightProtocol.h"
+#include "core/reducer/TouchpadModeResolve.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -186,12 +187,56 @@ inline std::uint8_t declaredCapabilities(std::uint8_t resolvedType,
                                      sourceCapabilityBits(source));
 }
 
+// What one CONTROLLER_ARRIVAL tells the host a pad is: its wire type and the
+// capabilities it declares. The announcement and anything that shows the binding
+// read the one computation below, so what is shown cannot drift from what the
+// host was told.
+struct AnnouncedPad {
+    std::uint8_t type = moonproto::kControllerTypeUnknown;
+    std::uint8_t capabilities = 0;
+};
+
+inline AnnouncedPad arrivalForBinding(int storedType, const SourceCapabilities& source) {
+    const std::uint8_t type = resolveControllerType(storedType, source.motion);
+    return {type, declaredCapabilities(type, source)};
+}
+
 // The advertised button set: the whole legacy 16-bit word, plus the touchpad
 // click only when a touchpad is in the live set for this binding.
 inline std::uint32_t declaredButtons(std::uint8_t declaredCaps) {
     std::uint32_t buttons = moonproto::kStandardButtons;
     if ((declaredCaps & moonproto::kCapTouchpad) != 0) { buttons |= moonproto::kBtnTouchpad; }
     return buttons;
+}
+
+// The capability bits a host reads when a pad arrives, and at no other time. Wolf's
+// create_new_joypad (control/input_handler.cpp) reads ACCELEROMETER and GYRO and no other bit:
+// every PlayStation pad it builds is one DualSense with a touchpad whatever the arrival said.
+inline constexpr std::uint8_t kCapsReadAtArrival =
+    moonproto::kCapAccelerometer | moonproto::kCapGyro;
+
+// Whether announcing `wanted` over the pad the host built from `held` gets the user another pad.
+// A host keeps a number it holds and skips a second arrival for it, so another pad costs a replug,
+// and a replug unplugs the pad in the game: nothing the host never reads is worth one.
+inline bool hostBuildsAnotherPad(const AnnouncedPad& held, const AnnouncedPad& wanted) {
+    const bool anotherType = held.type != wanted.type;
+    const int changedBits = held.capabilities ^ wanted.capabilities;
+    const bool anotherMotion = (changedBits & kCapsReadAtArrival) != 0;
+    return anotherType || anotherMotion;
+}
+
+// Whether a pad's touches reach a Moonlight host: where the host's touchpad pick, read as the Pad
+// a host never picked for is, takes the pad render rung of the ladder a satellite's descriptor is
+// declared by, on a type whose pad has a touchpad. A Mouse pick puts no touches on the pad whether
+// or not the mouse is open, so the mouse rung is not asked.
+inline bool touchReachesHost(const std::optional<std::string>& storedPick, bool padHasTouchpad,
+                             std::uint8_t controllerType) {
+    const bool typeRendersPad =
+        (typeCapabilityCeiling(controllerType) & moonproto::kCapTouchpad) != 0;
+    const std::uint8_t mode =
+        reducer::resolveTouchpadMode(reducer::touchpadPickOrDefault(storedPick), padHasTouchpad,
+                                     typeRendersPad, /*hostMouseControl=*/false);
+    return mode == proto::kTouchpadModeDs4;
 }
 
 } // namespace dish::moonlight

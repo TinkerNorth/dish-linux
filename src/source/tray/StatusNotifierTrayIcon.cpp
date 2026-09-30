@@ -20,6 +20,8 @@
 #include <QLoggingCategory>
 #include <QStringLiteral>
 
+#include <mutex>
+
 namespace dish::source {
 
 namespace {
@@ -40,17 +42,18 @@ constexpr int kShowItemId = 1;
 constexpr int kQuitItemId = 2;
 constexpr uint kMenuVersion = 3;
 
+// Once per process: Qt's type registry is process-wide by definition, so this is
+// the kind of static the no-singletons rule allows.
 void registerDbusTypes() {
-    static const bool sRegistered = [] {
+    static std::once_flag once;
+    std::call_once(once, [] {
         qDBusRegisterMetaType<SniIconPixmap>();
         qDBusRegisterMetaType<SniIconPixmapList>();
         qDBusRegisterMetaType<SniToolTip>();
         qDBusRegisterMetaType<DbusMenuLayoutItem>();
         qDBusRegisterMetaType<DbusMenuItemProperties>();
         qDBusRegisterMetaType<DbusMenuItemPropertiesList>();
-        return true;
-    }();
-    static_cast<void>(sRegistered);
+    });
 }
 
 int nextConnectionIndex() {

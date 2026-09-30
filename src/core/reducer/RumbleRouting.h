@@ -2,14 +2,9 @@
 // Copyright (C) 2026 Dish contributors.
 //
 // The routing decision for the MSG_RUMBLE (0x0009) return path: what to actuate,
-// not how. The receive thread snapshots the live connection-to-slot bindings once
-// into an immutable view and decides through these functions, so it never
-// re-reads live state mid-resolve. Actuation runs on the SDL thread via
-// OutputCommandQueue.
+// not how. Actuation runs on the SDL thread via OutputCommandQueue.
 
 #pragma once
-
-#include <QString>
 
 #include <algorithm>
 #include <cstdint>
@@ -58,42 +53,26 @@ inline std::vector<RumbleActuator> combinedRumblePlan(int vibratorCount, int str
     return out;
 }
 
-// ── Target resolution ────────────────────────────────────────────────────────
+// ── The user's switch ────────────────────────────────────────────────────────
 
-// A flat view of one connection, captured once per dispatch so resolveRumble
-// stays pure. A slot id here IS the SDL bridge device id, so there is no separate
-// slot lookup. `boundDeviceId` is empty when nothing is bound.
-struct RumbleConnectionSnapshot {
-    QString connId;
-    bool connected = false;
-    QString boundDeviceId;
+// One command for a pad's two motors: the levels, and how long they hold (0
+// holds until the next command).
+struct RumbleCommand {
+    std::uint16_t strong = 0;
+    std::uint16_t weak = 0;
+    std::uint16_t durationMs = 0;
+
+    bool operator==(const RumbleCommand&) const = default;
 };
 
-struct RumbleTarget {
-    QString deviceId; // empty means drive nothing
+inline constexpr RumbleCommand kRumbleStop{};
 
-    bool valid() const { return !deviceId.isEmpty(); }
-    bool operator==(const RumbleTarget& o) const { return deviceId == o.deviceId; }
-};
-
-// A connected match wins over a non-connected one with the same id, so a stale
-// session cannot steal a live controller's rumble; among equally connected
-// matches the first in snapshot order wins.
-inline RumbleTarget resolveRumble(const std::vector<RumbleConnectionSnapshot>& connections,
-                                  const QString& connId) {
-    if (connId.isEmpty()) { return {}; }
-    const RumbleConnectionSnapshot* chosen = nullptr;
-    for (const auto& c : connections) {
-        if (c.connId != connId) { continue; }
-        if (c.connected) {
-            chosen = &c;
-            break;
-        }
-        if (chosen == nullptr) { chosen = &c; }
-    }
-    if (chosen == nullptr) { return {}; }
-    if (chosen->boundDeviceId.isEmpty()) { return {}; }
-    return RumbleTarget{chosen->boundDeviceId};
+// A slot the user switched off turns the host's command into a stop rather than
+// dropping it: a Moonlight hold and a Direct claim's levels never expire on their
+// own, so a motor running when the switch went off would run until it came back.
+inline RumbleCommand rumbleTheUserAllows(const RumbleCommand& fromHost, bool userRumbleOn) {
+    if (userRumbleOn) { return fromHost; }
+    return kRumbleStop;
 }
 
 } // namespace dish::reducer

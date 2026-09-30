@@ -16,6 +16,124 @@ the repos share a version number.
 
 ---
 
+## [Unreleased]
+
+### Added
+
+- **A Diagnostics page.** Settings opens a page that shows each satellite's
+  session (the protocol settled and offered, the epoch and controller bitmap
+  on the host against what Dish applied, the round trip's median and tail,
+  missed heartbeats, mouse control and audio), each controller down to the
+  wire (path, claim, rates, battery, its binding's index and advertised
+  capabilities, the declared touchpad mode, and the capability table with
+  its reasons), a flight recorder of link and pad changes with a Copy
+  button, the Bluetooth adapter's state, and an input inspector with live
+  sticks, triggers, buttons, motion and touch, drift and range tests for the
+  sticks, and a rumble bench that buzzes a pad whatever its Rumble switch
+  says.
+
+### Fixed
+
+- Forgetting a satellite while one of its requests was still on the wire no
+  longer writes through the freed connection. The pairing and connect callbacks
+  kept the pointer they were sent with, and Forget hands that object to
+  deleteLater; a reply landing after the forget used it, and a granted one keyed
+  or remembered the satellite the user had just removed. Every reply now looks
+  its connection up by id and drops itself when the connection is gone.
+- A session the satellite granted but this end could not carry (the controller
+  socket would not open, or the token or salt did not decode) is handed back
+  with a REST disconnect instead of holding the satellite's slot until its own
+  timeout, and a Connect the user pressed now says so instead of settling idle
+  without a word. A background reconnect stays quiet and does not retry.
+- Disconnect cancels a silent reconnect still waiting out its backoff. A retry
+  armed by an earlier failed background attempt used to fire after the user's
+  Disconnect, find the row idle and dial the satellite again.
+- Disconnect now holds. The periodic reconnect sweep and every discovery scan
+  used to dial a satellite the user had just disconnected within 15 seconds.
+  A satellite the user disconnects is now left alone by every silent reconnect
+  until the user connects or pairs it again, or forgets it. The hold lasts for
+  this run of the app and is not saved: at launch every remembered satellite
+  reconnects, as before. A satellite dropped for any other reason (its session
+  died, the machine slept) still reconnects on its own.
+- An IPv6 satellite address is refused before any request goes out, with a
+  message saying a satellite is reached over IPv4 only. Satellite binds IPv4
+  alone, so such an address could never reach it. The PIN and
+  reverse pairing requests now pass the same address check as a connect, so
+  neither goes to a public address either.
+- The controller socket refuses a UDP port outside 1 to 65535 instead of
+  wrapping it to another port.
+- A reply from before a Forget no longer reaches a satellite paired afresh
+  under the same name: it could knock the new connection out of Linking,
+  erase its new key, or clear its pairing's in-flight flag.
+- **A reinstalled satellite says so.** An approval request that meets a
+  changed identity or another protocol version says which, instead of
+  reading as the operator's decline with a New code button that could not
+  help. A satellite that was only ever seen, never paired, can still pair
+  after a reinstall, and forgetting a satellite forgets the certificate its
+  address was trusted with. Forgetting a satellite also ends an approval
+  request still aimed at it. An approval request nobody answers says the
+  satellite is unreachable in plain words.
+- **A session granted after you pressed Disconnect is handed back** to the
+  satellite instead of starting anyway, or holding the satellite's slot
+  until its own timeout.
+- **A pad's own battery no longer counts as this machine's.** With a
+  DualSense plugged into a desktop, Dish sent the pad's charge to the host
+  as the PC's battery.
+- **The Rumble switch works.** Turning rumble off for a pad did nothing, and
+  the switch showed on again whenever the page reopened. The choice is now
+  kept per pad, a pad switched off gets no rumble from a satellite or a
+  Moonlight host, switching it off stops a motor that is already running,
+  and the wizard starts from your choice. A pad's motion, rumble, mic and
+  speaker switches now follow it when it is claimed for Direct or released.
+- **The touchpad's Pad choice works on a satellite.** Applying it turned the
+  touchpad off until the next restart, a host never picked for read as Off
+  while Dish forwarded touch, and a DualSense-type binding never forwarded
+  touch at all. The wizard starts from the host's own pick, and a binding
+  that cannot carry the touchpad leaves the host's pick alone.
+- **Mouse is no longer offered for the touchpad.** Dish cannot route the
+  touchpad as a mouse yet, but the wizard and the binding page offered it
+  and could report it as supported, which left a dead touchpad.
+- **The Home page no longer says Standard mode cannot carry gyro or
+  touchpad.** It can, for every pad whose sensors and touchpad SDL reads.
+- **A Moonlight host presenting a certificate other than the one Dish pinned
+  is sent nothing at all.** The pin was checked only after the whole request,
+  including the stream key, had been sent.
+- **A Moonlight host that refuses is reported with its real answer.** Every
+  refusal came back as "unreachable": an app list refused because the host
+  no longer trusts Dish now reads as trust lost, and a pairing step the host
+  refuses says so.
+- **A paired Moonlight host no longer reads "Trust lost" on the first probe
+  of a run** while its mutual-TLS answer is still on its way.
+- **Changing a bound pad's emulated type reaches the Moonlight host.** The
+  host keeps a controller number it holds and skips a second announcement
+  for it, so a re-applied binding left the host holding the old pad. The pad
+  keeps its number and is replugged only where the host would build a
+  different pad for it.
+- **An app the Moonlight host no longer lists is dropped as the pick**
+  instead of being launched and refused on every attempt.
+- **A pad's Motion switch holds its motion back from a Moonlight host too.**
+  It only reached satellites.
+- **A Moonlight binding's touchpad pick is honoured.** Off keeps the touches
+  from the host, Pad sends them for a type whose pad has a touchpad, and a
+  finger held across a re-apply is lifted on the host instead of read as a
+  move of a contact it never saw go down. The binding page reads the
+  touchpad as what reaches the host.
+- **Closing an app another device is running on a Moonlight host sends the
+  request it promises**, where a refused session of this machine's used to
+  report success without asking the host anything.
+- **The binding page opens a Moonlight pad on its own type**, not on the
+  last type picked for any pad on that host.
+- **The crash report's note on the Settings page** is coloured and sized
+  like every other note there.
+
+### Changed
+
+- Every HTTP exchange with a satellite or a Moonlight host runs on the
+  thread that made it, over one HTTP/1.1 transport shared with the Windows
+  app, so the thread sanitizer no longer needs the TLS libraries suppressed.
+- The Moonlight host row names every host Dish supports: "Sunshine, Apollo
+  or Wolf".
+
 ## [2.1.0] - 2026-09-21
 
 ### Added

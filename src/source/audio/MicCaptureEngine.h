@@ -92,6 +92,22 @@ class MicCaptureEngine {
 
     void close(Entry& entry);
 
+    // The callback the gateway holds for one capture. A class rather than a lambda because it
+    // carries the whole per-window pipeline; it shares the session so the enabled flag it reads
+    // is the one reconcile writes.
+    class WindowPublisher {
+      public:
+        explicit WindowPublisher(std::shared_ptr<Session> session) : session_(std::move(session)) {}
+        void operator()(const std::int16_t* samples, std::size_t count) const;
+
+      private:
+        void sendWindow(const std::int16_t* pcm, std::size_t frames) const;
+        std::shared_ptr<Session> session_;
+    };
+
+    void closeDeparted(const std::vector<MicCaptureTarget>& targets);
+    void openMissing(const std::vector<MicCaptureTarget>& targets);
+
     AudioDeviceGateway* gateway_;
     EncoderFactory encoderFactory_;
     std::map<std::string, Entry> entries_; // by slotId; main thread only

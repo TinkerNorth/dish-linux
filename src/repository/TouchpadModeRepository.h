@@ -8,8 +8,8 @@
 //
 // Invariants:
 //   * get() on a satellite NEVER written returns std::nullopt, not a default
-//     mode. The layers above collapse absence to the pair-time default, so the
-//     repo has to stay honest about "never picked" vs "explicitly off".
+//     mode. Each caller decides what absence means, so the repo has to stay
+//     honest about "never picked" vs "explicitly off".
 //   * put() of an UNKNOWN mode is rejected at the door and leaves an existing
 //     valid pick alone, so a typo never persists a mode the satellite cannot
 //     route.

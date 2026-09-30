@@ -209,15 +209,16 @@ Kit.Page {
             // no binding, and the slot-keyed read resolves through one.
             page.refreshCatalog();
             if (draft.hostIsMoonlight) {
-                const moonType = page.moonlightTypeFor(boundId);
-                draft.chooseType(moonType, page.moonlightTypeName(moonType));
+                // The binding's own type, never the host's last pick: two pads on one host keep
+                // their own.
+                const moonType = App.moonlightBindingType(boundId, page.slotId);
+                draft.chooseType(moonType, linkWords.moonlightTypeName(moonType, page.autoType));
             } else {
                 const current = App.emulateCurrentTypeForHost(boundId, page.slotId);
                 if (current >= 0) {
                     draft.chooseType(current, page.typeNameFor(current));
                 }
             }
-            draft.touchpadMode = page.touchpadIndex(App.touchpadModeFor(boundId));
         }
         draft.motionOn = App.motionEnabledFor(page.slotId);
         draft.rumbleOn = App.rumbleEnabledFor(page.slotId);
@@ -246,33 +247,12 @@ Kit.Page {
                                           && !draft.hostIsMoonlight
 
     readonly property int autoType: App.moonlightAutoType
-    readonly property var moonlightTypes: [
-        { "type": page.autoType, "name": qsTr("Auto") },
-        { "type": 1,             "name": "Xbox" },
-        { "type": 2,             "name": "PlayStation" },
-        { "type": 3,             "name": "Nintendo" }
-    ]
+    LinkVocabulary { id: linkWords }
+    readonly property var moonlightTypes: linkWords.moonlightTypes(page.autoType)
     readonly property int autoResolved: draft.hasInput
         ? App.moonlightResolvedType(page.slotId, page.autoType) : 1
-    readonly property string autoResolvedName: page.autoResolved === 2 ? "PlayStation" : "Xbox"
-
-    function moonlightTypeName(wireType) {
-        for (let i = 0; i < page.moonlightTypes.length; ++i) {
-            if (page.moonlightTypes[i].type === wireType)
-                return page.moonlightTypes[i].name;
-        }
-        return page.moonlightTypes[0].name;
-    }
-
-    // The host's remembered seed for a binding that has not chosen yet.
-    function moonlightTypeFor(hostId) {
-        const rows = App.moonlightHosts;
-        for (let i = 0; i < rows.length; ++i) {
-            if (rows[i].uuid === hostId)
-                return rows[i].controllerType;
-        }
-        return page.autoType;
-    }
+    readonly property string autoResolvedName:
+        linkWords.moonlightTypeName(page.autoResolved, page.autoType)
 
     function reloadTypes() {
         page.types = draft.hostIsMoonlight ? page.moonlightTypes
@@ -446,17 +426,10 @@ Kit.Page {
                                            && !page.touchpadTunable && !page.micTunable
                                            && !page.speakerTunable
 
-    readonly property var touchpadOptions: [qsTr("Off"), qsTr("Pad"), qsTr("Mouse")]
-
-    function touchpadIndex(token) {
-        if (token === "pad") {
-            return 1;
-        }
-        if (token === "mouse") {
-            return 2;
-        }
-        return 0;
-    }
+    readonly property bool mouseOffered: draft.offersMouse(page.matrixRows)
+    readonly property var touchpadOptions: page.mouseOffered
+                                           ? [qsTr("Off"), qsTr("Pad"), qsTr("Mouse")]
+                                           : [qsTr("Off"), qsTr("Pad")]
 
     // ── Link vocabulary ─────────────────────────────────────────────────────
     function chipText(token) {
@@ -599,7 +572,7 @@ Kit.Page {
         page.applyRequested = true;
         applyOverlay.open();
         App.applyBinding(page.slotId, draft.hostId, draft.type, draft.desiredPath,
-                         draft.motionOn, draft.rumbleOn, draft.touchpadMode,
+                         draft.motionOn, draft.rumbleOn, draft.touchpadModeToApply(),
                          draft.micOn, draft.speakerOn);
     }
 
