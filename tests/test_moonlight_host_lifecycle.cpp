@@ -159,6 +159,13 @@ class InfoHost {
     int requests_ = 0;
 };
 
+// `body` under `status`, in the smallest HTTP/1.1 response that frames it.
+QByteArray httpAnswer(int status, const QByteArray& body) {
+    return QByteArray("HTTP/1.1 ") + QByteArray::number(status) +
+           QByteArray(" X\r\nContent-Length: ") + QByteArray::number(body.size()) +
+           QByteArray("\r\nConnection: close\r\n\r\n") + body;
+}
+
 // A /serverinfo body wrapped in the smallest HTTP/1.1 response that frames it.
 // The machine identity travels as <uniqueid>, which is the tag a GameStream
 // host actually emits; <uuid> is what the client calls the field it lands in.
@@ -175,8 +182,7 @@ QByteArray serverInfo(const QString& uuid, int pairStatus) {
                                 .arg(uuid)
                                 .arg(pairStatus)
                                 .toUtf8();
-    return QByteArray("HTTP/1.1 200 OK\r\nContent-Length: ") + QByteArray::number(body.size()) +
-           QByteArray("\r\nConnection: close\r\n\r\n") + body;
+    return httpAnswer(200, body);
 }
 
 // A remembered host pointed at a loopback fixture instead of TEST-NET-1.
@@ -203,6 +209,27 @@ bool probeAndSettle(MoonlightManager& manager, const QString& uuid) {
     const bool settled = spinUntil([&finished] { return finished; });
     QObject::disconnect(token);
     return settled;
+}
+
+// What one read of the app list leaves behind when the host answers it with
+// `reply`: the read the binding screen asks for on a paired host.
+moonlight::SessionUiInputs afterAppListAnswered(const QByteArray& reply) {
+    InfoHost fixture(reply);
+    REQUIRE(fixture.listening());
+    auto settings = test::makeSharedSettings();
+    test::seedClientIdentity(*settings);
+    repository::MoonlightHostRepository repo(settings);
+    repo.upsert(hostAt(fixture));
+    MoonlightManager manager(settings);
+    const QString uuid = QStringLiteral("host-uuid");
+
+    manager.refreshApps(uuid);
+    REQUIRE(spinUntil([&manager, &uuid] {
+        const auto inputs = manager.uiInputs(uuid, QString());
+        return !inputs.appsInFlight && (inputs.appsRead || inputs.appsFailed);
+    }));
+    REQUIRE(fixture.requests() == 1);
+    return manager.uiInputs(uuid, QString());
 }
 
 // Everything a host can leave behind, read back through the public surface.
@@ -602,6 +629,45 @@ TEST_CASE("a probe with nowhere to send it still finishes", "[moonlight][lifecyc
     CHECK(finished.at(0) == uuid);
     // And it recorded nothing, because nothing was learned.
     CHECK_FALSE(manager.uiInputs(uuid, QString()).probeAttempted);
+}
+
+// ── Reading the app list from a host that refuses ────────────────────────────
+// The app list is the first paired-only call, so it is where a host that has
+// dropped this client says so first. A 401 there is trust lost; any other
+// refusal is a read that failed and says nothing about the pairing.
+
+TEST_CASE("an app list refused with Wolf's 401 is trust lost", "[moonlight][lifecycle]") {
+    // Wolf says it twice: HTTP 401, and a 401 with its reason in the body.
+    const auto inputs = afterAppListAnswered(
+        httpAnswer(401, test::wolfUnauthorizedBody(QStringLiteral("/applist"))));
+
+    CHECK(inputs.appsFailed);
+    CHECK(inputs.trustRejected);
+    CHECK(moonlight::sessionUiState(inputs) == moonlight::SessionUiState::TrustLost);
+}
+
+TEST_CASE("a bare 401 on the app list is trust lost on its status line alone",
+          "[moonlight][lifecycle]") {
+    const auto inputs = afterAppListAnswered(httpAnswer(401, QByteArray()));
+
+    CHECK(inputs.appsFailed);
+    CHECK(inputs.trustRejected);
+}
+
+TEST_CASE("a 401 in the body of an app list answered 200 is trust lost on the body alone",
+          "[moonlight][lifecycle]") {
+    const auto inputs =
+        afterAppListAnswered(httpAnswer(200, QByteArrayLiteral("<root status_code=\"401\"/>")));
+
+    CHECK(inputs.appsFailed);
+    CHECK(inputs.trustRejected);
+}
+
+TEST_CASE("an app list the host failed to serve is not trust lost", "[moonlight][lifecycle]") {
+    const auto inputs = afterAppListAnswered(httpAnswer(500, QByteArray()));
+
+    CHECK(inputs.appsFailed);
+    CHECK_FALSE(inputs.trustRejected);
 }
 
 // ── Forget ───────────────────────────────────────────────────────────────────
