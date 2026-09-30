@@ -683,13 +683,15 @@ moonlight::SourceCapabilities AppModel::moonlightSourceOf(const QString& slotId)
     return sourceCapabilitiesOf(slotHardware(slotId), reportsBattery);
 }
 
-std::optional<moonlight::ArrivalDeclaration>
-AppModel::moonlightArrivalFor(const QString& slotId) const {
+std::optional<bool> AppModel::moonlightTouchReachesHost(const QString& slotId) const {
     const bool boundToSatellite = hub_->bindings().contains(slotId);
     const QString hostUuid = boundToSatellite ? QString() : moonlight_->boundHostFor(slotId);
     if (hostUuid.isEmpty()) { return std::nullopt; }
-    return moonlight::arrivalForBinding(moonlightBindingType(hostUuid, slotId),
-                                        moonlightSourceOf(slotId));
+    const auto source = moonlightSourceOf(slotId);
+    const auto arrival =
+        moonlight::arrivalForBinding(moonlightBindingType(hostUuid, slotId), source);
+    return moonlight::touchReachesHost(touchpadModeStore_.modeFor(hostUuid.toStdString()),
+                                       source.touchpad, arrival.type);
 }
 
 void AppModel::forgetMoonlightHost(const QString& hostUuid) {

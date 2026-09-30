@@ -47,9 +47,9 @@ using dish::qml::licenseRows;
 using dish::qml::reversePairingPhaseToken;
 using dish::qml::themeModeFromInt;
 using dish::qml::themeModeToInt;
-using dish::qml::touchpadChoiceForArrival;
 using dish::qml::touchpadChoiceForDraftMode;
 using dish::qml::touchpadChoiceForMode;
+using dish::qml::touchpadChoiceForMoonlight;
 using dish::qml::touchpadChoiceForPick;
 using dish::qml::touchpadPickForChoice;
 using dish::reducer::KeepAwakeMode;
@@ -255,16 +255,16 @@ TEST_CASE("a binding that cannot carry the touchpad leaves the host's pick alone
     CHECK_FALSE(touchpadChoiceForDraftMode(kKeepHostTouchpad).has_value());
 }
 
-TEST_CASE("a Moonlight binding whose arrival carries the touchpad names the Pad routing",
+TEST_CASE("a Moonlight binding whose touches reach the host names the Pad routing",
           "[appvm][touchpad]") {
     // The satellite path knows no Moonlight binding and answers Off for every
-    // one, while the arrival carries the touch the host renders.
-    CHECK(touchpadChoiceForArrival(true) == QStringLiteral("pad"));
+    // one, while the host renders the touches that reach it as its own pad's.
+    CHECK(touchpadChoiceForMoonlight(true) == QStringLiteral("pad"));
 }
 
-TEST_CASE("a Moonlight binding whose arrival carries no touchpad names it off",
+TEST_CASE("a Moonlight binding whose touches do not reach the host names it off",
           "[appvm][touchpad]") {
-    CHECK(touchpadChoiceForArrival(false) == QStringLiteral("off"));
+    CHECK(touchpadChoiceForMoonlight(false) == QStringLiteral("off"));
 }
 
 TEST_CASE("a declared routing reads as the choice that stores it", "[appvm][touchpad]") {

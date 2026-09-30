@@ -70,9 +70,10 @@ std::optional<std::string> touchpadPickForChoice(const QString& choice);
 // editors' own words. A mode outside the table reads "off".
 QString touchpadChoiceForMode(std::uint8_t mode);
 
-// The choice a Moonlight binding's touchpad reads as: the host renders touch
-// the arrival carries as its own pad's, so it reads "pad", and otherwise "off".
-QString touchpadChoiceForArrival(bool arrivalRendersTouchpad);
+// The choice a Moonlight binding's touchpad reads as: "pad" where the pad's
+// touches reach the host (moonlight::touchReachesHost), which renders them as
+// its own pad's, and otherwise "off".
+QString touchpadChoiceForMoonlight(bool touchReachesHost);
 
 // The choice a binding draft's touchpadMode stands for: 0 off, 1 pad, 2 mouse,
 // the order of the choice table. Any other value is the editors' keep: the

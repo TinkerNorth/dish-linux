@@ -133,9 +133,9 @@ QString touchpadChoiceForPick(const std::optional<std::string>& pick, bool mouse
     return touchpadChoiceForMode(mouseShut ? proto::kTouchpadModeOff : mode);
 }
 
-QString touchpadChoiceForArrival(bool arrivalRendersTouchpad) {
-    return arrivalRendersTouchpad ? touchpadChoiceForMode(proto::kTouchpadModeDs4)
-                                  : touchpadChoiceForMode(proto::kTouchpadModeOff);
+QString touchpadChoiceForMoonlight(bool touchReachesHost) {
+    return touchReachesHost ? touchpadChoiceForMode(proto::kTouchpadModeDs4)
+                            : touchpadChoiceForMode(proto::kTouchpadModeOff);
 }
 
 std::optional<QString> touchpadChoiceForDraftMode(int draftMode) {

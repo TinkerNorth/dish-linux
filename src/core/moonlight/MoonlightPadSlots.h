@@ -187,23 +187,18 @@ inline std::uint8_t declaredCapabilities(std::uint8_t resolvedType,
                                      sourceCapabilityBits(source));
 }
 
-// One binding's CONTROLLER_ARRIVAL: its wire type and the capabilities it
-// declares. The announcement and anything that shows the binding read this one
-// computation, so what is shown cannot drift from what the host was told.
-struct ArrivalDeclaration {
-    std::uint8_t type = moonproto::kControllerTypeXbox;
+// What one CONTROLLER_ARRIVAL tells the host a pad is: its wire type and the
+// capabilities it declares. The announcement and anything that shows the binding
+// read the one computation below, so what is shown cannot drift from what the
+// host was told.
+struct AnnouncedPad {
+    std::uint8_t type = moonproto::kControllerTypeUnknown;
     std::uint8_t capabilities = 0;
 };
 
-inline ArrivalDeclaration arrivalForBinding(int storedType, const SourceCapabilities& source) {
+inline AnnouncedPad arrivalForBinding(int storedType, const SourceCapabilities& source) {
     const std::uint8_t type = resolveControllerType(storedType, source.motion);
     return {type, declaredCapabilities(type, source)};
-}
-
-// The arrival carries the pad's touchpad as CONTROLLER_TOUCH or not at all:
-// Moonlight has no routing of it as a mouse.
-inline bool arrivalRendersTouchpad(const ArrivalDeclaration& arrival) {
-    return (arrival.capabilities & moonproto::kCapTouchpad) != 0;
 }
 
 // The advertised button set: the whole legacy 16-bit word, plus the touchpad
@@ -213,12 +208,6 @@ inline std::uint32_t declaredButtons(std::uint8_t declaredCaps) {
     if ((declaredCaps & moonproto::kCapTouchpad) != 0) { buttons |= moonproto::kBtnTouchpad; }
     return buttons;
 }
-
-// What one CONTROLLER_ARRIVAL told the host a pad is.
-struct AnnouncedPad {
-    std::uint8_t type = moonproto::kControllerTypeUnknown;
-    std::uint8_t capabilities = 0;
-};
 
 // The capability bits a host reads when a pad arrives, and at no other time. Wolf's
 // create_new_joypad (control/input_handler.cpp) reads ACCELEROMETER and GYRO and no other bit:

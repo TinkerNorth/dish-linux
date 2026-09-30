@@ -250,10 +250,11 @@ class AppModel : public QObject {
     // makes the satellite drop every MSG_TOUCHPAD the forward path sends.
     std::uint8_t declaredTouchpadMode(const QString& slotId) const;
 
-    // The CONTROLLER_ARRIVAL a slot's Moonlight binding declares, from the pick
-    // and pad facts bindMoonlightSlot announces with. nullopt when the slot is
-    // not bound to a Moonlight host; a satellite binding wins, as the rows do.
-    std::optional<moonlight::ArrivalDeclaration> moonlightArrivalFor(const QString& slotId) const;
+    // Whether a slot's Moonlight binding sends the pad's touches to its host:
+    // the host's pick, the pad, and the arrival bindMoonlightSlot announces with
+    // (moonlight::touchReachesHost). nullopt when the slot is not bound to a
+    // Moonlight host; a satellite binding wins, as the rows do.
+    std::optional<bool> moonlightTouchReachesHost(const QString& slotId) const;
 
     // The Diagnostics bench. Whether the slot's pad can rumble on the path it is
     // on now, and a test buzz that goes straight to the actuator: ungated by the
