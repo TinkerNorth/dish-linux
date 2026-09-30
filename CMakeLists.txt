@@ -222,6 +222,12 @@ set(DISH_CORE_SOURCES
     src/core/reducer/InputRateTracker.h
     src/core/reducer/MotionIndicatorState.h
     src/core/reducer/LatencyWindow.h
+    # The Diagnostics page: the session's own account of itself, the flight
+    # recorder's diff, and the input inspector's readout and stick tests.
+    src/core/reducer/SessionDiagnostics.h
+    src/core/reducer/DiagnosticsLog.h
+    src/core/input/InputReadout.h
+    src/core/input/StickHealth.h
     src/core/reducer/CapabilitySolver.h
     src/core/reducer/CapabilitySolver.cpp
     src/core/reducer/HostAudioVerdict.h

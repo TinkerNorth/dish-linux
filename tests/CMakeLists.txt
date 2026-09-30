@@ -222,7 +222,12 @@ set(DISH_TEST_SOURCES
     test_catalog_feature_gate.cpp
     test_crash_log_path.cpp
     test_unix_signal_watcher.cpp
-    test_reduced_motion.cpp)
+    test_reduced_motion.cpp
+    # Diagnostics page.
+    test_session_diagnostics.cpp
+    test_input_readout.cpp
+    test_stick_health.cpp
+    test_diagnostics_log.cpp)
 
 add_executable(DishTests ${DISH_TEST_SOURCES})
 target_link_libraries(DishTests
