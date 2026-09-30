@@ -349,7 +349,8 @@ Kit.Page {
                             Layout.fillWidth: true
                             wrapMode: Text.WordWrap
                             text: qsTr("Dish closed unexpectedly last time. The report below has had your home folder, network addresses and any key-like values removed.")
-                            color: Tokens.textMeta
+                            color: Theme.muted
+                            font.pixelSize: Tokens.textMeta
                         }
 
                         ScrollView {
