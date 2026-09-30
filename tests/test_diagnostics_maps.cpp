@@ -289,13 +289,18 @@ TEST_CASE("a slot the connection carries no descriptor for declares nothing",
 TEST_CASE("an attached slot reads its descriptor, unconfirmed until the host applies it",
           "[diagnostics][maps]") {
     WifiConnection conn = connection();
-    attachDualSense(conn);
+    // A pad already on the connection holds index 0, so this one declares index 1
+    // with its touchpad off: neither matches a BindingWireFacts default.
+    conn.attachSlot(QStringLiteral("sdl:0"), proto::kControllerTypeXbox, /*hasLightbar=*/false,
+                    /*hasMotion=*/false, /*hasRumble=*/true, proto::kTouchpadModeOff);
+    conn.attachSlot(kSlot, proto::kControllerTypePlayStation, /*hasLightbar=*/true,
+                    /*hasMotion=*/true, /*hasRumble=*/true, proto::kTouchpadModeOff);
     const BindingWireFacts f = bindingWireFactsOf(conn, kSlot);
     CHECK(f.declared);
-    CHECK(f.controllerIndex == 0);
+    CHECK(f.controllerIndex == 1);
     CHECK(f.type == proto::kControllerTypePlayStation);
     CHECK((f.caps & proto::kCapMotion) != 0);
-    CHECK(f.touchpadMode == proto::kTouchpadModeDs4);
+    CHECK(f.touchpadMode == proto::kTouchpadModeOff);
     CHECK_FALSE(f.confirmed);
     CHECK(f.streaming == Streaming::Unknown);
 }
