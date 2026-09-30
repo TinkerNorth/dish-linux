@@ -6,6 +6,7 @@
 #include "Network/WifiConnection.h"
 #include "core/input/InputReadout.h"
 #include "core/model/Protocol.h"
+#include "qml/AppSettingsMaps.h"
 #include "qml/RenderTokens.h"
 
 #include <array>
@@ -380,12 +381,10 @@ int bindingTypeOf(const BindingWireFacts& wire, int typeForNextAttach) {
     return wire.declared ? wire.type : typeForNextAttach;
 }
 
-int touchpadPickIndex(const QString& pick) {
-    const bool padRouting =
-        pick == QLatin1String("pad") || pick == touchpadModeToken(proto::kTouchpadModeDs4);
-    if (padRouting) { return kTouchpadPickPad; }
-    const bool mouse = pick == touchpadModeToken(proto::kTouchpadModeMouse);
-    return mouse ? kTouchpadPickMouse : kTouchpadPickOff;
+int touchpadPickIndex(const QString& choice) {
+    if (choice == touchpadChoiceForMode(proto::kTouchpadModeDs4)) { return kTouchpadPickPad; }
+    if (choice == touchpadChoiceForMode(proto::kTouchpadModeMouse)) { return kTouchpadPickMouse; }
+    return kTouchpadPickOff;
 }
 
 QVariantMap inputSnapshotRow(const input::GamepadInputProcessor::Inspection& seen) {

@@ -89,9 +89,10 @@ inline constexpr int kTouchpadPickOff = 0;
 inline constexpr int kTouchpadPickPad = 1;
 inline constexpr int kTouchpadPickMouse = 2;
 
-// The stored touchpad pick as a capability-row mode. The pick is kept as the
-// view model's word ("pad") or the wire's ("ds4"), and both mean the pad routing.
-int touchpadPickIndex(const QString& pick);
+// The capability rows' touchpad mode for the choice the editors show, named in
+// AppSettingsMaps' own words so the two cannot drift. Anything that is not a
+// choice, a wire name included, reads as off.
+int touchpadPickIndex(const QString& choice);
 
 QVariantMap inputSnapshotRow(const input::GamepadInputProcessor::Inspection& seen);
 

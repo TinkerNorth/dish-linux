@@ -365,12 +365,15 @@ TEST_CASE("an undeclared binding is solved for the type its next attach would ca
     CHECK(bindingTypeOf(wire, proto::kControllerTypeXbox) == proto::kControllerTypeXbox);
 }
 
-TEST_CASE("the touchpad pick reads as the capability rows' mode", "[diagnostics][maps]") {
+TEST_CASE("the touchpad choice reads as the capability rows' mode", "[diagnostics][maps]") {
     CHECK(touchpadPickIndex(QStringLiteral("pad")) == 1);
-    CHECK(touchpadPickIndex(QStringLiteral("ds4")) == 1);
     CHECK(touchpadPickIndex(QStringLiteral("mouse")) == 2);
     CHECK(touchpadPickIndex(QStringLiteral("off")) == 0);
     CHECK(touchpadPickIndex(QString()) == 0);
+}
+
+TEST_CASE("a wire name is no touchpad choice and reads as off", "[diagnostics][maps]") {
+    CHECK(touchpadPickIndex(QStringLiteral("ds4")) == 0);
 }
 
 TEST_CASE("a pad that reported nothing reads as no report, no motion and no touch",
