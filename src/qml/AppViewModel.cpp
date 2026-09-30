@@ -1882,6 +1882,9 @@ QVariantMap AppViewModel::satelliteBindingDiagnostics(const models::ControllerSl
     row[QStringLiteral("hostId")] = hostId;
     row[QStringLiteral("hostLabel")] = composer::boundHostLabelOf(slot);
     row[QStringLiteral("touchpadPick")] = touchpadPick;
+    row[QStringLiteral("solvedType")] = type;
+    row[QStringLiteral("typeName")] =
+        catalogTypeName(model_->pickableTypesForConnection(hostId), type);
     row[QStringLiteral("capabilities")] =
         capabilityForCandidate(slot.id, type, QStringLiteral("satellite"), hostId,
                                tokens::desiredPathToken(slot.desiredPath),
@@ -1908,6 +1911,7 @@ QVariantMap AppViewModel::moonlightBindingDiagnostics(const models::ControllerSl
     row[QStringLiteral("hostId")] = hostId;
     row[QStringLiteral("hostLabel")] = label;
     row[QStringLiteral("touchpadPick")] = touchpadPick;
+    row[QStringLiteral("solvedType")] = type;
     row[QStringLiteral("capabilities")] =
         capabilityForCandidate(slot.id, type, QStringLiteral("moonlight"), hostId,
                                tokens::desiredPathToken(slot.desiredPath),

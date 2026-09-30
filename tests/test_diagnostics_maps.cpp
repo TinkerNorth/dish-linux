@@ -35,6 +35,7 @@
 
 using Catch::Approx;
 using dish::composer::ConnectionRow;
+using dish::composer::PickableType;
 using dish::input::GamepadInputProcessor;
 using dish::input::StickBench;
 using dish::input::StickTestKind;
@@ -48,6 +49,7 @@ using dish::qml::BindingWireFacts;
 using dish::qml::bindingWireFactsOf;
 using dish::qml::bindingWireRow;
 using dish::qml::buzzMotorFrom;
+using dish::qml::catalogTypeName;
 using dish::qml::diagnosticsLogRows;
 using dish::qml::hostCardRow;
 using dish::qml::hostDiagnosticsRow;
@@ -142,6 +144,14 @@ void goLive(WifiConnection& conn) {
 }
 
 QStringList strings(const QVariant& list) { return list.toStringList(); }
+
+PickableType pickable(int type, const QString& shortName) {
+    PickableType t;
+    t.type = type;
+    t.shortName = shortName;
+    t.name = shortName + QStringLiteral(" Controller");
+    return t;
+}
 
 QList<int> ints(const QVariant& list) {
     QList<int> out;
@@ -363,6 +373,20 @@ TEST_CASE("an undeclared binding is solved for the type its next attach would ca
     BindingWireFacts wire;
     wire.type = proto::kControllerTypePlayStation;
     CHECK(bindingTypeOf(wire, proto::kControllerTypeXbox) == proto::kControllerTypeXbox);
+}
+
+TEST_CASE("a satellite binding's type reads by its catalog short name", "[diagnostics][maps]") {
+    const QList<PickableType> types{
+        pickable(proto::kControllerTypeXbox, QStringLiteral("Xbox")),
+        pickable(proto::kControllerTypePlayStation, QStringLiteral("DualSense"))};
+    CHECK(catalogTypeName(types, proto::kControllerTypePlayStation) == QStringLiteral("DualSense"));
+    CHECK(catalogTypeName(types, proto::kControllerTypeXbox) == QStringLiteral("Xbox"));
+}
+
+TEST_CASE("a type the catalog has no row for reads nameless", "[diagnostics][maps]") {
+    const QList<PickableType> types{pickable(proto::kControllerTypeXbox, QStringLiteral("Xbox"))};
+    CHECK(catalogTypeName(types, proto::kControllerTypePlayStation).isEmpty());
+    CHECK(catalogTypeName({}, proto::kControllerTypeXbox).isEmpty());
 }
 
 TEST_CASE("the touchpad choice reads as the capability rows' mode", "[diagnostics][maps]") {

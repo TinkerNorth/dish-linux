@@ -381,6 +381,13 @@ int bindingTypeOf(const BindingWireFacts& wire, int typeForNextAttach) {
     return wire.declared ? wire.type : typeForNextAttach;
 }
 
+QString catalogTypeName(const QList<composer::PickableType>& types, int type) {
+    for (const auto& known : types) {
+        if (known.type == type) { return known.shortName; }
+    }
+    return {};
+}
+
 int touchpadPickIndex(const QString& choice) {
     if (choice == touchpadChoiceForMode(proto::kTouchpadModeDs4)) { return kTouchpadPickPad; }
     if (choice == touchpadChoiceForMode(proto::kTouchpadModeMouse)) { return kTouchpadPickMouse; }

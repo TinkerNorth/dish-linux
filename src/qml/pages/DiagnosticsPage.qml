@@ -147,6 +147,14 @@ Kit.Page {
 
     // ── Controllers ──────────────────────────────────────────────────────────
 
+    // A binding's type as its reasons name it, the way the binding editor names
+    // it: a satellite type by its catalog name, a Moonlight type by the table.
+    function typeNameOf(binding) {
+        if (binding.hostKind !== "moonlight")
+            return binding.typeName;
+        return linkWords.moonlightTypeName(binding.solvedType, App.moonlightAutoType);
+    }
+
     function transportText(pad) {
         if (pad.usbDirect)
             return qsTr("USB direct");
@@ -487,7 +495,6 @@ Kit.Page {
 
                     required property string slotId
                     required property string name
-                    required property string emulateName
                     required property bool usbDirect
                     required property bool bluetooth
                     required property int gamepadHz
@@ -520,7 +527,7 @@ Kit.Page {
                         touchpadMode: pad.bound ? pad.binding.touchpadPick : 0
                         padName: pad.name
                         hostName: pad.bound ? pad.binding.hostLabel : ""
-                        typeName: pad.emulateName
+                        typeName: pad.bound ? page.typeNameOf(pad.binding) : ""
                         padClaimable: pad.pathSupported && !pad.bluetooth
                     }
 

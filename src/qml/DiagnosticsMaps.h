@@ -9,6 +9,7 @@
 #pragma once
 
 #include "Input/GamepadInputProcessor.h"
+#include "composer/CatalogComposer.h"
 #include "composer/ConnectionsComposer.h"
 #include "core/input/StickHealth.h"
 #include "core/reducer/DiagnosticsLog.h"
@@ -83,6 +84,10 @@ QVariantMap bindingWireRow(const BindingWireFacts& facts);
 // The type a diagnosed binding's capability rows are solved for: the one on
 // the wire while a descriptor carries it, else the one the next attach would.
 int bindingTypeOf(const BindingWireFacts& wire, int typeForNextAttach);
+
+// The name a satellite binding's reasons give its type: the catalog's short
+// name for it, as the pad card names it. Empty while the catalog has no row for it.
+QString catalogTypeName(const QList<composer::PickableType>& types, int type);
 
 // The touchpad modes as the capability rows take them.
 inline constexpr int kTouchpadPickOff = 0;
