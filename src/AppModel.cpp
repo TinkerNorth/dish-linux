@@ -255,6 +255,14 @@ AppModel::AppModel(std::unique_ptr<source::WakeInhibitor> inhibitor, QObject* pa
             if (slotId.isEmpty()) { return; }
             actuateLightbar(slotId, r, g, b);
         });
+    // A pad's Motion switch, for the slots bound to a Moonlight host: read when a slot binds and
+    // again whenever the store moves, whoever moved it.
+    moonlight_->setMotionSwitch([this](const QString& slotId) {
+        return motionEnabledStore_.isEnabled(slotId.toStdString());
+    });
+    motionSwitchSub_ = motionEnabledStore_.state().subscribe(
+        [this](const source::MotionEnabledMap&) { moonlight_->refreshMotionSwitches(); },
+        /*emitCurrent=*/false);
 
     // Hot path, called on the SDL gamepad thread: look the sender up under a
     // short-held mutex, then forward outside it.
@@ -475,6 +483,7 @@ AppModel::~AppModel() {
     inputRatesSub_ = arch::Observable<source::SlotInputRatesMap>::Subscription{};
     inputRateStore_.reset();
     joystickRemapSub_ = arch::Observable<source::JoystickRemapMap>::Subscription{};
+    motionSwitchSub_ = arch::Observable<source::MotionEnabledMap>::Subscription{};
     usbManager_.reset();
     usbGateway_.reset();
 }

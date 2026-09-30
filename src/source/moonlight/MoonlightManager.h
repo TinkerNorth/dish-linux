@@ -35,6 +35,7 @@
 #include <QObject>
 #include <QString>
 
+#include <functional>
 #include <memory>
 #include <optional>
 #include <string>
@@ -167,6 +168,16 @@ class MoonlightManager : public QObject {
     void setRumbleSink(RumbleSink sink) { rumbleSink_ = std::move(sink); }
     void setLedSink(LedSink sink) { ledSink_ = std::move(sink); }
 
+    // The pad's Motion switch: whether the user lets a slot's motion reach its host. Asked on the
+    // main thread when the slot binds and again by refreshMotionSwitches, and handed to the
+    // session the slot rides, where the sensor thread reads it. The arrival still declares the
+    // pad's sensors, as dish-android's does: the switch stops the samples, and turning it back on
+    // costs the pad no replug. With no switch set, motion goes out.
+    using MotionSwitch = std::function<bool(const QString& slotId)>;
+    void setMotionSwitch(MotionSwitch motionSwitch);
+    // Asks the switch again for every bound slot, after the user turned one.
+    void refreshMotionSwitches();
+
   signals:
     void rowsChanged();
     void scanningChanged();
@@ -247,6 +258,10 @@ class MoonlightManager : public QObject {
                           const std::optional<moonxml::Status>& refusal);
     void onAppListRead(const QString& uuid, const QString& address, const std::string& xml);
     void forgetAPickTheHostDropped(const QString& uuid, const QList<MoonlightApp>& listed);
+    // What the Motion switch answers for a slot: yes with no switch set.
+    bool motionSwitchAllows(const QString& slotId) const;
+    // Hands the switch's answer to the session the slot rides, where sendMotion reads it.
+    void readMotionSwitch(const QString& slotId);
     MoonlightSession* ensureSession(const repository::MoonlightHost& host);
     void wireSession(MoonlightSession* session, const QString& uuid);
     // Starts the session if nothing is running on it yet. The app comes from
@@ -284,6 +299,7 @@ class MoonlightManager : public QObject {
 
     RumbleSink rumbleSink_;
     LedSink ledSink_;
+    MotionSwitch motionSwitch_;
 };
 
 } // namespace dish::source::moon

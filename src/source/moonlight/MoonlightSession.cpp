@@ -732,9 +732,20 @@ bool MoonlightSession::sendMotion(std::uint8_t controllerNumber, std::uint8_t mo
     const auto nowUs = std::chrono::duration_cast<std::chrono::microseconds>(
                            std::chrono::steady_clock::now().time_since_epoch())
                            .count();
+    const bool switchedOff =
+        (motionOffMask_.load(std::memory_order_relaxed) & (1U << controllerNumber)) != 0;
+    if (switchedOff) { return false; }
     if (!motionGate_.shouldSend(controllerNumber, motionType, nowUs)) { return false; }
     control_->sendControllerMotion(controllerNumber, motionType, x, y, z);
     return true;
+}
+
+void MoonlightSession::setMotionAllowed(std::uint8_t controllerNumber, bool allowed) {
+    const auto bit = static_cast<std::uint16_t>(1U << controllerNumber);
+    const std::uint16_t off = motionOffMask_.load(std::memory_order_relaxed);
+    motionOffMask_.store(allowed ? static_cast<std::uint16_t>(off & ~bit)
+                                 : static_cast<std::uint16_t>(off | bit),
+                         std::memory_order_relaxed);
 }
 
 void MoonlightSession::sendBattery(std::uint8_t controllerNumber, std::uint8_t state,

@@ -679,6 +679,7 @@ MoonlightManager::bindController(const QString& slotId, const QString& uuid, int
         emit rowsChanged();
         return std::nullopt;
     }
+    readMotionSwitch(slotId);
     ensureSessionRunning(session, *host);
     qCInfo(lcMoon) << "bound" << slotId << "to" << uuid << "as controller" << *number;
     emit rowsChanged();
@@ -897,6 +898,28 @@ void MoonlightManager::setControllerType(const QString& uuid, int type) {
 
 MoonlightSession* MoonlightManager::session(const QString& uuid) const {
     return sessions_.value(uuid, nullptr);
+}
+
+void MoonlightManager::setMotionSwitch(MotionSwitch motionSwitch) {
+    motionSwitch_ = std::move(motionSwitch);
+}
+
+void MoonlightManager::refreshMotionSwitches() {
+    for (auto it = bindings_.constBegin(); it != bindings_.constEnd(); ++it) {
+        readMotionSwitch(it.key());
+    }
+}
+
+bool MoonlightManager::motionSwitchAllows(const QString& slotId) const {
+    return !motionSwitch_ || motionSwitch_(slotId);
+}
+
+void MoonlightManager::readMotionSwitch(const QString& slotId) {
+    auto* session = sessions_.value(bindings_.value(slotId), nullptr);
+    if (session == nullptr) { return; }
+    if (const auto number = session->controllerNumber(slotId)) {
+        session->setMotionAllowed(*number, motionSwitchAllows(slotId));
+    }
 }
 
 } // namespace dish::source::moon

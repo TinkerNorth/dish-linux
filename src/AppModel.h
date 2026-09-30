@@ -685,6 +685,8 @@ class AppModel : public QObject {
     source::JoystickRemapRepository joystickRemapRepo_;
     source::JoystickRemapStore joystickRemapStore_;
     arch::Observable<source::JoystickRemapMap>::Subscription joystickRemapSub_;
+    // Hands every move of the Motion switch to the Moonlight manager's sessions.
+    arch::Observable<source::MotionEnabledMap>::Subscription motionSwitchSub_;
     // Device ids whose persisted deadzone profile was already pushed, so
     // onBridgeDevicesChanged pushes once per attach rather than per tick.
     QSet<QString> deadzonePushedDevices_;

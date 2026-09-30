@@ -112,6 +112,9 @@ class MoonlightSession : public QObject {
     // moment one game opened one sensor. Returns whether the sample went out.
     bool sendMotion(std::uint8_t controllerNumber, std::uint8_t motionType, float x, float y,
                     float z);
+    // The user's Motion switch for the pad under this number, on the Qt thread. Off, sendMotion
+    // sends nothing whatever the host asked for; the pad the host holds is left as it is.
+    void setMotionAllowed(std::uint8_t controllerNumber, bool allowed);
     // Battery, on the same thread as motion. Unconditional: a host that
     // declared the capability gets the level whenever the pad reports one.
     void sendBattery(std::uint8_t controllerNumber, std::uint8_t state, std::uint8_t percentage);
@@ -243,6 +246,8 @@ class MoonlightSession : public QObject {
     // The CONTROLLER_MULTI active mask, published for the hot path. Written on
     // the Qt thread by attach/detach, read on the SDL input thread.
     std::atomic<std::uint16_t> activeMask_{0};
+    // One bit per pad whose Motion switch is off, read on the sensor thread.
+    std::atomic<std::uint16_t> motionOffMask_{0};
 
     bool everStarted_ = false;
     QString refusalMessage_;
