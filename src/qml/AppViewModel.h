@@ -498,8 +498,9 @@ class AppViewModel : public QObject {
     // picked one, because that is what the runtime forwards then.
     Q_INVOKABLE QString touchpadModeFor(const QString& connectionId) const;
     Q_INVOKABLE void setTouchpadMode(const QString& connectionId, const QString& mode);
-    // "off" | "pad" | "mouse": what the slot's descriptor declares, from the
-    // runtime's own answer, so the binding strip cannot show another routing.
+    // "off" | "pad" | "mouse": what the slot's binding declares, from the
+    // runtime's own answer (a satellite descriptor, or a Moonlight arrival), so
+    // the binding strip cannot show another routing.
     Q_INVOKABLE QString touchpadRoutingFor(const QString& slotId) const;
     // Keyed exactly as setMotionEnabled writes, so a draft seeded from it cannot
     // silently re-enable gyro the user turned off on the Dead zones page.

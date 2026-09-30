@@ -637,9 +637,7 @@ void AppModel::bindMoonlightSlot(const QString& slotId, const QString& hostUuid)
         unbindMoonlightSlot(slotId);
         return;
     }
-    const auto source =
-        sourceCapabilitiesOf(slotHardware(slotId), slotBatteryLevel(slotId) !=
-                                                       net::SatelliteClient::kBatteryLevelUnknown);
+    const auto source = moonlightSourceOf(slotId);
     // The type is a property of the BINDING, so it comes from the per-slot override the binding
     // flow writes; Auto resolves against the pad above.
     const int storedType = moonlightBindingType(hostUuid, slotId);
@@ -672,6 +670,21 @@ void AppModel::unbindMoonlightSlot(const QString& slotId) {
 
 QString AppModel::moonlightBoundHostFor(const QString& slotId) const {
     return moonlight_->boundHostFor(slotId);
+}
+
+moonlight::SourceCapabilities AppModel::moonlightSourceOf(const QString& slotId) const {
+    const bool reportsBattery =
+        slotBatteryLevel(slotId) != net::SatelliteClient::kBatteryLevelUnknown;
+    return sourceCapabilitiesOf(slotHardware(slotId), reportsBattery);
+}
+
+std::optional<moonlight::ArrivalDeclaration>
+AppModel::moonlightArrivalFor(const QString& slotId) const {
+    const bool boundToSatellite = hub_->bindings().contains(slotId);
+    const QString hostUuid = boundToSatellite ? QString() : moonlight_->boundHostFor(slotId);
+    if (hostUuid.isEmpty()) { return std::nullopt; }
+    return moonlight::arrivalForBinding(moonlightBindingType(hostUuid, slotId),
+                                        moonlightSourceOf(slotId));
 }
 
 void AppModel::forgetMoonlightHost(const QString& hostUuid) {

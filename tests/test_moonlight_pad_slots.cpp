@@ -239,3 +239,36 @@ TEST_CASE("four controllers ride one session and each keeps its own type", "[moo
     CHECK(slots.empty());
     CHECK(shouldHandBackApp(true, true, slots.empty()));
 }
+
+TEST_CASE("a binding's arrival is the type it resolves to and what that type declares",
+          "[moonlight][pads]") {
+    // The one computation the announcement and the binding strip both read.
+    SourceCapabilities pad = plainPad();
+    pad.touchpad = true;
+    const auto arrival = arrivalForBinding(proto::kControllerTypePs, pad);
+    CHECK(arrival.type == proto::kControllerTypePs);
+    CHECK(arrival.capabilities == declaredCapabilities(proto::kControllerTypePs, pad));
+
+    CHECK(arrivalForBinding(proto::kControllerTypeAuto, pad).type == proto::kControllerTypeXbox);
+}
+
+TEST_CASE("a PlayStation arrival carries the touchpad a pad has, and only then",
+          "[moonlight][pads]") {
+    SourceCapabilities withTouch = plainPad();
+    withTouch.touchpad = true;
+    CHECK(arrivalRendersTouchpad(arrivalForBinding(proto::kControllerTypePs, withTouch)));
+    CHECK_FALSE(arrivalRendersTouchpad(arrivalForBinding(proto::kControllerTypePs, plainPad())));
+}
+
+TEST_CASE("an Xbox arrival never carries the touchpad, whatever the pad has", "[moonlight][pads]") {
+    CHECK_FALSE(
+        arrivalRendersTouchpad(arrivalForBinding(proto::kControllerTypeXbox, everything())));
+}
+
+TEST_CASE("Auto carries the touchpad only where the pad's motion resolves it to PlayStation",
+          "[moonlight][pads]") {
+    CHECK(arrivalRendersTouchpad(arrivalForBinding(proto::kControllerTypeAuto, everything())));
+    SourceCapabilities stillPad = everything();
+    stillPad.motion = false;
+    CHECK_FALSE(arrivalRendersTouchpad(arrivalForBinding(proto::kControllerTypeAuto, stillPad)));
+}

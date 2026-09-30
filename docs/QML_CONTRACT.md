@@ -373,7 +373,7 @@ vends a sentence; QML localizes.
 |---|---|
 | `touchpadModeFor(connectionId)` → `"off"` / `"pad"` / `"mouse"` | Real. Per-satellite store; `"pad"` when never picked, the routing the runtime forwards then. A stored mouse pick reads `"off"` while mouse mode is unavailable, which it is on this client. |
 | `setTouchpadMode(connectionId, mode)` | Real. |
-| `touchpadRoutingFor(slotId)` → `"off"` / `"pad"` / `"mouse"` | Real. What the slot's descriptor declares, from the runtime's own answer. The binding strip reads this, never the pick. |
+| `touchpadRoutingFor(slotId)` → `"off"` / `"pad"` / `"mouse"` | Real. What the slot's binding declares, from the runtime's own answer: a satellite descriptor's touchpad mode, or for a Moonlight binding whether its arrival carries the touchpad (`"pad"`). The binding strip reads this, never the pick. |
 | `rumbleEnabledFor(slotId)` | Real. Per-slot store; `true` when never switched. A draft seeds from it, so applying cannot silently turn rumble back on. |
 | `setRumbleEnabled(slotId, on)` | Real. Off stops the slot's motors at once and turns every rumble a host sends it into a stop; the descriptor still offers rumble, as on Android. |
 

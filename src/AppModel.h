@@ -31,6 +31,7 @@
 #include "repository/RumblePreferenceRepository.h"
 #include "core/input/UsbReportParsers.h"
 #include "core/model/Protocol.h"
+#include "core/moonlight/MoonlightPadSlots.h"
 #include "core/reducer/BindingPresence.h"
 #include "core/reducer/BatteryRouting.h"
 #include "core/reducer/FeedbackBench.h"
@@ -249,6 +250,11 @@ class AppModel : public QObject {
     // makes the satellite drop every MSG_TOUCHPAD the forward path sends.
     std::uint8_t declaredTouchpadMode(const QString& slotId) const;
 
+    // The CONTROLLER_ARRIVAL a slot's Moonlight binding declares, from the pick
+    // and pad facts bindMoonlightSlot announces with. nullopt when the slot is
+    // not bound to a Moonlight host; a satellite binding wins, as the rows do.
+    std::optional<moonlight::ArrivalDeclaration> moonlightArrivalFor(const QString& slotId) const;
+
     // The Diagnostics bench. Whether the slot's pad can rumble on the path it is
     // on now, and a test buzz that goes straight to the actuator: ungated by the
     // binding's rumble switch, as dish-android's testBuzz is, so a pad whose
@@ -458,6 +464,10 @@ class AppModel : public QObject {
     // The pad's last reported charge, or kBatteryLevelUnknown. A pad that has
     // never published one has nothing to declare to a Moonlight host.
     std::uint8_t slotBatteryLevel(const QString& slotId) const;
+
+    // What a Moonlight arrival is declared from: the pad's facts, and the
+    // binding's stored pick (Auto when none).
+    moonlight::SourceCapabilities moonlightSourceOf(const QString& slotId) const;
 
     // slotHardware plus the live link state, in the shape the pure router takes.
     // The single input to BOTH the descriptor's actuator caps and the dispatch,

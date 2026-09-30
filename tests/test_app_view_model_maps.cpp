@@ -45,6 +45,7 @@ using dish::qml::keepAwakeReachToken;
 using dish::qml::licenseRows;
 using dish::qml::themeModeFromInt;
 using dish::qml::themeModeToInt;
+using dish::qml::touchpadChoiceForArrival;
 using dish::qml::touchpadChoiceForDraftMode;
 using dish::qml::touchpadChoiceForMode;
 using dish::qml::touchpadChoiceForPick;
@@ -233,6 +234,18 @@ TEST_CASE("a binding that cannot carry the touchpad leaves the host's pick alone
     // The pick belongs to the host, shared by every pad bound there, so an Xbox
     // pad's binding must not write the Off its draft collapsed to.
     CHECK_FALSE(touchpadChoiceForDraftMode(kKeepHostTouchpad).has_value());
+}
+
+TEST_CASE("a Moonlight binding whose arrival carries the touchpad names the Pad routing",
+          "[appvm][touchpad]") {
+    // The satellite path knows no Moonlight binding and answers Off for every
+    // one, while the arrival carries the touch the host renders.
+    CHECK(touchpadChoiceForArrival(true) == QStringLiteral("pad"));
+}
+
+TEST_CASE("a Moonlight binding whose arrival carries no touchpad names it off",
+          "[appvm][touchpad]") {
+    CHECK(touchpadChoiceForArrival(false) == QStringLiteral("off"));
 }
 
 TEST_CASE("a declared routing reads as the choice that stores it", "[appvm][touchpad]") {

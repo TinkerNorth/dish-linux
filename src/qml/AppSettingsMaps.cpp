@@ -112,6 +112,11 @@ QString touchpadChoiceForPick(const std::optional<std::string>& pick, bool mouse
     return touchpadChoiceForMode(mouseShut ? proto::kTouchpadModeOff : mode);
 }
 
+QString touchpadChoiceForArrival(bool arrivalRendersTouchpad) {
+    return arrivalRendersTouchpad ? touchpadChoiceForMode(proto::kTouchpadModeDs4)
+                                  : touchpadChoiceForMode(proto::kTouchpadModeOff);
+}
+
 std::optional<QString> touchpadChoiceForDraftMode(int draftMode) {
     constexpr int kChoiceCount = static_cast<int>(std::size(kTouchpadChoices));
     const bool isAChoice = draftMode >= 0 && draftMode < kChoiceCount;

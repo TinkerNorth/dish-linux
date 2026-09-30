@@ -161,8 +161,9 @@ MoonlightSession::attachController(const QString& slotId, int storedType,
     if (!number) { return std::nullopt; }
     PadDeclaration pad;
     pad.number = *number;
-    pad.type = moonlight::resolveControllerType(storedType, source.motion);
-    pad.capabilities = moonlight::declaredCapabilities(pad.type, source);
+    const auto arrival = moonlight::arrivalForBinding(storedType, source);
+    pad.type = arrival.type;
+    pad.capabilities = arrival.capabilities;
     pad.buttons = moonlight::declaredButtons(pad.capabilities);
     pads_.insert(slotId, pad);
     activeMask_.store(slots_.activeMask(), std::memory_order_relaxed);

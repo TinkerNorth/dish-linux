@@ -1544,7 +1544,10 @@ void AppViewModel::setTouchpadMode(const QString& connectionId, const QString& m
 }
 
 QString AppViewModel::touchpadRoutingFor(const QString& slotId) const {
-    return touchpadChoiceForMode(model_->declaredTouchpadMode(slotId));
+    const auto moonlightArrival = model_->moonlightArrivalFor(slotId);
+    return moonlightArrival.has_value()
+               ? touchpadChoiceForArrival(moonlight::arrivalRendersTouchpad(*moonlightArrival))
+               : touchpadChoiceForMode(model_->declaredTouchpadMode(slotId));
 }
 
 bool AppViewModel::motionEnabledFor(const QString& slotId) const {
