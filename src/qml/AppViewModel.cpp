@@ -1554,12 +1554,12 @@ bool AppViewModel::motionEnabledFor(const QString& slotId) const {
 
 bool AppViewModel::rumbleEnabledFor(const QString& slotId) const {
     if (slotId.isEmpty()) { return source::RumbleEnabledStore::kDefaultEnabled; }
-    return model_->rumbleEnabledStore()->isEnabled(slotId.toStdString());
+    return model_->rumbleEnabledStore()->isEnabled(slotId);
 }
 
 void AppViewModel::setRumbleEnabled(const QString& slotId, bool on) {
     if (slotId.isEmpty()) { return; }
-    model_->rumbleEnabledStore()->setEnabled(slotId.toStdString(), on);
+    model_->rumbleEnabledStore()->setEnabled(slotId, on);
 }
 
 bool AppViewModel::micEnabledFor(const QString& slotId) const {

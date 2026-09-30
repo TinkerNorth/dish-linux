@@ -13,14 +13,17 @@
 #include "architecture/StateSource.h"
 #include "repository/RumblePreferenceRepository.h"
 
+#include <QString>
+
 #include <map>
-#include <string>
 
 namespace dish::source {
 
-// slotId -> enabled. std::map gives a deterministic, ==-comparable value so the
-// Observable's distinct-until-changed suppresses no-op re-emits.
-using RumbleEnabledMap = std::map<std::string, bool>;
+// slotId -> enabled, keyed by the QString slot id every caller already holds, so
+// the lookup a MSG_RUMBLE makes builds no key. std::map gives a deterministic,
+// ==-comparable value so the Observable's distinct-until-changed suppresses
+// no-op re-emits.
+using RumbleEnabledMap = std::map<QString, bool>;
 
 class RumbleEnabledStore final : public arch::StateSource<RumbleEnabledMap> {
   public:
@@ -31,8 +34,13 @@ class RumbleEnabledStore final : public arch::StateSource<RumbleEnabledMap> {
     // Borrowed: it outlives the store (both live on the AppModel).
     explicit RumbleEnabledStore(repository::RumblePreferenceRepository* repo);
 
-    bool isEnabled(const std::string& slotId) const;
-    void setEnabled(const std::string& slotId, bool enabled);
+    // Read in place under the state's lock, with no copy of the map: the
+    // SatelliteClient receive thread asks once per MSG_RUMBLE.
+    bool isEnabled(const QString& slotId) const;
+    void setEnabled(const QString& slotId, bool enabled);
+    // Drops the slot from both the repo and the state, so it answers the
+    // default again.
+    void forget(const QString& slotId);
 
   private:
     static RumbleEnabledMap hydrate(repository::RumblePreferenceRepository* repo);

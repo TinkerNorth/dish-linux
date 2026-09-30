@@ -342,6 +342,8 @@ set(DISH_CORE_SOURCES
     src/source/store/MotionEnabledStore.cpp
     src/source/store/RumbleEnabledStore.h
     src/source/store/RumbleEnabledStore.cpp
+    src/source/store/SlotSwitches.h
+    src/source/store/SlotSwitches.cpp
     src/source/store/AudioEnabledStore.h
     src/source/store/AudioEnabledStore.cpp
     src/source/store/MicMuteStore.h
@@ -450,6 +452,8 @@ set(DISH_CORE_SOURCES
     src/composer/WakeStateComposer.h
     src/composer/WakeStateController.h
     src/composer/WakeStateController.cpp
+    src/composer/RumbleSwitchController.h
+    src/composer/RumbleSwitchController.cpp
     src/composer/TrayComposer.h
     src/composer/TrayController.h
     src/composer/TrayController.cpp

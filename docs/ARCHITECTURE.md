@@ -340,6 +340,11 @@ cross-thread seams are explicit and narrow:
   map's, so a feedback write on the receive thread never contends with the 1 s
   reconcile sweep. The gateway's write is overlapped, so it does not wait on
   the pending read either.
+- `ConnectionHub`'s `bindingsMtx_`. A feedback message on the receive thread
+  finds its slot through `bindings()`, a copy taken under the lock the GUI
+  thread writes the table under, and the rumble switch it then checks is read
+  in place under its store's own lock
+  ([`ConnectionHub.h`](../src/Network/ConnectionHub.h)).
 
 ### The feedback path: one owner for "may I" and "where to"
 

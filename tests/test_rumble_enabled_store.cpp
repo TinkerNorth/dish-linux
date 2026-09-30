@@ -50,3 +50,21 @@ TEST_CASE("each slot's rumble switch survives a restart of the store", "[rumble-
     CHECK(restarted.isEnabled("sdl:1"));
     CHECK(restarted.isEnabled("never-switched"));
 }
+
+TEST_CASE("a forgotten slot rumbles again, and stays forgotten across a restart",
+          "[rumble-store]") {
+    const auto settings = makeSharedSettings();
+    {
+        RumblePreferenceRepository repo(settings);
+        RumbleEnabledStore store(&repo);
+        store.setEnabled("9", false);
+
+        store.forget("9");
+
+        CHECK(store.isEnabled("9"));
+        CHECK(store.state().value().count("9") == 0);
+    }
+    RumblePreferenceRepository repo(settings);
+    const RumbleEnabledStore restarted(&repo);
+    CHECK(restarted.isEnabled("9"));
+}

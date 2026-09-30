@@ -427,6 +427,7 @@ AppModel::AppModel(std::unique_ptr<source::WakeInhibitor> inhibitor, QObject* pa
     wakeController_.start();
     themeController_.start();
     crashController_.start();
+    rumbleSwitchController_.start();
 
     // The CounterSource borrows processor_, which outlives it. slotId is the
     // SDL device id or USB-direct synthetic key — exactly the key
@@ -512,34 +513,12 @@ void AppModel::installFeedbackHandlers(net::WifiConnection& conn, const QString&
         [this, id](const net::SatelliteClient::MicLedMessage& mm) { onMicLedMessage(id, mm); });
 }
 
-// Pure over its two arguments, which is the point: the caller snapshots the bindings ONCE and
-// decides from the snapshot, so the receive thread never reads a half-updated table.
-static std::vector<reducer::RumbleConnectionSnapshot>
-rumbleSnapshotOf(const QHash<QString, QString>& bindings,
-                 const QHash<QString, net::WifiConnection*>& connections) {
-    std::vector<reducer::RumbleConnectionSnapshot> snapshot;
-    for (auto* c : connections) {
-        reducer::RumbleConnectionSnapshot s;
-        s.connId = c->id();
-        s.connected = c->state() == net::SessionState::Live;
-        for (auto it = bindings.cbegin(); it != bindings.cend(); ++it) {
-            if (it.value() == s.connId) {
-                s.boundDeviceId = it.key();
-                break;
-            }
-        }
-        snapshot.push_back(std::move(s));
-    }
-    return snapshot;
-}
-
 // Vibration only: the light bar has its own return path via MSG_LIGHTBAR. actuateRumble picks the
 // path the slot is actually on, so a Direct-claimed pad rumbles over its own OUT endpoint.
 void AppModel::onRumbleMessage(const QString& id, const net::SatelliteClient::RumbleMessage& rm) {
-    const auto snapshot = rumbleSnapshotOf(hub_->bindings(), wifi_->connections());
-    const auto target = reducer::resolveRumble(snapshot, id);
-    if (!target.valid()) { return; }
-    deliverRumble(target.deviceId, rm.strongMagnitude, rm.weakMagnitude, rm.durationMs);
+    const QString deviceId = boundSlotForConnection(id);
+    if (deviceId.isEmpty()) { return; }
+    deliverRumble(deviceId, rm.strongMagnitude, rm.weakMagnitude, rm.durationMs);
 }
 
 // Gated by the light-bar setting: "Off" suppresses the colour entirely.
@@ -1472,9 +1451,14 @@ reducer::HostAudioVerdict AppModel::hostControllerAudioFor(const QString& hostId
 void AppModel::deliverRumble(const QString& slotId, std::uint16_t strong, std::uint16_t weak,
                              std::uint16_t durationMs) {
     const reducer::RumbleCommand fromHost{strong, weak, durationMs};
-    const bool userRumbleOn = rumbleEnabledStore_.isEnabled(slotId.toStdString());
+    const bool userRumbleOn = rumbleEnabledStore_.isEnabled(slotId);
     const auto command = reducer::rumbleTheUserAllows(fromHost, userRumbleOn);
     actuateRumble(slotId, command.strong, command.weak, command.durationMs);
+}
+
+void AppModel::stopMotors(const QString& slotId) {
+    actuateRumble(slotId, reducer::kRumbleStop.strong, reducer::kRumbleStop.weak,
+                  reducer::kRumbleStop.durationMs);
 }
 
 void AppModel::actuateRumble(const QString& slotId, std::uint16_t strong, std::uint16_t weak,
@@ -1837,6 +1821,8 @@ void AppModel::applyBindingPresence() {
         // leaves the satellite now rather than at the next reaper timeout.
         hub_->unbind(QString::fromStdString(action.slotId));
         if (action.kind == reducer::BindingPresenceKind::Migrate) {
+            // Before the bind, which reads the motion and audio switches into the descriptor.
+            source::carrySlotSwitches(slotSwitches_, action.slotId, action.toSlotId);
             hub_->bind(QString::fromStdString(action.toSlotId),
                        QString::fromStdString(action.connId));
         }

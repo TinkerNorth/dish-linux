@@ -116,6 +116,16 @@ void ConnectionHub::rebuild() {
     emit changed();
 }
 
+QHash<QString, QString> ConnectionHub::bindings() const {
+    std::lock_guard<std::mutex> lock(bindingsMtx_);
+    return bindings_;
+}
+
+void ConnectionHub::publishBindings(QHash<QString, QString> next) {
+    std::lock_guard<std::mutex> lock(bindingsMtx_);
+    bindings_ = std::move(next);
+}
+
 std::optional<models::ConnectionSummary> ConnectionHub::summary(const QString& id) const {
     for (const auto& s : summaries_) {
         if (s.id == id) { return s; }
@@ -190,7 +200,7 @@ void ConnectionHub::bind(const QString& slotId, const QString& connectionId) {
         if (auto* prior = wifi_->get(connectionId)) { prior->detachSlot(); }
     }
     current.insert(slotId, connectionId);
-    bindings_ = current;
+    publishBindings(std::move(current));
     rebuild();
     const bool hasLightbar = lightbarCapabilityFn_ && lightbarCapabilityFn_(slotId);
     const bool hasMotion = motionCapabilityFn_ && motionCapabilityFn_(slotId);
@@ -212,7 +222,9 @@ void ConnectionHub::bind(const QString& slotId, const QString& connectionId) {
 
 void ConnectionHub::unbind(const QString& slotId) {
     if (!bindings_.contains(slotId)) { return; }
-    const auto cid = bindings_.take(slotId);
+    QHash<QString, QString> remaining = bindings_;
+    const auto cid = remaining.take(slotId);
+    publishBindings(std::move(remaining));
     if (auto* c = wifi_->get(cid)) { c->detachSlot(); }
     rebuild();
 }

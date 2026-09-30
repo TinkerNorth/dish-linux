@@ -17,6 +17,7 @@
 #include "composer/CrashReportingBackend.h"
 #include "composer/DiagnosticsRecorder.h"
 #include "composer/CrashReportingController.h"
+#include "composer/RumbleSwitchController.h"
 #include "composer/SleepCoordinator.h"
 
 #include "composer/ThemeController.h"
@@ -54,6 +55,7 @@
 #include "source/store/MicMuteStore.h"
 #include "source/store/MotionEnabledStore.h"
 #include "source/store/RumbleEnabledStore.h"
+#include "source/store/SlotSwitches.h"
 #include "source/store/OnboardingPreferenceStore.h"
 #include "source/store/TouchpadModeStore.h"
 #include "source/store/ThemePreferenceStore.h"
@@ -466,6 +468,8 @@ class AppModel : public QObject {
     // (reducer::rumbleTheUserAllows). Same threads as the actuators below.
     void deliverRumble(const QString& slotId, std::uint16_t strong, std::uint16_t weak,
                        std::uint16_t durationMs);
+    // Both motors to zero, for a slot whose rumble switch just went off.
+    void stopMotors(const QString& slotId);
     // Send one feedback report to whatever the slot can actuate. No-ops when
     // nothing can. Called on the SatelliteClient receive thread and on the
     // Moonlight control thread, so they only touch structures with their own
@@ -635,6 +639,11 @@ class AppModel : public QObject {
     repository::AudioPreferenceRepository speakerPrefRepo_{QStringLiteral("speaker_preferences")};
     source::MicEnabledStore micEnabledStore_{&micPrefRepo_};
     source::SpeakerEnabledStore speakerEnabledStore_{&speakerPrefRepo_};
+    // Both after the stores they name.
+    source::SlotSwitchStores slotSwitches_{motionEnabledStore_, rumbleEnabledStore_,
+                                           micEnabledStore_, speakerEnabledStore_};
+    composer::RumbleSwitchController rumbleSwitchController_{
+        rumbleEnabledStore_.state(), [this](const QString& slotId) { stopMotors(slotId); }};
     source::MicMuteStore micMuteStore_;
     // Derived in reconcileAudioEngines: the fold behind micIndicator() and the
     // slots toggleAllMics() acts on. Armed = every fact but mute; capturing =
