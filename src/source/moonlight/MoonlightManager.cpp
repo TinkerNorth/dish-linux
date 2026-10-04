@@ -479,29 +479,22 @@ void MoonlightManager::onAppListRead(const QString& uuid, const QString& address
     result.read = true;
     result.failed = false;
     qCInfo(lcMoon) << "applist on" << address << "returned" << result.apps.size() << "apps";
-    forgetAPickTheHostDropped(uuid, result.apps);
     emit appsChanged(uuid);
     emit rowsChanged();
 }
 
-// The host's app list is its own word on what it can start. A pick it no longer lists is refused
-// on every launch, behind a refusal that hides the picker it could be changed in, so it is
-// forgotten and the host's first app starts, as the binding flow promises for a host with no pick.
-void MoonlightManager::forgetAPickTheHostDropped(const QString& uuid,
-                                                 const QList<MoonlightApp>& listed) {
-    auto host = hostRepo_.get(uuid);
-    if (!host) { return; }
-    const QString pick = host->lastAppId;
+// A pick the host no longer lists is the binding flow's to name (PickRemoved), never launched or
+// replaced.
+bool MoonlightManager::pickRemoved(const repository::MoonlightHost& host) const {
+    const QString pick = host.lastAppId;
+    if (pick.isEmpty()) { return false; }
+    const auto it = appCache_.constFind(host.uuid);
+    const bool listRead = it != appCache_.constEnd() && it->read;
+    if (!listRead) { return false; }
     const bool stillListed =
-        std::any_of(listed.cbegin(), listed.cend(),
+        std::any_of(it->apps.cbegin(), it->apps.cend(),
                     [&pick](const MoonlightApp& app) { return app.id == pick; });
-    const bool theHostDroppedIt = !pick.isEmpty() && !stillListed;
-    if (!theHostDroppedIt) { return; }
-    qCInfo(lcMoon) << uuid << "no longer lists app" << pick << "; forgetting it as the pick";
-    host->lastAppId.clear();
-    host->lastAppName.clear();
-    // put, not upsert: upsert keeps a stored pick the incoming row leaves empty.
-    hostRepo_.put(uuid, *host);
+    return !stillListed;
 }
 
 void MoonlightManager::onAppListReply(const QString& uuid, quint64 epoch, const QString& address,
@@ -606,6 +599,12 @@ void MoonlightManager::wireSession(MoonlightSession* session, const QString& uui
 void MoonlightManager::ensureSessionRunning(MoonlightSession* session,
                                             const repository::MoonlightHost& host) {
     if (!moonlight::sessionNeedsStart(session->machineState().phase)) { return; }
+    if (pickRemoved(host)) {
+        qCWarning(lcMoon)
+            << "not launching" << host.lastAppId << "on" << host.uuid
+            << ": the host no longer lists it; nothing starts until another is picked";
+        return;
+    }
     QString appId = host.lastAppId;
     QString appName = host.lastAppName;
     if (appId.isEmpty()) {
@@ -709,6 +708,34 @@ void MoonlightManager::unbindController(const QString& slotId) {
     emit rowsChanged();
 }
 
+std::vector<repository::MoonlightBinding> MoonlightManager::standingBindings() const {
+    return hostRepo_.bindings();
+}
+
+std::optional<repository::MoonlightBinding>
+MoonlightManager::standingBinding(const QString& slotId) const {
+    return hostRepo_.binding(slotId);
+}
+
+void MoonlightManager::rememberBinding(const repository::MoonlightBinding& binding) {
+    if (!binding.isValid()) {
+        qCWarning(lcMoon) << "standing binding refused: slot" << binding.slotId << "host"
+                          << binding.hostUuid << "; both are required";
+        return;
+    }
+    // Interest, not trust: a binding naming a host nothing remembers would resolve to nothing.
+    rememberDestination(binding.hostUuid);
+    hostRepo_.rememberBinding(binding);
+    qCInfo(lcMoon) << "standing binding" << binding.slotId << "->" << binding.hostUuid << "type"
+                   << binding.controllerType;
+}
+
+void MoonlightManager::forgetBinding(const QString& slotId) {
+    if (!hostRepo_.binding(slotId)) { return; }
+    hostRepo_.forgetBinding(slotId);
+    qCInfo(lcMoon) << "standing binding" << slotId << "forgotten";
+}
+
 QString MoonlightManager::boundHostFor(const QString& slotId) const {
     return bindings_.value(slotId);
 }
@@ -760,6 +787,7 @@ moonlight::SessionUiInputs MoonlightManager::uiInputs(const QString& uuid,
         in.appsRead = it->read;
         in.appsFailed = it->failed;
         in.appCount = static_cast<int>(it->apps.size());
+        in.pickRemoved = host && pickRemoved(*host);
     }
 
     if (const auto* session = sessions_.value(uuid, nullptr)) {
@@ -828,6 +856,7 @@ void MoonlightManager::cancelPairingWith(const QString& uuid) {
 
 // The pairing anchor lives IN the row, so removing the row removes the pin.
 void MoonlightManager::dropRecordsFor(const QString& uuid) {
+    hostRepo_.forgetBindingsForHost(uuid);
     hostRepo_.remove(uuid);
     discovered_.remove(uuid);
     probes_.remove(uuid);

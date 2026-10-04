@@ -13,7 +13,12 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
+
 using dish::repository::kMoonlightControllerTypeAuto;
+using dish::repository::MoonlightBinding;
 using dish::repository::MoonlightHost;
 using dish::repository::MoonlightHostRepository;
 using dish::test::makeSharedSettings;
@@ -149,4 +154,104 @@ TEST_CASE("the three real picks survive a round trip untouched", "[moonlight][re
         REQUIRE(loaded.has_value());
         CHECK(loaded->controllerType == pick);
     }
+}
+
+// ── The standing bindings ────────────────────────────────────────────────────
+
+namespace {
+
+MoonlightBinding standing(const QString& slot, const QString& host, int type) {
+    MoonlightBinding binding;
+    binding.slotId = slot;
+    binding.hostUuid = host;
+    binding.controllerType = type;
+    return binding;
+}
+
+} // namespace
+
+TEST_CASE("a binding round-trips its host and its own controller type", "[moonlight][repository]") {
+    auto settings = makeSharedSettings();
+    MoonlightHostRepository repo(settings);
+    const QString host = QStringLiteral("host-uuid");
+
+    repo.rememberBinding(
+        standing(QStringLiteral("sdl:1"), host, dish::moonproto::kControllerTypePs));
+    // The type is PER BINDING: a second pad on the same host is a different device.
+    repo.rememberBinding(
+        standing(QStringLiteral("sdl:2"), host, dish::moonproto::kControllerTypeNintendo));
+
+    REQUIRE(repo.bindings().size() == 2);
+    CHECK(repo.binding(QStringLiteral("sdl:1"))->controllerType ==
+          dish::moonproto::kControllerTypePs);
+    CHECK(repo.binding(QStringLiteral("sdl:2"))->controllerType ==
+          dish::moonproto::kControllerTypeNintendo);
+    CHECK_FALSE(repo.binding(QStringLiteral("sdl:9")).has_value());
+
+    repo.rememberBinding(
+        standing(QStringLiteral("sdl:1"), host, dish::moonproto::kControllerTypeXbox));
+    REQUIRE(repo.bindings().size() == 2);
+    CHECK(repo.binding(QStringLiteral("sdl:1"))->controllerType ==
+          dish::moonproto::kControllerTypeXbox);
+
+    MoonlightHostRepository reopened(settings);
+    REQUIRE(reopened.bindings().size() == 2);
+    reopened.forgetBinding(QStringLiteral("sdl:1"));
+    REQUIRE(reopened.bindings().size() == 1);
+    CHECK_FALSE(reopened.binding(QStringLiteral("sdl:1")).has_value());
+
+    // A record naming no slot or no host is not a binding.
+    reopened.rememberBinding(standing(QString(), host, dish::moonproto::kControllerTypeAuto));
+    reopened.rememberBinding(
+        standing(QStringLiteral("sdl:3"), QString(), dish::moonproto::kControllerTypeAuto));
+    REQUIRE(reopened.bindings().size() == 1);
+}
+
+TEST_CASE("a binding is stored under the key and fields dish-windows writes",
+          "[moonlight][repository]") {
+    auto settings = makeSharedSettings();
+    MoonlightHostRepository repo(settings);
+    repo.rememberBinding(standing(QStringLiteral("sdl:1"), QStringLiteral("host-uuid"),
+                                  dish::moonproto::kControllerTypePs));
+
+    const auto raw =
+        settings->value(QLatin1String(dish::repository::keys::kMoonlightBindingListKey))
+            .toByteArray();
+    const auto doc = QJsonDocument::fromJson(raw);
+    REQUIRE(doc.isArray());
+    REQUIRE(doc.array().size() == 1);
+    const auto obj = doc.array().first().toObject();
+    CHECK(obj.value(QLatin1String("slotId")).toString() == QStringLiteral("sdl:1"));
+    CHECK(obj.value(QLatin1String("hostId")).toString() == QStringLiteral("host-uuid"));
+    CHECK(obj.value(QLatin1String("controllerType")).toInt() == dish::moonproto::kControllerTypePs);
+}
+
+TEST_CASE("a binding stored with the old Auto is migrated too", "[moonlight][repository]") {
+    QJsonObject legacy;
+    legacy[QStringLiteral("slotId")] = QStringLiteral("sdl:1");
+    legacy[QStringLiteral("hostId")] = QStringLiteral("host-uuid");
+    legacy[QStringLiteral("controllerType")] = 0;
+    const auto migrated = MoonlightBinding::fromJson(legacy);
+    REQUIRE(migrated.has_value());
+    CHECK(migrated->controllerType == kMoonlightControllerTypeAuto);
+    CHECK_FALSE(MoonlightBinding::fromJson(QJsonObject()).has_value());
+}
+
+TEST_CASE("forgetting a host retires the bindings that drove it", "[moonlight][repository]") {
+    auto settings = makeSharedSettings();
+    MoonlightHostRepository repo(settings);
+    const QString gone = QStringLiteral("host-gone");
+    const QString kept = QStringLiteral("host-kept");
+    repo.rememberBinding(
+        standing(QStringLiteral("sdl:1"), gone, dish::moonproto::kControllerTypeAuto));
+    repo.rememberBinding(
+        standing(QStringLiteral("sdl:2"), gone, dish::moonproto::kControllerTypeAuto));
+    repo.rememberBinding(
+        standing(QStringLiteral("sdl:3"), kept, dish::moonproto::kControllerTypeAuto));
+    REQUIRE(repo.bindings().size() == 3);
+
+    repo.forgetBindingsForHost(gone);
+
+    REQUIRE(repo.bindings().size() == 1);
+    CHECK(repo.bindings().front().slotId == QStringLiteral("sdl:3"));
 }

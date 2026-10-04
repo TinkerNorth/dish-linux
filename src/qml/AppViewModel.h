@@ -78,6 +78,8 @@ class AppViewModel : public QObject {
     // True when the last run left a backtrace on disk. Drives the whole report
     // card: no crash, no card, so the UI is silent in the ordinary case.
     Q_PROPERTY(bool hasCrashReport READ hasCrashReport NOTIFY crashReportChanged)
+    // A Flatpak keeps the udev rule inside the sandbox, so the copy names a different path there.
+    Q_PROPERTY(bool runningInFlatpak READ runningInFlatpak CONSTANT)
 
     // ── Settings: window ──────────────────────────────────────────────────────
     Q_PROPERTY(bool runInBackground READ runInBackground WRITE setRunInBackground NOTIFY
@@ -306,6 +308,7 @@ class AppViewModel : public QObject {
 
     // ── Commands, forwarded verbatim to the AppModel surface ────────────────
 
+    bool runningInFlatpak() const;
     Q_INVOKABLE void bindSlot(const QString& slotId, const QString& connectionId);
     Q_INVOKABLE void unbindSlot(const QString& slotId);
 
@@ -410,7 +413,7 @@ class AppViewModel : public QObject {
     // one binding (slotId may be empty for a binding that does not exist yet):
     // { state, blocksApply, hostName, appId, appName, controllers,
     //   controllerNumber, trust, pairingReason, refusal }. `state` is one of
-    // the twenty-one lowercase tokens in core/moonlight/MoonlightSessionUi.h;
+    // the twenty-two lowercase tokens in core/moonlight/MoonlightSessionUi.h;
     // QML localizes it. `pairingReason` is "" unless `state` is pairingRefused,
     // and then it is the pairingFinished token that says which refusal it was.
     Q_INVOKABLE QVariantMap moonlightSession(const QString& uuid, const QString& slotId) const;

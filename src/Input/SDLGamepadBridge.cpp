@@ -17,6 +17,7 @@
 
 #include <chrono>
 #include <cstdint>
+#include <utility>
 
 namespace dish::input {
 
@@ -276,6 +277,8 @@ void SDLGamepadBridge::onControllerRemoved(const SDL_Event& ev) {
     QMetaObject::invokeMethod(this, "devicesChanged", Qt::QueuedConnection);
 }
 
+// One pass over what SDL knows about a raw joystick, in the order the tables need it; a split
+// would put the lock and the DEVCAPS line on different pages from the reads they cover.
 void SDLGamepadBridge::onJoystickAdded(const SDL_Event& ev) {
     // Unlike every other event here, this `which` is a device INDEX, not
     // an instance id — it matches SDL_JoystickOpen's argument.
@@ -733,6 +736,8 @@ void SDLGamepadBridge::drainOutputCommands() {
     }
 }
 
+// One arm per effect kind the DualSense takes over SDL, each a builder call. Long because the
+// kinds are this many; the switch is what the compiler checks when OutputKind gains one.
 void SDLGamepadBridge::sendEffect(SDL_GameController* gc, int iid, const OutputCommand& cmd) {
     // The family from the pad's USB identity, which a Bluetooth pad reports
     // too. The builders answer 0 for any family without the surface, and the
@@ -776,6 +781,28 @@ void SDLGamepadBridge::sendEffect(SDL_GameController* gc, int iid, const OutputC
                                  static_cast<int>(usbout::kDs5EffectBodyBytes));
 }
 
+namespace {
+
+// SDL button to XUSB bit, one row each, so the two cannot drift apart.
+constexpr std::pair<SDL_GameControllerButton, std::uint16_t> kButtonBits[] = {
+    {SDL_CONTROLLER_BUTTON_DPAD_UP, GamepadInputProcessor::Buttons::kDpadUp},
+    {SDL_CONTROLLER_BUTTON_DPAD_DOWN, GamepadInputProcessor::Buttons::kDpadDown},
+    {SDL_CONTROLLER_BUTTON_DPAD_LEFT, GamepadInputProcessor::Buttons::kDpadLeft},
+    {SDL_CONTROLLER_BUTTON_DPAD_RIGHT, GamepadInputProcessor::Buttons::kDpadRight},
+    {SDL_CONTROLLER_BUTTON_START, GamepadInputProcessor::Buttons::kStart},
+    {SDL_CONTROLLER_BUTTON_BACK, GamepadInputProcessor::Buttons::kBack},
+    {SDL_CONTROLLER_BUTTON_LEFTSTICK, GamepadInputProcessor::Buttons::kLeftThumb},
+    {SDL_CONTROLLER_BUTTON_RIGHTSTICK, GamepadInputProcessor::Buttons::kRightThumb},
+    {SDL_CONTROLLER_BUTTON_LEFTSHOULDER, GamepadInputProcessor::Buttons::kLeftShoulder},
+    {SDL_CONTROLLER_BUTTON_RIGHTSHOULDER, GamepadInputProcessor::Buttons::kRightShoulder},
+    {SDL_CONTROLLER_BUTTON_A, GamepadInputProcessor::Buttons::kA},
+    {SDL_CONTROLLER_BUTTON_B, GamepadInputProcessor::Buttons::kB},
+    {SDL_CONTROLLER_BUTTON_X, GamepadInputProcessor::Buttons::kX},
+    {SDL_CONTROLLER_BUTTON_Y, GamepadInputProcessor::Buttons::kY},
+};
+
+} // namespace
+
 void SDLGamepadBridge::rebuildState(int iid) {
     SDL_GameController* gc = nullptr;
     std::string deviceId;
@@ -792,22 +819,10 @@ void SDLGamepadBridge::rebuildState(int iid) {
     if (isSuppressed(deviceId)) { return; }
 
     GamepadInputProcessor::DeviceState st{};
-    using B = GamepadInputProcessor::Buttons;
     std::uint16_t btn = 0;
-    if (buttonDown(gc, SDL_CONTROLLER_BUTTON_DPAD_UP)) btn |= B::kDpadUp;
-    if (buttonDown(gc, SDL_CONTROLLER_BUTTON_DPAD_DOWN)) btn |= B::kDpadDown;
-    if (buttonDown(gc, SDL_CONTROLLER_BUTTON_DPAD_LEFT)) btn |= B::kDpadLeft;
-    if (buttonDown(gc, SDL_CONTROLLER_BUTTON_DPAD_RIGHT)) btn |= B::kDpadRight;
-    if (buttonDown(gc, SDL_CONTROLLER_BUTTON_START)) btn |= B::kStart;
-    if (buttonDown(gc, SDL_CONTROLLER_BUTTON_BACK)) btn |= B::kBack;
-    if (buttonDown(gc, SDL_CONTROLLER_BUTTON_LEFTSTICK)) btn |= B::kLeftThumb;
-    if (buttonDown(gc, SDL_CONTROLLER_BUTTON_RIGHTSTICK)) btn |= B::kRightThumb;
-    if (buttonDown(gc, SDL_CONTROLLER_BUTTON_LEFTSHOULDER)) btn |= B::kLeftShoulder;
-    if (buttonDown(gc, SDL_CONTROLLER_BUTTON_RIGHTSHOULDER)) btn |= B::kRightShoulder;
-    if (buttonDown(gc, SDL_CONTROLLER_BUTTON_A)) btn |= B::kA;
-    if (buttonDown(gc, SDL_CONTROLLER_BUTTON_B)) btn |= B::kB;
-    if (buttonDown(gc, SDL_CONTROLLER_BUTTON_X)) btn |= B::kX;
-    if (buttonDown(gc, SDL_CONTROLLER_BUTTON_Y)) btn |= B::kY;
+    for (const auto& [button, bit] : kButtonBits) {
+        if (buttonDown(gc, button)) { btn |= bit; }
+    }
     st.wButtons = btn;
     st.lt = triggerValue(gc, SDL_CONTROLLER_AXIS_TRIGGERLEFT);
     st.rt = triggerValue(gc, SDL_CONTROLLER_AXIS_TRIGGERRIGHT);

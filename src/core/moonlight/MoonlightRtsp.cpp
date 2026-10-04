@@ -150,6 +150,8 @@ std::optional<std::string> Response::option(std::string_view name) const {
     return std::nullopt;
 }
 
+// One pass over one message, status line then options then payload; the cursor is the state,
+// and a function per section would hand it back and forth.
 std::optional<Response> parseResponse(std::string_view text) {
     static constexpr std::string_view kProto = "RTSP/";
     if (text.substr(0, kProto.size()) != kProto) { return std::nullopt; }

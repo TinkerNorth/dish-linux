@@ -21,6 +21,7 @@
 #include "core/reducer/SlotPathFields.h"
 #include "core/reducer/TouchpadRouting.h"
 #include "core/reducer/UsbTwinDedup.h"
+#include "source/moonlight/MoonlightBindingReattach.h"
 
 #include <chrono>
 #include <map>
@@ -33,6 +34,7 @@
 
 #include <QDateTime>
 #include <QLocale>
+#include <QSet>
 #include <QStringList>
 
 namespace dish {
@@ -252,7 +254,12 @@ AppModel::AppModel(std::unique_ptr<source::WakeInhibitor> inhibitor, QObject* pa
         return motionEnabledStore_.isEnabled(slotId.toStdString());
     });
     motionSwitchSub_ = motionEnabledStore_.state().subscribe(
-        [this](const source::MotionEnabledMap&) { moonlight_->refreshMotionSwitches(); },
+        [this](const source::MotionEnabledMap&) {
+            moonlight_->refreshMotionSwitches();
+            // The satellite tables too: republishRouting installs a motion sender only while its
+            // switch is on.
+            republishRouting();
+        },
         /*emitCurrent=*/false);
     // The host's touchpad pick, which Apply writes before it binds.
     moonlight_->setTouchpadPick([this](const QString& hostUuid) {
@@ -769,6 +776,36 @@ void AppModel::onHubChanged() {
     rebuild();
 }
 
+// Queued rather than run inside rebuild: the bind rebuilds the list, and a rebuild inside a
+// rebuild would publish a half-made state. Dropped with the model if it goes first.
+void AppModel::scheduleMoonlightReattach() {
+    QMetaObject::invokeMethod(this, [this] { reattachMoonlightBindings(); }, Qt::QueuedConnection);
+}
+
+// setTypeIfAbsent: a pick made in this run outranks the one the last run saved.
+void AppModel::reattachMoonlightBindings() {
+    QSet<QString> present;
+    for (const auto& slot : state_.slotList) { present.insert(slot.id); }
+    for (auto it = moonlightReattachTried_.begin(); it != moonlightReattachTried_.end();) {
+        it = present.contains(*it) ? std::next(it) : moonlightReattachTried_.erase(it);
+    }
+    const auto standing = moonlight_->standingBindings();
+    QSet<QString> driving;
+    for (const auto& binding : standing) {
+        if (!moonlight_->boundHostFor(binding.slotId).isEmpty()) { driving.insert(binding.slotId); }
+    }
+    const auto satellite = hub_->bindings();
+    const QSet<QString> onSatellites(satellite.keyBegin(), satellite.keyEnd());
+    const auto plan = source::moon::bindingsToReattach(standing, present, driving, onSatellites,
+                                                       moonlightReattachTried_);
+    for (const auto& binding : plan) {
+        moonlightReattachTried_.insert(binding.slotId);
+        typeStore_.setTypeIfAbsent(binding.hostUuid.toStdString(), binding.slotId.toStdString(),
+                                   binding.controllerType);
+        bindMoonlightSlot(binding.slotId, binding.hostUuid);
+    }
+}
+
 void AppModel::onBridgeDevicesChanged() {
     // Configure at device-add, never per event. The bridge already installed
     // its default at attach; a saved override overwrites it here. Departed
@@ -1210,7 +1247,11 @@ void AppModel::republishRouting() {
         if (auto sender = hub_->reportSenderForSlot(slot.id)) {
             nextRouting.insert(slot.id, sender);
         }
-        if (auto sender = hub_->motionSenderForSlot(slot.id)) {
+        // The switch gates the sender itself, not only CAP_MOTION in the descriptor: a satellite
+        // accepts MSG_MOTION without the cap. Decided here, off the hot path; a flip rebuilds the
+        // tables.
+        const bool motionAllowed = motionEnabledStore_.isEnabled(slot.id.toStdString());
+        if (auto sender = hub_->motionSenderForSlot(slot.id); sender && motionAllowed) {
             nextMotion.insert(slot.id, sender);
         }
         if (auto sender = hub_->batterySenderForSlot(slot.id)) {
@@ -1263,6 +1304,8 @@ void AppModel::dropMuteForDepartedSlots() {
     micMuteStore_.retainOnly(presentIds);
 }
 
+// Long because it is the order: every pass below is named, and the sequence (slots, then the
+// binding cross-reference, publish, converge, notify, presence) is the contract the comments pin.
 void AppModel::rebuild() {
     QList<models::ControllerSlot> next;
     // Every slot this pass SHOWS, with the USB identity of the pad behind it. Published before the
@@ -1290,6 +1333,7 @@ void AppModel::rebuild() {
     republishRouting();
     republishStreamingCount(hub_->bindings());
     dropMuteForDepartedSlots();
+    scheduleMoonlightReattach();
 
     // Every input the audio eligibility rules read funnels through this function (bindings,
     // session states, toggles via re-bind, the probe verdict via poolChanged, mute via
@@ -1811,6 +1855,9 @@ void AppModel::reconcileAudioEngines() {
         reducer::micIndicatorFor(static_cast<int>(armedMicSlotIds_.size()), capturingMicSlots_);
 }
 
+// Stays long because its steps are one guarded sequence: the notices are read before the detach
+// that would erase them, the re-entrancy guard spans the whole, and the toasts wait for it to
+// clear. A function per step would hand the guard and the notices back and forth.
 void AppModel::applyBindingPresence() {
     if (bindingPresenceInFlight_) { return; }
     const auto bindings = hub_->bindings();
@@ -1954,6 +2001,12 @@ void AppModel::setSlotControllerType(const QString& slotId, int type) {
     const QString connId = hub_->bindings().value(slotId);
     if (connId.isEmpty()) { return; } // unbound: nothing to emulate
     typeStore_.setType(connId.toStdString(), slotId.toStdString(), type);
+    // The pick travels into the standing binding, so a restart sends the type last chosen.
+    if (auto standing = moonlight_->standingBinding(slotId);
+        standing && standing->hostUuid == connId) {
+        standing->controllerType = type;
+        moonlight_->rememberBinding(*standing);
+    }
     // Re-attach so the new descriptor is PUT: bind() re-reads
     // resolveControllerType, which now returns the override.
     hub_->bind(slotId, connId);

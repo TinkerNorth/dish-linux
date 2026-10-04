@@ -104,7 +104,10 @@ Kit.Page {
     // never a silent revert.
     readonly property string pathNote: {
         if (page.padFailure === "permissionDenied") {
-            return qsTr("Direct access denied — hidraw needs a udev rule. Install packaging/udev/70-dish-hidraw.rules, run udevadm control --reload-rules && udevadm trigger, then replug the controller.");
+            // The rule a sandbox carries is not at a repository path.
+            return App.runningInFlatpak
+                   ? qsTr("Direct access denied: hidraw needs a udev rule. This Flatpak carries it at /app/share/dish/70-dish-hidraw.rules. Copy it to /etc/udev/rules.d on the host, run udevadm control --reload-rules && udevadm trigger, then replug the controller.")
+                   : qsTr("Direct access denied — hidraw needs a udev rule. Install packaging/udev/70-dish-hidraw.rules, run udevadm control --reload-rules && udevadm trigger, then replug the controller.");
         }
         if (page.padPhase === "needsReplug") {
             return qsTr("Unplug and replug the controller to finish switching.");

@@ -437,6 +437,10 @@
         <translation>Direct</translation>
     </message>
     <message>
+        <source>Direct access denied: hidraw needs a udev rule. This Flatpak carries it at /app/share/dish/70-dish-hidraw.rules. Copy it to /etc/udev/rules.d on the host, run udevadm control --reload-rules &amp;&amp; udevadm trigger, then replug the controller.</source>
+        <translation>Accès direct refusé : hidraw a besoin d&apos;une règle udev. Ce Flatpak la fournit dans /app/share/dish/70-dish-hidraw.rules. Copiez-la dans /etc/udev/rules.d sur l&apos;hôte, exécutez udevadm control --reload-rules &amp;&amp; udevadm trigger, puis rebranchez la manette.</translation>
+    </message>
+    <message>
         <source>Unplug and replug the controller to finish switching.</source>
         <translation>Débranchez puis rebranchez la manette pour terminer le changement.</translation>
     </message>
@@ -1129,6 +1133,10 @@
     <message>
         <source>Unplug and replug the controller to finish switching.</source>
         <translation>Débranchez puis rebranchez la manette pour terminer le changement.</translation>
+    </message>
+    <message>
+        <source>Direct access denied: hidraw needs a udev rule. This Flatpak carries it at /app/share/dish/70-dish-hidraw.rules. Copy it to /etc/udev/rules.d on the host, run udevadm control --reload-rules &amp;&amp; udevadm trigger, then replug the controller.</source>
+        <translation>Accès direct refusé : hidraw a besoin d&apos;une règle udev. Ce Flatpak la fournit dans /app/share/dish/70-dish-hidraw.rules. Copiez-la dans /etc/udev/rules.d sur l&apos;hôte, exécutez udevadm control --reload-rules &amp;&amp; udevadm trigger, puis rebranchez la manette.</translation>
     </message>
     <message>
         <source>Direct claim is busy — another app or driver holds the device.</source>
@@ -3418,6 +3426,10 @@
         <translation>Oublier %1 ?</translation>
     </message>
     <message>
+        <source>Dish deletes its pairing and you will need the PIN again. %1 keeps its own record of this device until you remove it there.</source>
+        <translation>Dish supprime son appairage et vous devrez saisir le code PIN à nouveau. %1 garde sa propre trace de cet appareil jusqu&apos;à ce que vous la supprimiez là-bas.</translation>
+    </message>
+    <message>
         <source>Cancel</source>
         <translation>Annuler</translation>
     </message>
@@ -3472,10 +3484,6 @@
     <message>
         <source>Moonlight host (Sunshine, Apollo or Wolf)</source>
         <translation>Hôte Moonlight (Sunshine, Apollo ou Wolf)</translation>
-    </message>
-    <message>
-        <source>Dish deletes its half of the pairing and will need the PIN again. %1 keeps its own record of this device until somebody removes it there.</source>
-        <translation>Dish supprime sa moitié de l&apos;appairage et redemandera le code PIN. %1 conserve sa propre fiche de cet appareil jusqu&apos;à ce que quelqu&apos;un l&apos;y supprime.</translation>
     </message>
     <message>
         <source>New code</source>
@@ -4886,6 +4894,10 @@
         <translation>Nouvelle session</translation>
     </message>
     <message>
+        <source>%1 is no longer on this host</source>
+        <translation>%1 n&apos;est plus sur cet hôte</translation>
+    </message>
+    <message>
         <source>Joining %1</source>
         <translation>Connexion à %1</translation>
     </message>
@@ -4924,6 +4936,10 @@
     <message>
         <source>Type %1 into the Moonlight or Sunshine page on %2.</source>
         <translation>Saisissez %1 dans la page Moonlight ou Sunshine de %2.</translation>
+    </message>
+    <message>
+        <source>The app you picked was removed from %1. Pick another one to start.</source>
+        <translation>L&apos;application choisie a été retirée de %1. Choisissez-en une autre pour démarrer.</translation>
     </message>
     <message>
         <source>%1 did not answer. Check that it is switched on and on this network.</source>

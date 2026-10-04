@@ -58,6 +58,24 @@ struct MoonlightHost {
     bool operator!=(const MoonlightHost& o) const { return !(*this == o); }
 };
 
+// One slot's standing Moonlight binding, kept across restarts. The slot id is the
+// bridge's and the JSON fields dish-windows's, so both desktops write one record.
+struct MoonlightBinding {
+    QString slotId;
+    QString hostUuid;
+    int controllerType = moonproto::kControllerTypeAuto;
+
+    bool isValid() const { return !slotId.isEmpty() && !hostUuid.isEmpty(); }
+
+    bool operator==(const MoonlightBinding& o) const {
+        return slotId == o.slotId && hostUuid == o.hostUuid && controllerType == o.controllerType;
+    }
+    bool operator!=(const MoonlightBinding& o) const { return !(*this == o); }
+
+    QJsonObject toJson() const;
+    static std::optional<MoonlightBinding> fromJson(const QJsonObject& obj);
+};
+
 // "Match the pad" sentinel for MoonlightHost::controllerType. Not a wire value:
 // the session resolves it against the bound pad before CONTROLLER_ARRIVAL. One
 // value across all three Dish clients, and deliberately not 0 — 0 is the wire's
@@ -79,12 +97,21 @@ class MoonlightHostRepository : public arch::Repository<QString, MoonlightHost> 
     void remove(const QString& uuid) override;
     void clear() override;
 
+    // The standing bindings: an intent to drive a host, so it outlives the host being unreachable.
+    std::vector<MoonlightBinding> bindings() const;
+    std::optional<MoonlightBinding> binding(const QString& slotId) const;
+    void rememberBinding(const MoonlightBinding& binding);
+    void forgetBinding(const QString& slotId);
+    void forgetBindingsForHost(const QString& uuid);
+
   private:
     // Keyed by the storage key (the uuid), value stored verbatim — the
     // storage key is authoritative, mirroring RememberedSatelliteRepository.
     // Callers hold mutex_.
     QHash<QString, MoonlightHost> load() const;
     void store(const QHash<QString, MoonlightHost>& hosts);
+    std::vector<MoonlightBinding> loadBindings() const;
+    void storeBindings(const std::vector<MoonlightBinding>& bindings);
 
     std::shared_ptr<QSettings> settings_;
     mutable std::mutex mutex_;

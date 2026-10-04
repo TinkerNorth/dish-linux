@@ -28,7 +28,7 @@
 | Lightbar, motion, touchpad, battery | ✅ | ✅ | ✅ |
 | Crash reports (opt-out) | ✅ Crashlytics | ✅ Sentry | ✅ Sentry |
 | Update notice | – Play (the store updates it) · ✅ GitHub build | ✅ | ✅ |
-| Runs in the background / window closed | ❌ (streaming stops when the app leaves the screen) | ✅ tray | ✅ tray |
+| Runs in the background / window closed | ⚠️ Moonlight sessions stay up (foreground service) · satellite streaming stops when the app leaves the screen, by design: the phone is the pad | ✅ tray | ✅ tray |
 | Survives PC sleep and resume | – | ✅ Satellite · ❌ Moonlight | ✅ Satellite · ❌ Moonlight |
 | Keep-awake is user-configurable | ❌ (always on while streaming) | ✅ | ✅ |
 | Diagnostics screen | ✅ | ✅ (rumble-only bench, see §5) | ✅ (rumble-only bench, see §5) |

@@ -20,6 +20,10 @@ the repos share a version number.
 
 ### Added
 
+- **A controller goes back on its Moonlight host after a restart.** The binding you
+  apply is kept with the host and the controller type and bound again when the pad
+  appears, as the Windows app does. Unbinding it, or binding it to a satellite,
+  forgets that; forgetting the host takes its bindings with it.
 - **A Diagnostics page.** Settings opens a page that shows each satellite's
   session (the protocol settled and offered, the epoch and controller bitmap
   on the host against what Dish applied, the round trip's median and tail,
@@ -34,6 +38,10 @@ the repos share a version number.
 
 ### Fixed
 
+- **Switching Motion off stops the gyro reaching a satellite host.** The switch only
+  cleared the capability the pad declared; the samples kept flowing.
+- **Flatpak: pairing keys reach the Secret Service**, as on a host install, and the
+  Direct-access note names the udev rule the Flatpak carries and where to copy it.
 - Forgetting a satellite while one of its requests was still on the wire no
   longer writes through the freed connection. The pairing and connect callbacks
   kept the pointer they were sent with, and Forget hands that object to
@@ -128,6 +136,11 @@ the repos share a version number.
 
 ### Changed
 
+- **A Moonlight app the host removed is named, not replaced.** Dish used to forget
+  the pick and start whatever the host listed first. The pick stays, nothing starts,
+  and the binding page names the app with the picker under it.
+- **Forget says what it does**, in the same words as the other Dish apps: Dish
+  deletes its pairing, the host keeps its own record until you remove it there.
 - Every HTTP exchange with a satellite or a Moonlight host runs on the
   thread that made it, over one HTTP/1.1 transport shared with the Windows
   app, so the thread sanitizer no longer needs the TLS libraries suppressed.

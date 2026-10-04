@@ -466,12 +466,11 @@ TEST_CASE("a binding with no slot or no host is refused rather than half recorde
     CHECK(manager.session(QStringLiteral("host-uuid")) == nullptr);
 }
 
-TEST_CASE("bindings do not outlive the process, and the pairing does", "[moonlight][lifecycle]") {
-    // Pins the CONTRACT, not an aspiration. Bindings are live routing state in
-    // this client for satellites and Moonlight alike, and the slot list is
-    // rebuilt from the devices actually present at launch. What has to survive
-    // is the TRUST and the picks, because those are what a restart cannot
-    // re-derive from the hardware in front of it.
+TEST_CASE(
+    "the pairing, the picks and the standing binding outlive the process; live routing does not",
+    "[moonlight][lifecycle]") {
+    // Live routing is rebuilt from the pads present at launch; the trust, the picks and WHICH host
+    // a pad was applied to are what a restart cannot re-derive from the hardware in front of it.
     auto settings = test::makeSharedSettings();
     repository::MoonlightHostRepository repo(settings);
     repo.upsert(pairedHost());
@@ -483,6 +482,11 @@ TEST_CASE("bindings do not outlive the process, and the pairing does", "[moonlig
                     .bindController(QStringLiteral("pad-a"), uuid, moonproto::kControllerTypeAuto,
                                     plainPad())
                     .has_value());
+        repository::MoonlightBinding standing;
+        standing.slotId = QStringLiteral("pad-a");
+        standing.hostUuid = uuid;
+        standing.controllerType = moonproto::kControllerTypePs;
+        first.rememberBinding(standing);
         first.setLastApp(uuid, QStringLiteral("1093255277"), QStringLiteral("Steam Big Picture"));
         first.setControllerType(uuid, moonproto::kControllerTypePs);
     }
@@ -490,11 +494,38 @@ TEST_CASE("bindings do not outlive the process, and the pairing does", "[moonlig
     MoonlightManager second(settings);
     CHECK(second.boundHostFor(QStringLiteral("pad-a")).isEmpty());
     CHECK(second.session(uuid) == nullptr);
+    const auto standing = second.standingBinding(QStringLiteral("pad-a"));
+    REQUIRE(standing.has_value());
+    CHECK(standing->hostUuid == uuid);
+    CHECK(standing->controllerType == moonproto::kControllerTypePs);
     const auto row = second.row(uuid);
     REQUIRE(row.has_value());
     CHECK(row->paired);
     CHECK(row->lastAppId == QStringLiteral("1093255277"));
     CHECK(row->controllerType == moonproto::kControllerTypePs);
+}
+
+TEST_CASE("forgetting a host retires the standing bindings that named it",
+          "[moonlight][lifecycle][b6]") {
+    auto settings = test::makeSharedSettings();
+    repository::MoonlightHostRepository repo(settings);
+    repo.upsert(pairedHost());
+    MoonlightManager manager(settings);
+    manager.addManualHost(kNowhere, QStringLiteral("Den"), 47989, 47984);
+    const QString neighbour = QStringLiteral("addr:%1").arg(kNowhere);
+    repository::MoonlightBinding onForgotten;
+    onForgotten.slotId = QStringLiteral("pad-a");
+    onForgotten.hostUuid = QStringLiteral("host-uuid");
+    manager.rememberBinding(onForgotten);
+    repository::MoonlightBinding onNeighbour;
+    onNeighbour.slotId = QStringLiteral("pad-b");
+    onNeighbour.hostUuid = neighbour;
+    manager.rememberBinding(onNeighbour);
+
+    manager.forget(QStringLiteral("host-uuid"));
+
+    CHECK_FALSE(manager.standingBinding(QStringLiteral("pad-a")).has_value());
+    CHECK(manager.standingBinding(QStringLiteral("pad-b")).has_value());
 }
 
 // ── The session: one per host, reference counted ─────────────────────────────

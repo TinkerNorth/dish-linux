@@ -249,6 +249,9 @@ WifiConnectionManager::~WifiConnectionManager() {
     }
 }
 
+// Stays long because the scan and what is done with its result belong together: the relearn
+// order in the finished handler (store first, then the live connections, then the reconnect) is
+// the point, and it reads against the scan that produced the list.
 void WifiConnectionManager::startDiscovery() {
     if (scanning_) { return; }
     scanning_ = true;

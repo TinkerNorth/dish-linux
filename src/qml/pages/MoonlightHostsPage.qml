@@ -359,7 +359,7 @@ Kit.Page {
         // implies otherwise. The host keeps its own record until a human
         // removes this device there, which is a different screen on a
         // different machine.
-        bodyText: qsTr("Dish deletes its half of the pairing and will need the PIN again. %1 keeps its own record of this device until somebody removes it there.")
+        bodyText: qsTr("Dish deletes its pairing and you will need the PIN again. %1 keeps its own record of this device until you remove it there.")
                       .arg(page.currentLabel)
                   + (page.currentControllers > 0
                      ? "\n" + page.sessionEndsText(page.currentControllers) : "")
