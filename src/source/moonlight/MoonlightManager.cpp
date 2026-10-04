@@ -483,9 +483,8 @@ void MoonlightManager::onAppListRead(const QString& uuid, const QString& address
     emit rowsChanged();
 }
 
-// The host's app list is its own word on what it can start, and a pick it no longer lists is the
-// binding flow's to name: the launch refuses it and the picker is offered with the reason. Starting
-// the host's first app instead, as this once did, started something the user never chose.
+// A pick the host no longer lists is the binding flow's to name (PickRemoved), never launched or
+// replaced.
 bool MoonlightManager::pickRemoved(const repository::MoonlightHost& host) const {
     const QString pick = host.lastAppId;
     if (pick.isEmpty()) { return false; }
@@ -724,8 +723,7 @@ void MoonlightManager::rememberBinding(const repository::MoonlightBinding& bindi
                           << binding.hostUuid << "; both are required";
         return;
     }
-    // The host goes with it: a binding naming a host nothing remembers would come back to an
-    // id nothing resolves. Interest, not trust; rememberDestination says why.
+    // Interest, not trust: a binding naming a host nothing remembers would resolve to nothing.
     rememberDestination(binding.hostUuid);
     hostRepo_.rememberBinding(binding);
     qCInfo(lcMoon) << "standing binding" << binding.slotId << "->" << binding.hostUuid << "type"

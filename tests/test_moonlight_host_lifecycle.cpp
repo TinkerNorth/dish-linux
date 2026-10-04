@@ -469,10 +469,8 @@ TEST_CASE("a binding with no slot or no host is refused rather than half recorde
 TEST_CASE(
     "the pairing, the picks and the standing binding outlive the process; live routing does not",
     "[moonlight][lifecycle]") {
-    // Live routing is rebuilt from the pads present at launch. What a restart cannot re-derive
-    // from the hardware in front of it is the TRUST, the picks and WHICH host a pad was applied
-    // to: the standing binding is that last part, and the app model puts it back when the pad
-    // appears (dish-windows reattaches the same way).
+    // Live routing is rebuilt from the pads present at launch; the trust, the picks and WHICH host
+    // a pad was applied to are what a restart cannot re-derive from the hardware in front of it.
     auto settings = test::makeSharedSettings();
     repository::MoonlightHostRepository repo(settings);
     repo.upsert(pairedHost());

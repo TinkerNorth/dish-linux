@@ -1,9 +1,7 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 // Copyright (C) 2026 Dish contributors.
 //
-// Which standing Moonlight bindings the app model puts back when the slot list
-// moves. The rule is pure; AppModel::reattachMoonlightBindings feeds it the live
-// sets and binds what comes back.
+// Which standing Moonlight bindings the app model puts back when the slot list moves.
 
 #include "source/moonlight/MoonlightBindingReattach.h"
 
@@ -49,8 +47,6 @@ TEST_CASE("a pad that is not here, already drives its host, or rides a satellite
     CHECK(bindingsToReattach({standing(kPad)}, {kPad}, kNone, {kPad}, kNone).empty());
 }
 
-// A bind the manager refuses rebuilds the slot list like any other, and the rebuild asks again:
-// without this gate a full host would be asked on every turn of the event loop.
 TEST_CASE("a binding already tried since the pad appeared is not asked again",
           "[moonlight][binding][reattach]") {
     CHECK(bindingsToReattach({standing(kPad)}, {kPad}, kNone, kNone, {kPad}).empty());

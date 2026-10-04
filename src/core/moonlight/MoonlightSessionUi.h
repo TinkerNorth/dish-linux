@@ -87,8 +87,8 @@ struct SessionUiInputs {
     bool appsRead = false;
     bool appsFailed = false;
     int appCount = 0;
-    // The remembered pick is not in the list the host answered with. Read with
-    // appsRead only: a list that could not be read says nothing about the pick.
+    // The remembered pick is missing from the list the host answered with; meaningful with
+    // appsRead.
     bool pickRemoved = false;
 
     // The host carries a session of ours, and whether THIS binding is in it.
@@ -198,8 +198,6 @@ inline SessionUiState sessionUiState(const SessionUiInputs& in) {
     if (in.appsInFlight) { return SessionUiState::AppsLoading; }
     if (in.appsFailed) { return SessionUiState::AppsFailed; }
     if (in.appsRead && in.appCount == 0) { return SessionUiState::NoApps; }
-    // The pick is the user's word and the list is the host's: a pick the host dropped is
-    // named over the picker, and nothing starts until another is chosen.
     if (in.appsRead && in.pickRemoved) { return SessionUiState::PickRemoved; }
     return SessionUiState::NewSession;
 }

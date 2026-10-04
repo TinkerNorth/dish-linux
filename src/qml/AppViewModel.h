@@ -78,8 +78,7 @@ class AppViewModel : public QObject {
     // True when the last run left a backtrace on disk. Drives the whole report
     // card: no crash, no card, so the UI is silent in the ordinary case.
     Q_PROPERTY(bool hasCrashReport READ hasCrashReport NOTIFY crashReportChanged)
-    // Whether the process runs in a Flatpak, where a file the copy points at is
-    // inside the sandbox rather than at a repository path.
+    // A Flatpak keeps the udev rule inside the sandbox, so the copy names a different path there.
     Q_PROPERTY(bool runningInFlatpak READ runningInFlatpak CONSTANT)
 
     // ── Settings: window ──────────────────────────────────────────────────────

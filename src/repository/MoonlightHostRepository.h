@@ -58,10 +58,8 @@ struct MoonlightHost {
     bool operator!=(const MoonlightHost& o) const { return !(*this == o); }
 };
 
-// One slot's standing Moonlight binding: the host it drives and the type it
-// sends, kept across restarts so the pad is put back on its host when it
-// appears again. The slot id is the one the bridge hands out, as on
-// dish-windows; the JSON field names are dish-windows's too.
+// One slot's standing Moonlight binding, kept across restarts. The slot id is the
+// bridge's and the JSON fields dish-windows's, so both desktops write one record.
 struct MoonlightBinding {
     QString slotId;
     QString hostUuid;
@@ -99,15 +97,11 @@ class MoonlightHostRepository : public arch::Repository<QString, MoonlightHost> 
     void remove(const QString& uuid) override;
     void clear() override;
 
-    // The standing bindings. A binding survives the host being unreachable and
-    // the pairing being lost, because it is an intent rather than a connection.
+    // The standing bindings: an intent to drive a host, so it outlives the host being unreachable.
     std::vector<MoonlightBinding> bindings() const;
     std::optional<MoonlightBinding> binding(const QString& slotId) const;
     void rememberBinding(const MoonlightBinding& binding);
     void forgetBinding(const QString& slotId);
-    // Every binding that drove one host. A binding is an intent to drive THAT
-    // host, so forgetting the host retires it rather than leaving it pointing at
-    // a pairing that no longer exists.
     void forgetBindingsForHost(const QString& uuid);
 
   private:

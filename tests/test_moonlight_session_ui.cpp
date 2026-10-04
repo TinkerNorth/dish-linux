@@ -267,8 +267,8 @@ TEST_CASE("M9 through M12: the app list is a state, not a list", "[moonlight][ui
     empty.appCount = 0;
     CHECK(sessionUiState(empty) == SessionUiState::NoApps);
 
-    // A pick the host no longer lists is named over the picker: the first app would start
-    // something the user never chose, and a refusal would hide the picker it is changed in.
+    // A pick the host no longer lists is named over the picker rather than swapped for the first
+    // app.
     SessionUiInputs removed = paired();
     removed.pickRemoved = true;
     CHECK(sessionUiState(removed) == SessionUiState::PickRemoved);
@@ -277,7 +277,6 @@ TEST_CASE("M9 through M12: the app list is a state, not a list", "[moonlight][ui
     SessionUiInputs removedFromNothing = removed;
     removedFromNothing.appCount = 0;
     CHECK(sessionUiState(removedFromNothing) == SessionUiState::NoApps);
-    // And a list that was not read says nothing about the pick.
     SessionUiInputs removedUnread = removed;
     removedUnread.appsRead = false;
     removedUnread.appsFailed = true;

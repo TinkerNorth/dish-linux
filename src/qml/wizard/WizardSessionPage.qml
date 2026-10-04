@@ -364,8 +364,7 @@ ColumnLayout {
         case "hostReplaced":   return qsTr("%1 was reset").arg(page.hostName);
         case "appsLoading":    return qsTr("Reading the app list from %1…").arg(page.hostName);
         case "newSession":     return qsTr("New session");
-        // The remembered pick, which the host no longer lists; appName is that pick's
-        // name while nothing of ours runs on the host.
+        // appName is the remembered pick while nothing of ours runs on the host.
         case "pickRemoved":    return qsTr("%1 is no longer on this host").arg(page.appName);
         case "noApps":         return qsTr("No apps on this host");
         case "appsFailed":     return qsTr("Could not read the app list from %1")

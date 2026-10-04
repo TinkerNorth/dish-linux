@@ -171,7 +171,6 @@ std::vector<MoonlightBinding> MoonlightHostRepository::loadBindings() const {
     const auto raw = settings_->value(QLatin1String(keys::kMoonlightBindingListKey)).toByteArray();
     if (raw.isEmpty()) { return out; }
     const auto doc = QJsonDocument::fromJson(raw);
-    // A blob that is not a list reads as no bindings, never as a failure to start.
     if (!doc.isArray()) { return out; }
     for (const auto& entry : doc.array()) {
         if (auto binding = MoonlightBinding::fromJson(entry.toObject())) {
@@ -209,7 +208,6 @@ void MoonlightHostRepository::rememberBinding(const MoonlightBinding& binding) {
     const auto held = std::find_if(list.begin(), list.end(), [&binding](const MoonlightBinding& b) {
         return b.slotId == binding.slotId;
     });
-    // One binding per slot: a re-bind replaces, never duplicates.
     if (held == list.end()) {
         list.push_back(binding);
     } else {

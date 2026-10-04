@@ -151,10 +151,8 @@ class MoonlightManager : public QObject {
     std::optional<std::uint8_t> controllerNumber(const QString& slotId) const;
 
     // ── Standing bindings (what a restart keeps) ─────────────────────────────
-    // A binding the user applied, kept across restarts and put back by the app
-    // model when its pad is present again, as dish-windows does. Separate from
-    // bindings_, which is live routing: a standing binding whose pad is unplugged
-    // drives nothing and is still a binding.
+    // A binding the user applied, kept across restarts and put back by the app model
+    // when its pad is present. Separate from bindings_, which is live routing.
     std::vector<repository::MoonlightBinding> standingBindings() const;
     std::optional<repository::MoonlightBinding> standingBinding(const QString& slotId) const;
     void rememberBinding(const repository::MoonlightBinding& binding);
@@ -275,9 +273,8 @@ class MoonlightManager : public QObject {
     void onAppListRefused(const QString& uuid, const QString& address, int status,
                           const std::optional<moonxml::Status>& refusal);
     void onAppListRead(const QString& uuid, const QString& address, const std::string& xml);
-    // Whether the remembered pick is one the host no longer lists: the list was read and the
-    // pick is not in it. Such a pick is never launched; the binding flow names it and offers
-    // the picker (SessionUiState::PickRemoved).
+    // The remembered pick is missing from a list the host answered with; such a pick is never
+    // launched.
     bool pickRemoved(const repository::MoonlightHost& host) const;
     // What the Motion switch answers for a slot: yes with no switch set.
     bool motionSwitchAllows(const QString& slotId) const;

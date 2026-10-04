@@ -1,13 +1,9 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 // Copyright (C) 2026 Dish contributors.
 //
-// Which standing Moonlight bindings to put back when the slot list moves. Pure,
-// so the rule is tested without a bridge or a manager: a binding is reattached
-// when its pad is on the slot list, it drives nothing yet, no satellite binding
-// holds the slot (the two tables are exclusive, and the satellite one wins as
-// it does on the slot list), and it has not been tried since the pad appeared.
-// That last gate is what keeps a bind the manager refuses (a full host) from
-// being asked again on every rebuild the attempt itself causes.
+// Which standing Moonlight bindings to put back when the slot list moves. Pure, so
+// the rule is tested without a bridge or a manager. The tried set exists because a
+// bind the manager refuses rebuilds the list, which would ask again on every turn.
 
 #pragma once
 

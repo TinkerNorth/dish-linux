@@ -188,14 +188,12 @@ TEST_CASE("a binding round-trips its host and its own controller type", "[moonli
           dish::moonproto::kControllerTypeNintendo);
     CHECK_FALSE(repo.binding(QStringLiteral("sdl:9")).has_value());
 
-    // Re-binding the same slot replaces rather than duplicates.
     repo.rememberBinding(
         standing(QStringLiteral("sdl:1"), host, dish::moonproto::kControllerTypeXbox));
     REQUIRE(repo.bindings().size() == 2);
     CHECK(repo.binding(QStringLiteral("sdl:1"))->controllerType ==
           dish::moonproto::kControllerTypeXbox);
 
-    // And it survives a fresh repository over the same store.
     MoonlightHostRepository reopened(settings);
     REQUIRE(reopened.bindings().size() == 2);
     reopened.forgetBinding(QStringLiteral("sdl:1"));
@@ -236,7 +234,6 @@ TEST_CASE("a binding stored with the old Auto is migrated too", "[moonlight][rep
     const auto migrated = MoonlightBinding::fromJson(legacy);
     REQUIRE(migrated.has_value());
     CHECK(migrated->controllerType == kMoonlightControllerTypeAuto);
-    // Not a list, not a crash: the blob reads as no bindings.
     CHECK_FALSE(MoonlightBinding::fromJson(QJsonObject()).has_value());
 }
 

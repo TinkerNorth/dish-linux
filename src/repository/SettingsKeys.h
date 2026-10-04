@@ -45,9 +45,8 @@ inline constexpr const char* kMoonlightUniqueIdKey = "moonlight_identity_uniquei
 // Disjoint from kSatelliteListKey: the two connection families never mix rows.
 inline constexpr const char* kMoonlightHostListKey = "moonlight_host_list";
 
-// The standing Moonlight bindings, one JSON array under a single key: the key
-// dish-windows writes, with the same fields. A binding is an intent to drive a
-// host, so it lives beside the host list and goes when the host is forgotten.
+// The standing Moonlight bindings, one JSON array under the key dish-windows
+// writes; they live beside the host list and go when the host is forgotten.
 inline constexpr const char* kMoonlightBindingListKey = "moonlight_binding_list";
 
 // Retired key names, kept only so old installs can be upgraded in place.

@@ -624,8 +624,8 @@ void AppViewModel::setLightbarFollowGame(bool followGame) {
 }
 
 void AppViewModel::bindSlot(const QString& slotId, const QString& connectionId) {
-    // A slot drives one destination: a satellite bind retires the standing Moonlight binding
-    // the slot may hold, or a restart would put the pad back on the host the user left.
+    // A slot drives one destination: a satellite bind retires the slot's standing Moonlight
+    // binding.
     model_->moonlight()->forgetBinding(slotId);
     model_->hub()->bind(slotId, connectionId);
 }
@@ -972,8 +972,6 @@ void AppViewModel::setMoonlightControllerType(const QString& uuid, int type) {
 }
 
 void AppViewModel::bindMoonlight(const QString& slotId, const QString& uuid) {
-    // What the user applies is kept across restarts, with the type the binding sends, so the
-    // pad goes back on this host when it appears again (AppModel::reattachMoonlightBindings).
     repository::MoonlightBinding standing;
     standing.slotId = slotId;
     standing.hostUuid = uuid;

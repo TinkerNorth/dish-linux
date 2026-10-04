@@ -256,8 +256,8 @@ AppModel::AppModel(std::unique_ptr<source::WakeInhibitor> inhibitor, QObject* pa
     motionSwitchSub_ = motionEnabledStore_.state().subscribe(
         [this](const source::MotionEnabledMap&) {
             moonlight_->refreshMotionSwitches();
-            // The satellite tables too: a slot's motion sender is installed only while its
-            // switch is on (republishRouting), so a flip has to rebuild them.
+            // The satellite tables too: republishRouting installs a motion sender only while its
+            // switch is on.
             republishRouting();
         },
         /*emitCurrent=*/false);
@@ -782,8 +782,7 @@ void AppModel::scheduleMoonlightReattach() {
     QMetaObject::invokeMethod(this, [this] { reattachMoonlightBindings(); }, Qt::QueuedConnection);
 }
 
-// The type the user applied seeds the slot's override only where none is set: a pick made in
-// this run outranks what the last one saved.
+// setTypeIfAbsent: a pick made in this run outranks the one the last run saved.
 void AppModel::reattachMoonlightBindings() {
     QSet<QString> present;
     for (const auto& slot : state_.slotList) { present.insert(slot.id); }
@@ -1248,10 +1247,9 @@ void AppModel::republishRouting() {
         if (auto sender = hub_->reportSenderForSlot(slot.id)) {
             nextRouting.insert(slot.id, sender);
         }
-        // The Motion switch gates the sender itself and not only the CAP_MOTION the descriptor
-        // carries: a satellite accepts MSG_MOTION without the cap, so a switched-off pad's gyro
-        // still reached its host. Decided here, off the hot path, and redone when the switch
-        // moves (motionSwitchSub_); the Moonlight table has its own gate in the manager.
+        // The switch gates the sender itself, not only CAP_MOTION in the descriptor: a satellite
+        // accepts MSG_MOTION without the cap. Decided here, off the hot path; a flip rebuilds the
+        // tables.
         const bool motionAllowed = motionEnabledStore_.isEnabled(slot.id.toStdString());
         if (auto sender = hub_->motionSenderForSlot(slot.id); sender && motionAllowed) {
             nextMotion.insert(slot.id, sender);
@@ -2003,8 +2001,7 @@ void AppModel::setSlotControllerType(const QString& slotId, int type) {
     const QString connId = hub_->bindings().value(slotId);
     if (connId.isEmpty()) { return; } // unbound: nothing to emulate
     typeStore_.setType(connId.toStdString(), slotId.toStdString(), type);
-    // A pick for a Moonlight-bound slot travels into its standing binding, so a restart sends
-    // the type the user last chose and not the one they applied with.
+    // The pick travels into the standing binding, so a restart sends the type last chosen.
     if (auto standing = moonlight_->standingBinding(slotId);
         standing && standing->hostUuid == connId) {
         standing->controllerType = type;

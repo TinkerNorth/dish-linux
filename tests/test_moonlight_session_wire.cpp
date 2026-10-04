@@ -650,8 +650,8 @@ TEST_CASE("a launch refused in the status line is a refusal, not a silent host",
 
 TEST_CASE("an app the host no longer lists stays the pick when its list is read, and is named",
           "[moonlight][wire][b7][h3]") {
-    // The pick is the user's word. Forgetting it started the host's first app, which the user
-    // never chose; it stays, the launch refuses it and the binding flow names it (PickRemoved).
+    // The pick is the user's word: forgetting it started the host's first app, which they never
+    // chose.
     if (!tlsAvailable()) { SKIP("no TLS backend for the fixture host"); }
     Rig rig;
     REQUIRE(rig.host.listening());
@@ -695,8 +695,6 @@ TEST_CASE("a pick stays when the host's app list cannot be read", "[moonlight][w
 TEST_CASE(
     "a session on a host that no longer lists the picked app launches nothing and keeps the pick",
     "[moonlight][wire][b7]") {
-    // Starting the first listed app would start something the user never chose. The pick stays
-    // for the binding flow to name, and the picker is offered with the reason.
     if (!tlsAvailable()) { SKIP("no TLS backend for the fixture host"); }
     Rig rig;
     REQUIRE(rig.host.listening());
@@ -708,7 +706,6 @@ TEST_CASE(
                                                     moonproto::kControllerTypeAuto, plainPad());
     settle();
 
-    // The binding stands and holds its number; only the launch is refused.
     CHECK(number.has_value());
     CHECK(rig.manager->boundHostFor(QStringLiteral("pad-a")) == kHostId);
     QStringList launched;
