@@ -71,6 +71,10 @@ class SDLGamepadBridge : public QObject {
         // False when SDL reports no path, which leaves
         // the wired presentation in place and so fails safe.
         bool bluetooth = false;
+        // GUID plus the serial where the driver exposes one (a Sony pad's is its
+        // Bluetooth address), so a standing binding follows the pad and not the
+        // order pads were plugged.
+        QString identity;
     };
     QList<Device> devices() const;
 
@@ -275,6 +279,8 @@ class SDLGamepadBridge : public QObject {
         int productId = 0;
     };
     std::unordered_map<int, UsbIdentity> usbIdentity_;
+    std::unordered_map<int, QString> identities_;
+    std::unordered_map<int, QString> identities_;
 
     // Per-pad shadow for the effect builders (the DS5 lamp re-assert), the
     // twin of UsbGamepadManager's per-claim one. SDL-thread only: written at

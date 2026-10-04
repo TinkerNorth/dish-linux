@@ -255,3 +255,33 @@ TEST_CASE("forgetting a host retires the bindings that drove it", "[moonlight][r
     REQUIRE(repo.bindings().size() == 1);
     CHECK(repo.bindings().front().slotId == QStringLiteral("sdl:3"));
 }
+
+TEST_CASE("a binding keeps the pad's identity, and a record from before it existed reads as none",
+          "[moonlight][repository]") {
+    auto settings = makeSharedSettings();
+    MoonlightHostRepository repo(settings);
+    MoonlightBinding withPad;
+    withPad.slotId = QStringLiteral("sdl:1");
+    withPad.hostUuid = QStringLiteral("host-uuid");
+    withPad.padIdentity = QStringLiteral("guid:0300aabb/serial:11:22:33");
+    repo.rememberBinding(withPad);
+
+    const auto back = MoonlightHostRepository(settings).binding(QStringLiteral("sdl:1"));
+    REQUIRE(back.has_value());
+    CHECK(*back == withPad);
+    CHECK(back->padIdentity == QStringLiteral("guid:0300aabb/serial:11:22:33"));
+
+    const auto raw =
+        settings->value(QLatin1String(dish::repository::keys::kMoonlightBindingListKey))
+            .toByteArray();
+    const auto obj = QJsonDocument::fromJson(raw).array().first().toObject();
+    CHECK(obj.value(QLatin1String("padIdentity")).toString() ==
+          QStringLiteral("guid:0300aabb/serial:11:22:33"));
+
+    QJsonObject old;
+    old.insert(QStringLiteral("slotId"), QStringLiteral("sdl:2"));
+    old.insert(QStringLiteral("hostId"), QStringLiteral("host-uuid"));
+    const auto legacy = MoonlightBinding::fromJson(old);
+    REQUIRE(legacy.has_value());
+    CHECK(legacy->padIdentity.isEmpty());
+}

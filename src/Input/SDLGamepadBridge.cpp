@@ -99,6 +99,36 @@ void SDLGamepadBridge::stop() {
     if (thread_.joinable()) { thread_.join(); }
 }
 
+namespace {
+
+QString padIdentity(SDL_Joystick* js) {
+    char guid[64] = {0};
+    SDL_JoystickGetGUIDString(SDL_JoystickGetGUID(js), guid, sizeof(guid));
+    QString out = QStringLiteral("guid:") + QString::fromLatin1(guid);
+    const char* serial = SDL_JoystickGetSerial(js);
+    if (serial != nullptr && serial[0] != '\0') {
+        out += QStringLiteral("/serial:") + QString::fromUtf8(serial);
+    }
+    return out;
+}
+
+} // namespace
+
+namespace {
+
+QString padIdentity(SDL_Joystick* js) {
+    char guid[64] = {0};
+    SDL_JoystickGetGUIDString(SDL_JoystickGetGUID(js), guid, sizeof(guid));
+    QString out = QStringLiteral("guid:") + QString::fromLatin1(guid);
+    const char* serial = SDL_JoystickGetSerial(js);
+    if (serial != nullptr && serial[0] != '\0') {
+        out += QStringLiteral("/serial:") + QString::fromUtf8(serial);
+    }
+    return out;
+}
+
+} // namespace
+
 QList<SDLGamepadBridge::Device> SDLGamepadBridge::devices() const {
     std::lock_guard<std::mutex> lock(mtx_);
     QList<Device> out;
@@ -118,6 +148,8 @@ QList<SDLGamepadBridge::Device> SDLGamepadBridge::devices() const {
             dev.vendorId = it->second.vendorId;
             dev.productId = it->second.productId;
         }
+        if (auto it = identities_.find(iid); it != identities_.end()) { dev.identity = it->second; }
+        if (auto it = identities_.find(iid); it != identities_.end()) { dev.identity = it->second; }
         dev.isRawJoystick = openJoysticks_.count(iid) != 0;
         dev.hasTouchpad = touchpadCapable_.count(iid) != 0;
         dev.hasRumble = rumbleCapable_.count(iid) != 0;
@@ -207,6 +239,8 @@ void SDLGamepadBridge::registerController(int iid, SDL_GameController* gc, const
     if (caps.hasRumble) { rumbleCapable_.insert(iid); }
     if (caps.bluetooth) { bluetoothIids_.insert(iid); }
     usbIdentity_[iid] = {caps.vendorId, caps.productId};
+    identities_[iid] = padIdentity(SDL_GameControllerGetJoystick(gc));
+    identities_[iid] = padIdentity(SDL_GameControllerGetJoystick(gc));
     lastBatteryPoll_[iid] = std::chrono::steady_clock::time_point{};
 }
 
@@ -262,6 +296,8 @@ void SDLGamepadBridge::onControllerRemoved(const SDL_Event& ev) {
             deviceIds_.erase(it);
         }
         deviceNames_.erase(iid);
+        identities_.erase(iid);
+        identities_.erase(iid);
         motionCapable_.erase(iid);
         lightbarCapable_.erase(iid);
         touchpadCapable_.erase(iid);
@@ -308,6 +344,8 @@ void SDLGamepadBridge::onJoystickAdded(const SDL_Event& ev) {
         if (hasRumble) { rumbleCapable_.insert(iid); }
         if (bluetooth) { bluetoothIids_.insert(iid); }
         usbIdentity_[iid] = {vendorId, productId};
+        identities_[iid] = padIdentity(js);
+        identities_[iid] = padIdentity(js);
         lastBatteryPoll_[iid] = std::chrono::steady_clock::time_point{};
     }
     char guidBuf[64] = {0};
@@ -340,6 +378,8 @@ void SDLGamepadBridge::onJoystickRemoved(const SDL_Event& ev) {
             deviceIds_.erase(it);
         }
         deviceNames_.erase(iid);
+        identities_.erase(iid);
+        identities_.erase(iid);
         rumbleCapable_.erase(iid);
         bluetoothIids_.erase(iid);
         usbIdentity_.erase(iid);
