@@ -94,9 +94,12 @@ modules:
       # and speaker endpoints); only the render backend is dead weight in the
       # sandbox. The audio backends auto-detect against the Sdk: pulse (served
       # by pipewire-pulse on PipeWire desktops) is the one the pulseaudio
-      # socket grant reaches.
+      # socket grant reaches. PipeWire itself is off by name: the sandbox
+      # grants no PipeWire socket, so that backend could never open, and the
+      # 6.10 Sdk ships PipeWire 1.4 headers that refuse SDL 2.30 calling them.
       - -DSDL_RENDER=OFF
       - -DSDL_AUDIO=ON
+      - -DSDL_PIPEWIRE=OFF
       - -DSDL_HIDAPI=ON
       - -DSDL_JOYSTICK=ON
       - -DSDL_HAPTIC=ON
