@@ -102,6 +102,12 @@
   <!-- Kept in step with project(Dish VERSION ...); version-consistency.yml
        fails the PR that moves one without the other. -->
   <releases>
+    <release version="2.2.0" date="2026-10-04" type="stable">
+      <url type="details">https://github.com/TinkerNorth/dish-linux/releases/tag/2.2.0</url>
+      <description>
+        <p>The AppImage no longer crashes on a dialog's Cancel button (Qt 6.10.3), and the Flatpak reports crashes like every other package. A Diagnostics page shows each session and each controller down to the wire. A controller goes back on its Moonlight host after a restart and the binding follows the pad, not the order pads were plugged. The Rumble switch and the touchpad's Pad choice work, a satellite you disconnect stays disconnected, and a reinstalled satellite says so.</p>
+      </description>
+    </release>
     <release version="2.1.0" date="2026-09-21" type="stable">
       <url type="details">https://github.com/TinkerNorth/dish-linux/releases/tag/2.1.0</url>
       <description>
