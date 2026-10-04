@@ -39,6 +39,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <vector>
 
 class QThread;
 
@@ -148,6 +149,14 @@ class MoonlightManager : public QObject {
     QStringList boundSlots(const QString& uuid) const;
     int controllerCount(const QString& uuid) const;
     std::optional<std::uint8_t> controllerNumber(const QString& slotId) const;
+
+    // ── Standing bindings (what a restart keeps) ─────────────────────────────
+    // A binding the user applied, kept across restarts and put back by the app model
+    // when its pad is present. Separate from bindings_, which is live routing.
+    std::vector<repository::MoonlightBinding> standingBindings() const;
+    std::optional<repository::MoonlightBinding> standingBinding(const QString& slotId) const;
+    void rememberBinding(const repository::MoonlightBinding& binding);
+    void forgetBinding(const QString& slotId);
 
     // Everything the binding-flow render contract reads about one host, from
     // the point of view of `slotId` (empty for a binding that does not exist
@@ -264,7 +273,9 @@ class MoonlightManager : public QObject {
     void onAppListRefused(const QString& uuid, const QString& address, int status,
                           const std::optional<moonxml::Status>& refusal);
     void onAppListRead(const QString& uuid, const QString& address, const std::string& xml);
-    void forgetAPickTheHostDropped(const QString& uuid, const QList<MoonlightApp>& listed);
+    // The remembered pick is missing from a list the host answered with; such a pick is never
+    // launched.
+    bool pickRemoved(const repository::MoonlightHost& host) const;
     // What the Motion switch answers for a slot: yes with no switch set.
     bool motionSwitchAllows(const QString& slotId) const;
     // Hands the switch's answer to the session the slot rides, where sendMotion reads it.

@@ -7,6 +7,7 @@
 
 #include "AppModel.h"
 #include "FeatureSettings.h"
+#include "Util/Sandbox.h"
 #include "Input/GamepadInputProcessor.h"
 #include "Input/JoystickMapping.h"
 #include "Input/SDLGamepadBridge.h"
@@ -623,6 +624,9 @@ void AppViewModel::setLightbarFollowGame(bool followGame) {
 }
 
 void AppViewModel::bindSlot(const QString& slotId, const QString& connectionId) {
+    // A slot drives one destination: a satellite bind retires the slot's standing Moonlight
+    // binding.
+    model_->moonlight()->forgetBinding(slotId);
     model_->hub()->bind(slotId, connectionId);
 }
 
@@ -630,6 +634,8 @@ void AppViewModel::unbindSlot(const QString& slotId) {
     // One verb for both destination kinds: a slot rides a satellite OR a
     // Moonlight host, and every caller (the board, the pad card, Configure
     // binding) means the same thing by Unbind.
+    // The intent goes with the routing: an unbound pad has no standing binding.
+    model_->moonlight()->forgetBinding(slotId);
     if (!model_->moonlightBoundHostFor(slotId).isEmpty()) {
         model_->unbindMoonlightSlot(slotId);
         return;
@@ -966,10 +972,18 @@ void AppViewModel::setMoonlightControllerType(const QString& uuid, int type) {
 }
 
 void AppViewModel::bindMoonlight(const QString& slotId, const QString& uuid) {
+    repository::MoonlightBinding standing;
+    standing.slotId = slotId;
+    standing.hostUuid = uuid;
+    standing.controllerType = model_->moonlightBindingType(uuid, slotId);
+    model_->moonlight()->rememberBinding(standing);
     model_->bindMoonlightSlot(slotId, uuid);
 }
 
-void AppViewModel::unbindMoonlight(const QString& slotId) { model_->unbindMoonlightSlot(slotId); }
+void AppViewModel::unbindMoonlight(const QString& slotId) {
+    model_->moonlight()->forgetBinding(slotId);
+    model_->unbindMoonlightSlot(slotId);
+}
 
 QVariantList AppViewModel::discoveredServers() const {
     // The one-spot rule: a satellite that already has a connections row renders
@@ -1074,6 +1088,8 @@ void AppViewModel::setThemeMode(int mode) {
 bool AppViewModel::crashReportingEnabled() const { return model_->crashStore()->enabled(); }
 
 bool AppViewModel::hasCrashReport() const { return crash::hasCrashLog(); }
+
+bool AppViewModel::runningInFlatpak() const { return util::runningInFlatpak(); }
 
 QString AppViewModel::crashReportText() const {
     return crash::buildReport(crash::readCrashLog(), QString::fromLocal8Bit(qgetenv("HOME")));

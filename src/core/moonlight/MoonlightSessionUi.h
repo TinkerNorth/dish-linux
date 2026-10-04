@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Dish contributors.
 //
 // The render contract for the Moonlight section of the binding flow: one pure,
-// total function from what is known about a host to exactly one of twenty-one
+// total function from what is known about a host to exactly one of twenty-two
 // states, plus the lowercase tokens QML localizes. The C++ never vends a
 // sentence, the same rule the capability solver and the link vocabulary follow.
 //
@@ -47,6 +47,7 @@ enum class SessionUiState : std::uint8_t {
     AppsLoading,    // paired, no session of ours, /applist in flight
     NewSession,     // paired, no session of ours, the list is readable
     NoApps,         // the list came back empty
+    PickRemoved,    // the list is readable and the remembered pick is not in it
     AppsFailed,     // /applist failed while paired
     Joining,        // this device already holds a session on this host
     HostFull,       // four controllers already ride this host
@@ -86,6 +87,9 @@ struct SessionUiInputs {
     bool appsRead = false;
     bool appsFailed = false;
     int appCount = 0;
+    // The remembered pick is missing from the list the host answered with; meaningful with
+    // appsRead.
+    bool pickRemoved = false;
 
     // The host carries a session of ours, and whether THIS binding is in it.
     bool sessionLive = false;
@@ -194,6 +198,7 @@ inline SessionUiState sessionUiState(const SessionUiInputs& in) {
     if (in.appsInFlight) { return SessionUiState::AppsLoading; }
     if (in.appsFailed) { return SessionUiState::AppsFailed; }
     if (in.appsRead && in.appCount == 0) { return SessionUiState::NoApps; }
+    if (in.appsRead && in.pickRemoved) { return SessionUiState::PickRemoved; }
     return SessionUiState::NewSession;
 }
 
@@ -229,6 +234,8 @@ inline const char* sessionUiToken(SessionUiState state) {
         return "newSession";
     case SessionUiState::NoApps:
         return "noApps";
+    case SessionUiState::PickRemoved:
+        return "pickRemoved";
     case SessionUiState::AppsFailed:
         return "appsFailed";
     case SessionUiState::Joining:

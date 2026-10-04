@@ -437,6 +437,10 @@
         <translation>Directo</translation>
     </message>
     <message>
+        <source>Direct access denied: hidraw needs a udev rule. This Flatpak carries it at /app/share/dish/70-dish-hidraw.rules. Copy it to /etc/udev/rules.d on the host, run udevadm control --reload-rules &amp;&amp; udevadm trigger, then replug the controller.</source>
+        <translation>Acceso directo denegado: hidraw necesita una regla udev. Este Flatpak la incluye en /app/share/dish/70-dish-hidraw.rules. Cópiala a /etc/udev/rules.d en el equipo, ejecuta udevadm control --reload-rules &amp;&amp; udevadm trigger y vuelve a conectar el mando.</translation>
+    </message>
+    <message>
         <source>Unplug and replug the controller to finish switching.</source>
         <translation>Desconecta y vuelve a conectar el mando para terminar el cambio.</translation>
     </message>
@@ -1129,6 +1133,10 @@
     <message>
         <source>Unplug and replug the controller to finish switching.</source>
         <translation>Desconecta y vuelve a conectar el mando para terminar el cambio.</translation>
+    </message>
+    <message>
+        <source>Direct access denied: hidraw needs a udev rule. This Flatpak carries it at /app/share/dish/70-dish-hidraw.rules. Copy it to /etc/udev/rules.d on the host, run udevadm control --reload-rules &amp;&amp; udevadm trigger, then replug the controller.</source>
+        <translation>Acceso directo denegado: hidraw necesita una regla udev. Este Flatpak la incluye en /app/share/dish/70-dish-hidraw.rules. Cópiala a /etc/udev/rules.d en el equipo, ejecuta udevadm control --reload-rules &amp;&amp; udevadm trigger y vuelve a conectar el mando.</translation>
     </message>
     <message>
         <source>Direct claim is busy — another app or driver holds the device.</source>
@@ -3418,6 +3426,10 @@
         <translation>¿Olvidar %1?</translation>
     </message>
     <message>
+        <source>Dish deletes its pairing and you will need the PIN again. %1 keeps its own record of this device until you remove it there.</source>
+        <translation>Dish borra su emparejamiento y necesitarás el PIN de nuevo. %1 conserva su propio registro de este dispositivo hasta que lo elimines allí.</translation>
+    </message>
+    <message>
         <source>Cancel</source>
         <translation>Cancelar</translation>
     </message>
@@ -3472,10 +3484,6 @@
     <message>
         <source>Moonlight host (Sunshine, Apollo or Wolf)</source>
         <translation>Host de Moonlight (Sunshine, Apollo o Wolf)</translation>
-    </message>
-    <message>
-        <source>Dish deletes its half of the pairing and will need the PIN again. %1 keeps its own record of this device until somebody removes it there.</source>
-        <translation>Dish elimina su mitad del emparejamiento y volverá a pedir el PIN. %1 conserva su propio registro de este dispositivo hasta que alguien lo elimine allí.</translation>
     </message>
     <message>
         <source>New code</source>
@@ -4886,6 +4894,10 @@
         <translation>Nueva sesión</translation>
     </message>
     <message>
+        <source>%1 is no longer on this host</source>
+        <translation>%1 ya no está en este host</translation>
+    </message>
+    <message>
         <source>Joining %1</source>
         <translation>Uniéndose a %1</translation>
     </message>
@@ -4924,6 +4936,10 @@
     <message>
         <source>Type %1 into the Moonlight or Sunshine page on %2.</source>
         <translation>Escribe %1 en la página de Moonlight o Sunshine de %2.</translation>
+    </message>
+    <message>
+        <source>The app you picked was removed from %1. Pick another one to start.</source>
+        <translation>La app que elegiste se quitó de %1. Elige otra para empezar.</translation>
     </message>
     <message>
         <source>%1 did not answer. Check that it is switched on and on this network.</source>

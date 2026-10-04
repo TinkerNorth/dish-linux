@@ -438,6 +438,10 @@
         <translation>Brzi</translation>
     </message>
     <message>
+        <source>Direct access denied: hidraw needs a udev rule. This Flatpak carries it at /app/share/dish/70-dish-hidraw.rules. Copy it to /etc/udev/rules.d on the host, run udevadm control --reload-rules &amp;&amp; udevadm trigger, then replug the controller.</source>
+        <translation>Direktni pristup odbijen: hidraw treba udev pravilo. Ovaj Flatpak ga nosi u /app/share/dish/70-dish-hidraw.rules. Kopirajte ga u /etc/udev/rules.d na računaru, pokrenite udevadm control --reload-rules &amp;&amp; udevadm trigger, pa ponovo priključite kontroler.</translation>
+    </message>
+    <message>
         <source>Unplug and replug the controller to finish switching.</source>
         <translation>Isključite i ponovo priključite kontroler da završite prebacivanje.</translation>
     </message>
@@ -1137,6 +1141,10 @@
     <message>
         <source>Unplug and replug the controller to finish switching.</source>
         <translation>Isključite i ponovo priključite kontroler da završite prebacivanje.</translation>
+    </message>
+    <message>
+        <source>Direct access denied: hidraw needs a udev rule. This Flatpak carries it at /app/share/dish/70-dish-hidraw.rules. Copy it to /etc/udev/rules.d on the host, run udevadm control --reload-rules &amp;&amp; udevadm trigger, then replug the controller.</source>
+        <translation>Direktni pristup odbijen: hidraw treba udev pravilo. Ovaj Flatpak ga nosi u /app/share/dish/70-dish-hidraw.rules. Kopirajte ga u /etc/udev/rules.d na računaru, pokrenite udevadm control --reload-rules &amp;&amp; udevadm trigger, pa ponovo priključite kontroler.</translation>
     </message>
     <message>
         <source>Direct claim is busy — another app or driver holds the device.</source>
@@ -3434,6 +3442,10 @@
         <translation>Zaboraviti %1?</translation>
     </message>
     <message>
+        <source>Dish deletes its pairing and you will need the PIN again. %1 keeps its own record of this device until you remove it there.</source>
+        <translation>Dish briše svoje uparivanje i PIN će vam ponovo biti potreban. %1 čuva vlastiti zapis o ovom uređaju dok ga tamo ne uklonite.</translation>
+    </message>
+    <message>
         <source>Cancel</source>
         <translation>Otkaži</translation>
     </message>
@@ -3488,10 +3500,6 @@
     <message>
         <source>Moonlight host (Sunshine, Apollo or Wolf)</source>
         <translation>Moonlight host (Sunshine, Apollo ili Wolf)</translation>
-    </message>
-    <message>
-        <source>Dish deletes its half of the pairing and will need the PIN again. %1 keeps its own record of this device until somebody removes it there.</source>
-        <translation>Dish briše svoju polovinu uparivanja i ponovo će tražiti PIN. %1 zadržava vlastiti zapis o ovom uređaju dok ga tamo neko ne ukloni.</translation>
     </message>
     <message>
         <source>New code</source>
@@ -4909,6 +4917,10 @@
         <translation>Nova sesija</translation>
     </message>
     <message>
+        <source>%1 is no longer on this host</source>
+        <translation>%1 više nije na ovom hostu</translation>
+    </message>
+    <message>
         <source>Joining %1</source>
         <translation>Pridruživanje %1</translation>
     </message>
@@ -4947,6 +4959,10 @@
     <message>
         <source>Type %1 into the Moonlight or Sunshine page on %2.</source>
         <translation>Upišite %1 na Moonlight ili Sunshine stranicu na %2.</translation>
+    </message>
+    <message>
+        <source>The app you picked was removed from %1. Pick another one to start.</source>
+        <translation>Aplikacija koju ste odabrali uklonjena je s hosta %1. Odaberite drugu za pokretanje.</translation>
     </message>
     <message>
         <source>%1 did not answer. Check that it is switched on and on this network.</source>
