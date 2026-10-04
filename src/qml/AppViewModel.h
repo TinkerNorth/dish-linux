@@ -78,6 +78,9 @@ class AppViewModel : public QObject {
     // True when the last run left a backtrace on disk. Drives the whole report
     // card: no crash, no card, so the UI is silent in the ordinary case.
     Q_PROPERTY(bool hasCrashReport READ hasCrashReport NOTIFY crashReportChanged)
+    // Whether the process runs in a Flatpak, where a file the copy points at is
+    // inside the sandbox rather than at a repository path.
+    Q_PROPERTY(bool runningInFlatpak READ runningInFlatpak CONSTANT)
 
     // ── Settings: window ──────────────────────────────────────────────────────
     Q_PROPERTY(bool runInBackground READ runInBackground WRITE setRunInBackground NOTIFY
@@ -306,6 +309,7 @@ class AppViewModel : public QObject {
 
     // ── Commands, forwarded verbatim to the AppModel surface ────────────────
 
+    bool runningInFlatpak() const;
     Q_INVOKABLE void bindSlot(const QString& slotId, const QString& connectionId);
     Q_INVOKABLE void unbindSlot(const QString& slotId);
 

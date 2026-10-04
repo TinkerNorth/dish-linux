@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include "Util/Sandbox.h"
 #include "architecture/StateSource.h"
 
 #include <QFile>
@@ -80,15 +81,10 @@ class UpdatePreferenceStore : public arch::StateSource<UpdatePreferences> {
     // therefore defaults OFF; the Settings toggle still works, and a flip
     // persists like any other preference (the sandbox has its own config under
     // ~/.var/app/, so this default never leaks into a host install).
-    static bool runningInFlatpak() {
-        return qEnvironmentVariableIsSet("FLATPAK_ID") ||
-               QFile::exists(QStringLiteral("/.flatpak-info"));
-    }
-
     static UpdatePreferences readInitial(QSettings& settings) {
         UpdatePreferences initial;
         initial.checksEnabled =
-            settings.value(QLatin1String(kKeyChecksEnabled), !runningInFlatpak()).toBool();
+            settings.value(QLatin1String(kKeyChecksEnabled), !util::runningInFlatpak()).toBool();
         initial.skippedVersion =
             settings.value(QLatin1String(kKeySkippedVersion), QString()).toString();
         return initial;

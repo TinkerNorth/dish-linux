@@ -75,6 +75,8 @@ HttpManifestGateway::HttpManifestGateway(QObject* parent)
 
 HttpManifestGateway::~HttpManifestGateway() { cancel(); }
 
+// Long because the reply's whole life is in one place: the size cap, the transport error, the
+// status and the parse are one chain of answers to one request, read in the order they arrive.
 void HttpManifestGateway::fetch(Callback done) {
     if (!reply_.isNull()) { return; }
     done_ = std::move(done);

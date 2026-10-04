@@ -225,6 +225,8 @@ QVariant SlotListModel::data(const QModelIndex& index, int role) const {
     return {};
 }
 
+// One line per role, and long for exactly that reason: the table is the QML contract, read
+// against the delegates that name these fields, and a split would hide half of it.
 QHash<int, QByteArray> SlotListModel::roleNames() const {
     return {
         {IdRole, "slotId"},

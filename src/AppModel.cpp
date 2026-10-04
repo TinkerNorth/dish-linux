@@ -34,6 +34,7 @@
 
 #include <QDateTime>
 #include <QLocale>
+#include <QSet>
 #include <QStringList>
 
 namespace dish {
@@ -253,7 +254,12 @@ AppModel::AppModel(std::unique_ptr<source::WakeInhibitor> inhibitor, QObject* pa
         return motionEnabledStore_.isEnabled(slotId.toStdString());
     });
     motionSwitchSub_ = motionEnabledStore_.state().subscribe(
-        [this](const source::MotionEnabledMap&) { moonlight_->refreshMotionSwitches(); },
+        [this](const source::MotionEnabledMap&) {
+            moonlight_->refreshMotionSwitches();
+            // The satellite tables too: a slot's motion sender is installed only while its
+            // switch is on (republishRouting), so a flip has to rebuild them.
+            republishRouting();
+        },
         /*emitCurrent=*/false);
     // The host's touchpad pick, which Apply writes before it binds.
     moonlight_->setTouchpadPick([this](const QString& hostUuid) {
@@ -770,12 +776,6 @@ void AppModel::onHubChanged() {
     rebuild();
 }
 
-void AppModel::onBridgeDevicesChanged() {
-    // Configure at device-add, never per event. The bridge already installed
-    // its default at attach; a saved override overwrites it here. Departed
-    // devices are pruned so a re-plug re-applies.
-    const auto devices = bridge_->devices();
-    QSet<QString> present;
 // Queued rather than run inside rebuild: the bind rebuilds the list, and a rebuild inside a
 // rebuild would publish a half-made state. Dropped with the model if it goes first.
 void AppModel::scheduleMoonlightReattach() {
@@ -807,6 +807,12 @@ void AppModel::reattachMoonlightBindings() {
     }
 }
 
+void AppModel::onBridgeDevicesChanged() {
+    // Configure at device-add, never per event. The bridge already installed
+    // its default at attach; a saved override overwrites it here. Departed
+    // devices are pruned so a re-plug re-applies.
+    const auto devices = bridge_->devices();
+    QSet<QString> present;
     for (const auto& d : devices) {
         present.insert(d.id);
         if (deadzonePushedDevices_.contains(d.id)) { continue; }
@@ -1242,7 +1248,12 @@ void AppModel::republishRouting() {
         if (auto sender = hub_->reportSenderForSlot(slot.id)) {
             nextRouting.insert(slot.id, sender);
         }
-        if (auto sender = hub_->motionSenderForSlot(slot.id)) {
+        // The Motion switch gates the sender itself and not only the CAP_MOTION the descriptor
+        // carries: a satellite accepts MSG_MOTION without the cap, so a switched-off pad's gyro
+        // still reached its host. Decided here, off the hot path, and redone when the switch
+        // moves (motionSwitchSub_); the Moonlight table has its own gate in the manager.
+        const bool motionAllowed = motionEnabledStore_.isEnabled(slot.id.toStdString());
+        if (auto sender = hub_->motionSenderForSlot(slot.id); sender && motionAllowed) {
             nextMotion.insert(slot.id, sender);
         }
         if (auto sender = hub_->batterySenderForSlot(slot.id)) {
@@ -1295,6 +1306,8 @@ void AppModel::dropMuteForDepartedSlots() {
     micMuteStore_.retainOnly(presentIds);
 }
 
+// Long because it is the order: every pass below is named, and the sequence (slots, then the
+// binding cross-reference, publish, converge, notify, presence) is the contract the comments pin.
 void AppModel::rebuild() {
     QList<models::ControllerSlot> next;
     // Every slot this pass SHOWS, with the USB identity of the pad behind it. Published before the
@@ -1322,6 +1335,7 @@ void AppModel::rebuild() {
     republishRouting();
     republishStreamingCount(hub_->bindings());
     dropMuteForDepartedSlots();
+    scheduleMoonlightReattach();
 
     // Every input the audio eligibility rules read funnels through this function (bindings,
     // session states, toggles via re-bind, the probe verdict via poolChanged, mute via
@@ -1335,7 +1349,6 @@ void AppModel::rebuild() {
     // steady state free.
     prewarmCatalogs();
 
-    scheduleMoonlightReattach();
     // Last, because it can bind/unbind and therefore re-enter this function.
     applyBindingPresence();
 }
@@ -1844,6 +1857,9 @@ void AppModel::reconcileAudioEngines() {
         reducer::micIndicatorFor(static_cast<int>(armedMicSlotIds_.size()), capturingMicSlots_);
 }
 
+// Stays long because its steps are one guarded sequence: the notices are read before the detach
+// that would erase them, the re-entrancy guard spans the whole, and the toasts wait for it to
+// clear. A function per step would hand the guard and the notices back and forth.
 void AppModel::applyBindingPresence() {
     if (bindingPresenceInFlight_) { return; }
     const auto bindings = hub_->bindings();
@@ -1987,6 +2003,13 @@ void AppModel::setSlotControllerType(const QString& slotId, int type) {
     const QString connId = hub_->bindings().value(slotId);
     if (connId.isEmpty()) { return; } // unbound: nothing to emulate
     typeStore_.setType(connId.toStdString(), slotId.toStdString(), type);
+    // A pick for a Moonlight-bound slot travels into its standing binding, so a restart sends
+    // the type the user last chose and not the one they applied with.
+    if (auto standing = moonlight_->standingBinding(slotId);
+        standing && standing->hostUuid == connId) {
+        standing->controllerType = type;
+        moonlight_->rememberBinding(*standing);
+    }
     // Re-attach so the new descriptor is PUT: bind() re-reads
     // resolveControllerType, which now returns the override.
     hub_->bind(slotId, connId);
@@ -2003,13 +2026,6 @@ std::optional<models::CatalogTypeDto> AppModel::catalogTypeFor(const QString& ho
                                                                int type) const {
     if (hostId.isEmpty()) { return std::nullopt; }
     const auto cached = catalogRepo_.cached(hostId);
-    // A pick for a Moonlight-bound slot travels into its standing binding, so a restart sends
-    // the type the user last chose and not the one they applied with.
-    if (auto standing = moonlight_->standingBinding(slotId);
-        standing && standing->hostUuid == connId) {
-        standing->controllerType = type;
-        moonlight_->rememberBinding(*standing);
-    }
     if (!cached.has_value()) { return std::nullopt; }
     for (const auto& t : cached->controllerTypes) {
         if (t.id == type) { return t; }

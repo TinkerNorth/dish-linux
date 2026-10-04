@@ -54,6 +54,10 @@ finish-args:
   - --talk-name=org.kde.StatusNotifierWatcher
   # "Dish is still running" has to reach a user whose window just vanished.
   - --talk-name=org.freedesktop.Notifications
+  # The satellite pairing keys go to the Secret Service where there is one, as
+  # on a host install; without this grant the sandbox never sees it and every
+  # key lands in the 0600 file instead.
+  - --talk-name=org.freedesktop.secrets
   # BluetoothRadioProbe needs Adapter1.Powered to tell "no adapter" from "off".
   - --system-talk-name=org.bluez
   # Both logind locks: DisplaySleepInhibitor's idle block, and SleepMonitor's
