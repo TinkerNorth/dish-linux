@@ -648,10 +648,10 @@ TEST_CASE("a launch refused in the status line is a refusal, not a silent host",
 
 // ── The app a launch asks for ────────────────────────────────────────────────
 
-TEST_CASE("an app the host no longer lists is forgotten as the pick when its list is read",
+TEST_CASE("an app the host no longer lists stays the pick when its list is read, and is named",
           "[moonlight][wire][b7][h3]") {
-    // Launched, it is refused every time (Wolf answers an unknown app with HTTP
-    // 400), and the refusal hides the picker it could be changed in.
+    // The pick is the user's word. Forgetting it started the host's first app, which the user
+    // never chose; it stays, the launch refuses it and the binding flow names it (PickRemoved).
     if (!tlsAvailable()) { SKIP("no TLS backend for the fixture host"); }
     Rig rig;
     REQUIRE(rig.host.listening());
@@ -659,8 +659,10 @@ TEST_CASE("an app the host no longer lists is forgotten as the pick when its lis
 
     REQUIRE(rig.readApps());
 
-    CHECK(rig.storedPick().isEmpty());
-    CHECK(rig.repo->get(kHostId)->lastAppName.isEmpty());
+    CHECK(rig.storedPick() == QStringLiteral("9"));
+    CHECK(rig.repo->get(kHostId)->lastAppName == QStringLiteral("Removed"));
+    CHECK(rig.manager->uiInputs(kHostId, QString()).pickRemoved);
+    CHECK(rig.uiFor(QString()) == moonlight::SessionUiState::PickRemoved);
 }
 
 TEST_CASE("an app the host still lists stays the pick", "[moonlight][wire][b7]") {
@@ -672,6 +674,7 @@ TEST_CASE("an app the host still lists stays the pick", "[moonlight][wire][b7]")
     REQUIRE(rig.readApps());
 
     CHECK(rig.storedPick() == QStringLiteral("1"));
+    CHECK_FALSE(rig.manager->uiInputs(kHostId, QString()).pickRemoved);
 }
 
 TEST_CASE("a pick stays when the host's app list cannot be read", "[moonlight][wire][b7]") {
@@ -686,10 +689,14 @@ TEST_CASE("a pick stays when the host's app list cannot be read", "[moonlight][w
     REQUIRE(rig.readApps());
 
     CHECK(rig.storedPick() == QStringLiteral("9"));
+    CHECK_FALSE(rig.manager->uiInputs(kHostId, QString()).pickRemoved);
 }
 
-TEST_CASE("a session on a host that no longer lists the picked app starts the first app it lists",
-          "[moonlight][wire][b7]") {
+TEST_CASE(
+    "a session on a host that no longer lists the picked app launches nothing and keeps the pick",
+    "[moonlight][wire][b7]") {
+    // Starting the first listed app would start something the user never chose. The pick stays
+    // for the binding flow to name, and the picker is offered with the reason.
     if (!tlsAvailable()) { SKIP("no TLS backend for the fixture host"); }
     Rig rig;
     REQUIRE(rig.host.listening());
@@ -697,15 +704,22 @@ TEST_CASE("a session on a host that no longer lists the picked app starts the fi
     REQUIRE(rig.readApps());
     rig.host.forgetRequests();
 
-    REQUIRE(rig.bindLive(QStringLiteral("pad-a")));
+    const auto number = rig.manager->bindController(QStringLiteral("pad-a"), kHostId,
+                                                    moonproto::kControllerTypeAuto, plainPad());
+    settle();
 
+    // The binding stands and holds its number; only the launch is refused.
+    CHECK(number.has_value());
+    CHECK(rig.manager->boundHostFor(QStringLiteral("pad-a")) == kHostId);
     QStringList launched;
     for (const auto& request : rig.host.requests()) {
         if (request.path == QLatin1String("/launch")) {
             launched.append(request.query.queryItemValue(QStringLiteral("appid")));
         }
     }
-    CHECK(launched == QStringList{QStringLiteral("1")});
+    CHECK(launched.isEmpty());
+    CHECK(rig.storedPick() == QStringLiteral("9"));
+    CHECK(rig.uiFor(QStringLiteral("pad-a")) == moonlight::SessionUiState::PickRemoved);
 }
 
 // ── A launch still in flight when the last pad leaves ────────────────────────

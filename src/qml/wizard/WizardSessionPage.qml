@@ -5,7 +5,7 @@
 // where a binding is not just a wire but a place in somebody's session: the
 // first controller on a host decides what runs, every later one joins it.
 //
-// This page renders exactly ONE of the twenty-one states the C++ derives, and
+// This page renders exactly ONE of the twenty-two states the C++ derives, and
 // its `canAdvance` is ALWAYS true. A binding is a durable intent: pairing is
 // remembered trust verified lazily, so the session is attempted when the
 // controller is used and never when the binding is saved. Nothing about the
@@ -312,7 +312,7 @@ ColumnLayout {
 
     // ── We create the session: one row per app ──────────────────────────────
     Repeater {
-        model: page.phase === "newSession" ? page.appRows : []
+        model: page.phase === "newSession" || page.phase === "pickRemoved" ? page.appRows : []
 
         delegate: Kit.SelectRow {
             id: appRow
@@ -364,6 +364,9 @@ ColumnLayout {
         case "hostReplaced":   return qsTr("%1 was reset").arg(page.hostName);
         case "appsLoading":    return qsTr("Reading the app list from %1…").arg(page.hostName);
         case "newSession":     return qsTr("New session");
+        // The remembered pick, which the host no longer lists; appName is that pick's
+        // name while nothing of ours runs on the host.
+        case "pickRemoved":    return qsTr("%1 is no longer on this host").arg(page.appName);
         case "noApps":         return qsTr("No apps on this host");
         case "appsFailed":     return qsTr("Could not read the app list from %1")
                                         .arg(page.hostName);
@@ -406,6 +409,9 @@ ColumnLayout {
             return qsTr("This host has a new identity, so the old pairing no longer works. Pair again to start a session.");
         case "newSession":
             return qsTr("This is the first controller on %1, so it picks what the host runs.")
+                     .arg(page.hostName);
+        case "pickRemoved":
+            return qsTr("The app you picked was removed from %1. Pick another one to start.")
                      .arg(page.hostName);
         case "joining":
             return qsTr("%1 is already running a session for this device. This controller joins it as controller %2.")

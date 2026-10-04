@@ -264,7 +264,10 @@ class MoonlightManager : public QObject {
     void onAppListRefused(const QString& uuid, const QString& address, int status,
                           const std::optional<moonxml::Status>& refusal);
     void onAppListRead(const QString& uuid, const QString& address, const std::string& xml);
-    void forgetAPickTheHostDropped(const QString& uuid, const QList<MoonlightApp>& listed);
+    // Whether the remembered pick is one the host no longer lists: the list was read and the
+    // pick is not in it. Such a pick is never launched; the binding flow names it and offers
+    // the picker (SessionUiState::PickRemoved).
+    bool pickRemoved(const repository::MoonlightHost& host) const;
     // What the Motion switch answers for a slot: yes with no switch set.
     bool motionSwitchAllows(const QString& slotId) const;
     // Hands the switch's answer to the session the slot rides, where sendMotion reads it.

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 // Copyright (C) 2026 Dish contributors.
 //
-// The Moonlight binding flow's render contract: twenty-one states, one of which
+// The Moonlight binding flow's render contract: twenty-two states, one of which
 // is drawn at a time, and the guarantee that only ONE of them may stop a user
 // from saving a binding. A binding is a durable intent — pairing is remembered
 // trust verified lazily, so a host that is unpaired, unreachable, refusing or
@@ -267,6 +267,22 @@ TEST_CASE("M9 through M12: the app list is a state, not a list", "[moonlight][ui
     empty.appCount = 0;
     CHECK(sessionUiState(empty) == SessionUiState::NoApps);
 
+    // A pick the host no longer lists is named over the picker: the first app would start
+    // something the user never chose, and a refusal would hide the picker it is changed in.
+    SessionUiInputs removed = paired();
+    removed.pickRemoved = true;
+    CHECK(sessionUiState(removed) == SessionUiState::PickRemoved);
+    CHECK(tokenOf(removed) == "pickRemoved");
+    // An empty list outranks it: there is nothing to pick instead.
+    SessionUiInputs removedFromNothing = removed;
+    removedFromNothing.appCount = 0;
+    CHECK(sessionUiState(removedFromNothing) == SessionUiState::NoApps);
+    // And a list that was not read says nothing about the pick.
+    SessionUiInputs removedUnread = removed;
+    removedUnread.appsRead = false;
+    removedUnread.appsFailed = true;
+    CHECK(sessionUiState(removedUnread) == SessionUiState::AppsFailed);
+
     // FAILED IS NOT EMPTY. The list is HTTPS and paired-only, so a refusal read
     // as an empty list would present a 404 as a fact about the host.
     SessionUiInputs failed = paired();
@@ -368,7 +384,7 @@ TEST_CASE("M20 and M21 are never merged", "[moonlight][ui][b17][b18]") {
           std::string(sessionUiToken(SessionUiState::EndedByHost)));
 }
 
-TEST_CASE("every state has its own token and all twenty-one are reachable", "[moonlight][ui]") {
+TEST_CASE("every state has its own token and all twenty-two are reachable", "[moonlight][ui]") {
     const SessionUiState all[] = {
         SessionUiState::Checking,       SessionUiState::NotPaired,    SessionUiState::PairingPin,
         SessionUiState::PairingRefused, SessionUiState::Unreachable,  SessionUiState::Remembered,
@@ -376,8 +392,9 @@ TEST_CASE("every state has its own token and all twenty-one are reachable", "[mo
         SessionUiState::NewSession,     SessionUiState::NoApps,       SessionUiState::AppsFailed,
         SessionUiState::Joining,        SessionUiState::HostFull,     SessionUiState::BusyOther,
         SessionUiState::ResumeFailed,   SessionUiState::Refused,      SessionUiState::SetupFailed,
-        SessionUiState::Live,           SessionUiState::Dropped,      SessionUiState::EndedByHost};
-    static_assert(sizeof(all) / sizeof(all[0]) == 21, "the render contract is twenty-one states");
+        SessionUiState::Live,           SessionUiState::Dropped,      SessionUiState::EndedByHost,
+        SessionUiState::PickRemoved};
+    static_assert(sizeof(all) / sizeof(all[0]) == 22, "the render contract is twenty-two states");
 
     std::string seen;
     for (const SessionUiState state : all) {
@@ -397,7 +414,7 @@ TEST_CASE("apply is blocked by exactly one state", "[moonlight][ui][b11]") {
         SessionUiState::NewSession,     SessionUiState::NoApps,       SessionUiState::AppsFailed,
         SessionUiState::Joining,        SessionUiState::BusyOther,    SessionUiState::ResumeFailed,
         SessionUiState::Refused,        SessionUiState::SetupFailed,  SessionUiState::Live,
-        SessionUiState::Dropped,        SessionUiState::EndedByHost};
+        SessionUiState::Dropped,        SessionUiState::EndedByHost,  SessionUiState::PickRemoved};
     for (const SessionUiState state : all) { CHECK_FALSE(sessionUiBlocksApply(state)); }
     CHECK(sessionUiBlocksApply(SessionUiState::HostFull));
 }
