@@ -25,11 +25,13 @@
 #include "core/moonlight/MoonlightProtocol.h"
 #include "core/reducer/TouchpadModeResolve.h"
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
-#include <map>
 #include <optional>
 #include <string>
+#include <utility>
+#include <vector>
 
 namespace dish::moonlight {
 
@@ -45,7 +47,7 @@ class PadSlots {
     // full or the slot already holds one — Wolf skips a CONTROLLER_ARRIVAL for
     // a number already present, so a live index is never reused.
     std::optional<std::uint8_t> assign(const std::string& slotId) {
-        if (assigned_.count(slotId) != 0) { return std::nullopt; }
+        if (find(slotId) != assigned_.end()) { return std::nullopt; }
         for (std::uint8_t n = 0; n < kMaxPads; ++n) {
             bool taken = false;
             for (const auto& [id, num] : assigned_) {
@@ -55,7 +57,7 @@ class PadSlots {
                 }
             }
             if (!taken) {
-                assigned_[slotId] = n;
+                assigned_.emplace_back(slotId, n);
                 return n;
             }
         }
@@ -63,7 +65,7 @@ class PadSlots {
     }
 
     std::optional<std::uint8_t> numberFor(const std::string& slotId) const {
-        const auto it = assigned_.find(slotId);
+        const auto it = find(slotId);
         if (it == assigned_.end()) { return std::nullopt; }
         return it->second;
     }
@@ -81,7 +83,7 @@ class PadSlots {
     // Releases the slot and returns the number it held, so the caller can send
     // the final bit-cleared CONTROLLER_MULTI for it.
     std::optional<std::uint8_t> release(const std::string& slotId) {
-        const auto it = assigned_.find(slotId);
+        const auto it = find(slotId);
         if (it == assigned_.end()) { return std::nullopt; }
         const std::uint8_t number = it->second;
         assigned_.erase(it);
@@ -103,7 +105,18 @@ class PadSlots {
     const std::map<std::string, std::uint8_t>& all() const { return assigned_; }
 
   private:
-    std::map<std::string, std::uint8_t> assigned_;
+    // Pairs, not a std::map: a std::map's move allocates under MSVC, which made the implicit
+    // move a function that may throw. At most four entries live here.
+    using Assignment = std::pair<std::string, std::uint8_t>;
+    std::vector<Assignment>::const_iterator find(const std::string& slotId) const {
+        return std::find_if(assigned_.begin(), assigned_.end(),
+                            [&slotId](const Assignment& a) { return a.first == slotId; });
+    }
+    std::vector<Assignment>::iterator find(const std::string& slotId) {
+        return std::find_if(assigned_.begin(), assigned_.end(),
+                            [&slotId](const Assignment& a) { return a.first == slotId; });
+    }
+    std::vector<Assignment> assigned_;
 };
 
 // What the local input source can actually deliver. Declaring a capability the
