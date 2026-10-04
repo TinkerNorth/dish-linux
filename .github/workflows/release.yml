@@ -529,69 +529,11 @@ jobs:
         with:
           ref: ${{ inputs.tag || github.ref }}
 
-      - name: Install build dependencies
-        run: |
-          set -eux
-          sudo tee /etc/apt/apt.conf.d/99-dish-acquire >/dev/null <<'CONF'
-          Acquire::http::Timeout "15";
-          Acquire::https::Timeout "15";
-          Acquire::Retries "2";
-          CONF
-          sudo apt-get update
-          # The xcb block is what libqxcb.so links: linuxdeploy's qt plugin
-          # refuses to deploy a platform plugin whose dependencies it cannot
-          # resolve on the build host.
-          sudo apt-get install -y --no-install-recommends \
-            build-essential cmake ninja-build pkg-config \
-            libsodium-dev libssl-dev libopus-dev libpulse-dev libudev-dev libusb-1.0-0-dev \
-            libcurl4-openssl-dev \
-            libxkbcommon-x11-0 libxcb-cursor0 libxcb-icccm4 libxcb-image0 \
-            libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 libxcb-shape0 \
-            libxcb-xinerama0 libxcb-xkb1 \
-            file fakeroot rsync wget curl librsvg2-bin gzip
-
-      # Not apt: jammy ships Qt 6.2 and this project's floor is 6.7. The action
-      # pulls the official binaries, exports CMAKE_PREFIX_PATH, and puts qmake
-      # on PATH where linuxdeploy-plugin-qt looks for it.
-      - name: Set up Qt
-        uses: ./.github/actions/setup-qt
-
-      # Not apt for the same reason as Qt: jammy ships SDL 2.0.20 and the code
-      # uses SDL_GameControllerPath, which needs 2.24. Same version, checksum
-      # and feature set as the Flatpak manifest's sdl2 module: gamepads plus
-      # the audio subsystem controller audio opens the pads' own endpoints
-      # through (libpulse-dev above is what lets its pulse backend configure;
-      # SDL dlopen's the host's libpulse at run time, so nothing extra is
-      # bundled). Pulse is the one audio backend this build carries, so ALSA
-      # is switched off by name: left at its default, SDL's configure looks
-      # for the ALSA headers this job never installs and warns that it cannot
-      # find them, for a library that comes out the same either way.
-      # linuxdeploy bundles the resulting library into the AppImage. Runs
-      # after setup-qt because that action overwrites CMAKE_PREFIX_PATH and
-      # this step prepends to it.
-      - name: Build SDL2 (jammy's predates SDL_GameControllerPath)
-        env:
-          SDL_VERSION: "2.30.9"
-          SDL_SHA256: "24b574f71c87a763f50704bbb630cbe38298d544a1f890f099a4696b1d6beba4" # SDL2-2.30.9.tar.gz
-        run: |
-          set -euo pipefail
-          curl -fsSL -o sdl2.tar.gz \
-            "https://github.com/libsdl-org/SDL/releases/download/release-${SDL_VERSION}/SDL2-${SDL_VERSION}.tar.gz"
-          echo "${SDL_SHA256}  sdl2.tar.gz" | sha256sum -c -
-          tar xzf sdl2.tar.gz
-          cmake -S "SDL2-${SDL_VERSION}" -B "${RUNNER_TEMP}/sdl-build" -G Ninja \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_INSTALL_PREFIX="${RUNNER_TEMP}/sdl-prefix" \
-            -DSDL_STATIC=OFF -DSDL_SHARED=ON -DSDL_TEST=OFF \
-            -DSDL_RENDER=OFF -DSDL_AUDIO=ON -DSDL_ALSA=OFF \
-            -DSDL_HIDAPI=ON -DSDL_JOYSTICK=ON -DSDL_HAPTIC=ON
-          cmake --build "${RUNNER_TEMP}/sdl-build" --parallel
-          cmake --install "${RUNNER_TEMP}/sdl-build"
-          {
-            echo "CMAKE_PREFIX_PATH=${RUNNER_TEMP}/sdl-prefix:${CMAKE_PREFIX_PATH:-}"
-            echo "PKG_CONFIG_PATH=${RUNNER_TEMP}/sdl-prefix/lib/pkgconfig:${PKG_CONFIG_PATH:-}"
-            echo "LD_LIBRARY_PATH=${RUNNER_TEMP}/sdl-prefix/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
-          } >> "$GITHUB_ENV"
+      # Build tools, the xcb runtime, Qt and an SDL2 newer than jammy's: the
+      # action appimage-ci.yml runs too, so the pull-request lane builds the
+      # bundle a tag ships.
+      - name: Set up the AppImage build host
+        uses: ./.github/actions/setup-appimage-host
 
       # Everything fiddly — QML_SOURCES_PATHS, the icon basename, the offscreen
       # smoke test, the zsync update metadata — lives in the script so a local
