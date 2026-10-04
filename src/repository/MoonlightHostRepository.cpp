@@ -51,6 +51,7 @@ QJsonObject MoonlightBinding::toJson() const {
     obj.insert(QStringLiteral("slotId"), slotId);
     obj.insert(QStringLiteral("hostId"), hostUuid);
     obj.insert(QStringLiteral("controllerType"), controllerType);
+    obj.insert(QStringLiteral("padIdentity"), padIdentity);
     return obj;
 }
 
@@ -62,6 +63,7 @@ std::optional<MoonlightBinding> MoonlightBinding::fromJson(const QJsonObject& ob
     // Migrated as the host's pick is: 0 was Auto before the sentinel converged.
     binding.controllerType = moonlight::migrateControllerType(
         obj.value(QLatin1String("controllerType")).toInt(kMoonlightControllerTypeAuto));
+    binding.padIdentity = obj.value(QLatin1String("padIdentity")).toString();
     return binding;
 }
 

@@ -114,7 +114,7 @@ scripts under `scripts/` drive those presets. On Debian and Ubuntu:
 
 ```sh
 scripts/install-deps.sh   # the apt list above + CI's pinned clang-format;
-                          # --ci-qt adds the exact Qt 6.9.3 CI builds against
+                          # --ci-qt adds the exact Qt 6.10.3 CI builds against
 scripts/build.sh release
 ./build-release/dish
 ```
@@ -129,7 +129,7 @@ and lint setup.
 One deliberate difference between distro Qt and CI's Qt: the translation gate
 needs `lupdate` 6.9+ to resolve namespaced classes correctly, so on a distro
 whose Qt Linguist is older, `scripts/check-translations.sh` can report diffs
-CI does not. `scripts/install-deps.sh --ci-qt` installs the same Qt 6.9.3 CI
+CI does not. `scripts/install-deps.sh --ci-qt` installs the same Qt 6.10.3 CI
 uses if you hit that.
 
 ## How it works

@@ -17,7 +17,12 @@ this file is the submission procedure.
    update the tag in the URLs; a published listing must not have its
    images change underneath it.
 
-3. Run Flathub's own linter. It checks more than `appstreamcli validate`:
+3. The manifest carries the Sentry DSN on purpose: a manifest has no
+   secrets, Flathub builds from the committed file, and Sentry documents a
+   DSN as safe to publish. Keep it equal to the `SENTRY_DSN` repository
+   secret, or Flatpak crashes land in a different project than the rest.
+
+4. Run Flathub's own linter. It checks more than `appstreamcli validate`:
 
    ```sh
    flatpak install -y flathub org.flatpak.Builder

@@ -6,7 +6,7 @@ captures the conventions that aren't obvious from skimming the code.
 ## Getting set up
 
 ```bash
-# 1) Install the toolchain CI uses (apt; --ci-qt adds CI's exact Qt 6.9.3)
+# 1) Install the toolchain CI uses (apt; --ci-qt adds CI's exact Qt 6.10.3)
 scripts/install-deps.sh
 # 2) Generate compile_commands.json + run the test suite (debug preset -> build/)
 scripts/build.sh debug test
@@ -81,7 +81,7 @@ Six catalogues in `translations/`. A new user-facing string needs a catalogue
 entry in the same commit — `scripts/check-translations.sh` re-runs `lupdate` in
 CI and fails on any diff. Run it locally and commit the result.
 
-It needs Qt 6.9 or newer, the version CI pins in `.github/actions/setup-qt`.
+It needs Qt 6.9 or newer; CI pins 6.10.3 in `.github/actions/setup-qt`.
 Before 6.9, `lupdate` drops the namespace from a class whose definition and
 member bodies sit in different files: `dish::net::WifiConnectionManager` comes
 back out as `WifiConnectionManager`, which is not the context `moc` hands

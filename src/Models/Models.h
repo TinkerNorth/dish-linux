@@ -441,6 +441,9 @@ struct SlotLiveRates {
 struct ControllerSlot {
     QString id;
     QString name;
+    // The bridge's identity for the pad here, empty for a synthetic: what a standing binding
+    // follows.
+    QString padIdentity;
     std::optional<QString> boundConnectionId;
     std::optional<ConnectionSummary> boundStatus;
     // The resolved type's localized short name for the "· as <type>" suffix.

@@ -51,7 +51,7 @@ cpack --config build-release/CPackConfig.cmake -G DEB   # or RPM, or TGZ
 | `.deb` | CPack `DEB`, in a `debian:trixie` container | Debian 13+, derivatives with Qt ≥ 6.7 | `dpkg-shlibdeps` computes the Qt/SDL/sodium versions; the QML modules and the platform plugin are listed by hand in `DISH_DEB_RUNTIME_DEPENDS` because nothing links them |
 | `.rpm` | CPack `RPM`, in a `fedora` container | Fedora, RHEL, openSUSE | rpmbuild's soname scanner does the same job |
 | AppImage | `scripts/build-appimage.sh` | everything else, including an LTS below the Qt floor | Cannot install a udev rule; carries it at `usr/share/dish/` and prints how to install it |
-| Flatpak | `packaging/flatpak/com.tinkernorth.Dish.yml` on `org.kde.Platform//6.9` | old LTS, and anyone who wants the sandbox | Needs `--device=all` for hidraw; there is no hidraw portal |
+| Flatpak | `packaging/flatpak/com.tinkernorth.Dish.yml` on `org.kde.Platform//6.10` | old LTS, and anyone who wants the sandbox | Needs `--device=all` for hidraw; there is no hidraw portal |
 | `.tar.gz` | CPack `TGZ` | packagers laying the tree down under their own prefix | |
 
 Build each native package on the distro it targets. Both dependency scanners

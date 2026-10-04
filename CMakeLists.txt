@@ -504,10 +504,12 @@ set(DISH_CORE_SOURCES
 
 # Crash reporting (Sentry). Two gates, and only one of them is load-bearing.
 #
-# The DSN is the real one. It is empty here and only .github/workflows/
-# release.yml fills it in, from the SENTRY_DSN repository secret. Secrets are not
-# exposed to forks, so a local build, a PR build and a build from a fork all
-# carry no DSN and cannot transmit, whatever the Settings switch says. The other
+# The DSN is the real one. It is empty here; .github/workflows/release.yml
+# fills it in from the SENTRY_DSN repository secret, and the two Flatpak
+# manifests under packaging/flatpak carry it verbatim, since a manifest has no
+# secrets and Flathub builds from the committed file. Secrets are not exposed
+# to forks, so a local build, a PR build and a build from a fork all carry no
+# DSN and cannot transmit, whatever the Settings switch says. The other
 # gate is that switch (source/store/CrashReportingStore.h), which is opt-out to
 # match dish-android and dish-windows.
 #

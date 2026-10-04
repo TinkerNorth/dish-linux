@@ -8,7 +8,7 @@
 # the lint tools CI gates with, clang-format pinned 22.1.4 via pipx like every
 # CI lane in the fleet).
 #
-# --ci-qt additionally installs the exact Qt CI builds against (6.9.3 via
+# --ci-qt additionally installs the exact Qt CI builds against (6.10.3 via
 # aqtinstall 3.3.0, mirroring .github/actions/setup-qt) into ~/Qt and prints
 # the exports to use it. The tradeoff, so you can choose deliberately:
 #
@@ -17,7 +17,7 @@
 #     translation gate is the sharp edge: lupdate only resolves a class
 #     defined across a header/source pair back to its namespace from 6.9 on,
 #     so scripts/check-translations.sh can report spurious diffs under an
-#     older lupdate that CI's 6.9.3 does not produce.
+#     older lupdate that CI's 6.10.3 does not produce.
 #   * CI Qt (--ci-qt): byte-for-byte what linux-ci.yml uses, so every gate
 #     agrees with CI; ~1.5 GB under ~/Qt, and you export CMAKE_PREFIX_PATH /
 #     QT_ROOT_DIR / LD_LIBRARY_PATH yourself (printed at the end).
@@ -63,13 +63,13 @@ if ! command -v clang-format >/dev/null 2>&1; then
 fi
 
 if [ "$CI_QT" -eq 1 ]; then
-    step "Qt 6.9.3 via aqtinstall 3.3.0 (what .github/actions/setup-qt installs)"
+    step "Qt 6.10.3 via aqtinstall 3.3.0 (what .github/actions/setup-qt installs)"
     pipx install "aqtinstall==3.3.0" || pipx upgrade aqtinstall || true
     export PATH="$HOME/.local/bin:$PATH"
-    aqt install-qt linux desktop 6.9.3 --outputdir "$HOME/Qt"
-    root="$(find "$HOME/Qt/6.9.3" -mindepth 1 -maxdepth 1 -type d -print -quit)"
+    aqt install-qt linux desktop 6.10.3 --outputdir "$HOME/Qt"
+    root="$(find "$HOME/Qt/6.10.3" -mindepth 1 -maxdepth 1 -type d -print -quit)"
     echo ""
-    echo "[OK] Qt 6.9.3 at ${root}. To build against it, export (e.g. in ~/.bashrc):"
+    echo "[OK] Qt 6.10.3 at ${root}. To build against it, export (e.g. in ~/.bashrc):"
     echo "  export CMAKE_PREFIX_PATH=\"${root}\""
     echo "  export QT_ROOT_DIR=\"${root}\""
     echo "  export LD_LIBRARY_PATH=\"${root}/lib\${LD_LIBRARY_PATH:+:\$LD_LIBRARY_PATH}\""
