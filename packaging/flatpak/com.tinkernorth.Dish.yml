@@ -1,6 +1,6 @@
 # Flatpak manifest for Dish.
 #
-#   flatpak install -y flathub org.kde.Platform//6.9 org.kde.Sdk//6.9
+#   flatpak install -y flathub org.kde.Platform//6.10 org.kde.Sdk//6.10
 #   flatpak-builder --force-clean --user --install build-flatpak \
 #     packaging/flatpak/com.tinkernorth.Dish.yml
 #
@@ -9,7 +9,7 @@
 # answer on an LTS whose distro Qt is below this project's floor.
 app-id: com.tinkernorth.Dish
 runtime: org.kde.Platform
-runtime-version: '6.9'
+runtime-version: '6.10'
 sdk: org.kde.Sdk
 command: dish
 
