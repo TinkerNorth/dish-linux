@@ -9,6 +9,7 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 
+#include <algorithm>
 #include <vector>
 
 namespace dish::repository {
@@ -43,6 +44,25 @@ std::optional<MoonlightHost> MoonlightHost::fromJson(const QJsonObject& obj) {
     host.controllerType = moonlight::migrateControllerType(
         obj.value(QLatin1String("controllerType")).toInt(kMoonlightControllerTypeAuto));
     return host;
+}
+
+QJsonObject MoonlightBinding::toJson() const {
+    QJsonObject obj;
+    obj.insert(QStringLiteral("slotId"), slotId);
+    obj.insert(QStringLiteral("hostId"), hostUuid);
+    obj.insert(QStringLiteral("controllerType"), controllerType);
+    return obj;
+}
+
+std::optional<MoonlightBinding> MoonlightBinding::fromJson(const QJsonObject& obj) {
+    MoonlightBinding binding;
+    binding.slotId = obj.value(QLatin1String("slotId")).toString();
+    binding.hostUuid = obj.value(QLatin1String("hostId")).toString();
+    if (!binding.isValid()) { return std::nullopt; }
+    // Migrated as the host's pick is: 0 was Auto before the sentinel converged.
+    binding.controllerType = moonlight::migrateControllerType(
+        obj.value(QLatin1String("controllerType")).toInt(kMoonlightControllerTypeAuto));
+    return binding;
 }
 
 MoonlightHostRepository::MoonlightHostRepository(std::shared_ptr<QSettings> settings)
@@ -144,6 +164,76 @@ void MoonlightHostRepository::clear() {
     std::lock_guard<std::mutex> lock(mutex_);
     settings_->remove(QLatin1String(keys::kMoonlightHostListKey));
     settings_->sync();
+}
+
+std::vector<MoonlightBinding> MoonlightHostRepository::loadBindings() const {
+    std::vector<MoonlightBinding> out;
+    const auto raw = settings_->value(QLatin1String(keys::kMoonlightBindingListKey)).toByteArray();
+    if (raw.isEmpty()) { return out; }
+    const auto doc = QJsonDocument::fromJson(raw);
+    // A blob that is not a list reads as no bindings, never as a failure to start.
+    if (!doc.isArray()) { return out; }
+    for (const auto& entry : doc.array()) {
+        if (auto binding = MoonlightBinding::fromJson(entry.toObject())) {
+            out.push_back(std::move(*binding));
+        }
+    }
+    return out;
+}
+
+void MoonlightHostRepository::storeBindings(const std::vector<MoonlightBinding>& bindings) {
+    QJsonArray arr;
+    for (const auto& binding : bindings) { arr.append(binding.toJson()); }
+    settings_->setValue(QLatin1String(keys::kMoonlightBindingListKey),
+                        QJsonDocument(arr).toJson(QJsonDocument::Compact));
+    settings_->sync();
+}
+
+std::vector<MoonlightBinding> MoonlightHostRepository::bindings() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return loadBindings();
+}
+
+std::optional<MoonlightBinding> MoonlightHostRepository::binding(const QString& slotId) const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    for (const auto& binding : loadBindings()) {
+        if (binding.slotId == slotId) { return binding; }
+    }
+    return std::nullopt;
+}
+
+void MoonlightHostRepository::rememberBinding(const MoonlightBinding& binding) {
+    if (!binding.isValid()) { return; }
+    std::lock_guard<std::mutex> lock(mutex_);
+    auto list = loadBindings();
+    const auto held = std::find_if(list.begin(), list.end(), [&binding](const MoonlightBinding& b) {
+        return b.slotId == binding.slotId;
+    });
+    // One binding per slot: a re-bind replaces, never duplicates.
+    if (held == list.end()) {
+        list.push_back(binding);
+    } else {
+        *held = binding;
+    }
+    storeBindings(list);
+}
+
+void MoonlightHostRepository::forgetBinding(const QString& slotId) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    auto list = loadBindings();
+    list.erase(std::remove_if(list.begin(), list.end(),
+                              [&slotId](const MoonlightBinding& b) { return b.slotId == slotId; }),
+               list.end());
+    storeBindings(list);
+}
+
+void MoonlightHostRepository::forgetBindingsForHost(const QString& uuid) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    auto list = loadBindings();
+    list.erase(std::remove_if(list.begin(), list.end(),
+                              [&uuid](const MoonlightBinding& b) { return b.hostUuid == uuid; }),
+               list.end());
+    storeBindings(list);
 }
 
 } // namespace dish::repository

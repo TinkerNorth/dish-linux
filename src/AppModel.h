@@ -400,6 +400,10 @@ class AppModel : public QObject {
     void dropMuteForDepartedSlots();
     void onHubChanged();
     void onBridgeDevicesChanged();
+    // A standing Moonlight binding whose pad is on the slot list is put back on its host, as
+    // dish-windows does off a device arriving. Queued off rebuild, since the bind rebuilds too.
+    void scheduleMoonlightReattach();
+    void reattachMoonlightBindings();
     void onWifiEvent(const net::ConnectionEvent& evt);
     // Called from UsbObserver on the Qt main thread, the only FSM-mutating one.
     void onUsbNotice(const reducer::UsbController& c, reducer::UsbNotice notice);
@@ -691,6 +695,9 @@ class AppModel : public QObject {
     // Device ids whose persisted deadzone profile was already pushed, so
     // onBridgeDevicesChanged pushes once per attach rather than per tick.
     QSet<QString> deadzonePushedDevices_;
+    // Slots whose standing Moonlight binding was already asked for since the pad appeared; the
+    // slot leaving the list is what arms it again.
+    QSet<QString> moonlightReattachTried_;
     arch::Observable<composer::CatalogSnapshot> catalogSnapshot_;
     composer::CatalogComposer catalogComposer_;
     // A plain member rather than an Observable because CatalogDto has no

@@ -40,6 +40,7 @@ set(DISH_TEST_SOURCES
     test_moonlight_host_lifecycle.cpp
     test_moonlight_button_map.cpp
     test_moonlight_host_repository.cpp
+    test_moonlight_binding_reattach.cpp
     test_moonlight_discovery.cpp
     test_moonlight_session_wire.cpp
     test_moonlight_replug.cpp

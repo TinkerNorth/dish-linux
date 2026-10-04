@@ -39,6 +39,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <vector>
 
 class QThread;
 
@@ -148,6 +149,16 @@ class MoonlightManager : public QObject {
     QStringList boundSlots(const QString& uuid) const;
     int controllerCount(const QString& uuid) const;
     std::optional<std::uint8_t> controllerNumber(const QString& slotId) const;
+
+    // ── Standing bindings (what a restart keeps) ─────────────────────────────
+    // A binding the user applied, kept across restarts and put back by the app
+    // model when its pad is present again, as dish-windows does. Separate from
+    // bindings_, which is live routing: a standing binding whose pad is unplugged
+    // drives nothing and is still a binding.
+    std::vector<repository::MoonlightBinding> standingBindings() const;
+    std::optional<repository::MoonlightBinding> standingBinding(const QString& slotId) const;
+    void rememberBinding(const repository::MoonlightBinding& binding);
+    void forgetBinding(const QString& slotId);
 
     // Everything the binding-flow render contract reads about one host, from
     // the point of view of `slotId` (empty for a binding that does not exist

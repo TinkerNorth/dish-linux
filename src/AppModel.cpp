@@ -21,6 +21,7 @@
 #include "core/reducer/SlotPathFields.h"
 #include "core/reducer/TouchpadRouting.h"
 #include "core/reducer/UsbTwinDedup.h"
+#include "source/moonlight/MoonlightBindingReattach.h"
 
 #include <chrono>
 #include <map>
@@ -775,6 +776,37 @@ void AppModel::onBridgeDevicesChanged() {
     // devices are pruned so a re-plug re-applies.
     const auto devices = bridge_->devices();
     QSet<QString> present;
+// Queued rather than run inside rebuild: the bind rebuilds the list, and a rebuild inside a
+// rebuild would publish a half-made state. Dropped with the model if it goes first.
+void AppModel::scheduleMoonlightReattach() {
+    QMetaObject::invokeMethod(this, [this] { reattachMoonlightBindings(); }, Qt::QueuedConnection);
+}
+
+// The type the user applied seeds the slot's override only where none is set: a pick made in
+// this run outranks what the last one saved.
+void AppModel::reattachMoonlightBindings() {
+    QSet<QString> present;
+    for (const auto& slot : state_.slotList) { present.insert(slot.id); }
+    for (auto it = moonlightReattachTried_.begin(); it != moonlightReattachTried_.end();) {
+        it = present.contains(*it) ? std::next(it) : moonlightReattachTried_.erase(it);
+    }
+    const auto standing = moonlight_->standingBindings();
+    QSet<QString> driving;
+    for (const auto& binding : standing) {
+        if (!moonlight_->boundHostFor(binding.slotId).isEmpty()) { driving.insert(binding.slotId); }
+    }
+    const auto satellite = hub_->bindings();
+    const QSet<QString> onSatellites(satellite.keyBegin(), satellite.keyEnd());
+    const auto plan = source::moon::bindingsToReattach(standing, present, driving, onSatellites,
+                                                       moonlightReattachTried_);
+    for (const auto& binding : plan) {
+        moonlightReattachTried_.insert(binding.slotId);
+        typeStore_.setTypeIfAbsent(binding.hostUuid.toStdString(), binding.slotId.toStdString(),
+                                   binding.controllerType);
+        bindMoonlightSlot(binding.slotId, binding.hostUuid);
+    }
+}
+
     for (const auto& d : devices) {
         present.insert(d.id);
         if (deadzonePushedDevices_.contains(d.id)) { continue; }
@@ -1303,6 +1335,7 @@ void AppModel::rebuild() {
     // steady state free.
     prewarmCatalogs();
 
+    scheduleMoonlightReattach();
     // Last, because it can bind/unbind and therefore re-enter this function.
     applyBindingPresence();
 }
@@ -1970,6 +2003,13 @@ std::optional<models::CatalogTypeDto> AppModel::catalogTypeFor(const QString& ho
                                                                int type) const {
     if (hostId.isEmpty()) { return std::nullopt; }
     const auto cached = catalogRepo_.cached(hostId);
+    // A pick for a Moonlight-bound slot travels into its standing binding, so a restart sends
+    // the type the user last chose and not the one they applied with.
+    if (auto standing = moonlight_->standingBinding(slotId);
+        standing && standing->hostUuid == connId) {
+        standing->controllerType = type;
+        moonlight_->rememberBinding(*standing);
+    }
     if (!cached.has_value()) { return std::nullopt; }
     for (const auto& t : cached->controllerTypes) {
         if (t.id == type) { return t; }

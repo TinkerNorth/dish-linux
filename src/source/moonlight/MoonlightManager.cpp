@@ -709,6 +709,35 @@ void MoonlightManager::unbindController(const QString& slotId) {
     emit rowsChanged();
 }
 
+std::vector<repository::MoonlightBinding> MoonlightManager::standingBindings() const {
+    return hostRepo_.bindings();
+}
+
+std::optional<repository::MoonlightBinding>
+MoonlightManager::standingBinding(const QString& slotId) const {
+    return hostRepo_.binding(slotId);
+}
+
+void MoonlightManager::rememberBinding(const repository::MoonlightBinding& binding) {
+    if (!binding.isValid()) {
+        qCWarning(lcMoon) << "standing binding refused: slot" << binding.slotId << "host"
+                          << binding.hostUuid << "; both are required";
+        return;
+    }
+    // The host goes with it: a binding naming a host nothing remembers would come back to an
+    // id nothing resolves. Interest, not trust; rememberDestination says why.
+    rememberDestination(binding.hostUuid);
+    hostRepo_.rememberBinding(binding);
+    qCInfo(lcMoon) << "standing binding" << binding.slotId << "->" << binding.hostUuid << "type"
+                   << binding.controllerType;
+}
+
+void MoonlightManager::forgetBinding(const QString& slotId) {
+    if (!hostRepo_.binding(slotId)) { return; }
+    hostRepo_.forgetBinding(slotId);
+    qCInfo(lcMoon) << "standing binding" << slotId << "forgotten";
+}
+
 QString MoonlightManager::boundHostFor(const QString& slotId) const {
     return bindings_.value(slotId);
 }
@@ -760,6 +789,7 @@ moonlight::SessionUiInputs MoonlightManager::uiInputs(const QString& uuid,
         in.appsRead = it->read;
         in.appsFailed = it->failed;
         in.appCount = static_cast<int>(it->apps.size());
+        in.pickRemoved = host && pickRemoved(*host);
     }
 
     if (const auto* session = sessions_.value(uuid, nullptr)) {
@@ -789,7 +819,6 @@ void MoonlightManager::quitHostApp(const QString& uuid) {
         return;
     }
     // Our own session first: tearing it down hands the app back through the
-        in.pickRemoved = host && pickRemoved(*host);
     // same /cancel, and leaving it live would race the request. A session at
     // rest holds nothing of ours, whether it never started or failed (the host
     // refused it for somebody else's app, or a live link dropped and was torn
@@ -829,6 +858,7 @@ void MoonlightManager::cancelPairingWith(const QString& uuid) {
 
 // The pairing anchor lives IN the row, so removing the row removes the pin.
 void MoonlightManager::dropRecordsFor(const QString& uuid) {
+    hostRepo_.forgetBindingsForHost(uuid);
     hostRepo_.remove(uuid);
     discovered_.remove(uuid);
     probes_.remove(uuid);

@@ -624,6 +624,9 @@ void AppViewModel::setLightbarFollowGame(bool followGame) {
 
 void AppViewModel::bindSlot(const QString& slotId, const QString& connectionId) {
     model_->hub()->bind(slotId, connectionId);
+    // A slot drives one destination: a satellite bind retires the standing Moonlight binding
+    // the slot may hold, or a restart would put the pad back on the host the user left.
+    model_->moonlight()->forgetBinding(slotId);
 }
 
 void AppViewModel::unbindSlot(const QString& slotId) {
@@ -631,6 +634,8 @@ void AppViewModel::unbindSlot(const QString& slotId) {
     // Moonlight host, and every caller (the board, the pad card, Configure
     // binding) means the same thing by Unbind.
     if (!model_->moonlightBoundHostFor(slotId).isEmpty()) {
+    // The intent goes with the routing: an unbound pad has no standing binding.
+    model_->moonlight()->forgetBinding(slotId);
         model_->unbindMoonlightSlot(slotId);
         return;
     }
@@ -967,9 +972,19 @@ void AppViewModel::setMoonlightControllerType(const QString& uuid, int type) {
 
 void AppViewModel::bindMoonlight(const QString& slotId, const QString& uuid) {
     model_->bindMoonlightSlot(slotId, uuid);
+    // What the user applies is kept across restarts, with the type the binding sends, so the
+    // pad goes back on this host when it appears again (AppModel::reattachMoonlightBindings).
+    repository::MoonlightBinding standing;
+    standing.slotId = slotId;
+    standing.hostUuid = uuid;
+    standing.controllerType = model_->moonlightBindingType(uuid, slotId);
+    model_->moonlight()->rememberBinding(standing);
 }
 
-void AppViewModel::unbindMoonlight(const QString& slotId) { model_->unbindMoonlightSlot(slotId); }
+void AppViewModel::unbindMoonlight(const QString& slotId) {
+    model_->moonlight()->forgetBinding(slotId);
+    model_->unbindMoonlightSlot(slotId);
+}
 
 QVariantList AppViewModel::discoveredServers() const {
     // The one-spot rule: a satellite that already has a connections row renders
