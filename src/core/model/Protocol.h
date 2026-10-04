@@ -199,7 +199,7 @@ inline constexpr std::uint8_t kTouchpadModeDs4 = 0;
 inline constexpr std::uint8_t kTouchpadModeMouse = 1;
 inline constexpr std::uint8_t kTouchpadModeOff = 2;
 
-inline std::string_view touchpadModeName(std::uint8_t mode) {
+inline constexpr std::string_view touchpadModeName(std::uint8_t mode) {
     switch (mode) {
     case kTouchpadModeMouse:
         return "mouse";

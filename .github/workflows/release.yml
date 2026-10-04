@@ -675,7 +675,7 @@ jobs:
           sudo flatpak remote-add --if-not-exists flathub \
             https://dl.flathub.org/repo/flathub.flatpakrepo
           sudo flatpak install -y --noninteractive flathub \
-            org.kde.Platform//6.9 org.kde.Sdk//6.9
+            org.kde.Platform//6.10 org.kde.Sdk//6.10
 
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -702,6 +702,36 @@ jobs:
           # Stable-name copy for the /releases/latest/download/ permalink.
           cp "dist/Dish-${{ steps.ver.outputs.version }}-x86_64.flatpak" \
             dist/Dish-x86_64.flatpak
+
+      # Best effort, like the package jobs. flatpak-builder strips the app
+      # into /app/lib/debug while finishing the module, so the .debug files
+      # under the build tree carry the build-id Sentry matches a crash to.
+      - name: Upload debug symbols to Sentry
+        continue-on-error: true
+        env:
+          SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ vars.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ vars.SENTRY_PROJECT }}
+          DEBUG_TREE: build-flatpak/build/files/lib/debug
+        run: |
+          set -euo pipefail
+          if [ -z "${SENTRY_AUTH_TOKEN:-}" ] || [ -z "${SENTRY_DSN:-}" ]; then
+            echo "::notice::SENTRY_AUTH_TOKEN or SENTRY_DSN unset; skipping symbol upload."
+            exit 0
+          fi
+          if [ -z "${SENTRY_ORG:-}" ]; then
+            SENTRY_ORG="$(sed -nE 's#.*@o([0-9]+)\..*#\1#p' <<<"$SENTRY_DSN")"; export SENTRY_ORG
+          fi
+          if [ -z "${SENTRY_PROJECT:-}" ]; then
+            SENTRY_PROJECT="${SENTRY_DSN##*/}"; export SENTRY_PROJECT
+          fi
+          [ -d "$DEBUG_TREE" ] || { echo "::warning::no debug tree at $DEBUG_TREE"; exit 0; }
+          cli="${RUNNER_TEMP}/sentry-cli"
+          curl -fsSL --retry 3 -o "$cli" https://github.com/getsentry/sentry-cli/releases/download/3.7.0/sentry-cli-Linux-x86_64
+          echo "cec71d46a7cc394c94b6e75f1601985c710d457376c546ef3975567b3671563b  $cli" | sha256sum -c -
+          chmod +x "$cli"
+          "$cli" debug-files upload "$DEBUG_TREE"
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:

@@ -12,8 +12,10 @@ inputs:
     # across a header/source pair back to its namespace from 6.9 on. Below that
     # the translation gate rewrites dish::net::WifiConnectionManager to a bare
     # WifiConnectionManager, which is not the context moc gives tr() at run
-    # time, so the catalogue entry would never be found.
-    default: "6.9.3"
+    # time, so the catalogue entry would never be found. 6.10.3 and not 6.9.3:
+    # 6.9's AOT-compiled QML crashes on a method call into a context that is
+    # being torn down (QTBUG-142514, DISH-LINUX-1); 6.10.3 throws instead.
+    default: "6.10.3"
   aqtinstall-version:
     description: "aqtinstall release used to fetch it, pinned like every other CI tool."
     required: false

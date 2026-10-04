@@ -1,0 +1,76 @@
+name: Flatpak CI
+
+# Pin map (verify with `gh api repos/<owner>/<repo>/git/ref/tags/<tag>`):
+#   actions/checkout         @ v7.0.1 → 3d3c42e5aac5ba805825da76410c181273ba90b1
+#
+# The sandboxed build, run only when something that feeds it changes: the
+# manifests, the build definition, the udev rule it carries, or this file.
+# release.yml builds the same manifest for the bundle, so without this lane a
+# manifest that no longer builds would surface on the next tag.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "packaging/flatpak/**"
+      - "packaging/udev/**"
+      - "CMakeLists.txt"
+      - ".github/workflows/flatpak-ci.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "packaging/flatpak/**"
+      - "packaging/udev/**"
+      - "CMakeLists.txt"
+      - ".github/workflows/flatpak-ci.yml"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  flatpak:
+    name: Build the Flatpak from the sideload manifest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Install flatpak-builder
+        run: |
+          set -eux
+          sudo apt-get update
+          # elfutils: flatpak-builder shells out to eu-strip while finishing
+          # a module. librsvg2-common: export validates the app icon with the
+          # host's gdk-pixbuf, which needs the SVG loader.
+          sudo apt-get install -y --no-install-recommends flatpak flatpak-builder elfutils librsvg2-common ca-certificates
+          sudo flatpak remote-add --if-not-exists flathub \
+            https://dl.flathub.org/repo/flathub.flatpakrepo
+          sudo flatpak install -y --noninteractive flathub \
+            org.kde.Platform//6.10 org.kde.Sdk//6.10
+
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Build
+        run: |
+          set -euo pipefail
+          flatpak-builder --force-clean --disable-rofiles-fuse \
+            --repo=build-flatpak/repo build-flatpak/build \
+            packaging/flatpak/com.tinkernorth.Dish.yml
+
+      # The three facts release.yml relies on: the app carries the DSN, the
+      # SDK is linked, and the finished module left the debug files the
+      # symbol upload reads.
+      - name: Verify the crash-reporting build
+        run: |
+          set -euo pipefail
+          echo "runtime Qt: $(flatpak run --command=sh org.kde.Platform//6.10 -c 'ls /usr/lib/x86_64-linux-gnu/libQt6Core.so.6.*' | tail -1)"
+          bin=build-flatpak/build/files/bin/dish
+          [ -f "$bin" ] || { echo "::error::no dish binary in the app tree"; exit 1; }
+          grep -aq "ingest.us.sentry.io/4512029654450176" "$bin" \
+            || { echo "::error::the Flatpak build carries no DSN"; exit 1; }
+          dbg="$(find build-flatpak/build/files/lib/debug -type f -name '*.debug' -path '*bin/dish*' | head -1)"
+          [ -n "$dbg" ] || { echo "::error::no dish debug file under files/lib/debug"; find build-flatpak/build/files/lib -maxdepth 3 | head -50; exit 1; }
+          nm "$dbg" | grep -q 'sentry_init' || { echo "::error::sentry_init is not linked"; exit 1; }

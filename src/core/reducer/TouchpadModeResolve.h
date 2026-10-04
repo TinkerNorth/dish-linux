@@ -21,7 +21,7 @@ namespace dish::reducer {
 
 // Picker UIs iterate this, so the order is pinned to keep the displayed list
 // stable across builds.
-inline const std::array<std::string_view, 3> kTouchpadModeNames{
+inline constexpr std::array<std::string_view, 3> kTouchpadModeNames{
     proto::touchpadModeName(proto::kTouchpadModeOff),
     proto::touchpadModeName(proto::kTouchpadModeDs4),
     proto::touchpadModeName(proto::kTouchpadModeMouse),

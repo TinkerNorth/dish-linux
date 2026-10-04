@@ -12,6 +12,7 @@
 
 #include "core/model/Protocol.h"
 
+#include <QLatin1StringView>
 #include <QString>
 #include <QStringList>
 
@@ -20,36 +21,36 @@
 namespace dish::catalog {
 
 // The bundled type slugs, in wire-id order (proto::kControllerType*).
-inline const QString kSlugXbox360 = QStringLiteral("xbox360");
-inline const QString kSlugDs4 = QStringLiteral("ds4");
-inline const QString kSlugDualSense = QStringLiteral("dualsense");
-inline const QString kSlugSwitchPro = QStringLiteral("switchpro");
+inline constexpr QLatin1StringView kSlugXbox360("xbox360");
+inline constexpr QLatin1StringView kSlugDs4("ds4");
+inline constexpr QLatin1StringView kSlugDualSense("dualsense");
+inline constexpr QLatin1StringView kSlugSwitchPro("switchpro");
 
 // Catalog feature-slug vocabulary (protocol constants, never localized).
-inline const QString kFeatureAnalogTriggers = QStringLiteral("analogTriggers");
-inline const QString kFeatureRumble = QStringLiteral("rumble");
-inline const QString kFeatureMotion = QStringLiteral("motion");
-inline const QString kFeatureLightbar = QStringLiteral("lightbar");
-inline const QString kFeatureTouchpad = QStringLiteral("touchpad");
+inline constexpr QLatin1StringView kFeatureAnalogTriggers("analogTriggers");
+inline constexpr QLatin1StringView kFeatureRumble("rumble");
+inline constexpr QLatin1StringView kFeatureMotion("motion");
+inline constexpr QLatin1StringView kFeatureLightbar("lightbar");
+inline constexpr QLatin1StringView kFeatureTouchpad("touchpad");
 // Controller audio (protocol 2). Deliberately NOT in knownFeatureSlugs():
 // that list is the protocol-1 vocabulary, and the audio slugs follow the
 // trigger-effects precedent of a whitelist of their own. The capability
 // solver's type layer reads these two directly.
-inline const QString kFeatureMic = QStringLiteral("mic");
-inline const QString kFeatureSpeaker = QStringLiteral("speaker");
+inline constexpr QLatin1StringView kFeatureMic("mic");
+inline constexpr QLatin1StringView kFeatureSpeaker("speaker");
 // Protocol 3: the DualSense's HD-haptics lanes. Reads through the same audio
 // gate as the two above; the solver has no row for it, since it rides the
 // speaker toggle and the speaker route's endpoint.
-inline const QString kFeatureHapticAudio = QStringLiteral("hapticAudio");
+inline constexpr QLatin1StringView kFeatureHapticAudio("hapticAudio");
 // The protocol-2 feedback surfaces a live catalog reports per type. Also
 // outside knownFeatureSlugs(), and deliberately absent from typeFeatureSlugs()
 // below: a satellite old enough to serve no catalog predates the messages
 // that carry them, so the legacy translation must not claim them.
-inline const QString kFeatureTriggerEffects = QStringLiteral("triggerEffects");
-inline const QString kFeaturePlayerLeds = QStringLiteral("playerLeds");
+inline constexpr QLatin1StringView kFeatureTriggerEffects("triggerEffects");
+inline constexpr QLatin1StringView kFeaturePlayerLeds("playerLeds");
 
 // The catalog's hostFeatures slug for touchpad-driven host mouse control.
-inline const QString kHostFeatureMouseControl = QStringLiteral("mouseControl");
+inline constexpr QLatin1StringView kHostFeatureMouseControl("mouseControl");
 
 // The `known` whitelist reducer::isFeatureOffered gates on, owned here so every
 // caller passes the same vocabulary instead of re-listing it.

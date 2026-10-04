@@ -976,6 +976,9 @@ void AppViewModel::bindMoonlight(const QString& slotId, const QString& uuid) {
     standing.slotId = slotId;
     standing.hostUuid = uuid;
     standing.controllerType = model_->moonlightBindingType(uuid, slotId);
+    for (const auto& slot : model_->state().slotList) {
+        if (slot.id == slotId) { standing.padIdentity = slot.padIdentity; }
+    }
     model_->moonlight()->rememberBinding(standing);
     model_->bindMoonlightSlot(slotId, uuid);
 }

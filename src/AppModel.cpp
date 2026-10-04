@@ -784,22 +784,30 @@ void AppModel::scheduleMoonlightReattach() {
 
 // setTypeIfAbsent: a pick made in this run outranks the one the last run saved.
 void AppModel::reattachMoonlightBindings() {
-    QSet<QString> present;
-    for (const auto& slot : state_.slotList) { present.insert(slot.id); }
-    for (auto it = moonlightReattachTried_.begin(); it != moonlightReattachTried_.end();) {
-        it = present.contains(*it) ? std::next(it) : moonlightReattachTried_.erase(it);
-    }
-    const auto standing = moonlight_->standingBindings();
+    std::vector<source::moon::PresentPad> present;
+    QSet<QString> presentIds;
     QSet<QString> driving;
-    for (const auto& binding : standing) {
-        if (!moonlight_->boundHostFor(binding.slotId).isEmpty()) { driving.insert(binding.slotId); }
+    for (const auto& slot : state_.slotList) {
+        present.push_back({slot.id, slot.padIdentity});
+        presentIds.insert(slot.id);
+        if (!moonlight_->boundHostFor(slot.id).isEmpty()) { driving.insert(slot.id); }
+    }
+    for (auto it = moonlightReattachTried_.begin(); it != moonlightReattachTried_.end();) {
+        it = presentIds.contains(*it) ? std::next(it) : moonlightReattachTried_.erase(it);
     }
     const auto satellite = hub_->bindings();
     const QSet<QString> onSatellites(satellite.keyBegin(), satellite.keyEnd());
-    const auto plan = source::moon::bindingsToReattach(standing, present, driving, onSatellites,
-                                                       moonlightReattachTried_);
-    for (const auto& binding : plan) {
-        moonlightReattachTried_.insert(binding.slotId);
+    const auto plan = source::moon::bindingsToReattach(
+        moonlight_->standingBindings(), present, driving, onSatellites, moonlightReattachTried_);
+    for (const auto& item : plan) {
+        moonlightReattachTried_.insert(item.slotId);
+        repository::MoonlightBinding binding = item.binding;
+        if (binding.slotId != item.slotId || binding.padIdentity != item.identity) {
+            moonlight_->forgetBinding(binding.slotId);
+            binding.slotId = item.slotId;
+            binding.padIdentity = item.identity;
+            moonlight_->rememberBinding(binding);
+        }
         typeStore_.setTypeIfAbsent(binding.hostUuid.toStdString(), binding.slotId.toStdString(),
                                    binding.controllerType);
         bindMoonlightSlot(binding.slotId, binding.hostUuid);
@@ -1111,6 +1119,7 @@ void AppModel::appendSdlSlots(const QList<input::SDLGamepadBridge::Device>& sdlD
         models::ControllerSlot s;
         s.id = d.id;
         s.name = d.name;
+        s.padIdentity = d.identity;
         s.capabilities.hasMotion = d.motionCapable;
         s.capabilities.hasLightbar = d.hasLightbar;
         s.capabilities.hasTouchpad = d.hasTouchpad;
