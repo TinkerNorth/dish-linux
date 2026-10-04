@@ -74,7 +74,7 @@ class SDLGamepadBridge : public QObject {
         // GUID plus the serial where the driver exposes one (a Sony pad's is its
         // Bluetooth address), so a standing binding follows the pad and not the
         // order pads were plugged.
-        QString identity;
+        QString identity{};
     };
     QList<Device> devices() const;
 
