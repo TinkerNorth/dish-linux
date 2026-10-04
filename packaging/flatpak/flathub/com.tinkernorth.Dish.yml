@@ -47,6 +47,10 @@ finish-args:
   - --talk-name=org.kde.StatusNotifierWatcher
   # "Dish is still running" has to reach a user whose window just vanished.
   - --talk-name=org.freedesktop.Notifications
+  # The satellite pairing keys go to the Secret Service where there is one, as
+  # on a host install; without this grant the sandbox never sees it and every
+  # key lands in the 0600 file instead.
+  - --talk-name=org.freedesktop.secrets
   # BluetoothRadioProbe needs Adapter1.Powered to tell "no adapter" from "off".
   - --system-talk-name=org.bluez
   # Both logind locks: DisplaySleepInhibitor's idle block, and SleepMonitor's
@@ -117,6 +121,15 @@ modules:
       - -DDISH_BUILD_TESTS=OFF
       # A rule under /app is read by nothing; the app degrades to SDL and says so.
       - -DDISH_INSTALL_UDEV_RULES=OFF
+      # Crash reports. The DSN is the one every release build carries, written
+      # here because a manifest has no secrets and Flathub builds from the
+      # committed file; Sentry documents a DSN as safe to publish, it only
+      # accepts events. A DSN makes the build want sentry-native, which CMake
+      # would fetch, and the build sandbox has no network: the pinned archive
+      # arrives as a source below and FetchContent is pointed at it.
+      - -DDISH_SENTRY_DSN=https://3ee9366dd00831d939cfe882afc0dd3f@o4512028603318272.ingest.us.sentry.io/4512029654450176
+      - -DFETCHCONTENT_SOURCE_DIR_SENTRY=/run/build/dish/sentry-native
+      - -DFETCHCONTENT_FULLY_DISCONNECTED=ON
     sources:
       - type: git
         url: https://github.com/TinkerNorth/dish-linux.git
@@ -127,6 +140,13 @@ modules:
         x-checker-data:
           type: git
           tag-pattern: ^([\d.]+)$
+      # The release and hash FetchContent_Declare(sentry) in CMakeLists.txt
+      # pins; the zip has no top-level directory.
+      - type: archive
+        url: https://github.com/getsentry/sentry-native/releases/download/0.16.3/sentry-native.zip
+        sha256: 21380c182dde677794a7b6c57e8d6e03d79ec5a03eec67514ffa7522f7e161b5
+        dest: sentry-native
+        strip-components: 0
     post-install:
       # Carried so a user who wants USB-direct can install it on the host.
       - install -Dm644 packaging/udev/70-dish-hidraw.rules

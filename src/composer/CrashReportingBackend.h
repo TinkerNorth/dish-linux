@@ -19,9 +19,9 @@
 // dish-android and dish-windows.
 //
 // A build additionally has to carry a DSN before any of this can transmit.
-// DISH_SENTRY_DSN is empty in CMake and only release.yml fills it in, from a
-// repository secret, so a local build, a PR build and a build from a fork
-// cannot report at all. On this platform the DSN decides more than that: because
+// DISH_SENTRY_DSN is empty in CMake; release.yml fills it in from a repository
+// secret and the Flatpak manifests carry it, so a local build, a PR build and a
+// build from a fork cannot report at all. On this platform the DSN decides more than that: because
 // sentry-native has no Debian or Ubuntu package, the SDK is only fetched and
 // built when a DSN is present, so a build without one does not pay for it.
 // That also makes the Sentry environment safe to derive from the DSN rather than

@@ -42,6 +42,13 @@ the repos share a version number.
   cleared the capability the pad declared; the samples kept flowing.
 - **Flatpak: pairing keys reach the Secret Service**, as on a host install, and the
   Direct-access note names the udev rule the Flatpak carries and where to copy it.
+  The Flathub manifest carries the same grant.
+- **Flatpak: crash reports.** The sandboxed build carries the Sentry DSN and the
+  SDK like every other package, so a crash in a Flatpak reaches the same project,
+  and the release uploads its debug symbols. The build sandbox has no network, so
+  the pinned sentry-native archive is a manifest source and CMake is pointed at
+  it. A new CI lane builds the Flatpak whenever a manifest or the build
+  definition changes.
 - Forgetting a satellite while one of its requests was still on the wire no
   longer writes through the freed connection. The pairing and connect callbacks
   kept the pointer they were sent with, and Forget hands that object to
