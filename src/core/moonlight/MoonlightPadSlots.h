@@ -102,8 +102,6 @@ class PadSlots {
     bool full() const { return assigned_.size() >= kMaxPads; }
     std::size_t size() const { return assigned_.size(); }
 
-    const std::map<std::string, std::uint8_t>& all() const { return assigned_; }
-
   private:
     // Pairs, not a std::map: a std::map's move allocates under MSVC, which made the implicit
     // move a function that may throw. At most four entries live here.

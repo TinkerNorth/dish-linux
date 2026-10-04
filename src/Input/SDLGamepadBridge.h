@@ -280,7 +280,6 @@ class SDLGamepadBridge : public QObject {
     };
     std::unordered_map<int, UsbIdentity> usbIdentity_;
     std::unordered_map<int, QString> identities_;
-    std::unordered_map<int, QString> identities_;
 
     // Per-pad shadow for the effect builders (the DS5 lamp re-assert), the
     // twin of UsbGamepadManager's per-claim one. SDL-thread only: written at
