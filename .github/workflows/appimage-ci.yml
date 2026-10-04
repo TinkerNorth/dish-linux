@@ -1,0 +1,78 @@
+name: AppImage CI
+
+# Pin map (verify with `gh api repos/<owner>/<repo>/git/ref/tags/<tag>`):
+#   actions/checkout         @ v7.0.1 → 3d3c42e5aac5ba805825da76410c181273ba90b1
+#   actions/upload-artifact  @ v7.0.1 → 043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+#
+# The bundle release.yml ships, built when something that feeds it changes:
+# the script, the host it runs on, the Qt pin, the files it packs, or this
+# file. The release lane is the only other place the script runs, and a tag
+# is a late place to learn that the Qt it now pins lays its plugins out
+# differently.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "scripts/build-appimage.sh"
+      - ".github/actions/setup-appimage-host/**"
+      - ".github/actions/setup-qt/**"
+      - ".github/workflows/appimage-ci.yml"
+      - "CMakeLists.txt"
+      - "packaging/**"
+      - "!packaging/flatpak/**"
+  pull_request:
+    branches: [main]
+    paths:
+      - "scripts/build-appimage.sh"
+      - ".github/actions/setup-appimage-host/**"
+      - ".github/actions/setup-qt/**"
+      - ".github/workflows/appimage-ci.yml"
+      - "CMakeLists.txt"
+      - "packaging/**"
+      - "!packaging/flatpak/**"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  appimage:
+    name: Build the AppImage and run its smoke test
+    # jammy, as release.yml: the bundle's glibc floor is the build host's.
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up the AppImage build host
+        uses: ./.github/actions/setup-appimage-host
+
+      # No DSN, as a hand-run: the bundle cannot transmit and the SDK is not
+      # fetched. The script's own gates run either way: every platform plugin
+      # by name, then the offscreen smoke test of the unpacked artifact.
+      - name: Build AppImage
+        run: scripts/build-appimage.sh
+
+      # The platform plugins that went into the bundle, in the log, so a
+      # failure of the script's name check comes with the whole list.
+      - name: List the bundled platform plugins
+        run: |
+          set -euo pipefail
+          appimage="$(find dist -maxdepth 1 -name 'Dish-*-x86_64.AppImage' -print -quit)"
+          [ -n "${appimage}" ] || { echo "::error::no AppImage in dist/"; exit 1; }
+          (cd "${RUNNER_TEMP}" && "${GITHUB_WORKSPACE}/${appimage}" --appimage-extract 'usr/plugins/platforms/*' >/dev/null)
+          ls -l "${RUNNER_TEMP}/squashfs-root/usr/plugins/platforms/"
+          compgen -G "${RUNNER_TEMP}/squashfs-root/usr/plugins/platforms/libqwayland*.so" >/dev/null \
+            || { echo "::error::the bundle carries no Wayland platform plugin"; exit 1; }
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: linux-appimage-ci
+          path: dist/*.AppImage
+          retention-days: 7
+          if-no-files-found: error

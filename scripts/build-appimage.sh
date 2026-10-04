@@ -80,13 +80,28 @@ export QML_SOURCES_PATHS="${repo_root}/src/qml"
 # Qt6::Svg is linked, but the image-format plugin that renders the window icon
 # is loaded at run time and has no DT_NEEDED to be found by.
 export EXTRA_QT_MODULES="svg"
+export QMAKE="${QMAKE:-$(command -v qmake6 || command -v qmake)}"
+qt_plugin_dir="$("${QMAKE}" -query QT_INSTALL_PLUGINS)"
+
+# Qt 6.10 ships one Wayland platform plugin, libqwayland.so, from qtbase;
+# 6.7 to 6.9 ship the generic/egl pair from qtwayland. Probed, not pinned,
+# so a build against either Qt bundles what it has, and a Qt with neither
+# fails here rather than on a user's Wayland desktop.
+if [ -e "${qt_plugin_dir}/platforms/libqwayland.so" ]; then
+    wayland_platforms="libqwayland.so"
+elif [ -e "${qt_plugin_dir}/platforms/libqwayland-generic.so" ] \
+    && [ -e "${qt_plugin_dir}/platforms/libqwayland-egl.so" ]; then
+    wayland_platforms="libqwayland-generic.so;libqwayland-egl.so"
+else
+    echo "::error::the Qt at ${qt_plugin_dir} ships no Wayland platform plugin; the AppImage would not start on a Wayland desktop" >&2
+    exit 1
+fi
 # libqoffscreen.so is not a plugin a desktop ever selects (Qt picks wayland or
 # xcb from the session), and it is what lets the bundle be launched with no
 # display at all, which is the only way the smoke test below can run the
 # shipped artifact rather than a build tree. The .deb and .rpm lanes get it
 # from the distribution; nothing but this line puts it in the AppImage.
-export EXTRA_PLATFORM_PLUGINS="libqwayland-generic.so;libqwayland-egl.so;libqoffscreen.so"
-export QMAKE="${QMAKE:-$(command -v qmake6 || command -v qmake)}"
+export EXTRA_PLATFORM_PLUGINS="${wayland_platforms};libqoffscreen.so"
 
 "${tools_dir}/linuxdeploy" \
     --appdir "${appdir}" \
@@ -101,17 +116,21 @@ export QMAKE="${QMAKE:-$(command -v qmake6 || command -v qmake)}"
 # buffer integrations aborts at the first expose ("Available client buffer
 # integrations: QList()", then QRhi fails and Qt Quick qFatals). Copy the
 # directory it forgets; the packaging pass below pulls its libraries.
-qt_plugin_dir="$("${QMAKE}" -query QT_INSTALL_PLUGINS)"
 if [ -d "${qt_plugin_dir}/wayland-graphics-integration-client" ]; then
     cp -r "${qt_plugin_dir}/wayland-graphics-integration-client" \
         "${appdir}/usr/plugins/"
 fi
-for must in \
-    "platforms/libqwayland-egl.so" \
-    "platforms/libqxcb.so" \
-    "platforms/libqoffscreen.so" \
-    "wayland-graphics-integration-client" \
-    "wayland-shell-integration"; do
+must_have=(
+    "platforms/libqxcb.so"
+    "platforms/libqoffscreen.so"
+    "wayland-graphics-integration-client"
+    "wayland-shell-integration"
+)
+IFS=';' read -ra wayland_platform_files <<< "${wayland_platforms}"
+for plugin in "${wayland_platform_files[@]}"; do
+    must_have+=("platforms/${plugin}")
+done
+for must in "${must_have[@]}"; do
     if [ ! -e "${appdir}/usr/plugins/${must}" ]; then
         echo "::error::AppImage is missing usr/plugins/${must}; a Wayland desktop crashes at startup without it, and the smoke test below cannot run at all" >&2
         exit 1
