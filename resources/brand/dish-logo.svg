@@ -4,16 +4,16 @@
       <rect x="0" y="0" width="200" height="200" fill="white"></rect>
 
   <g fill="black">
-    <g transform="rotate(-28 100 84)">
+    <g transform="rotate(28 100 84)">
       <ellipse cx="100" cy="84" rx="55" ry="21"></ellipse>
     </g>
     <path d="M 88 118 L 112 118 L 68 196 L 46 196 Z"></path>
     <path d="M 88 118 L 112 118 L 154 196 L 132 196 Z"></path>
     <rect x="42" y="182" width="116" height="14" rx="3"></rect>
-    <g stroke="black" stroke-width="18" fill="none" stroke-linecap="round">
-      <path d="M 140 50 a 12 12 0 0 1 8 12"></path>
-      <path d="M 152 40 a 22 22 0 0 1 14 22"></path>
-      <path d="M 166 28 a 36 36 0 0 1 22 34"></path>
+    <g stroke="black" stroke-width="14" fill="none" stroke-linecap="round">
+      <path d="M 110.95 49.11 A 12 12 0 0 1 122.8 55.41"></path>
+      <path d="M 109.49 35.19 A 26 26 0 0 1 135.16 48.84"></path>
+      <path d="M 107.82 19.27 A 42 42 0 0 1 149.29 41.33"></path>
     </g>
   </g>
     </mask>
@@ -24,15 +24,15 @@
   </g>
 
   <g stroke="#8FCFE3" stroke-width="5" fill="none" stroke-linecap="round">
-    <path d="M 140 50 a 12 12 0 0 1 8 12"></path>
-    <path d="M 152 40 a 22 22 0 0 1 14 22"></path>
-    <path d="M 166 28 a 36 36 0 0 1 22 34"></path>
+    <path d="M 110.95 49.11 A 12 12 0 0 1 122.8 55.41"></path>
+    <path d="M 109.49 35.19 A 26 26 0 0 1 135.16 48.84"></path>
+    <path d="M 107.82 19.27 A 42 42 0 0 1 149.29 41.33"></path>
   </g>
   <rect x="98" y="108" width="4" height="20" fill="#8FCFE3"></rect>
   <path d="M 96 124 L 104 124 L 64 188 L 52 188 Z" fill="#8FCFE3"></path>
   <path d="M 96 124 L 104 124 L 148 188 L 136 188 Z" fill="#8FCFE3"></path>
   <rect x="46" y="186" width="108" height="6" rx="1.5" fill="#8FCFE3"></rect>
-  <g transform="rotate(-28 100 84)">
+  <g transform="rotate(28 100 84)">
     <ellipse cx="100" cy="84" rx="48" ry="14" fill="#8FCFE3"></ellipse>
     <ellipse cx="100" cy="84" rx="38" ry="8" fill="#ffffff" opacity="0.55"></ellipse>
     <circle cx="100" cy="84" r="3.5" fill="#8FCFE3"></circle>
