@@ -102,6 +102,12 @@
   <!-- Kept in step with project(Dish VERSION ...); version-consistency.yml
        fails the PR that moves one without the other. -->
   <releases>
+    <release version="2.2.1" date="2026-10-05" type="stable">
+      <url type="details">https://github.com/TinkerNorth/dish-linux/releases/tag/2.2.1</url>
+      <description>
+        <p>The dish on the launcher icon, in the tray and in the window faces its signal: the reflector aimed up and to the left while the signal arcs sat at the upper right, and it now points at them in every state glyph and in the app mark.</p>
+      </description>
+    </release>
     <release version="2.2.0" date="2026-10-04" type="stable">
       <url type="details">https://github.com/TinkerNorth/dish-linux/releases/tag/2.2.0</url>
       <description>
