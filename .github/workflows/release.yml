@@ -341,7 +341,7 @@ jobs:
       - name: Stage stable-name alias
         run: cp dist/dish_*_amd64.deb dist/dish-amd64.deb
 
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: linux-deb
           path: dist/*.deb
@@ -507,7 +507,7 @@ jobs:
       - name: Stage stable-name alias
         run: cp dist/dish-*.x86_64.rpm dist/dish-x86_64.rpm
 
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: linux-rpm
           path: dist/*.rpm
@@ -584,7 +584,7 @@ jobs:
       - name: Stage stable-name alias
         run: cp dist/Dish-*-x86_64.AppImage dist/Dish-x86_64.AppImage
 
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: linux-appimage
           path: |
@@ -675,7 +675,7 @@ jobs:
           chmod +x "$cli"
           "$cli" debug-files upload "$DEBUG_TREE"
 
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: linux-flatpak
           path: dist/*.flatpak
@@ -751,7 +751,7 @@ jobs:
           echo "stable=true" >> "$GITHUB_OUTPUT"
 
       - if: ${{ steps.emit.outputs.stable == 'true' }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: linux-manifest
           path: dist/latest.json
@@ -799,13 +799,13 @@ jobs:
       contents: write
     steps:
       - name: Download hardened bundle
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: release-bundle
           path: release
 
       - name: Download SLSA provenance
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: ${{ needs.provenance.outputs.provenance-name }}
           path: release
@@ -933,7 +933,7 @@ jobs:
 
       - name: Download release bundle
         if: steps.gate.outputs.skip != 'true'
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: release-bundle
           path: release
@@ -1040,7 +1040,7 @@ jobs:
 
       - name: Download release bundle
         if: steps.gate.outputs.skip != 'true'
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: release-bundle
           path: release
