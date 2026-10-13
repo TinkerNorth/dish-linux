@@ -16,6 +16,30 @@ the repos share a version number.
 
 ---
 
+## [Unreleased]
+
+### Fixed
+
+- **The light bar's Off setting now covers a Moonlight host.** A Moonlight
+  host's RGB_LED event went straight to the pad, so a game could recolour a
+  light bar the user had set to "Off: leave the LED untouched". The Moonlight
+  path now takes the same gate as a satellite's MSG_LIGHTBAR, through one
+  routing helper both hosts share (the Windows client already gated it).
+- **The privacy policy and the third-party notices tell the truth about the
+  Flatpak.** Since 2.2.0 the Flatpak carries the Sentry SDK and the DSN like
+  every other official package, but both documents still said it carried
+  neither. They now say so, name the directory the crash reporter keeps its
+  state and any pending report in (`~/.local/share/TinkerNorth/Dish/sentry/`,
+  under `~/.var/app/com.tinkernorth.Dish/` in the Flatpak), add it to the
+  wipe list, and give the Flatpak's crash-log path.
+
+### Changed
+
+- **A dead settings key is gone.** `motion_enabled:<slotId>` was declared and
+  documented but never read or written; the per-slot motion switches live in
+  `motion_preferences`. The declaration and the privacy policy's row are
+  removed.
+
 ## [2.2.1] - 2026-10-05
 
 ### Changed

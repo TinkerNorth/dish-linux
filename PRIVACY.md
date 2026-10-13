@@ -64,7 +64,7 @@ clients are written through the app's default organisation name and land in
 | `moonlight_identity_cert`, `moonlight_identity_key`, `moonlight_identity_uniqueid` | **This install's Moonlight client identity: a self-signed certificate, its private key, and a random client id** | Proving to a Moonlight host that this is the machine it paired with. Secret material, like the pairing key above. Sent **only** to Moonlight hosts you pair with, never to us. |
 | `deviceId` | A random UUID generated on first run, with the dashes stripped | A stable per-install identifier the satellite uses to recognise this client across restarts and IP changes. It is sent **only** to satellites you pair with, never to us. |
 | `deadzone:<deviceId>` | Per-controller stick and trigger deadzone profile | Restoring your calibration |
-| `motion_enabled:<slotId>`, `motion_preferences`, `touchpad_mode_preferences` | Per-slot motion and touchpad routing toggles | Restoring your setup |
+| `motion_preferences`, `touchpad_mode_preferences` | Per-slot motion and touchpad routing toggles | Restoring your setup |
 | `usb_path_choices` | Per `vid:pid` choice between the SDL path and the USB-direct raw-HID path | Restoring your setup |
 | `joystick_remaps` | Per-device button, stick, and trigger remapping | Restoring your setup |
 | `feature_lightbar_mode` | `followGame` or `off` | Light-bar behaviour |
@@ -244,7 +244,8 @@ principle, key material. That file belongs to your system's collector, not to
 Dish; treat it as sensitive before attaching it to a public issue.
 
 Delete `~/.local/state/dish/` at any time; the app recreates it only if it
-crashes again.
+crashes again. In the Flatpak the same file lives under the app's own home,
+`~/.var/app/com.tinkernorth.Dish/.local/state/dish/crash.log`.
 
 **What is uploaded, and when.** Settings has a *Share crash reports* switch,
 on by default. With it on, an official release build that crashes sends one
@@ -273,11 +274,19 @@ immediately, so it stops the very next report, not just later ones, and the
 choice persists in your config. Opting out never costs you the local log
 above, and the redacted report card in Settings works either way.
 
+**Where the SDK keeps its state.** With the switch on, the crash reporter
+keeps its run state and any report it has not yet sent under
+`~/.local/share/TinkerNorth/Dish/sentry/` (in the Flatpak,
+`~/.var/app/com.tinkernorth.Dish/data/TinkerNorth/Dish/sentry/`). Deleting
+that directory discards a pending report; the app recreates it only while the
+switch is on.
+
 **Builds that cannot upload.** Only official release builds from this
-repository (the .deb, the .rpm and the AppImage) carry the Sentry address
-(DSN) that the SDK needs. A source build, a pull-request build, a fork or the
-Flatpak carries none, does not even include the SDK, and cannot upload,
-whatever the switch says.
+repository (the .deb, the .rpm, the AppImage and the Flatpak) carry the
+Sentry address (DSN) that the SDK needs; the Flatpak's is written in its
+manifest, because Flathub builds from the committed file and a DSN is not a
+secret. A source build, a pull-request build or a fork carries none, does not
+even include the SDK, and cannot upload, whatever the switch says.
 
 **Symbols.** To make reports readable we upload the debug symbols of official
 builds to Sentry at release time. They describe the program, not you.
@@ -299,6 +308,7 @@ do, so this is the equivalent list of what the app touches.
 | `/sys/class/bluetooth` and BlueZ on the system bus | Telling "no Bluetooth adapter" from "adapter switched off" in the setup wizard. Read only. |
 | `~/.config/` read and write | Settings and pairing state, as listed in section 2.1. |
 | `$XDG_STATE_HOME/dish/` file write | The crash log described in section 3. |
+| `~/.local/share/TinkerNorth/Dish/sentry/` file write | The crash reporter's run state and any report not yet sent (section 3), only while *Share crash reports* is on. |
 | Default browser launch | Opening the links listed in section 2.3, only when you click one. |
 
 The app runs as a normal user. It never asks for root, installs no service and
@@ -330,10 +340,12 @@ SDL.
   pairings and crash log are deliberately left behind so that reinstalling
   restores your setup; the *Wipe everything* step below removes those too.
 - **Wipe everything.** Delete `~/.config/Dish/Dish.conf`,
-  `~/.config/com.tinkernorth.Dish/dish.conf` and `~/.local/state/dish/`. That removes
-  every remembered server, pairing key, certificate pin, Moonlight identity,
-  preference, update setting, and crash artifact. There is no server-side
-  record to delete, because there is no TinkerNorth server.
+  `~/.config/com.tinkernorth.Dish/dish.conf`, `~/.local/state/dish/` and
+  `~/.local/share/TinkerNorth/Dish/` (for the Flatpak, the whole of
+  `~/.var/app/com.tinkernorth.Dish/`). That removes every remembered server,
+  pairing key, certificate pin, Moonlight identity, preference, update
+  setting, and crash artifact, pending reports included. There is no
+  server-side record to delete, because there is no TinkerNorth server.
 - **Verify any of this.** The client is free software under
   [LGPL-3.0-or-later](LICENSE). Every claim above is checkable in this
   repository, and you can build the binary yourself. See

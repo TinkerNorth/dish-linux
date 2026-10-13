@@ -442,6 +442,9 @@ class AppModel : public QObject {
     void installFeedbackHandlers(net::WifiConnection& conn, const QString& id);
     void onRumbleMessage(const QString& id, const net::SatelliteClient::RumbleMessage& rm);
     void onLightbarMessage(const QString& id, const net::SatelliteClient::LightbarMessage& lm);
+    // A Moonlight host's RGB_LED for the slot bound to it; the light-bar setting gates it the
+    // way it gates a satellite's MSG_LIGHTBAR.
+    void onMoonlightLed(const QString& slotId, std::uint8_t r, std::uint8_t g, std::uint8_t b);
     void onTriggerEffectsMessage(const QString& id,
                                  const net::SatelliteClient::TriggerEffectsMessage& tm);
     void onPlayerLedsMessage(const QString& id, const net::SatelliteClient::PlayerLedsMessage& pm);

@@ -30,8 +30,8 @@ today.
 | [Catch2](#5-catch2) | 3.x | `BSL-1.0` | Test binary only. Not linked into `dish`. | None for redistributors of the app |
 | [ENet (cgutman fork)](#9-enet) | commit `4cde9cc` | `MIT` | Vendored C sources under `third_party/enet/`, compiled into `dish`. | Ship the copyright + permission notice |
 | [OpenSSL libcrypto](#10-openssl-libcrypto) | system | `Apache-2.0` | Dynamically linked against the system libcrypto for the Moonlight-host crypto. | Keep the notice; nothing bundled |
-| [sentry-native](#sentry-native) | 0.16.3 | `MIT` | Official release builds only: built from the hash-pinned release bundle and statically linked into `dish`. Absent from source, PR and Flatpak builds. | Keep the copyright and permission notice |
-| [libcurl](#libcurl) | system | `curl` | Official release builds only: dynamically linked against the system libcurl as sentry-native's transport. | Keep the notice; nothing bundled |
+| [sentry-native](#sentry-native) | 0.16.3 | `MIT` | Official release builds only, the Flatpak included: built from the hash-pinned release bundle and statically linked into `dish`. Absent from source and PR builds. | Keep the copyright and permission notice |
+| [libcurl](#libcurl) | system | `curl` | Official release builds only: dynamically linked against the system libcurl (the runtime's, in the Flatpak) as sentry-native's transport. | Keep the notice; nothing bundled |
 
 Two further items are reuse of published facts rather than of code, and are
 covered in [section 6](#6-reused-facts-not-reused-code): SDL's default Switch Pro
@@ -247,8 +247,9 @@ sentry-native 0.16.3. SPDX `MIT`. Upstream:
 
 The crash reporter behind the *Share crash reports* switch. Only the official
 release lanes build it, from the hash-pinned release bundle with the
-in-process backend, and link it statically into `dish`; a source build, a
-pull-request build or the Flatpak does not include it at all, because those
+in-process backend, and link it statically into `dish`; the Flatpak is one of
+them, with the bundle sideloaded and the DSN written in its manifest. A source
+build or a pull-request build does not include it at all, because those
 builds carry no Sentry address and would have nothing to send. See
 [`PRIVACY.md`](PRIVACY.md), section 3, for what a report contains.
 
@@ -278,8 +279,8 @@ SOFTWARE.
 ### libcurl
 
 libcurl, the system copy, dynamically linked by sentry-native as its HTTPS
-transport in official release builds only. SPDX `curl`. Upstream:
-<https://curl.se/>.
+transport in official release builds only; in the Flatpak it is the runtime's
+copy. SPDX `curl`. Upstream: <https://curl.se/>.
 
 ```
 COPYRIGHT AND PERMISSION NOTICE
