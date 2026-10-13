@@ -61,7 +61,8 @@ the repos share a version number.
 - **The playout queue is capped.** A burst after a stall, or a pad whose clock
   ran slower than the stream's, piled windows into the device queue that never
   drained back to the two-frame cushion, so latency only grew. A window that
-  would push the queue past four frames is dropped instead.
+  would push the queue past eight frames (the cushion plus one full burst of
+  the reorder window, 160 ms) is dropped instead.
 - **A stream that restarts under a living voice plays again.** The satellite
   restarts a lane's count when it re-plugs the pad or heals the session; a
   voice nothing else changed about kept its old window and read the whole new

@@ -57,21 +57,25 @@ inline constexpr bool speakerPlayoutEligible(const AudioSlotFacts& f) {
 // upstream already costs, so this adds no latency the stream did not have.
 inline constexpr int kPlayoutStartThresholdFrames = 2;
 
-// The playout queue's ceiling, in frames: room for a scheduling hiccup without
-// letting the queue grow into latency. The start threshold decides the
-// steady-state latency, not this; this decides what a burst after a stall, or
-// a device clock slower than the stream's, may pile up before windows drop.
+// The device-side buffer request, in frames: room for a scheduling hiccup
+// without letting the queue grow into latency. The start threshold decides the
+// steady-state latency, not this.
 inline constexpr int kPlayoutBufferFrames = 4;
 
 inline constexpr std::size_t kPlayoutFrameBytes =
     static_cast<std::size_t>(proto::kAudioFrameSamples) *
     static_cast<std::size_t>(proto::kAudioSpeakerChannels) * sizeof(std::int16_t);
 
-// A window that would push the queue past its ceiling is dropped rather than
-// queued: queued audio is latency, and a queue that only ever grows never
-// drains back to the cushion.
+// The queue's ceiling, in frames: the cushion plus the largest burst one push
+// of the reorder window can emit (AUDIO_JITTER_MAX_EVENTS_PER_PUSH), 160 ms.
+// Queued audio is latency, and a queue that only ever grows never drains back
+// to the cushion, so a window that would push past this is dropped rather than
+// queued: a burst after a stall, or a device clock slower than the stream's,
+// costs one window now and then instead of latency for the rest of the session.
+inline constexpr int kPlayoutQueueCeilingFrames = 8;
+
 inline constexpr bool playoutQueueFull(std::size_t queuedBytes, std::size_t frameBytes) {
-    return queuedBytes >= static_cast<std::size_t>(kPlayoutBufferFrames) * frameBytes;
+    return queuedBytes >= static_cast<std::size_t>(kPlayoutQueueCeilingFrames) * frameBytes;
 }
 
 // A stream that restarted under a voice that outlived it (the satellite

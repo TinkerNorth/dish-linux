@@ -448,7 +448,7 @@ with one seq per slot that advances on failed encodes too and never restarts
 while the engine lives; `SpeakerPlayoutEngine` holds one playback device per
 eligible slot, fed on its own playout thread through the reorder window and the
 Opus decoder's FEC/PLC, with a two-frame start cushion that is rebuilt as
-silence when a suppressed-silence stretch drains the queue, a four-frame
+silence when a suppressed-silence stretch drains the queue, an eight-frame
 ceiling past which windows drop rather than queue, and a fresh window primed
 when ten late frames in a row say the stream restarted beneath the voice. Protocol 3 adds the DualSense's HD-haptics lanes
 (`MSG_HAPTIC_AUDIO`, cap `hapticAudio`): the same engine holds a SECOND voice

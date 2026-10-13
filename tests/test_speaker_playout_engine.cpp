@@ -195,8 +195,7 @@ TEST_CASE("a drained queue is re-cushioned with silence before the resumed audio
     CHECK(playback->queued[cushion] == 0x12);
 }
 
-TEST_CASE("the queue takes no more than its ceiling until the device drains",
-          "[audio][playout]") {
+TEST_CASE("the queue takes no more than its ceiling until the device drains", "[audio][playout]") {
     // Queued audio is latency: a burst after a stall, or a device clock slower
     // than the stream's, would otherwise pile up and never drain back to the
     // cushion.
@@ -204,14 +203,14 @@ TEST_CASE("the queue takes no more than its ceiling until the device drains",
     h.engine.reconcile({Harness::voice("sat", 0, "slot", "spk")});
     auto* playback = h.gateway.playbackFor("spk");
     REQUIRE(playback != nullptr);
-    for (std::uint16_t seq = 0; seq < 6; seq++) { h.frame("sat", 0, seq, 0x10); }
+    for (std::uint16_t seq = 0; seq < 10; seq++) { h.frame("sat", 0, seq, 0x10); }
     const std::size_t ceiling =
-        static_cast<std::size_t>(dish::audio::kPlayoutBufferFrames) * kWindowSamples;
+        static_cast<std::size_t>(dish::audio::kPlayoutQueueCeilingFrames) * kWindowSamples;
     CHECK(playback->queued.size() == ceiling);
-    CHECK(h.decoderState->decodes == 6); // decoded, so the window's clock still advanced
+    CHECK(h.decoderState->decodes == 10); // decoded, so the window's clock still advanced
 
     for (auto& [handle, p] : h.gateway.playbacks) { h.gateway.drain(handle); }
-    h.frame("sat", 0, 6, 0x16);
+    h.frame("sat", 0, 10, 0x16);
     // Drained means re-cushioned, then the window.
     const std::size_t cushion =
         static_cast<std::size_t>(dish::audio::kPlayoutStartThresholdFrames) * kWindowSamples;
@@ -242,8 +241,7 @@ TEST_CASE("a stream that restarted under a living voice primes a fresh window",
     CHECK(h.decoderState->decodes == 8);
 }
 
-TEST_CASE("a departed device closes its voices and a reconcile reopens them",
-          "[audio][playout]") {
+TEST_CASE("a departed device closes its voices and a reconcile reopens them", "[audio][playout]") {
     Harness h;
     h.engine.reconcile({Harness::voice("sat", 0, "slot", "spk")});
     h.engine.closeOnDevicesAbsent({"other"});

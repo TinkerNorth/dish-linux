@@ -61,9 +61,10 @@ TEST_CASE("the playout constants are the contract's cushion", "[audio][policy]")
 
 TEST_CASE("the queue is full at its ceiling and takes no more", "[audio][policy]") {
     // Queued audio is latency; the ceiling is in frames, so a wider device has
-    // a wider ceiling in bytes.
+    // a wider ceiling in bytes. The cushion plus one full push of the window.
     const std::size_t frame = dish::audio::kPlayoutFrameBytes;
-    const auto ceiling = static_cast<std::size_t>(dish::audio::kPlayoutBufferFrames);
+    const auto ceiling = static_cast<std::size_t>(dish::audio::kPlayoutQueueCeilingFrames);
+    CHECK(dish::audio::kPlayoutQueueCeilingFrames == 8);
     CHECK_FALSE(dish::audio::playoutQueueFull(0, frame));
     CHECK_FALSE(dish::audio::playoutQueueFull((ceiling - 1) * frame, frame));
     CHECK(dish::audio::playoutQueueFull(ceiling * frame, frame));

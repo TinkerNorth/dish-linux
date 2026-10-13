@@ -42,8 +42,7 @@ constexpr std::size_t frameBytesFor(int channels) {
 } // namespace
 
 SpeakerPlayoutEngine::SpeakerPlayoutEngine(AudioDeviceGateway* gateway,
-                                           DecoderFactory decoderFactory,
-                                           PlayoutDispatch dispatch)
+                                           DecoderFactory decoderFactory, PlayoutDispatch dispatch)
     : gateway_(gateway), decoderFactory_(std::move(decoderFactory)), dispatch_(dispatch) {
     if (!decoderFactory_) {
         // One decoder shape serves both lanes: the haptic stream is the
@@ -53,7 +52,9 @@ SpeakerPlayoutEngine::SpeakerPlayoutEngine(AudioDeviceGateway* gateway,
                 dish::audio::OpusStreamDecoder::create(dish::audio::Stream::Speaker));
         };
     }
-    if (dispatch_ == PlayoutDispatch::Worker) { worker_ = std::thread([this] { workerLoop(); }); }
+    if (dispatch_ == PlayoutDispatch::Worker) {
+        worker_ = std::thread([this] { workerLoop(); });
+    }
 }
 
 SpeakerPlayoutEngine::~SpeakerPlayoutEngine() {

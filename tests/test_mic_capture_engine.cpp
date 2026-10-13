@@ -194,8 +194,7 @@ TEST_CASE("a slot reconciled away and back continues its sequence", "[audio][mic
     CHECK(h.sent[5].seq == 0);
 }
 
-TEST_CASE("a departed device closes its capture and a reconcile reopens it",
-          "[audio][micengine]") {
+TEST_CASE("a departed device closes its capture and a reconcile reopens it", "[audio][micengine]") {
     Harness h;
     h.engine.reconcile({h.target("slot", "mic")});
     h.engine.closeOnDevicesAbsent({"other-mic"});
