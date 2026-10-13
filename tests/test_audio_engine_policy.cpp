@@ -59,6 +59,30 @@ TEST_CASE("the playout constants are the contract's cushion", "[audio][policy]")
     CHECK(dish::audio::kPlayoutFrameBytes == 3840U);
 }
 
+TEST_CASE("the queue is full at its ceiling and takes no more", "[audio][policy]") {
+    // Queued audio is latency; the ceiling is in frames, so a wider device has
+    // a wider ceiling in bytes.
+    const std::size_t frame = dish::audio::kPlayoutFrameBytes;
+    const auto ceiling = static_cast<std::size_t>(dish::audio::kPlayoutBufferFrames);
+    CHECK_FALSE(dish::audio::playoutQueueFull(0, frame));
+    CHECK_FALSE(dish::audio::playoutQueueFull((ceiling - 1) * frame, frame));
+    CHECK(dish::audio::playoutQueueFull(ceiling * frame, frame));
+    CHECK(dish::audio::playoutQueueFull(ceiling * frame + 1, frame));
+    CHECK_FALSE(dish::audio::playoutQueueFull(ceiling * frame, 2 * frame));
+}
+
+TEST_CASE("ten late frames in a row are a restart, nine are reordering", "[audio][policy]") {
+    CHECK(dish::audio::kPlayoutLateRunRestart == 10);
+    CHECK_FALSE(dish::audio::playoutRestartNeeded(0));
+    CHECK_FALSE(dish::audio::playoutRestartNeeded(9));
+    CHECK(dish::audio::playoutRestartNeeded(10));
+    CHECK(dish::audio::playoutRestartNeeded(11));
+}
+
+TEST_CASE("the playout thread holds at most eight frames", "[audio][policy]") {
+    CHECK(dish::audio::kPlayoutPendingFrames == 8);
+}
+
 TEST_CASE("the cushion refills only on a drained queue after start", "[audio][policy]") {
     // Before start the threshold owns the cushion; after it, only a genuinely
     // empty queue earns silence, and it earns exactly the start cushion.

@@ -20,6 +20,7 @@
 #include <memory>
 #include <vector>
 
+using dish::source::audio::PlayoutDispatch;
 using dish::source::audio::PlayoutLane;
 using dish::source::audio::SpeakerPlayoutEngine;
 using dish::source::audio::SpeakerVoiceTarget;
@@ -76,8 +77,11 @@ class FakeDecoder : public dish::audio::IAudioDecoder {
 struct Harness {
     FakeAudioGateway gateway;
     std::shared_ptr<FakeDecoder::State> decoderState = std::make_shared<FakeDecoder::State>();
+    // Inline: a frame is decoded before deliver() returns, so the queue reads
+    // true the moment a frame lands; the playout thread has its own case.
     SpeakerPlayoutEngine engine{&gateway,
-                                [this] { return std::make_unique<FakeDecoder>(decoderState); }};
+                                [this] { return std::make_unique<FakeDecoder>(decoderState); },
+                                PlayoutDispatch::Inline};
 
     static SpeakerVoiceTarget voice(const std::string& conn, int idx, const std::string& slot,
                                     const std::string& device,
@@ -189,6 +193,90 @@ TEST_CASE("a drained queue is re-cushioned with silence before the resumed audio
         if (playback->queued[i] != 0) { FAIL("cushion sample " << i << " is not silence"); }
     }
     CHECK(playback->queued[cushion] == 0x12);
+}
+
+TEST_CASE("the queue takes no more than its ceiling until the device drains",
+          "[audio][playout]") {
+    // Queued audio is latency: a burst after a stall, or a device clock slower
+    // than the stream's, would otherwise pile up and never drain back to the
+    // cushion.
+    Harness h;
+    h.engine.reconcile({Harness::voice("sat", 0, "slot", "spk")});
+    auto* playback = h.gateway.playbackFor("spk");
+    REQUIRE(playback != nullptr);
+    for (std::uint16_t seq = 0; seq < 6; seq++) { h.frame("sat", 0, seq, 0x10); }
+    const std::size_t ceiling =
+        static_cast<std::size_t>(dish::audio::kPlayoutBufferFrames) * kWindowSamples;
+    CHECK(playback->queued.size() == ceiling);
+    CHECK(h.decoderState->decodes == 6); // decoded, so the window's clock still advanced
+
+    for (auto& [handle, p] : h.gateway.playbacks) { h.gateway.drain(handle); }
+    h.frame("sat", 0, 6, 0x16);
+    // Drained means re-cushioned, then the window.
+    const std::size_t cushion =
+        static_cast<std::size_t>(dish::audio::kPlayoutStartThresholdFrames) * kWindowSamples;
+    CHECK(playback->queued.size() == ceiling + cushion + kWindowSamples);
+}
+
+TEST_CASE("a stream that restarted under a living voice primes a fresh window",
+          "[audio][playout]") {
+    // The satellite restarts a lane's seq when it re-plugs the pad or heals the
+    // session; a voice nothing else changed about outlives that, and its window
+    // would read every frame of the new stream as late, for up to ten minutes.
+    Harness h;
+    h.engine.reconcile({Harness::voice("sat", 0, "slot", "spk")});
+    for (std::uint16_t seq = 100; seq < 105; seq++) { h.frame("sat", 0, seq, 0x10); }
+    CHECK(h.decoderState->decodes == 5);
+    // The stream restarts at 0: nine late frames prove nothing, the tenth is
+    // the restart and plays.
+    for (std::uint16_t seq = 0; seq < 9; seq++) { h.frame("sat", 0, seq, 0x20); }
+    CHECK(h.decoderState->decodes == 5);
+    h.frame("sat", 0, 9, 0x29);
+    CHECK(h.decoderState->decodes == 6);
+    h.frame("sat", 0, 10, 0x2A);
+    CHECK(h.decoderState->decodes == 7);
+    // Reordering within the window is not a restart: an in-order frame ends
+    // the run.
+    h.frame("sat", 0, 9, 0x29);
+    h.frame("sat", 0, 11, 0x2B);
+    CHECK(h.decoderState->decodes == 8);
+}
+
+TEST_CASE("a departed device closes its voices and a reconcile reopens them",
+          "[audio][playout]") {
+    Harness h;
+    h.engine.reconcile({Harness::voice("sat", 0, "slot", "spk")});
+    h.engine.closeOnDevicesAbsent({"other"});
+    CHECK_FALSE(h.engine.playingFor("slot"));
+    CHECK(h.gateway.openPlaybackCount() == 0);
+    h.engine.reconcile({Harness::voice("sat", 0, "slot", "spk")});
+    CHECK(h.engine.playingFor("slot"));
+    h.engine.closeOnDevicesAbsent({"spk"});
+    CHECK(h.engine.playingFor("slot"));
+}
+
+TEST_CASE("the playout thread decodes the frames the receive thread handed it",
+          "[audio][playout][thread]") {
+    // The production dispatch: deliver() copies and returns; the engine's own
+    // thread decodes and queues. Destruction drains what was handed over, then
+    // stops the thread and closes the voice, so everything is read after the
+    // join.
+    FakeAudioGateway gateway;
+    auto state = std::make_shared<FakeDecoder::State>();
+    {
+        SpeakerPlayoutEngine engine{&gateway,
+                                    [state] { return std::make_unique<FakeDecoder>(state); }};
+        engine.reconcile({Harness::voice("sat", 0, "slot", "spk")});
+        const std::uint8_t opus[4] = {0x11, 1, 2, 3};
+        engine.deliver("sat", 0, PlayoutLane::Speaker, 0, opus, sizeof(opus));
+        engine.deliver("sat", 0, PlayoutLane::Speaker, 1, opus, sizeof(opus));
+    }
+    REQUIRE(gateway.playbacks.size() == 1U);
+    const auto& playback = gateway.playbacks.begin()->second;
+    CHECK(playback.queued.size() == 2 * kWindowSamples);
+    CHECK(playback.resumed);
+    CHECK_FALSE(playback.open);
+    CHECK(state->decodes == 2);
 }
 
 TEST_CASE("reconciling a voice away closes its device", "[audio][playout]") {

@@ -57,14 +57,39 @@ inline constexpr bool speakerPlayoutEligible(const AudioSlotFacts& f) {
 // upstream already costs, so this adds no latency the stream did not have.
 inline constexpr int kPlayoutStartThresholdFrames = 2;
 
-// The device-side buffer request, in frames: room for a scheduling hiccup
-// without letting the queue grow into latency. The start threshold decides the
-// steady-state latency, not this.
+// The playout queue's ceiling, in frames: room for a scheduling hiccup without
+// letting the queue grow into latency. The start threshold decides the
+// steady-state latency, not this; this decides what a burst after a stall, or
+// a device clock slower than the stream's, may pile up before windows drop.
 inline constexpr int kPlayoutBufferFrames = 4;
 
 inline constexpr std::size_t kPlayoutFrameBytes =
     static_cast<std::size_t>(proto::kAudioFrameSamples) *
     static_cast<std::size_t>(proto::kAudioSpeakerChannels) * sizeof(std::int16_t);
+
+// A window that would push the queue past its ceiling is dropped rather than
+// queued: queued audio is latency, and a queue that only ever grows never
+// drains back to the cushion.
+inline constexpr bool playoutQueueFull(std::size_t queuedBytes, std::size_t frameBytes) {
+    return queuedBytes >= static_cast<std::size_t>(kPlayoutBufferFrames) * frameBytes;
+}
+
+// A stream that restarted under a voice that outlived it (the satellite
+// re-plugged the pad, or healed the session on the same connection) reads as
+// late frames for as long as the old count runs ahead: up to ten minutes. This
+// many late frames in a row, 200 ms and five reorder windows, is a restart and
+// not reordering, and the voice primes a fresh window on the frame that proved
+// it.
+inline constexpr int kPlayoutLateRunRestart = 10;
+
+inline constexpr bool playoutRestartNeeded(int lateRun) {
+    return lateRun >= kPlayoutLateRunRestart;
+}
+
+// Frames waiting for the playout thread, oldest first; the oldest is dropped
+// past this depth (160 ms), as dish-android drops, so a stalled decode can
+// never hold the receive thread or grow the queue without bound.
+inline constexpr int kPlayoutPendingFrames = 8;
 
 // How many frames of SILENCE to slip in front of the next window when the
 // queue has fully drained mid-stream. The satellite sends nothing for a

@@ -8,6 +8,7 @@
 
 #include <QLoggingCategory>
 
+#include <algorithm>
 #include <exception>
 #include <utility>
 
@@ -58,7 +59,7 @@ void MicCaptureEngine::WindowPublisher::sendWindow(const std::int16_t* pcm,
     const std::size_t bytes = session_->encoder->encode(pcm, frames, packet, sizeof(packet));
     // The window happened whether or not it encoded, so the seq slot is spent either way; a
     // failed encode becomes the receiver's concealment, not a shortened stream.
-    const std::uint16_t seq = session_->seq++;
+    const std::uint16_t seq = session_->seq.fetch_add(1, std::memory_order_relaxed);
     if (bytes == 0) { return; }
     session_->send(seq, packet, bytes);
 }
@@ -75,11 +76,24 @@ void MicCaptureEngine::closeDeparted(const std::vector<MicCaptureTarget>& target
             }
         }
         if (wanted == nullptr || wanted->captureDeviceName != it->second.deviceName) {
-            close(it->second);
+            close(it->first, it->second);
             it = entries_.erase(it);
         } else {
             ++it;
         }
+    }
+}
+
+void MicCaptureEngine::closeOnDevicesAbsent(const std::vector<std::string>& presentDevices) {
+    for (auto it = entries_.begin(); it != entries_.end();) {
+        const bool present = std::find(presentDevices.begin(), presentDevices.end(),
+                                       it->second.deviceName) != presentDevices.end();
+        if (present) {
+            ++it;
+            continue;
+        }
+        close(it->first, it->second);
+        it = entries_.erase(it);
     }
 }
 
@@ -92,6 +106,9 @@ void MicCaptureEngine::openMissing(const std::vector<MicCaptureTarget>& targets)
         session->encoder = encoderFactory_();
         if (session->encoder == nullptr) { continue; } // no codec, no capture
         session->send = t.send;
+        const auto resume = nextSeqBySlot_.find(t.slotId);
+        const std::uint16_t resumedSeq = resume != nextSeqBySlot_.end() ? resume->second : 0;
+        session->seq.store(resumedSeq, std::memory_order_relaxed);
 
         Entry entry;
         entry.deviceName = t.captureDeviceName;
@@ -114,13 +131,18 @@ bool MicCaptureEngine::capturingFor(const std::string& slotId) const {
     return entries_.find(slotId) != entries_.end();
 }
 
-void MicCaptureEngine::close(Entry& entry) {
+void MicCaptureEngine::close(const std::string& slotId, Entry& entry) {
     // Disable BEFORE the close: the close joins the callback, but the flag is
     // what drops a window already captured when the decision landed.
     if (entry.session != nullptr) {
         entry.session->enabled.store(false, std::memory_order_relaxed);
     }
     if (entry.handle != kNoAudioDevice) { gateway_->closeCapture(entry.handle); }
+    // The close joined the callback, so the count is at rest; the slot's next
+    // capture resumes from it.
+    if (entry.session != nullptr) {
+        nextSeqBySlot_[slotId] = entry.session->seq.load(std::memory_order_relaxed);
+    }
 }
 
 } // namespace dish::source::audio

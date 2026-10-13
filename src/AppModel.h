@@ -512,6 +512,9 @@ class AppModel : public QObject {
     // the live audio device lists; on a change, re-publish the bound slots'
     // descriptors (the caps fold reads the routes) and rebuild.
     void resolveAudioRoutes();
+    // An endpoint came or went: a departed device's voices and captures close
+    // first, then the routes re-resolve and the engines re-converge.
+    void onAudioDevicesChanged();
 
     // Converge the capture and playout engines on what should run right now:
     // the pure eligibility rules (core/audio/AudioEnginePolicy.h) over each

@@ -317,7 +317,8 @@ The threads in the app:
 | SDL input | [`SDLGamepadBridge`](../src/Input/SDLGamepadBridge.h) | The SDL event pump, `GamepadInputProcessor::publish`, and the `sendto` that follows it |
 | USB direct | `UsbGamepadManager` per claimed device | Raw-HID URB reads, feeding the same publish path |
 | Heartbeat | [`SatelliteClient`](../src/Network/SatelliteClient.h) | Per-session keepalive sends and ping arming |
-| Receive | `SatelliteClient` | Ack decode, RTT sampling, the feedback callbacks (rumble, lightbar, trigger effects, player LEDs, speaker audio, mic LED), close-notify |
+| Receive | `SatelliteClient` | Ack decode, RTT sampling, the feedback callbacks (rumble, lightbar, trigger effects, player LEDs, mic LED), the hand-off of speaker and haptics frames to the playout thread, close-notify |
+| Playout | [`SpeakerPlayoutEngine`](../src/source/audio/SpeakerPlayoutEngine.h) | The reorder window, the Opus decode and the capped queue to the pad's own endpoint, off the receive thread |
 
 **The input hot path is intentionally not routed through the kernel.** The
 input, decode, encode, `sendto` path is plain C++ with no queue, no Qt event
@@ -443,11 +444,13 @@ The engines execute the pure rules in
 `MicCaptureEngine` opens one capture device per eligible slot (streaming AND
 toggled on AND route matched AND host verdict AND not muted), windows the
 callback stream to exact 20 ms frames, Opus-encodes and sends `MSG_MIC_AUDIO`
-with a caller-owned seq that advances on failed encodes too;
-`SpeakerPlayoutEngine` holds one playback device per eligible slot, fed on the
-receive thread through the reorder window and the Opus decoder's FEC/PLC, with
-a two-frame start cushion that is rebuilt as silence when a suppressed-silence
-stretch drains the queue. Protocol 3 adds the DualSense's HD-haptics lanes
+with one seq per slot that advances on failed encodes too and never restarts
+while the engine lives; `SpeakerPlayoutEngine` holds one playback device per
+eligible slot, fed on its own playout thread through the reorder window and the
+Opus decoder's FEC/PLC, with a two-frame start cushion that is rebuilt as
+silence when a suppressed-silence stretch drains the queue, a four-frame
+ceiling past which windows drop rather than queue, and a fresh window primed
+when ten late frames in a row say the stream restarted beneath the voice. Protocol 3 adds the DualSense's HD-haptics lanes
 (`MSG_HAPTIC_AUDIO`, cap `hapticAudio`): the same engine holds a SECOND voice
 on the same endpoint for them, because the two lanes arrive as independent
 streams (own seq, own silence suppression) and pairing their windows would

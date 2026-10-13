@@ -177,7 +177,7 @@ AppModel::AppModel(std::unique_ptr<source::WakeInhibitor> inhibitor, QObject* pa
     // HID interface, and an unplug must pull the caps back before the host
     // keeps streaming into nothing.
     QObject::connect(bridge_, &input::SDLGamepadBridge::audioDevicesChanged, this,
-                     &AppModel::resolveAudioRoutes);
+                     &AppModel::onAudioDevicesChanged);
     // A direct relay: the bridge already QueuedConnection-hops to this thread.
     QObject::connect(bridge_, &input::SDLGamepadBridge::rawJoystickInput, this,
                      &AppModel::rawJoystickInput);
@@ -566,10 +566,11 @@ void AppModel::onPlayerLedsMessage(const QString& id,
     actuatePlayerLeds(deviceId, pm.ledMask);
 }
 
-// Straight into the playout engine on the receive thread: reorder window, Opus decode, the pad's
-// own endpoint. The message borrows the receive buffer and the engine consumes it before
-// returning, which is the SpeakerAudioMessage contract. A frame for a voice the engine does not
-// hold is dropped inside deliver().
+// Handed to the playout engine, which copies the frame onto its own thread and returns at once:
+// the reorder window, the Opus decode and the pad's own endpoint never hold the receive thread,
+// so a decode burst cannot delay the heartbeat ack behind it. The message borrows the receive
+// buffer and the engine copies it before returning, which is the SpeakerAudioMessage contract. A
+// frame for a voice the engine does not hold is dropped on the playout thread.
 void AppModel::onPlayoutMessage(const QString& id,
                                 const net::SatelliteClient::SpeakerAudioMessage& sm,
                                 source::audio::PlayoutLane lane) {
@@ -1841,6 +1842,16 @@ void AppModel::collectSpeakerForSlot(const models::ControllerSlot& s, net::WifiC
             out.speakerVoices.push_back(std::move(*voice));
         }
     }
+}
+
+// A departed device's voices and captures close first, so a replug that lands between two route
+// resolves never keeps a dead handle; then the routes re-resolve and the engines re-converge,
+// whether or not the routes read the same by name.
+void AppModel::onAudioDevicesChanged() {
+    speakerEngine_.closeOnDevicesAbsent(audioGateway_.playbackDeviceNames());
+    micEngine_.closeOnDevicesAbsent(audioGateway_.captureDeviceNames());
+    resolveAudioRoutes();
+    reconcileAudioEngines();
 }
 
 // Any bound USB pad, Direct or Standard: the engines talk to the pad's audio endpoints, which the

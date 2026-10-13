@@ -3,9 +3,11 @@
 //
 // The controller-audio playout pipeline: one open playback stream per eligible
 // slot and lane (the pad's OWN speaker/headset endpoint; on a DualSense a
-// second stream on the same endpoint for the haptic lanes), fed from the
-// receive thread — reorder window (core/audio/AudioJitter.h) in, Opus decode
-// with FEC/PLC on its gap events, whole 20 ms windows queued to the device.
+// second stream on the same endpoint for the haptic lanes). The receive thread
+// hands each frame to the engine's own playout thread and returns at once —
+// reorder window (core/audio/AudioJitter.h) in, Opus decode with FEC/PLC on
+// its gap events, whole 20 ms windows queued to the device, the queue capped
+// so it never grows into latency (core/audio/AudioEnginePolicy.h).
 //
 // The two lanes are two voices, not one: they arrive as independent streams
 // (own seq, own silence suppression), so pairing their windows would need a
@@ -32,12 +34,15 @@
 #include "core/audio/AudioJitter.h"
 #include "source/audio/AudioDeviceGateway.h"
 
+#include <condition_variable>
 #include <cstdint>
+#include <deque>
 #include <functional>
 #include <map>
 #include <memory>
 #include <mutex>
 #include <string>
+#include <thread>
 #include <tuple>
 #include <utility>
 #include <vector>
@@ -46,6 +51,11 @@ namespace dish::source::audio {
 
 // Which lane pair of the endpoint a voice writes.
 enum class PlayoutLane : std::uint8_t { Speaker, Haptic };
+
+// Where a delivered frame is decoded: on the engine's own thread, or before
+// deliver() returns (the tests' choice, so a queue is inspectable the moment a
+// frame lands).
+enum class PlayoutDispatch : std::uint8_t { Inline, Worker };
 
 // One eligible slot's voice: where its frames come from and where they play.
 struct SpeakerVoiceTarget {
@@ -66,7 +76,10 @@ class SpeakerPlayoutEngine {
 
     // The default factory builds the wire's speaker decoder (Opus stereo);
     // tests inject a fake to observe the FEC/PLC dispatch and the queue math.
-    explicit SpeakerPlayoutEngine(AudioDeviceGateway* gateway, DecoderFactory decoderFactory = {});
+    explicit SpeakerPlayoutEngine(AudioDeviceGateway* gateway, DecoderFactory decoderFactory = {},
+                                  PlayoutDispatch dispatch = PlayoutDispatch::Worker);
+    // Drains what the receive thread already handed over, stops the playout
+    // thread, then closes every voice.
     ~SpeakerPlayoutEngine();
 
     SpeakerPlayoutEngine(const SpeakerPlayoutEngine&) = delete;
@@ -80,11 +93,18 @@ class SpeakerPlayoutEngine {
 
     // One MSG_SPEAKER_AUDIO or MSG_HAPTIC_AUDIO frame, on the connection's
     // receive thread. The opus bytes are borrowed (the SatelliteClient message
-    // contract); they are consumed before returning. A frame for a voice that
-    // is not held — the caps said so, or the plan moved — is dropped, which is
-    // also what a host that ignored the caps deserves.
+    // contract); they are copied before returning, onto the playout thread's
+    // queue, at most kPlayoutPendingFrames deep with the oldest dropped. A
+    // frame for a voice that is not held — the caps said so, or the plan moved
+    // — is dropped there, which is also what a host that ignored the caps
+    // deserves.
     void deliver(const std::string& connectionId, int controllerIndex, PlayoutLane lane,
                  std::uint16_t seq, const std::uint8_t* opus, std::size_t opusLen);
+
+    // The platform dropped a device: its voices close now, so a replug that
+    // lands between two route resolves reopens on the fresh handle instead of
+    // writing to a dead one. Main thread.
+    void closeOnDevicesAbsent(const std::vector<std::string>& presentDevices);
 
     // Whether a playback stream is open for the slot's lane right now
     // (UI/tests).
@@ -104,6 +124,8 @@ class SpeakerPlayoutEngine {
         dish::audio::AudioJitterWindow window;
         std::unique_ptr<dish::audio::IAudioDecoder> decoder;
         bool started = false;
+        // Late frames in a row: a restarted stream under a living voice.
+        int lateRun = 0;
         // The decoded stereo window spread to the device's channel count.
         std::vector<std::int16_t> spread;
     };
@@ -111,8 +133,29 @@ class SpeakerPlayoutEngine {
 
     void closeLocked(Voice& voice);
 
+    // The whole per-frame pipeline, on the playout thread (or inline).
+    void decodeAndQueue(const std::string& connectionId, int controllerIndex, PlayoutLane lane,
+                        std::uint16_t seq, const std::uint8_t* opus, std::size_t opusLen);
+    void workerLoop();
+
+    // One frame as the receive thread handed it over.
+    struct PendingFrame {
+        std::string connectionId;
+        int controllerIndex = 0;
+        PlayoutLane lane = PlayoutLane::Speaker;
+        std::uint16_t seq = 0;
+        std::vector<std::uint8_t> opus;
+    };
+
     AudioDeviceGateway* gateway_;
     DecoderFactory decoderFactory_;
+    PlayoutDispatch dispatch_;
+    // The hand-off: the receive threads push, the playout thread pops.
+    std::mutex pendingMtx_;
+    std::condition_variable pendingCv_;
+    std::deque<PendingFrame> pending_;
+    bool stopping_ = false;
+    std::thread worker_;
     // One mutex over the voice table: reconcile (main) against deliver
     // (receive threads). Held across a voice's decode+queue so a close cannot
     // free the decoder under a frame; both sides are bounded and 50 frames/s
