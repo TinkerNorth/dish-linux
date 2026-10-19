@@ -19,11 +19,14 @@
 //    delivery, so a window captured while the close is in flight is dropped
 //    rather than shipped. That bounds mute latency to one 20 ms frame.
 //
-// `seq` is caller-owned per stream and advances once per captured window,
-// INCLUDING windows whose encode failed: that 20 ms really happened, so the
-// receiver conceals it rather than playing the stream short and drifting
-// against the pad's clock. (A DTX silence frame is not a failure — it is a
-// 1-byte packet and it is sent.)
+// `seq` is the engine's, one count per slot that never restarts while the
+// engine lives: a reopen (a mute, a toggle, a lost and regained route, a device
+// rename) continues where the last capture stopped, because the satellite's
+// reorder window reads a restart as late frames for as long as the old count
+// runs ahead. It advances once per captured window, INCLUDING windows whose
+// encode failed: that 20 ms really happened, so the receiver conceals it rather
+// than playing the stream short and drifting against the pad's clock. (A DTX
+// silence frame is not a failure — it is a 1-byte packet and it is sent.)
 
 #pragma once
 
@@ -71,6 +74,11 @@ class MicCaptureEngine {
     // routes and claims re-trigger it — is the retry.
     void reconcile(const std::vector<MicCaptureTarget>& targets);
 
+    // The platform dropped a device: its capture closes now, so a replug that
+    // lands between two route resolves reopens on the fresh handle instead of
+    // feeding a dead one. Main thread.
+    void closeOnDevicesAbsent(const std::vector<std::string>& presentDevices);
+
     // Whether a capture device is open for the slot right now (UI/tests).
     bool capturingFor(const std::string& slotId) const;
 
@@ -81,7 +89,9 @@ class MicCaptureEngine {
         std::atomic<bool> enabled{true};
         dish::audio::FrameWindower windower;
         std::unique_ptr<dish::audio::IAudioEncoder> encoder;
-        std::uint16_t seq = 0; // audio-thread only after start
+        // Advanced on the audio thread; read back on the main thread once the
+        // capture is closed, to resume the slot's count.
+        std::atomic<std::uint16_t> seq{0};
         std::function<bool(std::uint16_t, const std::uint8_t*, std::size_t)> send;
     };
     struct Entry {
@@ -90,7 +100,7 @@ class MicCaptureEngine {
         std::shared_ptr<Session> session;
     };
 
-    void close(Entry& entry);
+    void close(const std::string& slotId, Entry& entry);
 
     // The callback the gateway holds for one capture. A class rather than a lambda because it
     // carries the whole per-window pipeline; it shares the session so the enabled flag it reads
@@ -111,6 +121,8 @@ class MicCaptureEngine {
     AudioDeviceGateway* gateway_;
     EncoderFactory encoderFactory_;
     std::map<std::string, Entry> entries_; // by slotId; main thread only
+    // Where each slot's count resumes after a close; main thread only.
+    std::map<std::string, std::uint16_t> nextSeqBySlot_;
 };
 
 } // namespace dish::source::audio

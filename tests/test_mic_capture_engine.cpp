@@ -164,6 +164,48 @@ TEST_CASE("a device change reopens; an unchanged target is left running", "[audi
     CHECK(h.gateway.captureFor("mic-b") != nullptr);
 }
 
+TEST_CASE("a slot reconciled away and back continues its sequence", "[audio][micengine]") {
+    // A mute, a toggle or a lost route closes the capture; the count must not
+    // restart at 0, because the satellite's reorder window reads a restart as
+    // late frames for as long as the old count runs ahead: up to ten minutes
+    // of dropped voice after a long call.
+    Harness h;
+    h.engine.reconcile({h.target("slot", "mic")});
+    h.pump("mic", kFrame * 3);
+    REQUIRE(h.sent.size() == 3U);
+    CHECK(h.sent[2].seq == 2);
+
+    h.engine.reconcile({});
+    h.engine.reconcile({h.target("slot", "mic")});
+    h.pump("mic", kFrame);
+    REQUIRE(h.sent.size() == 4U);
+    CHECK(h.sent[3].seq == 3);
+
+    // A device rename is a reopen too.
+    h.engine.reconcile({h.target("slot", "mic-b")});
+    h.pump("mic-b", kFrame);
+    REQUIRE(h.sent.size() == 5U);
+    CHECK(h.sent[4].seq == 4);
+
+    // Another slot counts on its own.
+    h.engine.reconcile({h.target("slot", "mic-b"), h.target("other", "mic-c")});
+    h.pump("mic-c", kFrame);
+    REQUIRE(h.sent.size() == 6U);
+    CHECK(h.sent[5].seq == 0);
+}
+
+TEST_CASE("a departed device closes its capture and a reconcile reopens it", "[audio][micengine]") {
+    Harness h;
+    h.engine.reconcile({h.target("slot", "mic")});
+    h.engine.closeOnDevicesAbsent({"other-mic"});
+    CHECK_FALSE(h.engine.capturingFor("slot"));
+    CHECK(h.gateway.closes == 1);
+    h.engine.reconcile({h.target("slot", "mic")});
+    CHECK(h.engine.capturingFor("slot"));
+    h.engine.closeOnDevicesAbsent({"mic"});
+    CHECK(h.engine.capturingFor("slot"));
+}
+
 TEST_CASE("a refused device leaves no session and the next reconcile retries",
           "[audio][micengine]") {
     Harness h;

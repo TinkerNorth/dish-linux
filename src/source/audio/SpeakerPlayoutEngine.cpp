@@ -9,6 +9,7 @@
 
 #include <QLoggingCategory>
 
+#include <algorithm>
 #include <array>
 #include <exception>
 #include <utility>
@@ -41,8 +42,8 @@ constexpr std::size_t frameBytesFor(int channels) {
 } // namespace
 
 SpeakerPlayoutEngine::SpeakerPlayoutEngine(AudioDeviceGateway* gateway,
-                                           DecoderFactory decoderFactory)
-    : gateway_(gateway), decoderFactory_(std::move(decoderFactory)) {
+                                           DecoderFactory decoderFactory, PlayoutDispatch dispatch)
+    : gateway_(gateway), decoderFactory_(std::move(decoderFactory)), dispatch_(dispatch) {
     if (!decoderFactory_) {
         // One decoder shape serves both lanes: the haptic stream is the
         // speaker's format on the wire.
@@ -51,9 +52,18 @@ SpeakerPlayoutEngine::SpeakerPlayoutEngine(AudioDeviceGateway* gateway,
                 dish::audio::OpusStreamDecoder::create(dish::audio::Stream::Speaker));
         };
     }
+    if (dispatch_ == PlayoutDispatch::Worker) {
+        worker_ = std::thread([this] { workerLoop(); });
+    }
 }
 
 SpeakerPlayoutEngine::~SpeakerPlayoutEngine() {
+    {
+        std::lock_guard<std::mutex> lock(pendingMtx_);
+        stopping_ = true;
+    }
+    pendingCv_.notify_all();
+    if (worker_.joinable()) { worker_.join(); }
     try {
         reconcile({});
     } catch (const std::exception& e) {
@@ -117,10 +127,73 @@ void SpeakerPlayoutEngine::reconcile(const std::vector<SpeakerVoiceTarget>& targ
     openMissingLocked(targets);
 }
 
+// The platform dropped a device: every voice on it closes, so the next reconcile reopens on the
+// fresh handle rather than keeping the dead one a same-named replug would hide.
+void SpeakerPlayoutEngine::closeOnDevicesAbsent(const std::vector<std::string>& presentDevices) {
+    std::lock_guard<std::mutex> lock(mtx_);
+    for (auto it = voices_.begin(); it != voices_.end();) {
+        const bool present = std::find(presentDevices.begin(), presentDevices.end(),
+                                       it->second->deviceName) != presentDevices.end();
+        if (present) {
+            ++it;
+            continue;
+        }
+        closeLocked(*it->second);
+        it = voices_.erase(it);
+    }
+}
+
+// The receive thread's half: copy the frame onto the playout thread and return. The queue is
+// bounded and the oldest frame goes first, so a stalled decode costs the freshest audio its
+// oldest frames, never the receive thread its time.
 void SpeakerPlayoutEngine::deliver(const std::string& connectionId, int controllerIndex,
                                    PlayoutLane lane, std::uint16_t seq, const std::uint8_t* opus,
                                    std::size_t opusLen) {
     if (opus == nullptr || opusLen == 0) { return; }
+    if (dispatch_ == PlayoutDispatch::Inline) {
+        decodeAndQueue(connectionId, controllerIndex, lane, seq, opus, opusLen);
+        return;
+    }
+    PendingFrame frame;
+    frame.connectionId = connectionId;
+    frame.controllerIndex = controllerIndex;
+    frame.lane = lane;
+    frame.seq = seq;
+    frame.opus.assign(opus, opus + opusLen);
+    {
+        std::lock_guard<std::mutex> lock(pendingMtx_);
+        while (pending_.size() >= static_cast<std::size_t>(dish::audio::kPlayoutPendingFrames)) {
+            pending_.pop_front();
+        }
+        pending_.push_back(std::move(frame));
+    }
+    pendingCv_.notify_one();
+}
+
+// The playout thread: one frame at a time, in the order the wire delivered them; it finishes
+// what it was handed before it stops, so a frame delivered is a frame played or dropped on its
+// merits, never lost to a teardown.
+void SpeakerPlayoutEngine::workerLoop() {
+    for (;;) {
+        PendingFrame frame;
+        {
+            std::unique_lock<std::mutex> lock(pendingMtx_);
+            pendingCv_.wait(lock, [this] { return stopping_ || !pending_.empty(); });
+            if (pending_.empty()) { return; }
+            frame = std::move(pending_.front());
+            pending_.pop_front();
+        }
+        decodeAndQueue(frame.connectionId, frame.controllerIndex, frame.lane, frame.seq,
+                       frame.opus.data(), frame.opus.size());
+    }
+}
+
+// A late frame is ordinarily reordering, dropped; a run of them is a stream that restarted under
+// this voice, and the frame that proves it primes a fresh window.
+void SpeakerPlayoutEngine::decodeAndQueue(const std::string& connectionId, int controllerIndex,
+                                          PlayoutLane lane, std::uint16_t seq,
+                                          const std::uint8_t* opus, std::size_t opusLen) {
+    using Accept = dish::audio::AudioJitterWindow::Accept;
     std::lock_guard<std::mutex> lock(mtx_);
     const auto it = voices_.find(VoiceKey{connectionId, controllerIndex, lane});
     if (it == voices_.end()) { return; }
@@ -129,7 +202,22 @@ void SpeakerPlayoutEngine::deliver(const std::string& connectionId, int controll
     const std::size_t deviceWindow = static_cast<std::size_t>(proto::kAudioFrameSamples) *
                                      static_cast<std::size_t>(voice.channels);
 
-    const auto result = voice.window.push(seq, opus, opusLen);
+    auto result = voice.window.push(seq, opus, opusLen);
+    switch (result.accept) {
+    case Accept::Ok:
+        voice.lateRun = 0;
+        break;
+    case Accept::Late:
+        voice.lateRun++;
+        if (!dish::audio::playoutRestartNeeded(voice.lateRun)) { return; }
+        voice.window.reset();
+        voice.lateRun = 0;
+        result = voice.window.push(seq, opus, opusLen);
+        break;
+    case Accept::Duplicate:
+    case Accept::Rejected:
+        break;
+    }
     std::array<std::int16_t, kWindowSamples> pcm{};
     for (int i = 0; i < result.count; i++) {
         const auto& event = result.events[i];
@@ -146,6 +234,13 @@ void SpeakerPlayoutEngine::deliver(const std::string& connectionId, int controll
                                               static_cast<std::size_t>(proto::kAudioFrameSamples));
         }
         if (frames == 0) { continue; }
+
+        // Queued audio is latency: a window the device has no room for is
+        // dropped, decoded (the window's clock moved) but not queued.
+        if (dish::audio::playoutQueueFull(gateway_->queuedPlaybackBytes(voice.handle),
+                                          frameBytes)) {
+            continue;
+        }
 
         // A queue that drained mid-stream (a suppressed-silence stretch) gets
         // its cushion back as silence ahead of the resumed audio.
