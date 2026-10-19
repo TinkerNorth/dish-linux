@@ -179,9 +179,8 @@ TEST_CASE("satellite battery status maps onto the Moonlight state", "[moonlight]
     CHECK(batteryStateFromSatelliteStatus(1) == moon::kBatteryDischarging);
     CHECK(batteryStateFromSatelliteStatus(2) == moon::kBatteryCharging);
     CHECK(batteryStateFromSatelliteStatus(3) == moon::kBatteryFull);
-    // Wired reads as charging, the closest state the wire has. NOT_PRESENT
-    // would tell the host the pad has no battery, which is a different claim.
-    CHECK(batteryStateFromSatelliteStatus(4) == moon::kBatteryCharging);
+    // Wired is a pad with no battery to show, as the satellite itself treats it.
+    CHECK(batteryStateFromSatelliteStatus(4) == moon::kBatteryNotPresent);
     // A status this build does not know is unknown, never a guess.
     CHECK(batteryStateFromSatelliteStatus(99) == moon::kBatteryStateUnknown);
 }

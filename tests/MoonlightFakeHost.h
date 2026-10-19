@@ -228,13 +228,15 @@ class FakeMoonlightHost : public QObject {
     // PERIODIC_PING keepalives the client sealed and sent on the live link.
     int keepalives() const { return keepalives_.load(std::memory_order_relaxed); }
 
-    // One input packet as the host read it. The number, mask, type, capabilities
-    // and touch event are filled only for the kinds that carry them.
+    // One input packet as the host read it. The number, mask, buttons, type,
+    // capabilities and touch event are filled only for the kinds that carry them.
     struct ControlPacket {
         std::uint32_t seq = 0;
         std::uint32_t inputType = 0;
         std::uint16_t number = 0;
         std::uint16_t mask = 0;
+        // buttonFlags | buttonFlags2 << 16, the way the host folds a frame's two words.
+        std::uint32_t buttons = 0;
         std::uint8_t type = 0;
         std::uint8_t capabilities = 0;
         std::uint8_t touchEvent = 0;
@@ -676,6 +678,11 @@ class FakeMoonlightHost : public QObject {
             lastMask_.store(static_cast<int>(u16At(16)), std::memory_order_relaxed);
             packet.number = u16At(14);
             packet.mask = u16At(16);
+            // The two button words, folded as the host folds them: flags at 20, flags2 at 34.
+            if (*opened >= moonwire::kControllerMultiSize) {
+                packet.buttons = static_cast<std::uint32_t>(u16At(20)) |
+                                 (static_cast<std::uint32_t>(u16At(34)) << 16);
+            }
         } else if (packet.inputType == moonproto::kInputControllerTouch) {
             packet.number = plaintext[12];
             packet.touchEvent = plaintext[13];

@@ -67,6 +67,19 @@ int touchesAfter(const FakeMoonlightHost& host, std::size_t seen) {
     return count;
 }
 
+// The CONTROLLER_MULTI frames after `seen` whose button word carries the touchpad click, or whose
+// word does not, as `clicked` asks.
+int clickFramesAfter(const FakeMoonlightHost& host, std::size_t seen, bool clicked) {
+    int count = 0;
+    const auto packets = host.controlPackets();
+    for (std::size_t i = seen; i < packets.size(); ++i) {
+        const bool isFrame = packets[i].inputType == moonproto::kInputControllerMulti;
+        const bool carriesClick = (packets[i].buttons & moonproto::kBtnTouchpad) != 0;
+        if (isFrame && carriesClick == clicked) { ++count; }
+    }
+    return count;
+}
+
 int touchesAfter(const FakeMoonlightHost& host, std::size_t seen, std::uint8_t touchEvent) {
     int count = 0;
     const auto packets = host.controlPackets();
@@ -122,10 +135,14 @@ struct Rig {
         finger.id = 7;
         finger.x = 0.25F;
         finger.y = 0.5F;
-        session()->sendTouchFrame(0, finger, moonlight::TouchFinger{});
+        session()->sendTouchFrame(0, finger, moonlight::TouchFinger{}, false);
     }
     void nothingTouching() const {
-        session()->sendTouchFrame(0, moonlight::TouchFinger{}, moonlight::TouchFinger{});
+        session()->sendTouchFrame(0, moonlight::TouchFinger{}, moonlight::TouchFinger{}, false);
+    }
+    // The pad's click with no finger reported: the DualSense reports the two apart.
+    void click(bool pressed) const {
+        session()->sendTouchFrame(0, moonlight::TouchFinger{}, moonlight::TouchFinger{}, pressed);
     }
 };
 
@@ -273,4 +290,49 @@ TEST_CASE("a pad's touch starts from nothing on a stream that comes up again",
     CHECK(spinFor(
         [&rig, before] { return touchesAfter(rig.host, before, moonproto::kTouchEventDown) == 1; },
         5000));
+}
+
+TEST_CASE("a touchpad click replays the pad frame with BTN_TOUCHPAD, and its release without",
+          "[moonlight][touchpad]") {
+    // The click has no packet of its own: it is a button in the pad frame, so an edge is a frame.
+    if (!tlsAvailable()) { SKIP("no TLS backend for the fixture host"); }
+    Rig rig;
+    REQUIRE(rig.bindLive(moonproto::kControllerTypePs));
+    std::size_t before = rig.host.controlPackets().size();
+
+    rig.click(true);
+    CHECK(spinFor([&rig, before] { return clickFramesAfter(rig.host, before, true) == 1; }, 5000));
+
+    before = rig.host.controlPackets().size();
+    rig.click(false);
+    CHECK(spinFor([&rig, before] { return clickFramesAfter(rig.host, before, false) == 1; }, 5000));
+}
+
+TEST_CASE("a click held across touch frames is sent once", "[moonlight][touchpad]") {
+    // Only the edge is a frame; the bit rides the pad's own frames while held.
+    if (!tlsAvailable()) { SKIP("no TLS backend for the fixture host"); }
+    Rig rig;
+    REQUIRE(rig.bindLive(moonproto::kControllerTypePs));
+    rig.click(true);
+    REQUIRE(spinFor([&rig] { return clickFramesAfter(rig.host, 0, true) == 1; }, 5000));
+    const std::size_t before = rig.host.controlPackets().size();
+
+    rig.click(true);
+
+    settle();
+    CHECK(clickFramesAfter(rig.host, before, true) == 0);
+}
+
+TEST_CASE("a host picked Off gets no click either", "[moonlight][touchpad]") {
+    // The click is part of the touchpad the pick keeps from the host.
+    if (!tlsAvailable()) { SKIP("no TLS backend for the fixture host"); }
+    Rig rig;
+    rig.pick = "off";
+    REQUIRE(rig.bindLive(moonproto::kControllerTypePs));
+    const std::size_t before = rig.host.controlPackets().size();
+
+    rig.click(true);
+
+    settle();
+    CHECK(clickFramesAfter(rig.host, before, true) == 0);
 }

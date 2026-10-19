@@ -39,6 +39,19 @@ the repos share a version number.
   documented but never read or written; the per-slot motion switches live in
   `motion_preferences`. The declaration and the privacy policy's row are
   removed.
+- **The touchpad click reaches a Moonlight host.** A DualSense's click is a
+  button in the pad frame, not a touch event; Dish now replays the frame with
+  it on each click edge and keeps it on while held. Only the finger positions
+  were forwarded before.
+- **Guide reaches a Moonlight host as Home.** The button word carries XUSB's
+  Guide bit, but the Moonlight button map had no row for it, so a host never
+  saw the guide button from any pad.
+- **One pad for the three Dish clients.** `[wire-coordinated]` with dish-android
+  and dish-windows: the emulated Xbox and Nintendo pads now carry trigger rumble
+  and a battery; the advertised buttons leave out the mic-mute bit the button
+  map never sets; a wired pad reports its battery as not present rather than
+  charging; and a host's GFE-era termination type ends the session as Wolf's
+  does.
 
 ## [2.2.1] - 2026-10-05
 

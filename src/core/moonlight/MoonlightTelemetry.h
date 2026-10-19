@@ -59,10 +59,10 @@ inline std::uint8_t batteryStateFromSatelliteStatus(std::uint8_t satelliteStatus
     case 3:
         return moonproto::kBatteryFull;
     case 4:
-        // Wired with no charge telemetry reads as charging, the closest state
-        // the wire has. NOT_PRESENT would tell the host there is no battery,
-        // which is a different and usually wrong claim about the hardware.
-        return moonproto::kBatteryCharging;
+        // Wired is a pad with no battery to show, powered by its cable, which
+        // is what the satellite itself makes of it; charging would promise a
+        // level that never comes.
+        return moonproto::kBatteryNotPresent;
     default:
         return moonproto::kBatteryStateUnknown;
     }

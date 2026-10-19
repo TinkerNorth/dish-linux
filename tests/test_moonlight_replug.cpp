@@ -114,7 +114,7 @@ struct Rig {
         finger.id = 7;
         finger.x = 0.25F;
         finger.y = 0.5F;
-        session()->sendTouchFrame(0, finger, moonlight::TouchFinger{});
+        session()->sendTouchFrame(0, finger, moonlight::TouchFinger{}, false);
     }
 
     bool streaming() const {

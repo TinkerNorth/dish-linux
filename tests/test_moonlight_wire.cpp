@@ -128,11 +128,14 @@ TEST_CASE("CONTROLLER_ARRIVAL layout", "[moonlight][wire]") {
                                                     caps, moonproto::kStandardButtons);
     CHECK(len == kControllerArrivalSize);
     // [06 02][10 00][00 00 00 0C][04 00 00 55][ctrl][type][cap][pad][buttons u32 LE]
-    // The advertised word is the whole 16-bit legacy half: a live Sunshine host
-    // logs it back as supportedButtonFlags [0000FFFF], and all three Dish
-    // clients advertise the same value so one host cannot see three pads.
-    CHECK(hexOf(buf.data(), len) == "060210000000000c0400005502020300ffff0000");
-    CHECK(moonproto::kStandardButtons == 0x0000FFFFU);
+    // The advertised word is the 16-bit legacy half less the mic-mute bit, which
+    // no frame can carry: a host logs it back as supportedButtonFlags [0000F7FF],
+    // and all three Dish clients advertise the same value so one host cannot see
+    // three pads.
+    CHECK(hexOf(buf.data(), len) == "060210000000000c0400005502020300fff70000");
+    CHECK(moonproto::kStandardButtons == 0x0000F7FFU);
+    CHECK((moonproto::kStandardButtons & moonproto::kBtnReservedMicMute) == 0);
+    CHECK((moonproto::kStandardButtons | moonproto::kBtnReservedMicMute) == 0x0000FFFFU);
 }
 
 TEST_CASE("CONTROLLER_ARRIVAL carries the struct's alignment pad", "[moonlight][wire]") {
@@ -342,6 +345,14 @@ TEST_CASE("decodes RGB_LED", "[moonlight][wire]") {
 
 TEST_CASE("decodes TERMINATION from the host", "[moonlight][wire]") {
     const auto pkt = bytesOf("0901040080030023");
+    const auto ev = decodeHostEvent(pkt.data(), pkt.size());
+    REQUIRE(ev.has_value());
+    CHECK(ev->type == HostEventType::Termination);
+}
+
+TEST_CASE("decodes the GFE-era TERMINATION type as a termination too", "[moonlight][wire]") {
+    // A Sunshine host still sends 0x0100 where Wolf sends 0x0109.
+    const auto pkt = bytesOf("0001040080030023");
     const auto ev = decodeHostEvent(pkt.data(), pkt.size());
     REQUIRE(ev.has_value());
     CHECK(ev->type == HostEventType::Termination);

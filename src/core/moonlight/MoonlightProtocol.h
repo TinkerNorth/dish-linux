@@ -25,7 +25,11 @@ inline constexpr const char* kMdnsService = "_nvstream._tcp.local.";
 // ── Control-stream packet types (outer, and decrypted inner) ─────────────────
 // All little-endian on the wire.
 inline constexpr std::uint16_t kPktEncrypted = 0x0001;
+// TERMINATION is 0x0109 in Wolf's control.hpp, the type Wolf acts on; the
+// GFE-era control-specs.adoc says 0x0100 and a Sunshine host still sends that
+// one, so the decoder reads both and the client sends Wolf's.
 inline constexpr std::uint16_t kPktTermination = 0x0109;
+inline constexpr std::uint16_t kPktTerminationLegacy = 0x0100;
 inline constexpr std::uint16_t kPktPeriodicPing = 0x0200;
 inline constexpr std::uint16_t kPktInputData = 0x0206;
 inline constexpr std::uint16_t kPktRumbleData = 0x010B;
@@ -88,20 +92,22 @@ inline constexpr std::uint32_t kBtnPaddle4 = 0x080000;
 inline constexpr std::uint32_t kBtnTouchpad = 0x100000;
 inline constexpr std::uint32_t kBtnMisc = 0x200000;
 
-// Named in neither Wolf's table nor its control.hpp, and set in what every
-// shipping client advertises. Carried so the advertised word is the whole low
-// half rather than a hole a host might read as a missing button.
-inline constexpr std::uint32_t kBtnReservedLow = 0x0800;
+// 0x0800 is named in neither Wolf's table nor its control.hpp: it has no XINPUT
+// assignment, and the satellite's protocol 2 spends it on the DualSense
+// mic-mute STATE, which a GameStream host would misread. The button map has no
+// row for it and the advert leaves it out, so a host sees no hole a frame could
+// fill.
+inline constexpr std::uint32_t kBtnReservedMicMute = 0x0800;
 
 // The support_button_flags a standard pad advertises in CONTROLLER_ARRIVAL: the
-// whole 16-bit legacy word (dpad, Start/Back, sticks, shoulders, Home, ABXY and
-// the one reserved bit). A live Sunshine host logs it back as
-// supportedButtonFlags [0000FFFF]; the three Dish clients advertise this one
-// value so a host cannot see three different pads.
+// 16-bit legacy word (dpad, Start/Back, sticks, shoulders, Home, ABXY) less the
+// mic-mute bit. A host logs it back as supportedButtonFlags [0000F7FF]; the
+// three Dish clients advertise this one value so a host cannot see three
+// different pads.
 inline constexpr std::uint32_t kStandardButtons =
     kBtnDpadUp | kBtnDpadDown | kBtnDpadLeft | kBtnDpadRight | kBtnStart | kBtnBack |
-    kBtnLeftStick | kBtnRightStick | kBtnLeftButton | kBtnRightButton | kBtnHome | kBtnReservedLow |
-    kBtnA | kBtnB | kBtnX | kBtnY;
+    kBtnLeftStick | kBtnRightStick | kBtnLeftButton | kBtnRightButton | kBtnHome | kBtnA | kBtnB |
+    kBtnX | kBtnY;
 
 // ── CONTROLLER_TOUCH event types (control.hpp TOUCH_EVENT_TYPE) ──────────────
 // Shared by the touchscreen, pen and controller-touchpad surfaces. Only the

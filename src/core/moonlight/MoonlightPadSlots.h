@@ -145,9 +145,10 @@ inline std::uint8_t sourceCapabilityBits(const SourceCapabilities& source) {
 }
 
 // The most a host's emulated device of this type can carry, whatever the pad
-// behind it offers. A PlayStation pad is the only one the reference host wires
-// motion, touch, battery and an LED into; its Xbox and Nintendo devices are
-// sticks, buttons, analog triggers and body rumble.
+// behind it offers. Trigger rumble and a battery describe the physical pad, so
+// every type carries them; a PlayStation pad is the only one the reference host
+// wires motion, touch and an LED into. The three Dish clients draw the same
+// ceiling, so a host sees one pad whichever Dish announced it.
 //
 // Nintendo carries NO MOTION here, unlike the satellite `switchpro` type. The
 // two are different type systems that happen to share names: the host requests
@@ -160,7 +161,8 @@ inline std::uint8_t typeCapabilityCeiling(std::uint8_t controllerType) {
                                          moonproto::kCapAccelerometer | moonproto::kCapGyro |
                                          moonproto::kCapBattery | moonproto::kCapRgbLed);
     }
-    return static_cast<std::uint8_t>(moonproto::kCapAnalogTriggers | moonproto::kCapRumble);
+    return static_cast<std::uint8_t>(moonproto::kCapAnalogTriggers | moonproto::kCapRumble |
+                                     moonproto::kCapTriggerRumble | moonproto::kCapBattery);
 }
 
 // Auto resolves HERE, on the client, before anything reaches the wire: a source
