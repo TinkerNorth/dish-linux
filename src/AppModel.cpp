@@ -243,11 +243,8 @@ AppModel::AppModel(std::unique_ptr<source::WakeInhibitor> inhibitor, QObject* pa
             // explicit 0,0.
             deliverRumble(slotId, strong, weak, 0);
         });
-    moonlight_->setLedSink(
-        [this](const QString& slotId, std::uint8_t r, std::uint8_t g, std::uint8_t b) {
-            if (slotId.isEmpty()) { return; }
-            actuateLightbar(slotId, r, g, b);
-        });
+    moonlight_->setLedSink([this](const QString& slotId, std::uint8_t r, std::uint8_t g,
+                                  std::uint8_t b) { onMoonlightLed(slotId, r, g, b); });
     // A pad's Motion switch, for the slots bound to a Moonlight host: read when a slot binds and
     // again whenever the store moves, whoever moved it.
     moonlight_->setMotionSwitch([this](const QString& slotId) {
@@ -540,6 +537,15 @@ void AppModel::onLightbarMessage(const QString& id,
     const QString deviceId = boundSlotForConnection(id);
     if (deviceId.isEmpty()) { return; }
     actuateLightbar(deviceId, color->r, color->g, color->b);
+}
+
+// The same gate for a Moonlight host: the setting says "Off: leave the LED untouched", and a
+// host is a host.
+void AppModel::onMoonlightLed(const QString& slotId, std::uint8_t r, std::uint8_t g,
+                              std::uint8_t b) {
+    const auto color = lightbarColorFromRgb(r, g, b, featureSettings_->lightbarFollowGame());
+    if (!color || slotId.isEmpty()) { return; }
+    actuateLightbar(slotId, color->r, color->g, color->b);
 }
 
 // The game's own DualSense effect blocks, replayed verbatim. Arrives only for a slot whose

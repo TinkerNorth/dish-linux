@@ -27,10 +27,6 @@ inline constexpr const char* kSatelliteListKey = "satellite_list";
 // Per-device deadzone profiles: "deadzone:<deviceId>" -> {s,t} JSON.
 inline constexpr const char* kDeadzonePrefix = "deadzone:";
 
-// Per-slot motion-enable toggles: "motion_enabled:<slotId>" -> "1"/"0".
-// Absence means "never written" -> the store defaults it on.
-inline constexpr const char* kMotionEnabledPrefix = "motion_enabled:";
-
 // Stable per-install device id (machineId source for X-Device-Id). One owner.
 inline constexpr const char* kDeviceIdKey = "deviceId";
 

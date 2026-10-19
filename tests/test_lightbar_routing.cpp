@@ -9,6 +9,7 @@
 
 using dish::LightbarColor;
 using dish::lightbarColorFromLightbarMessage;
+using dish::lightbarColorFromRgb;
 using LightbarMessage = dish::net::SatelliteClient::LightbarMessage;
 
 namespace {
@@ -36,6 +37,23 @@ TEST_CASE("MSG_LIGHTBAR colour is suppressed when the light bar is Off", "[light
     const auto color =
         lightbarColorFromLightbarMessage(makeLightbar(0xFF, 0xFF, 0xFF), /*followGame=*/false);
     REQUIRE_FALSE(color.has_value());
+}
+
+TEST_CASE("a Moonlight host's RGB_LED colour takes the same gate as MSG_LIGHTBAR",
+          "[lightbar][routing]") {
+    // The setting reads "Off: leave the LED untouched", and a Moonlight host is a host.
+    const auto applied = lightbarColorFromRgb(0x12, 0x34, 0x56, /*followGame=*/true);
+    REQUIRE(applied.has_value());
+    REQUIRE(*applied == LightbarColor{0x12, 0x34, 0x56});
+    REQUIRE_FALSE(lightbarColorFromRgb(0xFF, 0xFF, 0xFF, /*followGame=*/false).has_value());
+}
+
+TEST_CASE("the two hosts' colours agree whatever the setting", "[lightbar][routing]") {
+    for (const bool follow : {true, false}) {
+        INFO("followGame " << follow);
+        REQUIRE(lightbarColorFromLightbarMessage(makeLightbar(1, 2, 3), follow) ==
+                lightbarColorFromRgb(1, 2, 3, follow));
+    }
 }
 
 TEST_CASE("routing carries the full 0..255 channel range", "[lightbar][routing]") {
