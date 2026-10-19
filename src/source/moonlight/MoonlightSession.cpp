@@ -724,9 +724,33 @@ void MoonlightSession::sendControllerState(std::uint8_t controllerNumber,
                                            std::uint16_t internalButtons, std::uint8_t lt,
                                            std::uint8_t rt, std::int16_t lx, std::int16_t ly,
                                            std::int16_t rx, std::int16_t ry) {
+    if (controllerNumber >= moonlight::kMaxPads) { return; }
+    lastReport_[controllerNumber] = LastReport{internalButtons, lt, rt, lx, ly, rx, ry};
+    const bool clickHeld =
+        (clickMask_.load(std::memory_order_relaxed) & (1U << controllerNumber)) != 0;
     control_->sendControllerMulti(controllerNumber, activeMask_.load(std::memory_order_relaxed),
-                                  moonmap::toMoonlightButtons(internalButtons), lt, rt, lx, ly, rx,
-                                  ry);
+                                  moonmap::toMoonlightButtons(internalButtons) |
+                                      moonmap::touchpadClick(clickHeld),
+                                  lt, rt, lx, ly, rx, ry);
+}
+
+// SDL input thread. The pad's last frame, at rest before it has sent one, with the click as it
+// now is.
+void MoonlightSession::replayWithClick(std::uint8_t controllerNumber, bool clickHeld) {
+    const LastReport& last = lastReport_[controllerNumber];
+    control_->sendControllerMulti(controllerNumber, activeMask_.load(std::memory_order_relaxed),
+                                  moonmap::toMoonlightButtons(last.internalButtons) |
+                                      moonmap::touchpadClick(clickHeld),
+                                  last.lt, last.rt, last.lx, last.ly, last.rx, last.ry);
+}
+
+std::optional<bool> MoonlightSession::flipClick(std::uint8_t controllerNumber, bool clickHeld) {
+    const auto bit = static_cast<std::uint16_t>(1U << controllerNumber);
+    const std::uint16_t before = clickHeld ? clickMask_.fetch_or(bit, std::memory_order_relaxed)
+                                           : clickMask_.fetch_and(static_cast<std::uint16_t>(~bit),
+                                                                  std::memory_order_relaxed);
+    if (((before & bit) != 0) == clickHeld) { return std::nullopt; }
+    return clickHeld;
 }
 
 bool MoonlightSession::sendMotion(std::uint8_t controllerNumber, std::uint8_t motionType, float x,
@@ -759,16 +783,22 @@ void MoonlightSession::sendBattery(std::uint8_t controllerNumber, std::uint8_t s
 
 void MoonlightSession::sendTouchFrame(std::uint8_t controllerNumber,
                                       const moonlight::TouchFinger& finger0,
-                                      const moonlight::TouchFinger& finger1) {
+                                      const moonlight::TouchFinger& finger1, bool buttonPressed) {
     if (controllerNumber >= moonlight::kMaxPads) { return; }
     std::vector<moonlight::TouchEvent> events;
+    std::optional<bool> clickEdge;
     {
         std::lock_guard<std::mutex> lock(touchMtx_);
         PadTouch& pad = touch_[controllerNumber];
         const moonlight::TouchFinger nothing;
         events = pad.reaches ? pad.lastFrame.diff(finger0, finger1)
                              : pad.lastFrame.diff(nothing, nothing);
+        // A pad whose touches do not reach the host clicks nothing on it either.
+        clickEdge = flipClick(controllerNumber, buttonPressed && pad.reaches);
     }
+    // The click first: it is a button in the pad frame, which the host reads before the finger
+    // that made it.
+    if (clickEdge.has_value()) { replayWithClick(controllerNumber, *clickEdge); }
     for (const auto& event : events) {
         control_->sendControllerTouch(controllerNumber, event.eventType, event.pointerId, event.x,
                                       event.y, event.pressure);
@@ -781,9 +811,10 @@ void MoonlightSession::setTouchReaches(std::uint8_t controllerNumber, bool reach
     touch_[controllerNumber].reaches = reaches;
 }
 
-// The pad the host builds next under this number holds no contact.
+// The pad the host builds next under this number holds no contact and no click.
 void MoonlightSession::forgetTouchFrame(std::uint8_t controllerNumber) {
     if (controllerNumber >= moonlight::kMaxPads) { return; }
+    flipClick(controllerNumber, false);
     std::lock_guard<std::mutex> lock(touchMtx_);
     touch_[controllerNumber].lastFrame.reset();
 }

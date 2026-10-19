@@ -27,6 +27,8 @@ inline constexpr std::uint16_t kLeftThumb = 0x0040;
 inline constexpr std::uint16_t kRightThumb = 0x0080;
 inline constexpr std::uint16_t kLeftShoulder = 0x0100;
 inline constexpr std::uint16_t kRightShoulder = 0x0200;
+// XUSB's Guide (input::layout::kXusbGuide), which Moonlight calls Home.
+inline constexpr std::uint16_t kGuide = 0x0400;
 inline constexpr std::uint16_t kA = 0x1000;
 inline constexpr std::uint16_t kB = 0x2000;
 inline constexpr std::uint16_t kX = 0x4000;
@@ -34,8 +36,9 @@ inline constexpr std::uint16_t kY = 0x8000;
 } // namespace inbtn
 
 // Translates the internal button word into Moonlight's effective button flags.
-// The two vocabularies mostly line up (both descend from XInput) but Home/Guide
-// and the stick clicks sit at different bits, so the map is explicit.
+// The two vocabularies line up bit for bit (both descend from XInput), and the
+// map is explicit all the same, so that only a named button crosses: Guide
+// crosses as Moonlight's Home, which a host treats as the guide button.
 //
 // The explicitness is load-bearing the other way too: 0x0800 has no XINPUT
 // assignment and protocol 2 spends it on the DualSense mic-mute STATE
@@ -58,11 +61,19 @@ inline std::uint32_t toMoonlightButtons(std::uint16_t buttons) {
     set(inbtn::kRightThumb, moonproto::kBtnRightStick);
     set(inbtn::kLeftShoulder, moonproto::kBtnLeftButton);
     set(inbtn::kRightShoulder, moonproto::kBtnRightButton);
+    set(inbtn::kGuide, moonproto::kBtnHome);
     set(inbtn::kA, moonproto::kBtnA);
     set(inbtn::kB, moonproto::kBtnB);
     set(inbtn::kX, moonproto::kBtnX);
     set(inbtn::kY, moonproto::kBtnY);
     return out;
+}
+
+// The touchpad click as the pad frame carries it: BTN_TOUCHPAD while the click
+// is held, nothing otherwise. The click has no packet of its own in the
+// protocol; a click edge is a frame.
+inline constexpr std::uint32_t touchpadClick(bool clickHeld) {
+    return clickHeld ? moonproto::kBtnTouchpad : 0U;
 }
 
 } // namespace dish::moonmap

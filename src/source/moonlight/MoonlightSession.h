@@ -124,8 +124,11 @@ class MoonlightSession : public QObject {
     // the events are transitions, and dropping one strands a contact on the host. A pad whose
     // touches do not reach the host is diffed against nothing touching, which lifts a contact the
     // host still holds and sends nothing after it.
+    // The pad's click has no packet of its own: it rides the pad frame as BTN_TOUCHPAD, so a click
+    // edge replays the pad's last frame with the bit flipped, ahead of the fingers, and the bit
+    // stays on every frame while the click is held.
     void sendTouchFrame(std::uint8_t controllerNumber, const moonlight::TouchFinger& finger0,
-                        const moonlight::TouchFinger& finger1);
+                        const moonlight::TouchFinger& finger1, bool buttonPressed);
     // Whether the host's touchpad pick lets this pad's touches reach it, on the Qt thread.
     void setTouchReaches(std::uint8_t controllerNumber, bool reaches);
 
@@ -267,6 +270,27 @@ class MoonlightSession : public QObject {
     std::mutex touchMtx_;
     std::array<PadTouch, moonlight::kMaxPads> touch_;
     void forgetTouchFrame(std::uint8_t controllerNumber);
+
+    // One bit per pad whose touchpad click is held, read on the SDL input thread by every frame:
+    // the click rides the pad frame as BTN_TOUCHPAD. Flipped by the touch frames on that thread and
+    // cleared on the Qt thread when the host's pad is forgotten, so it is an atomic.
+    std::atomic<std::uint16_t> clickMask_{0};
+    // The new click state when a frame changed it, nothing when it did not.
+    std::optional<bool> flipClick(std::uint8_t controllerNumber, bool clickHeld);
+    // The last frame each pad sent, as the input thread handed it over, which a click edge replays
+    // with the bit flipped. SDL INPUT THREAD ONLY: written by sendControllerState and read by
+    // sendTouchFrame, both on that thread, so it needs no lock.
+    struct LastReport {
+        std::uint16_t internalButtons = 0;
+        std::uint8_t lt = 0;
+        std::uint8_t rt = 0;
+        std::int16_t lx = 0;
+        std::int16_t ly = 0;
+        std::int16_t rx = 0;
+        std::int16_t ry = 0;
+    };
+    std::array<LastReport, moonlight::kMaxPads> lastReport_{};
+    void replayWithClick(std::uint8_t controllerNumber, bool clickHeld);
 
     bool everStarted_ = false;
     QString refusalMessage_;

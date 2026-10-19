@@ -228,7 +228,8 @@ std::optional<HostEvent> decodeHostEvent(const std::uint8_t* data, std::size_t l
         ev.blue = body[4];
         return ev;
     }
-    case moonproto::kPktTermination: {
+    case moonproto::kPktTermination:
+    case moonproto::kPktTerminationLegacy: {
         ev.type = HostEventType::Termination;
         return ev;
     }

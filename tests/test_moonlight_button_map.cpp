@@ -24,18 +24,27 @@ TEST_CASE("each internal button maps to its Moonlight flag", "[moonlight][button
     CHECK(toMoonlightButtons(inbtn::kRightThumb) == moonproto::kBtnRightStick);
     CHECK(toMoonlightButtons(inbtn::kLeftShoulder) == moonproto::kBtnLeftButton);
     CHECK(toMoonlightButtons(inbtn::kRightShoulder) == moonproto::kBtnRightButton);
+    CHECK(toMoonlightButtons(inbtn::kGuide) == moonproto::kBtnHome);
     CHECK(toMoonlightButtons(inbtn::kA) == moonproto::kBtnA);
     CHECK(toMoonlightButtons(inbtn::kB) == moonproto::kBtnB);
     CHECK(toMoonlightButtons(inbtn::kX) == moonproto::kBtnX);
     CHECK(toMoonlightButtons(inbtn::kY) == moonproto::kBtnY);
 }
 
-TEST_CASE("Home/Guide moves from bit 0x0400 to Moonlight's HOME flag", "[moonlight][buttonmap]") {
-    // Both happen to be 0x0400 in the two vocabularies, but assert it rather
-    // than assume it: the internal word has no Guide bit, so Home rides Start
-    // + Back here only when set explicitly. This documents the current lack of
-    // a Guide source without silently dropping it.
+TEST_CASE("Guide crosses as Moonlight's HOME flag", "[moonlight][buttonmap]") {
+    // Both are 0x0400 in the two vocabularies, but assert it rather than assume
+    // it: the internal word carries XUSB's Guide (input::layout::kXusbGuide), and
+    // a map without the row left the host's guide button dead for every pad.
+    CHECK(inbtn::kGuide == static_cast<std::uint16_t>(input::layout::kXusbGuide));
+    CHECK(toMoonlightButtons(inbtn::kGuide) == moonproto::kBtnHome);
     CHECK((toMoonlightButtons(0) & moonproto::kBtnHome) == 0);
+}
+
+TEST_CASE("the touchpad click is BTN_TOUCHPAD while held, nothing otherwise",
+          "[moonlight][buttonmap]") {
+    // A click edge is a CONTROLLER_MULTI frame: the bit sits in the second button word.
+    CHECK(touchpadClick(true) == moonproto::kBtnTouchpad);
+    CHECK(touchpadClick(false) == 0U);
 }
 
 TEST_CASE("empty and full words", "[moonlight][buttonmap]") {
@@ -43,14 +52,16 @@ TEST_CASE("empty and full words", "[moonlight][buttonmap]") {
     const std::uint16_t all = inbtn::kDpadUp | inbtn::kDpadDown | inbtn::kDpadLeft |
                               inbtn::kDpadRight | inbtn::kStart | inbtn::kBack | inbtn::kLeftThumb |
                               inbtn::kRightThumb | inbtn::kLeftShoulder | inbtn::kRightShoulder |
-                              inbtn::kA | inbtn::kB | inbtn::kX | inbtn::kY;
+                              inbtn::kGuide | inbtn::kA | inbtn::kB | inbtn::kX | inbtn::kY;
     const std::uint32_t expected =
         moonproto::kBtnDpadUp | moonproto::kBtnDpadDown | moonproto::kBtnDpadLeft |
         moonproto::kBtnDpadRight | moonproto::kBtnStart | moonproto::kBtnBack |
         moonproto::kBtnLeftStick | moonproto::kBtnRightStick | moonproto::kBtnLeftButton |
-        moonproto::kBtnRightButton | moonproto::kBtnA | moonproto::kBtnB | moonproto::kBtnX |
-        moonproto::kBtnY;
+        moonproto::kBtnRightButton | moonproto::kBtnHome | moonproto::kBtnA | moonproto::kBtnB |
+        moonproto::kBtnX | moonproto::kBtnY;
     CHECK(toMoonlightButtons(all) == expected);
+    // The full word is the advertised word: a frame can press every button the arrival named.
+    CHECK(toMoonlightButtons(all) == moonproto::kStandardButtons);
 }
 
 TEST_CASE("ABXY combination reproduces the doc example", "[moonlight][buttonmap]") {

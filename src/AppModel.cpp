@@ -614,15 +614,15 @@ AppModel::MoonlightRoutes AppModel::moonlightRoutesFor(source::moon::MoonlightSe
         session->sendBattery(pad, moonlight::batteryStateFromSatelliteStatus(status),
                              moonlight::batteryPercentage(level));
     };
-    // The pad click has no packet of its own here: it rides the pad frame as BTN_TOUCHPAD, which
-    // the report sender already carries, so only the finger positions come this way. The session
-    // diffs them, because the host wants transitions and the pad reports full state.
+    // The pad click has no packet of its own here: it rides the pad frame as BTN_TOUCHPAD, so the
+    // session replays the frame on a click edge and keeps the bit on while the click is held. The
+    // session diffs the fingers, because the host wants transitions and the pad reports full state.
     routes.touch = [session, pad](bool f0Active, std::uint8_t f0Id, std::int16_t f0X,
                                   std::int16_t f0Y, bool f1Active, std::uint8_t f1Id,
-                                  std::int16_t f1X, std::int16_t f1Y, bool /*buttonPressed*/,
+                                  std::int16_t f1X, std::int16_t f1Y, bool buttonPressed,
                                   std::uint32_t /*eventTimeMs*/) {
         session->sendTouchFrame(pad, touchFinger(f0Active, f0Id, f0X, f0Y),
-                                touchFinger(f1Active, f1Id, f1X, f1Y));
+                                touchFinger(f1Active, f1Id, f1X, f1Y), buttonPressed);
     };
     return routes;
 }

@@ -90,15 +90,15 @@ TEST_CASE("an inbound event resolves to the pad holding its number", "[moonlight
 }
 
 TEST_CASE("the capability ceiling per emulated type", "[moonlight][pads]") {
-    // Exactly the table the reference host builds: an Xbox and a Nintendo
-    // device are sticks, buttons, analog triggers and body rumble; only the
-    // PlayStation device carries trigger rumble, touch, motion, battery and an
-    // LED.
-    CHECK(typeCapabilityCeiling(proto::kControllerTypeXbox) == 0x03);
-    CHECK(typeCapabilityCeiling(proto::kControllerTypeNintendo) == 0x03);
+    // The table the three Dish clients draw: an Xbox and a Nintendo device carry
+    // what describes the physical pad (analog triggers, body and trigger rumble,
+    // a battery: 0x47); only the PlayStation device carries touch, motion and an
+    // LED besides.
+    CHECK(typeCapabilityCeiling(proto::kControllerTypeXbox) == 0x47);
+    CHECK(typeCapabilityCeiling(proto::kControllerTypeNintendo) == 0x47);
     CHECK(typeCapabilityCeiling(proto::kControllerTypePs) == 0xFF);
-    // An unknown byte is never given more than the conservative pair.
-    CHECK(typeCapabilityCeiling(proto::kControllerTypeUnknown) == 0x03);
+    // An unknown byte is never given more than the pad's own set.
+    CHECK(typeCapabilityCeiling(proto::kControllerTypeUnknown) == 0x47);
 }
 
 TEST_CASE("Nintendo carries no motion over Moonlight", "[moonlight][pads]") {
@@ -109,7 +109,10 @@ TEST_CASE("Nintendo carries no motion over Moonlight", "[moonlight][pads]") {
     CHECK((nintendo & proto::kCapGyro) == 0);
     CHECK((nintendo & proto::kCapAccelerometer) == 0);
     CHECK((nintendo & proto::kCapTouchpad) == 0);
+    CHECK((nintendo & proto::kCapRgbLed) == 0);
     CHECK((nintendo & proto::kCapRumble) != 0);
+    CHECK((nintendo & proto::kCapTriggerRumble) != 0);
+    CHECK((nintendo & proto::kCapBattery) != 0);
 
     const std::uint8_t ps = typeCapabilityCeiling(proto::kControllerTypePs);
     CHECK((ps & proto::kCapGyro) != 0);
@@ -165,22 +168,22 @@ TEST_CASE("the declared bitfield is the type ceiling AND the source", "[moonligh
     CHECK((plainAsPs & proto::kCapAnalogTriggers) != 0);
     CHECK((plainAsPs & proto::kCapRumble) != 0);
     // A fully featured pad announced as an Xbox device is cut to the ceiling.
-    CHECK(declaredCapabilities(proto::kControllerTypeXbox, everything()) == 0x03);
-    CHECK(declaredCapabilities(proto::kControllerTypeNintendo, everything()) == 0x03);
+    CHECK(declaredCapabilities(proto::kControllerTypeXbox, everything()) == 0x47);
+    CHECK(declaredCapabilities(proto::kControllerTypeNintendo, everything()) == 0x47);
     // A pad with no motors still declares its analog triggers.
     CHECK(declaredCapabilities(proto::kControllerTypeXbox, SourceCapabilities{}) ==
           proto::kCapAnalogTriggers);
 }
 
 TEST_CASE("the touchpad click rides only a live touchpad", "[moonlight][pads]") {
-    // supportedButtonFlags is the whole legacy word for every type; the
-    // touchpad click is the one bit that is conditional.
-    CHECK(declaredButtons(0x03) == 0x0000FFFFU);
+    // supportedButtonFlags is the legacy word less the mic-mute bit for every
+    // type; the touchpad click is the one bit that is conditional.
+    CHECK(declaredButtons(0x03) == 0x0000F7FFU);
     const std::uint32_t withTouch =
         declaredButtons(declaredCapabilities(proto::kControllerTypePs, everything()));
-    CHECK(withTouch == (0x0000FFFFU | proto::kBtnTouchpad));
+    CHECK(withTouch == (0x0000F7FFU | proto::kBtnTouchpad));
     CHECK(declaredButtons(declaredCapabilities(proto::kControllerTypePs, plainPad())) ==
-          0x0000FFFFU);
+          0x0000F7FFU);
 }
 
 TEST_CASE("a second binding joins the session and never launches a second", "[moonlight][pads]") {
@@ -228,7 +231,7 @@ TEST_CASE("four controllers ride one session and each keeps its own type", "[moo
     CHECK(declaredCapabilities(resolveControllerType(proto::kControllerTypeAuto, true),
                                everything()) == 0xFF);
     CHECK(declaredCapabilities(resolveControllerType(proto::kControllerTypeAuto, false),
-                               everything()) == 0x03);
+                               everything()) == 0x47);
 
     // Three leave; the session still has a rider, so the app stays up.
     CHECK(slots.release("pad0").has_value());
