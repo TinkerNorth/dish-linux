@@ -1,24 +1,24 @@
 Architectures: amd64
 Codename: stable
 Components: main
-Date: Mon, 05 Oct 2026 15:52:46 +0000
+Date: Tue, 20 Oct 2026 15:05:34 +0000
 Description: Dish Linux package repository
 Label: Dish
 Origin: TinkerNorth
 Suite: stable
 MD5Sum:
- ed970251102131911b280b1a4755b506             1492 Release
- 0db58a806372fb53562652dd9f907cf1            15134 main/binary-amd64/Packages
- c344e7eab307a468cd0d4246a4c2e71d             2557 main/binary-amd64/Packages.gz
+ 78587a9b8f2420157db1471eec7e5125             1492 Release
+ 1bfcb675c512fdaf902aeadc9e77958f            17060 main/binary-amd64/Packages
+ b3205e01d7f9fe69cffd4726b3d4b652             2754 main/binary-amd64/Packages.gz
 SHA1:
- c979aafd20945fb2660a366d503d8eb7cffd7a82             1492 Release
- 48291e56de43e3bced1ba5755420ae75f050ca8a            15134 main/binary-amd64/Packages
- 007e35da2aef69c1b24a7e5b9a3302c871cb31df             2557 main/binary-amd64/Packages.gz
+ af20af8ce706183c98e0186b63f0855fa3b2b336             1492 Release
+ 65a02fd9753eac5dc431d4774067e26ab28130d3            17060 main/binary-amd64/Packages
+ 4accd0b2498eeea3aee0b595bc45588313a24851             2754 main/binary-amd64/Packages.gz
 SHA256:
- 5f69eeb593063a2653a7310b80ca02fa652d3ea4b629204476a17bea84aadea7             1492 Release
- 45c388e987a6f342ac9561053f12844569ba4998ab8dcb17aeb2ded70e8180fd            15134 main/binary-amd64/Packages
- 610d1955a3dbb6c63d46e5da16a499aa3963b3030001af2d6fa7d2746756647a             2557 main/binary-amd64/Packages.gz
+ e918b1dba036538f9735fbd7a85dbbbd5650518a5f63bdfdc2112fd9056640fd             1492 Release
+ 192eccec2a86eb1f65c7cf91d7f5d4deb592d963f6eb23cbce0d97520a44a4ae            17060 main/binary-amd64/Packages
+ 2453224b4ffbd027249634f239f689e57e22a02c3109c31247441f528696ae1a             2754 main/binary-amd64/Packages.gz
 SHA512:
- 53ccc9b6e4ef903f9cb3c91db28344fb9d5dce979041f57b6a8364f58ef877992a1bfb4055ca0f80a159e1ba7ed64b6dab1e10cc704bcaff56ae096eff491f66             1492 Release
- b6a5e01998cd4e5baed4923bf4d9a6ece22949abca2a8ddd84053a126bd4f68e1dabd24f8ff28e1956f2b15a0fe37604f043b00d1ce5d6a02b2b8e4e5a472bc9            15134 main/binary-amd64/Packages
- b7503eb7e6afa891142594f2240b89e5ba446bf841b9ceb1f3a1afb86a93cda4d76314dfe492689cea562bb302407592d66ade9e83d5a2dcee557f7d35455b8d             2557 main/binary-amd64/Packages.gz
+ 108555612419f03a9dce0fac4b6e8d5184a956367ebc3e2eae542d014fc7cc98e1e0d67f05ff4bb8439edd9f075c3f9984446b664d9d6cd2f75a3e845f59bb59             1492 Release
+ c4222dc4f630c954dd938d84cdc8d0d3de2e8689b475ba6ebc0444ab7f6371400471bdb06c50936d7334550a93067c7312e3915450344090a9f512cae33962c5            17060 main/binary-amd64/Packages
+ e47df29234a4f60f72d98412e583a8e6d09852b5c3d6a35788bce1f89d8a08e36196dd515bd1c1cd58a8ce6af8d35f015c0b244f1b0e2589eaf2a2383cd16de5             2754 main/binary-amd64/Packages.gz

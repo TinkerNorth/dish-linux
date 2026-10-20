@@ -222,3 +222,31 @@ Description: Wireless gamepad client for the Satellite server
  .
  Dish never installs its own updates - it checks, and links out to the release.
 
+Package: dish
+Architecture: amd64
+Version: 2.3.0
+Priority: optional
+Section: utils
+Maintainer: TinkerNorth <security@tinkernorth.com>
+Installed-Size: 10135
+Depends: qml6-module-qtqml, qml6-module-qtqml-workerscript, qml6-module-qtquick, qml6-module-qtquick-window, qml6-module-qtquick-controls, qml6-module-qtquick-templates, qml6-module-qtquick-layouts, qml6-module-qtquick-effects, libqt6svg6, qt6-svg-plugins, qt6-qpa-plugins, hicolor-icon-theme, libc6 (>= 2.38), libcurl4t64 (>= 7.16.2), libgcc-s1 (>= 3.3.1), libopus0 (>= 1.1), libqt6core6t64 (>= 6.8.2), libqt6dbus6 (>= 6.8.2), libqt6gui6 (>= 6.6.0), libqt6network6 (>= 6.7.2), libqt6qml6 (>= 6.6.0), libqt6quick6 (>= 6.6.0), libqt6quickcontrols2-6 (>= 6.6.0), libsdl2-2.0-0 (>= 2.24.0), libsodium23 (>= 1.0.8), libssl3t64 (>= 3.0.0), libstdc++6 (>= 14), qt6-declarative-private-abi (= 6.8.2)
+Recommends: udev, qt6-wayland
+Suggests: bluez, gnome-shell-extension-appindicator
+Filename: pool/main/d/dish/dish_2.3.0_amd64.deb
+Size: 3874360
+MD5sum: 68d07428b014e14872ab623e997a31bc
+SHA1: 86f2ccbfec0d2178efdd07976d1142701c413491
+SHA256: e573662ab1c5dc0bebb15cbc6861eea29970b1647f8ecacce5494fad74d924a4
+SHA512: 26ebb6deba5be87e00414e2f157dfabf77cdde7d11232befb7423ea2b4c158de7273478358d61afc4c22c7c071b9e562a523f7ea5aa8ced10264d507d5fb85a2
+Homepage: https://github.com/TinkerNorth/dish-linux
+Description: Wireless gamepad client for the Satellite server
+ Dish streams a local gamepad to a Satellite server over the LAN on an
+ encrypted UDP channel: sticks, buttons, motion and touchpad out, rumble and
+ battery back. It discovers servers over broadcast and mDNS, pairs with
+ trust-on-first-use key pinning, and can drive up to four pads at once.
+ .
+ Supported pads may also be claimed directly over USB for a higher polling
+ rate; that path needs the hidraw udev rule this package installs.
+ .
+ Dish never installs its own updates - it checks, and links out to the release.
+
