@@ -102,6 +102,12 @@
   <!-- Kept in step with project(Dish VERSION ...); version-consistency.yml
        fails the PR that moves one without the other. -->
   <releases>
+    <release version="2.3.0" date="2026-10-20" type="stable">
+      <url type="details">https://github.com/TinkerNorth/dish-linux/releases/tag/2.3.0</url>
+      <description>
+        <p>A stick pushed all the way up no longer reads as all the way down, whatever the pad. A Moonlight host now gets the touchpad click and the Guide button, and the light bar's Off setting covers it too. The emulated Xbox and Nintendo pads carry trigger rumble and a battery. Controller audio is steadier: the microphone keeps its count across a reopen, the speaker's queue stays short after a stall, a restarted stream plays again, and an unplugged and replugged audio device reopens.</p>
+      </description>
+    </release>
     <release version="2.2.1" date="2026-10-05" type="stable">
       <url type="details">https://github.com/TinkerNorth/dish-linux/releases/tag/2.2.1</url>
       <description>
