@@ -66,18 +66,6 @@ BatteryReading powerLevelToWire(SDL_JoystickPowerLevel pl) {
 
 constexpr std::chrono::seconds kBatteryPollInterval{30};
 
-// SDL axes are already the int16 the wire wants.
-std::int16_t axisValue(SDL_GameController* gc, SDL_GameControllerAxis axis) {
-    return SDL_GameControllerGetAxis(gc, axis);
-}
-
-std::uint8_t triggerValue(SDL_GameController* gc, SDL_GameControllerAxis axis) {
-    // SDL2 triggers are 0..32767, the wire wants 0..255.
-    const int v = SDL_GameControllerGetAxis(gc, axis);
-    if (v <= 0) { return 0; }
-    return static_cast<std::uint8_t>((v * 255) / 32767);
-}
-
 bool buttonDown(SDL_GameController* gc, SDL_GameControllerButton b) {
     return SDL_GameControllerGetButton(gc, b) != 0;
 }
@@ -821,6 +809,20 @@ constexpr std::pair<SDL_GameControllerButton, std::uint16_t> kButtonBits[] = {
     {SDL_CONTROLLER_BUTTON_Y, GamepadInputProcessor::Buttons::kY},
 };
 
+GamepadSnapshot readGamepad(SDL_GameController* gc) {
+    std::uint16_t buttons = 0;
+    for (const auto& [button, bit] : kButtonBits) {
+        if (buttonDown(gc, button)) { buttons |= bit; }
+    }
+    return {.wButtons = buttons,
+            .leftX = SDL_GameControllerGetAxis(gc, SDL_CONTROLLER_AXIS_LEFTX),
+            .leftY = SDL_GameControllerGetAxis(gc, SDL_CONTROLLER_AXIS_LEFTY),
+            .rightX = SDL_GameControllerGetAxis(gc, SDL_CONTROLLER_AXIS_RIGHTX),
+            .rightY = SDL_GameControllerGetAxis(gc, SDL_CONTROLLER_AXIS_RIGHTY),
+            .leftTrigger = SDL_GameControllerGetAxis(gc, SDL_CONTROLLER_AXIS_TRIGGERLEFT),
+            .rightTrigger = SDL_GameControllerGetAxis(gc, SDL_CONTROLLER_AXIS_TRIGGERRIGHT)};
+}
+
 } // namespace
 
 void SDLGamepadBridge::rebuildState(int iid) {
@@ -838,21 +840,7 @@ void SDLGamepadBridge::rebuildState(int iid) {
     // what stops the satellite seeing it twice.
     if (isSuppressed(deviceId)) { return; }
 
-    GamepadInputProcessor::DeviceState st{};
-    std::uint16_t btn = 0;
-    for (const auto& [button, bit] : kButtonBits) {
-        if (buttonDown(gc, button)) { btn |= bit; }
-    }
-    st.wButtons = btn;
-    st.lt = triggerValue(gc, SDL_CONTROLLER_AXIS_TRIGGERLEFT);
-    st.rt = triggerValue(gc, SDL_CONTROLLER_AXIS_TRIGGERRIGHT);
-    st.lx = axisValue(gc, SDL_CONTROLLER_AXIS_LEFTX);
-    // SDL Y is +down, XUSB is +up.
-    st.ly = static_cast<std::int16_t>(-axisValue(gc, SDL_CONTROLLER_AXIS_LEFTY));
-    st.rx = axisValue(gc, SDL_CONTROLLER_AXIS_RIGHTX);
-    st.ry = static_cast<std::int16_t>(-axisValue(gc, SDL_CONTROLLER_AXIS_RIGHTY));
-
-    processor_->publish(deviceId, st);
+    processor_->publish(deviceId, mapGamepad(readGamepad(gc)));
 }
 
 // What one raw joystick needs before it can be read at all. js is null for a device SDL opened as

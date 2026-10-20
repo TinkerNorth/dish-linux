@@ -42,6 +42,11 @@ JoystickSnapshot makeSnapshot(const std::int16_t* axes, int axisCount, const boo
     return s;
 }
 
+constexpr std::int16_t kSdlFullUp = -32768;
+constexpr std::int16_t kSdlFullDown = 32767;
+constexpr std::int16_t kWireFullUp = 32767;
+constexpr std::int16_t kWireFullDown = -32767;
+
 } // namespace
 
 TEST_CASE("axisAt returns 0 for out-of-range and null", "[joymap]") {
@@ -113,6 +118,31 @@ TEST_CASE("4-axis pad routes right stick to axes 2/3", "[joymap]") {
     REQUIRE(st.ly == -2000);
     REQUIRE(st.rx == 3000);
     REQUIRE(st.ry == -4000);
+}
+
+TEST_CASE("a raw left stick held full up reads full up on the wire", "[joymap]") {
+    const std::array<std::int16_t, 6> axes{0, kSdlFullUp, 0, 0, 0, 0};
+    const auto st = mapJoystick(makeSnapshot(axes.data(), 6, nullptr, 0, nullptr, 0));
+    REQUIRE(st.ly == kWireFullUp);
+}
+
+TEST_CASE("a raw right stick held full up reads full up on a 6-axis pad", "[joymap]") {
+    const std::array<std::int16_t, 6> axes{0, 0, 0, 0, kSdlFullUp, 0};
+    const auto st = mapJoystick(makeSnapshot(axes.data(), 6, nullptr, 0, nullptr, 0));
+    REQUIRE(st.ry == kWireFullUp);
+}
+
+TEST_CASE("a raw right stick held full up reads full up on a 4-axis pad", "[joymap]") {
+    const std::array<std::int16_t, 4> axes{0, 0, 0, kSdlFullUp};
+    const auto st = mapJoystick(makeSnapshot(axes.data(), 4, nullptr, 0, nullptr, 0));
+    REQUIRE(st.ry == kWireFullUp);
+}
+
+TEST_CASE("raw sticks held full down read full down on the wire", "[joymap]") {
+    const std::array<std::int16_t, 6> axes{0, kSdlFullDown, 0, 0, kSdlFullDown, 0};
+    const auto st = mapJoystick(makeSnapshot(axes.data(), 6, nullptr, 0, nullptr, 0));
+    REQUIRE(st.ly == kWireFullDown);
+    REQUIRE(st.ry == kWireFullDown);
 }
 
 TEST_CASE("4-axis pad sources triggers from buttons 8/9 (no trigger axes)", "[joymap]") {
@@ -322,6 +352,20 @@ TEST_CASE("remap invert toggles flip stick Y polarity", "[joymap][remap]") {
     remap.invertLeftY = true; // back to the historical invert
     st = mapJoystick(makeSnapshot(axes.data(), 6, nullptr, 0, nullptr, 0), remap);
     REQUIRE(st.ly == -2000);
+}
+
+TEST_CASE("with invert off, a full-scale raw Y passes through unchanged", "[joymap][remap]") {
+    JoystickRemap remap{};
+    remap.invertLeftY = false;
+    remap.invertRightY = false;
+    const std::array<std::int16_t, 6> axes{0, kSdlFullUp, 0, 0, kSdlFullDown, 0};
+    const auto st = mapJoystick(makeSnapshot(axes.data(), 6, nullptr, 0, nullptr, 0), remap);
+    REQUIRE(st.ly == kSdlFullUp);
+    REQUIRE(st.ry == kSdlFullDown);
+    const std::array<std::int16_t, 6> swapped{0, kSdlFullDown, 0, 0, kSdlFullUp, 0};
+    const auto rails = mapJoystick(makeSnapshot(swapped.data(), 6, nullptr, 0, nullptr, 0), remap);
+    REQUIRE(rails.ly == kSdlFullDown);
+    REQUIRE(rails.ry == kSdlFullUp);
 }
 
 TEST_CASE("remap can route a dpad direction to a button", "[joymap][remap]") {

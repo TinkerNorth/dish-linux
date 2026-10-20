@@ -8,9 +8,26 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <algorithm>
 #include <cstdint>
+#include <cstdlib>
 
 namespace dz = dish::input::deadzone;
+
+namespace {
+
+constexpr int kInt16Floor = -32768;
+constexpr int kInt16Ceiling = 32767;
+
+int signOf(int v) {
+    if (v > 0) { return 1; }
+    if (v < 0) { return -1; }
+    return 0;
+}
+
+int invertedAt(int raw) { return dz::invertStickAxis(static_cast<std::int16_t>(raw)); }
+
+} // namespace
 
 TEST_CASE("applyStick zeroes at or below the flat magnitude", "[input][deadzone]") {
     REQUIRE(dz::applyStick(0, 3277) == 0);
@@ -45,6 +62,51 @@ TEST_CASE("applyTrigger passes values above the flat", "[input][deadzone]") {
     REQUIRE(dz::applyTrigger(14, 13) == 14);
     REQUIRE(dz::applyTrigger(255, 13) == 255);
     REQUIRE(dz::applyTrigger(1, 0) == 1); // zero flat passes any nonzero
+}
+
+TEST_CASE("invertStickAxis reads the int16 floor as full scale the other way",
+          "[input][deadzone]") {
+    REQUIRE(dz::invertStickAxis(-32768) == 32767);
+}
+
+TEST_CASE("invertStickAxis mirrors the int16 ceiling", "[input][deadzone]") {
+    REQUIRE(dz::invertStickAxis(32767) == -32767);
+}
+
+TEST_CASE("invertStickAxis keeps centre at centre", "[input][deadzone]") {
+    REQUIRE(dz::invertStickAxis(0) == 0);
+}
+
+TEST_CASE("invertStickAxis mirrors one count either side of centre", "[input][deadzone]") {
+    REQUIRE(dz::invertStickAxis(-1) == 1);
+    REQUIRE(dz::invertStickAxis(1) == -1);
+}
+
+TEST_CASE("invertStickAxis keeps every int16 within the symmetric range", "[input][deadzone]") {
+    for (int raw = kInt16Floor; raw <= kInt16Ceiling; ++raw) {
+        CAPTURE(raw);
+        const int inverted = invertedAt(raw);
+        REQUIRE(inverted >= -kInt16Ceiling);
+        REQUIRE(inverted <= kInt16Ceiling);
+    }
+}
+
+TEST_CASE("invertStickAxis gives every int16 the opposite sign", "[input][deadzone]") {
+    for (int raw = kInt16Floor; raw <= kInt16Ceiling; ++raw) {
+        CAPTURE(raw);
+        const int invertedSign = signOf(invertedAt(raw));
+        const int oppositeSign = -signOf(raw);
+        REQUIRE(invertedSign == oppositeSign);
+    }
+}
+
+TEST_CASE("invertStickAxis keeps every int16 magnitude up to full scale", "[input][deadzone]") {
+    for (int raw = kInt16Floor; raw <= kInt16Ceiling; ++raw) {
+        CAPTURE(raw);
+        const int magnitude = std::abs(invertedAt(raw));
+        const int expected = std::min(std::abs(raw), kInt16Ceiling);
+        REQUIRE(magnitude == expected);
+    }
 }
 
 TEST_CASE("scaleAxis clamps inputs to [-1, 1]", "[input][deadzone]") {

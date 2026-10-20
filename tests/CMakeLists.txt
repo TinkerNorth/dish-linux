@@ -68,6 +68,7 @@ set(DISH_TEST_SOURCES
     test_gamepad_input_processor.cpp
     test_sdl_motion_convert.cpp
     test_joystick_mapping.cpp
+    test_gamepad_mapping.cpp
     test_joystick_remap_assign.cpp
     test_capture_mode.cpp
     test_joystick_remap_repository.cpp
