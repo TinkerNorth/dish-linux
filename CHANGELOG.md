@@ -16,7 +16,7 @@ the repos share a version number.
 
 ---
 
-## [Unreleased]
+## [2.3.0] - 2026-10-20
 
 ### Fixed
 
@@ -79,9 +79,6 @@ the repos share a version number.
   between two route resolves kept the dead device handle, because the routes
   read the same by name. A departed device now closes its voices and captures
   at once, and the next resolve reopens them.
-
-### Changed
-
 - **Opus decoding moved off the receive thread.** Speaker and haptics frames
   are copied onto the playout engine's own thread (at most eight waiting, the
   oldest dropped), so a decode burst no longer delays the heartbeat ack behind
