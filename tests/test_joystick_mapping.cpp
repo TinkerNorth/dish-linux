@@ -362,6 +362,10 @@ TEST_CASE("with invert off, a full-scale raw Y passes through unchanged", "[joym
     const auto st = mapJoystick(makeSnapshot(axes.data(), 6, nullptr, 0, nullptr, 0), remap);
     REQUIRE(st.ly == kSdlFullUp);
     REQUIRE(st.ry == kSdlFullDown);
+    const std::array<std::int16_t, 6> swapped{0, kSdlFullDown, 0, 0, kSdlFullUp, 0};
+    const auto rails = mapJoystick(makeSnapshot(swapped.data(), 6, nullptr, 0, nullptr, 0), remap);
+    REQUIRE(rails.ly == kSdlFullDown);
+    REQUIRE(rails.ry == kSdlFullUp);
 }
 
 TEST_CASE("remap can route a dpad direction to a button", "[joymap][remap]") {
