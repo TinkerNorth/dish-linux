@@ -20,6 +20,14 @@ the repos share a version number.
 
 ### Fixed
 
+- **A stick pushed all the way up now reads as up, not down.** SDL reports a
+  stick's Y axis with down positive and the wire carries up positive, so Dish
+  flips it. At the very top of the stick's travel SDL reports -32768, the one
+  16-bit value with no positive mirror, and the flip wrapped it round to full
+  down: in a game, holding a stick fully forward walked backwards and looking
+  up looked down. Both sticks of every pad on the Standard path were affected,
+  generic pads included, whether streaming to a satellite or a Moonlight host.
+  The flip now saturates, so full up reads as full up.
 - **The light bar's Off setting now covers a Moonlight host.** A Moonlight
   host's RGB_LED event went straight to the pad, so a game could recolour a
   light bar the user had set to "Off: leave the LED untouched". The Moonlight

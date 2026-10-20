@@ -10,10 +10,12 @@
 
 namespace dish::input {
 
-// Pure, SDL-free mapper for RAW SDL *joysticks* — pads SDL classifies as a
-// joystick but NOT a game controller (no entry in SDL's controller-mapping DB).
-// SDLGamepadBridge::rebuildState covers recognised pads; this fills the gap so
-// a generic pad still streams through the same GamepadInputProcessor::publish.
+// Pure, SDL-free mappers from an SDL reading to the report
+// GamepadInputProcessor::publish takes. mapGamepad takes a pad SDL recognises
+// as a game controller. mapJoystick takes a RAW SDL *joystick*, a pad SDL
+// classifies as a joystick but NOT a game controller (no entry in SDL's
+// controller-mapping DB), so a generic pad still streams through the same
+// publish.
 //
 // Total and deterministic: any index the layout references but the device does
 // not provide reads neutral, so a pad with fewer axes or buttons than the
@@ -33,6 +35,18 @@ struct JoystickSnapshot {
     int buttonCount = 0;
     const std::uint8_t* hats = nullptr; // length = hatCount (SDL_HAT_* bitmask)
     int hatCount = 0;
+};
+
+// The bridge fills this from SDL's game-controller API in SDL's own units:
+// stick Y positive DOWN, triggers 0..32767, buttons already in wire bits.
+struct GamepadSnapshot {
+    std::uint16_t wButtons = 0;
+    std::int16_t leftX = 0;
+    std::int16_t leftY = 0;
+    std::int16_t rightX = 0;
+    std::int16_t rightY = 0;
+    std::int16_t leftTrigger = 0;
+    std::int16_t rightTrigger = 0;
 };
 
 // Mirrored from SDL_hat.h so this header stays SDL-free; they are stable
@@ -195,6 +209,8 @@ bool captureButtonPasses();
 // A release back to center is not an assignment. `hatValue` is an SDL_HAT_*
 // bitmask.
 bool captureHatPasses(int hatValue);
+
+GamepadInputProcessor::DeviceState mapGamepad(const GamepadSnapshot& snap);
 
 GamepadInputProcessor::DeviceState mapJoystick(const JoystickSnapshot& snap,
                                                const JoystickRemap& remap);

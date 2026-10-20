@@ -36,6 +36,13 @@ inline std::int16_t applyStick(std::int16_t v, std::int16_t flat) {
 
 inline std::uint8_t applyTrigger(std::uint8_t v, std::uint8_t flat) { return v <= flat ? 0 : v; }
 
+inline std::int16_t invertStickAxis(std::int16_t v) {
+    const auto widened = static_cast<std::int32_t>(v);
+    const std::int32_t mirrored = -widened;
+    const std::int32_t saturated = std::min(mirrored, static_cast<std::int32_t>(INT16_MAX));
+    return static_cast<std::int16_t>(saturated);
+}
+
 // Clamps before scaling so out-of-range input saturates rather than wrapping.
 inline std::int16_t scaleAxis(float v, float maxMagnitude) {
     const float clamped = std::clamp(v, -1.0F, 1.0F);
