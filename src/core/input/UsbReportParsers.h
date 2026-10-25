@@ -894,6 +894,14 @@ inline bool parserHasTouchpad(HidParser parser) {
     return parser == HidParser::DualShock4 || parser == HidParser::DualSense;
 }
 
+// Whether the pad reports whether or not anything moved: the Sony pads and the
+// Switch Pro stream at a fixed rate, a generic HID pad reports on change, and
+// the Steam Controller's cadence is not pinned here, so it counts as on-change.
+inline bool parserStreamsUnprompted(HidParser parser) {
+    return parser == HidParser::DualShock4 || parser == HidParser::DualSense ||
+           parser == HidParser::SwitchProUsb;
+}
+
 // Whether the pad itself carries rumble motors this path could ever drive. The
 // Steam Controller has no rumble motors, only trackpad voice coils driven by
 // pulse trains; its simple-rumble command is Steam Deck firmware only.

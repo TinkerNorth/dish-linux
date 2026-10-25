@@ -192,7 +192,9 @@ class HidrawGateway : public UsbDeviceGateway {
                       std::function<void(const UsbReport&)> onReport) override;
     void releaseClaim(int syntheticId) override;
     bool isKnownFastLaneModel(int vendorId, int productId) const override;
+    bool isClaimAlive(int syntheticId) const override;
     std::int64_t completionCount(int syntheticId) const override;
+    std::int64_t decodedCount(int syntheticId) const override;
     bool writeOutputReport(int syntheticId, const std::uint8_t* data, std::size_t len) override;
     bool setPadMicMuted(int syntheticId, bool muted) override;
 
@@ -202,7 +204,10 @@ class HidrawGateway : public UsbDeviceGateway {
         int fd = -1;
         std::thread reader;
         std::atomic<bool> running{false};
+        // Cleared by the reader as it exits, whatever ended it.
+        std::atomic<bool> alive{true};
         std::atomic<std::int64_t> completions{0};
+        std::atomic<std::int64_t> decoded{0};
         std::function<void(const UsbReport&)> onReport;
         int vendorId = 0;
         int productId = 0;

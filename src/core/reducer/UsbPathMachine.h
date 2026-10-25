@@ -108,15 +108,20 @@ struct ClaimFailed {
         return reason == o.reason && frameworkStolen == o.frameworkStolen;
     }
 };
+// A claim that is up but reads nothing it can decode (core/reducer/UsbClaimHealth.h decides).
+struct ClaimUnreadable {
+    bool operator==(const ClaimUnreadable&) const { return true; }
+};
 struct Timeout {
     bool operator==(const Timeout&) const { return true; }
 };
 
 } // namespace event
 
-using UsbEvent = std::variant<event::FrameworkUp, event::FrameworkDown, event::UsbUnplugged,
-                              event::PermissionGranted, event::PermissionDenied, event::Choose,
-                              event::ClaimSucceeded, event::ClaimFailed, event::Timeout>;
+using UsbEvent =
+    std::variant<event::FrameworkUp, event::FrameworkDown, event::UsbUnplugged,
+                 event::PermissionGranted, event::PermissionDenied, event::Choose,
+                 event::ClaimSucceeded, event::ClaimFailed, event::ClaimUnreadable, event::Timeout>;
 
 // The coordinator maps these to localized strings.
 enum class UsbNotice : std::uint8_t {

@@ -497,10 +497,12 @@ void HidrawGateway::readLoop(Claimed* c) {
         // than published as noise.
         input::usbparse::ParsedReport parsed{};
         if (!decodeOneReport(c, data, len, parsed)) { continue; }
+        c->decoded.fetch_add(1);
         if (c->onReport) {
             c->onReport(toUsbReport(parsed, c->micMute.muted.load(std::memory_order_relaxed)));
         }
     }
+    c->alive.store(false);
 }
 
 void HidrawGateway::releaseClaim(int syntheticId) {
@@ -527,11 +529,25 @@ void HidrawGateway::releaseClaim(int syntheticId) {
     }
 }
 
+bool HidrawGateway::isClaimAlive(int syntheticId) const {
+    std::lock_guard<std::mutex> lock(mtx_);
+    const auto it = claimed_.find(syntheticId);
+    if (it == claimed_.end()) { return false; }
+    return it->second->alive.load();
+}
+
 std::int64_t HidrawGateway::completionCount(int syntheticId) const {
     std::lock_guard<std::mutex> lock(mtx_);
     const auto it = claimed_.find(syntheticId);
     if (it == claimed_.end()) { return 0; }
     return it->second->completions.load();
+}
+
+std::int64_t HidrawGateway::decodedCount(int syntheticId) const {
+    std::lock_guard<std::mutex> lock(mtx_);
+    const auto it = claimed_.find(syntheticId);
+    if (it == claimed_.end()) { return 0; }
+    return it->second->decoded.load();
 }
 
 bool HidrawGateway::setPadMicMuted(int syntheticId, bool muted) {

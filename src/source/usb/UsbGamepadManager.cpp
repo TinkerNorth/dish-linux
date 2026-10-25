@@ -6,6 +6,7 @@
 #include "source/store/UsbPathPreferenceStore.h"
 
 #include "core/input/UsbReportParsers.h"
+#include "core/reducer/UsbClaimHealth.h"
 #include "core/reducer/UsbPollRate.h"
 
 #include "Input/GamepadInputProcessor.h"
@@ -161,7 +162,9 @@ void UsbGamepadManager::reconcile() {
     std::unordered_set<int> presentKeys;
     for (const auto& device : gateway_->enumerate()) {
         presentKeys.insert(device.vpKey());
+        if (claimEnded(device.vpKey())) { onUsbGone(device.vendorId, device.productId); }
         ensureTracked(device);
+        judgeClaim(device.vpKey());
     }
     // Departed-device sweep: a tracked model that stops enumerating has been
     // physically unplugged. This presence diff IS the unplug signal — the read
@@ -217,6 +220,38 @@ void UsbGamepadManager::ensureTracked(const UsbDeviceInfo& device) {
     }
 }
 
+bool UsbGamepadManager::claimEnded(int key) const {
+    std::lock_guard<std::mutex> lock(mtx_);
+    const auto it = controllers_.find(key);
+    if (it == controllers_.end()) { return false; }
+    const reducer::UsbController& c = it->second;
+    if (c.phase != reducer::UsbPhase::Direct || !c.syntheticId.has_value()) { return false; }
+    return !gateway_->isClaimAlive(*c.syntheticId);
+}
+
+void UsbGamepadManager::judgeClaim(int key) {
+    reducer::ClaimActivity activity;
+    {
+        std::lock_guard<std::mutex> lock(mtx_);
+        const auto it = controllers_.find(key);
+        if (it == controllers_.end() || it->second.phase != reducer::UsbPhase::Direct ||
+            !it->second.syntheticId.has_value()) {
+            directScans_.erase(key);
+            return;
+        }
+        const reducer::UsbController& c = it->second;
+        const int syntheticId = *c.syntheticId;
+        activity.reads = gateway_->completionCount(syntheticId);
+        activity.decoded = gateway_->decodedCount(syntheticId);
+        activity.scans = ++directScans_[key];
+        activity.streamsUnprompted = input::usbparse::parserStreamsUnprompted(
+            input::usbparse::parserForDevice(c.vendorId, c.productId));
+    }
+    if (reducer::judgeClaimHealth(activity) == reducer::ClaimHealth::Unreadable) {
+        applyEvent(key, reducer::event::ClaimUnreadable{});
+    }
+}
+
 void UsbGamepadManager::tryDirectMode(int vendorId, int productId) {
     setPathChoice(vendorId, productId, reducer::PathChoice::Direct);
 }
@@ -266,6 +301,7 @@ void UsbGamepadManager::onUsbGone(int vendorId, int productId) {
     std::lock_guard<std::mutex> lock(mtx_);
     devices_.erase(key);
     missedScans_.erase(key);
+    directScans_.erase(key);
     // A fresh plug-in of this model should re-evaluate Direct rather than inherit
     // a stale failure (android clears the registry's directFailed here).
     priorFailures_.erase(key);
