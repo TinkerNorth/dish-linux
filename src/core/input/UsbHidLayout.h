@@ -129,14 +129,14 @@ namespace detail {
 constexpr std::uint16_t bit(int xusb) { return static_cast<std::uint16_t>(xusb); }
 } // namespace detail
 
-inline constexpr std::int8_t kNoDigitalTrigger = -1;
+inline constexpr int kNoDigitalTrigger = -1;
 
 // One wire bit per declared button index, 0 where the wire has no bit for it. A button that
 // drives a trigger is named apart, since a trigger is a level and not a bit.
 struct ButtonOrderMap {
     std::array<std::uint16_t, kMaxButtons> bits{};
-    std::int8_t leftTriggerIndex = kNoDigitalTrigger;
-    std::int8_t rightTriggerIndex = kNoDigitalTrigger;
+    int leftTriggerIndex = kNoDigitalTrigger;
+    int rightTriggerIndex = kNoDigitalTrigger;
 };
 
 // DirectInput's order: A B X Y LB RB Back Start L3 R3 Guide.

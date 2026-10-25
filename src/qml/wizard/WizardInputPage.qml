@@ -187,13 +187,21 @@ ColumnLayout {
             // properties versus delegate creation), so both orders adopt.
             onSeedMatchChanged: if (padRow.seedMatch) padRow.adoptThis()
 
-            // The first row holds the draft until the seeded row claims it, and
-            // keeps it when the seeded pad is no longer plugged in.
+            readonly property bool isDefaultPad: padRow.slotId === App.defaultPadSlotId
+
+            // The default row holds the draft until the seeded row claims it, and
+            // keeps it when the seeded pad is no longer plugged in. Which row is the
+            // default is the model's call, so this machine's own controls never
+            // stand in for the pad that was plugged in.
             Component.onCompleted: {
                 if (padRow.seedMatch
-                        || (padRow.index === 0 && page.draft.slotId.length === 0)) {
+                        || (padRow.isDefaultPad && page.draft.slotId.length === 0)) {
                     padRow.adoptThis();
                 }
+            }
+            onIsDefaultPadChanged: {
+                if (padRow.isDefaultPad && page.draft.slotId.length === 0)
+                    padRow.adoptThis();
             }
 
             // What this pad can carry, always drawn — an absent capability is

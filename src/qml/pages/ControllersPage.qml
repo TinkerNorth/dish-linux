@@ -439,7 +439,7 @@ Kit.Page {
             return qsTr("Direct claim is busy — another app or driver holds the device.");
         }
         if (failure === "initFailed") {
-            return qsTr("Direct claim couldn’t start the controller’s report stream.");
+            return qsTr("Direct read nothing it could use from the controller, so it stays on Standard.");
         }
         if (failure === "dropped") {
             return qsTr("The device dropped during the claim — a replug is needed.");

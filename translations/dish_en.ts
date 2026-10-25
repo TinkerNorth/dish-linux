@@ -1217,8 +1217,8 @@
         <translation>Direct claim is busy — another app or driver holds the device.</translation>
     </message>
     <message>
-        <source>Direct claim couldn’t start the controller’s report stream.</source>
-        <translation>Direct claim couldn’t start the controller’s report stream.</translation>
+        <source>Direct read nothing it could use from the controller, so it stays on Standard.</source>
+        <translation>Direct read nothing it could use from the controller, so it stays on Standard.</translation>
     </message>
     <message>
         <source>The device dropped during the claim — a replug is needed.</source>
@@ -1672,8 +1672,8 @@
         <translation>held by another app</translation>
     </message>
     <message>
-        <source>sent no reports</source>
-        <translation>sent no reports</translation>
+        <source>sent nothing Dish could read</source>
+        <translation>sent nothing Dish could read</translation>
     </message>
     <message>
         <source>dropped during the claim</source>
@@ -1758,6 +1758,10 @@
     <message>
         <source>Input rate</source>
         <translation>Input rate</translation>
+    </message>
+    <message>
+        <source>USB ID</source>
+        <translation>USB ID</translation>
     </message>
     <message>
         <source>Battery</source>
@@ -5118,6 +5122,10 @@
     <message>
         <source>Couldn’t return %1 to Standard mode.</source>
         <translation>Couldn’t return %1 to Standard mode.</translation>
+    </message>
+    <message>
+        <source>This Steam Deck&apos;s controls</source>
+        <translation>This Steam Deck&apos;s controls</translation>
     </message>
     <message>
         <source>Controller disconnected — its binding was removed.</source>

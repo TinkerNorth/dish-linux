@@ -83,7 +83,9 @@ The `.deb` and `.rpm` install it and reload udev for you; `cmake --install`
 places it too. An AppImage or a Flatpak cannot — they install nothing outside
 themselves — so both carry the rule inside at `usr/share/dish/` for you to copy
 out. Without the rule every claim fails with a permission error and Dish keeps
-the pad on the SDL path, which still works — it is just rate-capped. Dish never
+the pad on the SDL path, which still works — it is just rate-capped. SteamOS is
+the exception: Valve's own udev rules already open every hidraw node, so a
+Steam Deck needs nothing installed. Dish never
 asks for root.
 
 ### Updates

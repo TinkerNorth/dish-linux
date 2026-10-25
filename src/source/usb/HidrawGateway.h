@@ -11,10 +11,12 @@
 // them as evdev-only and publishes no hidraw node, so they stay on the SDL
 // path.
 //
-// Claiming requires read/write on /dev/hidraw*, which is root-only by default.
-// packaging/udev/70-dish-hidraw.rules grants the `input` group access to the
-// supported models; without it every claim fails PermissionDenied and the FSM
-// keeps the pad on SDL. Enumeration therefore never touches the node: it reads
+// Claiming requires read/write on /dev/hidraw*, which most distributions leave
+// root-only; SteamOS tags every hidraw node uaccess itself, so there a claim
+// needs no rule of ours. Elsewhere packaging/udev/70-dish-hidraw.rules grants
+// the `input` group access to the supported models, and without it every claim
+// fails PermissionDenied and the FSM keeps the pad on SDL. Enumeration
+// therefore never touches the node: it reads
 // the world-readable sysfs attributes instead, so a pad the user cannot open
 // still enumerates and the missing rule surfaces as that claim failure rather
 // than as a device that silently never appears.

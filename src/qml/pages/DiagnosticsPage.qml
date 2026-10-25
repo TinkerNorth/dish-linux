@@ -189,7 +189,7 @@ Kit.Page {
         case "busy":
             return qsTr("held by another app");
         case "initFailed":
-            return qsTr("sent no reports");
+            return qsTr("sent nothing Dish could read");
         case "dropped":
             return qsTr("dropped during the claim");
         }
@@ -264,6 +264,8 @@ Kit.Page {
             { "key": qsTr("Path"), "value": page.pathText(pad) },
             { "key": qsTr("Input rate"), "value": page.rateText(pad) }
         ];
+        if (pad.usbId.length > 0)
+            lines.splice(1, 0, { "key": qsTr("USB ID"), "value": pad.usbId });
         if (pad.batteryKnown)
             lines.push({ "key": qsTr("Battery"), "value": page.batteryText(pad) });
         return lines.concat(page.bindingLines(pad.binding));

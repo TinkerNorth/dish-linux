@@ -285,11 +285,13 @@ sha256sum "${out}" | tee "${out}.sha256"
 cat <<'BANNER'
 
 ---------------------------------------------------------------------------
- USB-direct needs a udev rule that an AppImage cannot install.
+ USB-direct needs a udev rule that an AppImage cannot install, except on
+ SteamOS, whose own rules already open every hidraw node to the seat user.
 
- The rule travels inside at usr/share/dish/70-dish-hidraw.rules. Until it is
- on the host, every USB-direct claim returns PermissionDenied and Dish keeps
- the pad on the SDL path — still streaming, just rate-capped.
+ The rule travels inside at usr/share/dish/70-dish-hidraw.rules. On any other
+ distribution, until it is on the host, every USB-direct claim returns
+ PermissionDenied and Dish keeps the pad on the SDL path — still streaming,
+ just rate-capped.
 
    ./Dish-*.AppImage --appimage-extract usr/share/dish/70-dish-hidraw.rules
    sudo install -m 644 squashfs-root/usr/share/dish/70-dish-hidraw.rules \
