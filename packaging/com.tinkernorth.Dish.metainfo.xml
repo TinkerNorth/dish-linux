@@ -102,6 +102,12 @@
   <!-- Kept in step with project(Dish VERSION ...); version-consistency.yml
        fails the PR that moves one without the other. -->
   <releases>
+    <release version="2.4.0" date="2026-10-25" type="stable">
+      <url type="details">https://github.com/TinkerNorth/dish-linux/releases/tag/2.4.0</url>
+      <description>
+        <p>A Direct controller that re-enumerates comes back instead of going quiet, and one that reads nothing falls back to Standard. 8BitDo pads in D-input mode and the PlayStation Classic controller decode in their own button orders. The Guide button reaches the host from the Standard path. The setup wizard no longer pre-selects a Steam Deck's own controls, diagnostics shows each controller's USB ID, and the AppImage says SteamOS needs no udev rule.</p>
+      </description>
+    </release>
     <release version="2.3.0" date="2026-10-20" type="stable">
       <url type="details">https://github.com/TinkerNorth/dish-linux/releases/tag/2.3.0</url>
       <description>
