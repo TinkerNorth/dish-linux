@@ -144,6 +144,8 @@ class AppViewModel : public QObject {
     // Counts only: the header sub-lines are assembled in QML so their words stay
     // in the qsTr catalogues.
     Q_PROPERTY(int slotCount READ slotCount NOTIFY stateChanged)
+    // The pad the setup wizard adopts when nothing seeded it; empty with no pads.
+    Q_PROPERTY(QString defaultPadSlotId READ defaultPadSlotId NOTIFY stateChanged)
     Q_PROPERTY(int boundSlotCount READ boundSlotCount NOTIFY stateChanged)
     // Bound and the link Connected, the same composer::streamingSlotCount rule
     // the wake controller inhibits the display on.
@@ -270,6 +272,7 @@ class AppViewModel : public QObject {
     QString donateBmacUrl() const;
 
     int slotCount() const { return slotCount_; }
+    QString defaultPadSlotId() const { return defaultPadSlotId_; }
     int boundSlotCount() const { return boundSlotCount_; }
     int streamingSlotCount() const { return streamingSlotCount_; }
     QString firstOnlineName() const { return firstOnlineName_; }
@@ -705,6 +708,7 @@ class AppViewModel : public QObject {
     int connectionCount_ = 0;
     bool busy_ = false;
     int slotCount_ = 0;
+    QString defaultPadSlotId_;
     int boundSlotCount_ = 0;
     int streamingSlotCount_ = 0;
     QString firstOnlineName_;

@@ -7,6 +7,8 @@
 
 #include "Input/JoystickMapping.h"
 
+#include "core/input/GamepadButtonLayouts.h"
+
 #include <catch2/catch_test_macros.hpp>
 
 #include <cstdint>
@@ -87,4 +89,11 @@ TEST_CASE("a game controller's buttons pass through in wire bits", "[gamepadmap]
     snap.wButtons = kHeld;
     const auto st = mapGamepad(snap);
     REQUIRE(st.wButtons == kHeld);
+}
+
+TEST_CASE("the guide button is the wire's guide bit", "[gamepadmap]") {
+    STATIC_REQUIRE(B::kGuide == dish::input::layout::kXusbGuide);
+    GamepadSnapshot snap{};
+    snap.wButtons = B::kGuide;
+    REQUIRE(mapGamepad(snap).wButtons == B::kGuide);
 }

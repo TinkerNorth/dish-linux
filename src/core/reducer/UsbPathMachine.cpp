@@ -199,8 +199,38 @@ static Reduction directChoose(const UsbController& c, const event::Choose& ch) {
     return releaseAndAwaitFramework(c, ch);
 }
 
+// The pad goes back the way a Standard pick sends it, and the reason rides along so the
+// re-enumerated card can show it; the placeholder stays until the framework device binds.
+static Reduction directUnreadableAwaitingFramework(const UsbController& c) {
+    UsbController n = c;
+    n.phase = UsbPhase::AwaitingFramework;
+    n.failure = DirectClaimFailure::InitFailed;
+    return Reduction{std::move(n), {effect::Release{}, effect::StartTimeout{}}};
+}
+
+static Reduction directUnreadableSettledOnStandard(const UsbController& c) {
+    UsbController n = c;
+    n.phase = UsbPhase::Routed;
+    n.desired = PathChoice::Standard;
+    n.frameworkId.reset();
+    n.syntheticId.reset();
+    n.failure = DirectClaimFailure::InitFailed;
+    std::vector<UsbEffect> fx;
+    fx.push_back(effect::Release{});
+    if (c.syntheticId.has_value()) { fx.push_back(effect::RemoveSynthetic{*c.syntheticId}); }
+    fx.push_back(effect::SetPref{PathChoice::Standard});
+    fx.push_back(effect::MarkFailure{DirectClaimFailure::InitFailed});
+    return Reduction{std::move(n), std::move(fx)};
+}
+
+static Reduction directUnreadable(const UsbController& c) {
+    if (!c.frameworkExpected) { return directUnreadableSettledOnStandard(c); }
+    return directUnreadableAwaitingFramework(c);
+}
+
 Reduction reduceDirect(const UsbController& c, const UsbEvent& event) {
     if (const auto* ch = as<event::Choose>(event)) { return directChoose(c, *ch); }
+    if (as<event::ClaimUnreadable>(event) != nullptr) { return directUnreadable(c); }
     if (const auto* up = as<event::FrameworkUp>(event)) {
         UsbController n = c;
         n.frameworkId = up->id;

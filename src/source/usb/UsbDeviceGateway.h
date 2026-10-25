@@ -132,9 +132,17 @@ class UsbDeviceGateway {
     // (DualSense/DS4/Switch Pro/8BitDo families).
     virtual bool isKnownFastLaneModel(int vendorId, int productId) const = 0;
 
+    // Whether the claim's read loop is still running. False once the device has
+    // left the bus, which a re-enumerating pad does without ever leaving
+    // enumerate(), and false for an unknown id.
+    virtual bool isClaimAlive(int syntheticId) const = 0;
+
     // The model's current measured completion count (URB/transfer count) for the
     // poll-rate sampler. 0 if unknown / not claimed.
     virtual std::int64_t completionCount(int syntheticId) const = 0;
+
+    // How many of those completions decoded into input. 0 if unknown / not claimed.
+    virtual std::int64_t decodedCount(int syntheticId) const = 0;
 
     // Write one OUT report to a claimed device: rumble, a lightbar colour,
     // player LEDs, trigger effects. `data[0]` is the report id and the buffer is

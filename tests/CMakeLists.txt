@@ -172,12 +172,15 @@ set(DISH_TEST_SOURCES
     test_secret_service_store.cpp
     test_crash_report.cpp
     test_usb_path_resolution.cpp
+    test_usb_claim_health.cpp
+    test_host_built_in_pad.cpp
     test_usb_path_preference_store.cpp
     test_usb_gamepad_manager.cpp
     test_usb_gamepad_manager_feedback.cpp
     test_usb_report_parsers.cpp
     test_usb_output_reports.cpp
     test_usb_hid_layout.cpp
+    test_usb_hid_layout_orders.cpp
     test_usb_twin_dedup.cpp
     test_hid_transport.cpp
     test_catalog_prewarm.cpp

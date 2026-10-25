@@ -441,6 +441,11 @@ struct SlotLiveRates {
 struct ControllerSlot {
     QString id;
     QString name;
+    // 0 when the transport does not report one (Bluetooth through SDL).
+    int vendorId = 0;
+    int productId = 0;
+    // The controls built into the machine Dish runs on (core/reducer/HostBuiltInPad.h).
+    bool hostBuiltIn = false;
     // The bridge's identity for the pad here, empty for a synthetic: what a standing binding
     // follows.
     QString padIdentity;

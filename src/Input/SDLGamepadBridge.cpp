@@ -15,9 +15,11 @@
 #include <QLoggingCategory>
 #include <QMetaObject>
 
+#include <algorithm>
 #include <chrono>
 #include <cstdint>
 #include <utility>
+#include <vector>
 
 namespace dish::input {
 
@@ -106,7 +108,12 @@ QList<SDLGamepadBridge::Device> SDLGamepadBridge::devices() const {
     std::lock_guard<std::mutex> lock(mtx_);
     QList<Device> out;
     out.reserve(static_cast<int>(deviceIds_.size()));
-    for (const auto& [iid, did] : deviceIds_) {
+    std::vector<int> iids;
+    iids.reserve(deviceIds_.size());
+    for (const auto& [iid, did] : deviceIds_) { iids.push_back(iid); }
+    std::sort(iids.begin(), iids.end());
+    for (const int iid : iids) {
+        const QString& did = deviceIds_.at(iid);
         Device dev{did,
                    deviceNames_.at(iid),
                    motionCapable_.count(iid) != 0,
@@ -803,6 +810,7 @@ constexpr std::pair<SDL_GameControllerButton, std::uint16_t> kButtonBits[] = {
     {SDL_CONTROLLER_BUTTON_RIGHTSTICK, GamepadInputProcessor::Buttons::kRightThumb},
     {SDL_CONTROLLER_BUTTON_LEFTSHOULDER, GamepadInputProcessor::Buttons::kLeftShoulder},
     {SDL_CONTROLLER_BUTTON_RIGHTSHOULDER, GamepadInputProcessor::Buttons::kRightShoulder},
+    {SDL_CONTROLLER_BUTTON_GUIDE, GamepadInputProcessor::Buttons::kGuide},
     {SDL_CONTROLLER_BUTTON_A, GamepadInputProcessor::Buttons::kA},
     {SDL_CONTROLLER_BUTTON_B, GamepadInputProcessor::Buttons::kB},
     {SDL_CONTROLLER_BUTTON_X, GamepadInputProcessor::Buttons::kX},

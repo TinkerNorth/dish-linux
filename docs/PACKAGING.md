@@ -119,6 +119,11 @@ sudo udevadm control --reload-rules && sudo udevadm trigger
 The rule grants the logged-in seat through `uaccess`, with an `input`-group
 fallback for headless and non-logind sessions.
 
+SteamOS needs none of this: Valve's own `70-steam-jupiter-input.rules` tags
+every hidraw and USB node `uaccess`, so the AppImage's Direct claims work on a
+Steam Deck with nothing installed. Dish's rule still matters on every other
+distribution.
+
 The same file also opens the Bluetooth hidraw nodes of the Sony, Nintendo and
 8BitDo families. Dish never claims a Bluetooth pad Direct; those lines exist
 for SDL's own HIDAPI driver, which is the only thing that can drive a

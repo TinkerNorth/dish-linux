@@ -17,6 +17,7 @@
 #pragma once
 
 #include "core/input/GamepadButtonLayouts.h"
+#include "core/input/UsbHidLayout.h"
 
 #include <atomic>
 #include <cstddef>
@@ -53,10 +54,7 @@ enum class WirelessEvent : std::uint8_t {
     Disconnect = 2,
 };
 
-enum class ButtonOrder : std::uint8_t {
-    Western = 0,
-    Switch = 1,
-};
+using usbhid::ButtonOrder;
 
 struct KnownHidModel {
     int vid;
@@ -826,13 +824,21 @@ inline bool decodeReport(HidParser parser, const std::uint8_t* buf, std::size_t 
     return false;
 }
 
-// Models the vendor heuristic below cannot place, imported from dish-android's
-// hardware-validated catalog. The PDP wired Switch pads declare their buttons
-// in the Switch usage order (0x0186 Afterglow Wireless is excluded on purpose:
-// its USB port is charge-only and it speaks the Switch Pro protocol, so the
-// wired Switch-order remap would be wrong for it). None of these rows is on the
-// verified fast lane, so nothing here auto-claims.
+// Models the vendor heuristic below cannot place. The PDP wired Switch pads
+// declare their buttons in the Switch usage order (0x0186 Afterglow Wireless is
+// excluded on purpose: its USB port is charge-only and it speaks the Switch Pro
+// protocol, so the wired Switch-order remap would be wrong for it). The 8BitDo
+// D-input identities and the PlayStation Classic controller declare theirs in
+// their own orders (tests/test_usb_hid_layout_orders.cpp carries the
+// descriptors). Only the 8BitDo rows sit on the verified fast lane, by vendor.
 inline constexpr KnownHidModel kKnownModels[] = {
+    {0x054C, 0x0CDA, "PlayStation Classic controller", HidParser::GenericHid,
+     ButtonOrder::PlayStationClassic},
+    {0x2DC8, 0x3100, "8BitDo USB Wireless Adapter (D-input)", HidParser::GenericHid,
+     ButtonOrder::EightBitDo},
+    {0x2DC8, 0x3105, "8BitDo USB Wireless Adapter 2 (D-input)", HidParser::GenericHid,
+     ButtonOrder::EightBitDo},
+    {0x2DC8, 0x5006, "8BitDo M30 (D-input)", HidParser::GenericHid, ButtonOrder::EightBitDo},
     {0x0E6F, 0x0180, "PDP Faceoff Wired Pro Controller (Switch)", HidParser::GenericHid,
      ButtonOrder::Switch},
     {0x0E6F, 0x0181, "PDP Faceoff Deluxe Wired Pro Controller (Switch)", HidParser::GenericHid,
@@ -854,10 +860,15 @@ inline const KnownHidModel* lookupKnownModel(int vendorId, int productId) {
     return nullptr;
 }
 
-// Every non-DualSense Sony pad is assumed to speak the DS4 layout.
+// The Sony families are named by product: the DualShock 4 (v1, v2 and its USB wireless
+// adaptor) and the DualSense (and Edge). Any other Sony product is generic HID, since a layout
+// guessed from the vendor never decodes.
 inline HidParser parserForDevice(int vendorId, int productId) {
     constexpr int kVidSony = 0x054C;
     constexpr int kVidNintendo = 0x057E;
+    constexpr int kPidDualShock4 = 0x05C4;
+    constexpr int kPidDualShock4V2 = 0x09CC;
+    constexpr int kPidDualShock4Adaptor = 0x0BA0;
     constexpr int kPidDualSense = 0x0CE6;
     constexpr int kPidDualSenseEdge = 0x0DF2;
     if (const KnownHidModel* m = lookupKnownModel(vendorId, productId)) { return m->parser; }
@@ -865,7 +876,11 @@ inline HidParser parserForDevice(int vendorId, int productId) {
         if (productId == kPidDualSense || productId == kPidDualSenseEdge) {
             return HidParser::DualSense;
         }
-        return HidParser::DualShock4;
+        if (productId == kPidDualShock4 || productId == kPidDualShock4V2 ||
+            productId == kPidDualShock4Adaptor) {
+            return HidParser::DualShock4;
+        }
+        return HidParser::GenericHid;
     }
     if (vendorId == kVidNintendo) { return HidParser::SwitchProUsb; }
     return HidParser::GenericHid;
@@ -892,6 +907,14 @@ inline bool parserHasImu(HidParser parser) {
 
 inline bool parserHasTouchpad(HidParser parser) {
     return parser == HidParser::DualShock4 || parser == HidParser::DualSense;
+}
+
+// Whether the pad reports whether or not anything moved: the Sony pads and the
+// Switch Pro stream at a fixed rate, a generic HID pad reports on change, and
+// the Steam Controller's cadence is not pinned here, so it counts as on-change.
+inline bool parserStreamsUnprompted(HidParser parser) {
+    return parser == HidParser::DualShock4 || parser == HidParser::DualSense ||
+           parser == HidParser::SwitchProUsb;
 }
 
 // Whether the pad itself carries rumble motors this path could ever drive. The

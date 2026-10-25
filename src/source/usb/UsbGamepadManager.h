@@ -184,6 +184,15 @@ class UsbGamepadManager {
     // its resolved path (not user-initiated). Idempotent.
     void ensureTracked(const UsbDeviceInfo& device);
 
+    // A Direct controller whose read loop has ended while its model still
+    // enumerates: the pad re-enumerated under the same VID:PID, which the
+    // departed-device sweep cannot see.
+    bool claimEnded(int key) const;
+
+    // Judge a Direct claim's read and decode counts once per scan and release
+    // one that reads nothing it can use.
+    void judgeClaim(int key);
+
     // Run the reducer for one event and execute its effects. All FSM mutation
     // funnels through here so events apply in order.
     void applyEvent(int key, const reducer::UsbEvent& event);
@@ -233,6 +242,9 @@ class UsbGamepadManager {
     // Consecutive reconcile() scans a tracked model has been missing from
     // enumerate(). Reset on sighting; the sweep fires at the threshold.
     std::unordered_map<int, int> missedScans_;
+    // Scans a model has been seen Direct on, the claiming scan included; the
+    // health judgement reads it and a claim that ends resets it.
+    std::unordered_map<int, int> directScans_;
 
     // Per-model OUT-direction state, guarded by its own mutex rather than mtx_:
     // feedback arrives on the receive thread and must not contend with the 1 s

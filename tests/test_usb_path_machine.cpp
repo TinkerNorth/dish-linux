@@ -332,6 +332,7 @@ TEST_CASE("reduce is total over every phase and event", "[usb-fsm]") {
                                        ev::ClaimSucceeded{-2000},
                                        ev::ClaimFailed{DirectClaimFailure::Busy, false},
                                        ev::ClaimFailed{DirectClaimFailure::InitFailed, true},
+                                       ev::ClaimUnreadable{},
                                        ev::Timeout{}};
     const std::vector<UsbPhase> phases{UsbPhase::Routed,       UsbPhase::Claiming,
                                        UsbPhase::Direct,       UsbPhase::AwaitingFramework,
@@ -460,5 +461,61 @@ TEST_CASE("claim-fail with a stolen framework still awaits when one is expected"
     REQUIRE(r.next.has_value());
     CHECK(r.next->phase == UsbPhase::AwaitingFramework);
     const std::vector<UsbEffect> expected{fx::StartTimeout{}};
+    CHECK(r.effects == expected);
+}
+
+TEST_CASE("direct + claim unreadable releases and waits for the framework with the reason",
+          "[usb-fsm]") {
+    const auto r = reduce(controller(UsbPhase::Direct, std::nullopt, -1000), ev::ClaimUnreadable{});
+    REQUIRE(r.next.has_value());
+    CHECK(r.next->phase == UsbPhase::AwaitingFramework);
+    CHECK(r.next->syntheticId == -1000);
+    CHECK(r.next->failure == DirectClaimFailure::InitFailed);
+    const std::vector<UsbEffect> expected{fx::Release{}, fx::StartTimeout{}};
+    CHECK(r.effects == expected);
+}
+
+TEST_CASE("claim unreadable outside direct changes nothing", "[usb-fsm]") {
+    const std::vector<UsbPhase> phases{UsbPhase::Routed, UsbPhase::Claiming,
+                                       UsbPhase::AwaitingFramework, UsbPhase::RestoreStuck,
+                                       UsbPhase::NeedsReplug};
+    for (UsbPhase phase : phases) {
+        const auto before = controller(phase, 7, -1000);
+        const auto r = reduce(before, ev::ClaimUnreadable{});
+        REQUIRE(r.next.has_value());
+        CHECK(*r.next == before);
+        CHECK(r.effects.empty());
+    }
+}
+
+TEST_CASE("awaiting from an unreadable claim + framework up settles on standard with the reason",
+          "[usb-fsm]") {
+    const auto r =
+        reduce(controller(UsbPhase::AwaitingFramework, std::nullopt, -1000, true,
+                          PathChoice::Direct, false, std::nullopt, DirectClaimFailure::InitFailed),
+               ev::FrameworkUp{7});
+    REQUIRE(r.next.has_value());
+    CHECK(r.next->phase == UsbPhase::Routed);
+    CHECK(r.next->desired == PathChoice::Standard);
+    CHECK_FALSE(r.next->syntheticId.has_value());
+    const std::vector<UsbEffect> expected{fx::RemoveSynthetic{-1000}, fx::BindFramework{7},
+                                          fx::SetPref{PathChoice::Standard},
+                                          fx::MarkFailure{DirectClaimFailure::InitFailed}};
+    CHECK(r.effects == expected);
+}
+
+TEST_CASE("direct + claim unreadable on a frameworkless model settles straight on standard",
+          "[usb-fsm]") {
+    UsbController c = controller(UsbPhase::Direct, std::nullopt, -1000, true, PathChoice::Direct);
+    c.frameworkExpected = false;
+    const auto r = reduce(c, ev::ClaimUnreadable{});
+    REQUIRE(r.next.has_value());
+    CHECK(r.next->phase == UsbPhase::Routed);
+    CHECK(r.next->desired == PathChoice::Standard);
+    CHECK_FALSE(r.next->syntheticId.has_value());
+    CHECK(r.next->failure == DirectClaimFailure::InitFailed);
+    const std::vector<UsbEffect> expected{fx::Release{}, fx::RemoveSynthetic{-1000},
+                                          fx::SetPref{PathChoice::Standard},
+                                          fx::MarkFailure{DirectClaimFailure::InitFailed}};
     CHECK(r.effects == expected);
 }

@@ -16,6 +16,56 @@ the repos share a version number.
 
 ---
 
+## [Unreleased]
+
+### Added
+
+- **Diagnostics shows each controller's USB ID**, so a report about a pad Dish
+  does not recognise carries the identity needed to add it.
+
+### Fixed
+
+- **A Direct controller that re-enumerates comes back instead of going quiet.**
+  Some pads re-enumerate on USB while they stay plugged in: an 8BitDo pad when
+  its mode is switched, a wireless adapter cycling through identities. The
+  Direct claim died with the old device, and since the pad never left the bus
+  the slot stayed, the satellite kept its virtual pad, and nothing moved. Dish
+  now notices the ended claim within a second and claims the pad again, or
+  settles on Standard with the reason on the card.
+- **A Direct claim that reads nothing it can use falls back to Standard.** A pad
+  whose reports Dish cannot decode, or a Sony or Nintendo pad that sends none,
+  no longer sits in a Direct slot that streams nothing: the claim is released,
+  the system path takes over, and the card says "sent nothing Dish could read".
+  An 8BitDo adapter in its Switch or PS Classic mode did exactly this on a
+  Steam Deck.
+- **8BitDo pads in D-input mode have their buttons in the right places on
+  Direct.** The M30 and both 8BitDo USB wireless adapters declare their buttons
+  in 8BitDo's own order, which Dish read as DirectInput's: Start never arrived,
+  Heart landed on X, Z and C on Back and Start, and L and R clicked the sticks.
+  Z and C are the shoulders now, L and R the triggers, Heart is Guide, and
+  Start is Start.
+- **The PlayStation Classic controller decodes on Direct.** It, and the 8BitDo
+  adapters in their PS Classic mode, were handed the DualShock 4 decoder by a
+  rule that made every other Sony product a DualShock 4, so the two-byte report
+  never decoded. It has its own layout, with the d-pad read as a d-pad.
+- **The Guide button reaches the host from a pad on the Standard path.** It was
+  never forwarded; it arrives as Guide on a satellite and Home on a Moonlight
+  host.
+- **Generic HID pads whose descriptor writes Logical Maximum 255 in one byte
+  decode.** Dish read that byte as -1 and left the axes and triggers dead; it
+  reads it the way Linux does. Axis bounds are scaled in 64 bits as well, so a
+  32-bit axis cannot overflow.
+- **The setup wizard no longer pre-selects a Steam Deck's own controls when
+  another pad is plugged in.** The Deck's built-in controls are named "This
+  Steam Deck's controls", and the controller list keeps one order from one
+  refresh to the next.
+
+### Changed
+
+- **The AppImage's note about the udev rule says SteamOS needs none.** Valve's
+  own rules open every hidraw node, so Direct works on a Steam Deck with
+  nothing installed; the rule still matters on every other distribution.
+
 ## [2.3.0] - 2026-10-20
 
 ### Fixed

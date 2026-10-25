@@ -90,6 +90,12 @@ TEST_CASE("parser capability predicates agree with the families", "[usb-parsers]
     CHECK_FALSE(parserHasTouchpad(HidParser::SwitchProUsb));
     CHECK_FALSE(parserHasTouchpad(HidParser::SteamController));
     CHECK_FALSE(parserHasTouchpad(HidParser::GenericHid));
+    CHECK(parserStreamsUnprompted(HidParser::DualShock4));
+    CHECK(parserStreamsUnprompted(HidParser::DualSense));
+    CHECK(parserStreamsUnprompted(HidParser::SwitchProUsb));
+    CHECK_FALSE(parserStreamsUnprompted(HidParser::SteamController));
+    CHECK_FALSE(parserStreamsUnprompted(HidParser::GenericHid));
+    CHECK_FALSE(parserStreamsUnprompted(HidParser::None));
 }
 
 TEST_CASE("DualShock4 decodes Cross to XUSB A and centers neutral sticks", "[usb-parsers][ds4]") {

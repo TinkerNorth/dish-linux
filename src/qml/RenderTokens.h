@@ -128,6 +128,14 @@ inline QString desiredPathToken(reducer::PathChoice choice) {
     return {};
 }
 
+// "vvvv:pppp" for a pad whose transport reported its USB identity, empty otherwise.
+inline QString usbIdToken(int vendorId, int productId) {
+    if (vendorId == 0 && productId == 0) { return {}; }
+    return QStringLiteral("%1:%2")
+        .arg(vendorId, 4, 16, QLatin1Char('0'))
+        .arg(productId, 4, 16, QLatin1Char('0'));
+}
+
 // Why a Direct claim did not complete. The slot card and the diagnostics log
 // name the same failures, so they read the one switch.
 inline QString directFailureToken(reducer::DirectClaimFailure f) {

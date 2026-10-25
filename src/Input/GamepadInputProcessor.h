@@ -30,6 +30,7 @@ class GamepadInputProcessor {
         static constexpr std::uint16_t kRightThumb = 0x0080;
         static constexpr std::uint16_t kLeftShoulder = 0x0100;
         static constexpr std::uint16_t kRightShoulder = 0x0200;
+        static constexpr std::uint16_t kGuide = 0x0400;
         static constexpr std::uint16_t kA = 0x1000;
         static constexpr std::uint16_t kB = 0x2000;
         static constexpr std::uint16_t kX = 0x4000;

@@ -428,12 +428,10 @@ ClaimResult HidrawGateway::claim(const UsbDeviceInfo& device,
         // wherever the collection declares real usages; the guess stays as the
         // fallback for a descriptor we cannot parse.
         input::usbhid::parseReportDescriptor(descriptor.data(), descriptor.size(), claimed->layout);
-        // From the model catalog, not the descriptor: the PDP Switch pads
-        // declare their buttons in Switch usage order, and the parse above just
-        // reset this to false.
-        claimed->layout.switchOrderButtons =
-            input::usbparse::buttonOrderForDevice(device.vendorId, device.productId) ==
-            input::usbparse::ButtonOrder::Switch;
+        // From the model catalog, not the descriptor, which the parse above just
+        // reset to the western order.
+        claimed->layout.order =
+            input::usbparse::buttonOrderForDevice(device.vendorId, device.productId);
     }
     claimed->running.store(true);
     Claimed* raw = claimed.get();
@@ -497,10 +495,12 @@ void HidrawGateway::readLoop(Claimed* c) {
         // than published as noise.
         input::usbparse::ParsedReport parsed{};
         if (!decodeOneReport(c, data, len, parsed)) { continue; }
+        c->decoded.fetch_add(1);
         if (c->onReport) {
             c->onReport(toUsbReport(parsed, c->micMute.muted.load(std::memory_order_relaxed)));
         }
     }
+    c->alive.store(false);
 }
 
 void HidrawGateway::releaseClaim(int syntheticId) {
@@ -527,11 +527,25 @@ void HidrawGateway::releaseClaim(int syntheticId) {
     }
 }
 
+bool HidrawGateway::isClaimAlive(int syntheticId) const {
+    std::lock_guard<std::mutex> lock(mtx_);
+    const auto it = claimed_.find(syntheticId);
+    if (it == claimed_.end()) { return false; }
+    return it->second->alive.load();
+}
+
 std::int64_t HidrawGateway::completionCount(int syntheticId) const {
     std::lock_guard<std::mutex> lock(mtx_);
     const auto it = claimed_.find(syntheticId);
     if (it == claimed_.end()) { return 0; }
     return it->second->completions.load();
+}
+
+std::int64_t HidrawGateway::decodedCount(int syntheticId) const {
+    std::lock_guard<std::mutex> lock(mtx_);
+    const auto it = claimed_.find(syntheticId);
+    if (it == claimed_.end()) { return 0; }
+    return it->second->decoded.load();
 }
 
 bool HidrawGateway::setPadMicMuted(int syntheticId, bool muted) {

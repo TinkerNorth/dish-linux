@@ -1143,6 +1143,10 @@
         <translation>El control en Directo está ocupado — otra app o controlador retiene el dispositivo.</translation>
     </message>
     <message>
+        <source>Direct read nothing it could use from the controller, so it stays on Standard.</source>
+        <translation>Directo no leyó nada útil del mando, así que se queda en Estándar.</translation>
+    </message>
+    <message>
         <source>The device dropped during the claim — a replug is needed.</source>
         <translation>El dispositivo se desconectó durante la toma de control — hay que volver a conectarlo.</translation>
     </message>
@@ -1219,10 +1223,6 @@
     <message>
         <source>Standard mode isn’t responding — switch to Direct, retry, or replug.</source>
         <translation>El Modo estándar no responde — cambia a Directo, reintenta o vuelve a conectarlo.</translation>
-    </message>
-    <message>
-        <source>Direct claim couldn’t start the controller’s report stream.</source>
-        <translation>El control en Directo no pudo iniciar el flujo de informes del mando.</translation>
     </message>
     <message>
         <source>Direct access denied — hidraw needs a udev rule. Install packaging/udev/70-dish-hidraw.rules, run udevadm control --reload-rules &amp;&amp; udevadm trigger, then replug the controller.</source>
@@ -1672,8 +1672,8 @@
         <translation>en uso por otra app</translation>
     </message>
     <message>
-        <source>sent no reports</source>
-        <translation>no envió informes</translation>
+        <source>sent nothing Dish could read</source>
+        <translation>no envió nada que Dish pudiera leer</translation>
     </message>
     <message>
         <source>dropped during the claim</source>
@@ -1758,6 +1758,10 @@
     <message>
         <source>Input rate</source>
         <translation>Frecuencia de entrada</translation>
+    </message>
+    <message>
+        <source>USB ID</source>
+        <translation>ID USB</translation>
     </message>
     <message>
         <source>Battery</source>
@@ -5118,6 +5122,10 @@
     <message>
         <source>Couldn’t return %1 to Standard mode.</source>
         <translation>No se pudo devolver %1 al Modo estándar.</translation>
+    </message>
+    <message>
+        <source>This Steam Deck&apos;s controls</source>
+        <translation>Los controles de esta Steam Deck</translation>
     </message>
     <message>
         <source>Controller disconnected — its binding was removed.</source>

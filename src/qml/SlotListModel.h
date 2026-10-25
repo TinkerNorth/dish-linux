@@ -81,6 +81,7 @@ class SlotListModel : public QAbstractListModel {
         HasTouchpadRole,
         HasRumbleRole,
         VerifiedModelRole,
+        UsbIdRole,
 
         // Controller audio: whether the slot's descriptor claims a mic (the
         // mute control's visibility) and the LOCAL mute truth.

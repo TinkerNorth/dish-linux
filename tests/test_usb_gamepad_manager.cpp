@@ -12,13 +12,17 @@
 
 #include "Input/GamepadInputProcessor.h"
 
+#include "core/reducer/UsbClaimHealth.h"
+
 #include "QSettingsFixture.h"
 
 #include <catch2/catch_test_macros.hpp>
 
 #include <functional>
 #include <memory>
+#include <cstdint>
 #include <optional>
+#include <set>
 #include <vector>
 
 using namespace dish::source::usb;
@@ -51,6 +55,11 @@ class FakeGateway : public UsbDeviceGateway {
     int claimCalls = 0;
     int nextSyntheticId = -1000;
     std::vector<int> released;
+    // A released claim is dead the way the real gateway's is; a test kills a live one by adding
+    // its id here.
+    std::set<int> deadClaims;
+    std::int64_t completions = 0;
+    std::int64_t decoded = 0;
     // Every OUT report the manager handed down, in order, with the id it was
     // aimed at. The feedback tests assert on these bytes.
     struct Written {
@@ -67,11 +76,16 @@ class FakeGateway : public UsbDeviceGateway {
         if (nextClaim.has_value()) { return *nextClaim; }
         return ClaimResult::fail(DirectClaimFailure::Busy, /*frameworkStolen=*/false);
     }
-    void releaseClaim(int syntheticId) override { released.push_back(syntheticId); }
+    void releaseClaim(int syntheticId) override {
+        released.push_back(syntheticId);
+        deadClaims.insert(syntheticId);
+    }
     bool isKnownFastLaneModel(int /*vendorId*/, int /*productId*/) const override {
         return fastLane;
     }
-    std::int64_t completionCount(int /*syntheticId*/) const override { return 0; }
+    bool isClaimAlive(int syntheticId) const override { return deadClaims.count(syntheticId) == 0; }
+    std::int64_t completionCount(int /*syntheticId*/) const override { return completions; }
+    std::int64_t decodedCount(int /*syntheticId*/) const override { return decoded; }
     bool writeOutputReport(int syntheticId, const std::uint8_t* data, std::size_t len) override {
         writes.push_back(Written{syntheticId, std::vector<std::uint8_t>(data, data + len)});
         return writeSucceeds;
@@ -375,6 +389,190 @@ TEST_CASE("a replug after the sweep re-tracks fresh and re-evaluates auto-Direct
 
 namespace {
 
+constexpr int kVidSony = 0x054C, kPidDualShock4 = 0x09CC;
+
+UsbDeviceInfo streamingPadDevice() {
+    UsbDeviceInfo d = padDevice();
+    d.vendorId = kVidSony;
+    d.productId = kPidDualShock4;
+    return d;
+}
+
+struct DirectHarness {
+    FakeGateway gw;
+    UsbPathPreferenceRepository repo{makeSharedSettings()};
+    UsbPathPreferenceStore prefs{&repo};
+    RecordingObserver obs;
+    UsbGamepadManager m{&gw, nullptr, &prefs, &obs};
+
+    // A verified pad claimed Direct by the first scan, the way production gets there.
+    explicit DirectHarness(const UsbDeviceInfo& device = padDevice()) {
+        gw.devices = {device};
+        gw.fastLane = true;
+        gw.nextClaim = ClaimResult::success(-1000);
+        m.reconcile();
+        REQUIRE(gw.claimCalls == 1);
+        REQUIRE(phase() == UsbPhase::Direct);
+    }
+
+    UsbPhase phase() const {
+        const auto c = m.controllerFor(gw.devices.front().vendorId, gw.devices.front().productId);
+        REQUIRE(c.has_value());
+        return c->phase;
+    }
+};
+
+} // namespace
+
+TEST_CASE("a Direct pad whose reader died is re-claimed on the next scan while it stays present",
+          "[usb-manager][liveness]") {
+    // A pad that re-enumerates (an 8BitDo mode switch, a dongle resetting) keeps its VID:PID,
+    // so the departed-device sweep never fires; the only sign is the reader that ended.
+    DirectHarness h;
+    h.gw.deadClaims.insert(-1000);
+    h.gw.nextClaim = ClaimResult::success(-1001);
+
+    h.m.reconcile();
+
+    CHECK(h.gw.claimCalls == 2);
+    CHECK(h.gw.released == std::vector<int>{-1000});
+    CHECK(h.obs.syntheticsRemoved == std::vector<int>{-1000});
+    CHECK(h.obs.syntheticsAdded == std::vector<int>{-1000, -1001});
+    const auto c = h.m.controllerFor(kVid, kPid);
+    REQUIRE(c.has_value());
+    CHECK(c->phase == UsbPhase::Direct);
+    CHECK(c->syntheticId == -1001);
+}
+
+TEST_CASE("a dead claim whose re-claim fails settles on Standard with the reason",
+          "[usb-manager][liveness]") {
+    DirectHarness h;
+    h.gw.deadClaims.insert(-1000);
+    h.gw.nextClaim = ClaimResult::fail(DirectClaimFailure::Busy, /*frameworkStolen=*/false);
+
+    h.m.reconcile();
+
+    CHECK(h.gw.released == std::vector<int>{-1000});
+    const auto c = h.m.controllerFor(kVid, kPid);
+    REQUIRE(c.has_value());
+    CHECK(c->phase == UsbPhase::Routed);
+    CHECK(c->failure == DirectClaimFailure::Busy);
+}
+
+TEST_CASE("a live claim is left alone by the scan", "[usb-manager][liveness]") {
+    DirectHarness h;
+
+    h.m.reconcile();
+    h.m.reconcile();
+
+    CHECK(h.gw.claimCalls == 1);
+    CHECK(h.gw.released.empty());
+    CHECK(h.phase() == UsbPhase::Direct);
+}
+
+TEST_CASE("a dead claim on a departed device is swept, not re-claimed", "[usb-manager][liveness]") {
+    DirectHarness h;
+    h.gw.deadClaims.insert(-1000);
+    h.gw.devices.clear();
+
+    h.m.reconcile();
+    h.m.reconcile();
+
+    CHECK(h.gw.claimCalls == 1);
+    CHECK_FALSE(h.m.controllerFor(kVid, kPid).has_value());
+    CHECK(h.gw.released == std::vector<int>{-1000});
+}
+
+TEST_CASE("a placeholder held after a Standard pick is not a dead claim",
+          "[usb-manager][liveness]") {
+    DirectHarness h;
+    h.m.setPathChoice(kVid, kPid, PathChoice::Standard);
+    REQUIRE(h.phase() == UsbPhase::AwaitingFramework);
+    REQUIRE(h.gw.deadClaims.count(-1000) == 1);
+
+    h.m.reconcile();
+
+    CHECK(h.gw.claimCalls == 1);
+    CHECK(h.phase() == UsbPhase::AwaitingFramework);
+}
+
+TEST_CASE("reports that never decode release the claim and settle on Standard as InitFailed",
+          "[usb-manager][health]") {
+    DirectHarness h;
+    h.gw.completions = 50;
+    h.gw.decoded = 0;
+
+    h.m.reconcile();
+
+    CHECK(h.gw.released == std::vector<int>{-1000});
+    {
+        const auto c = h.m.controllerFor(kVid, kPid);
+        REQUIRE(c.has_value());
+        CHECK(c->phase == UsbPhase::AwaitingFramework);
+        CHECK(c->failure == DirectClaimFailure::InitFailed);
+    }
+    h.m.onFrameworkUp(kVid, kPid, 7);
+    const auto c = h.m.controllerFor(kVid, kPid);
+    REQUIRE(c.has_value());
+    CHECK(c->phase == UsbPhase::Routed);
+    CHECK(h.prefs.choiceFor(kVid, kPid) == PathChoice::Standard);
+    CHECK(sawFailure(h.obs, DirectClaimFailure::InitFailed));
+    CHECK(h.obs.syntheticsRemoved == std::vector<int>{-1000});
+}
+
+TEST_CASE("a decoding claim stays Direct however many scans pass", "[usb-manager][health]") {
+    DirectHarness h;
+    h.gw.completions = 500;
+    h.gw.decoded = 500;
+
+    for (int i = 0; i < 5; i++) { h.m.reconcile(); }
+
+    CHECK(h.gw.released.empty());
+    CHECK(h.phase() == UsbPhase::Direct);
+}
+
+TEST_CASE("a silent pad of a family that streams unprompted falls back after the silent scans",
+          "[usb-manager][health]") {
+    // The claiming scan is the first silent scan.
+    DirectHarness h(streamingPadDevice());
+
+    for (int i = 2; i < dish::reducer::kSilentScansBeforeUnreadable; i++) {
+        h.m.reconcile();
+        REQUIRE(h.phase() == UsbPhase::Direct);
+    }
+    h.m.reconcile();
+
+    const auto c = h.m.controllerFor(kVidSony, kPidDualShock4);
+    REQUIRE(c.has_value());
+    CHECK(c->phase == UsbPhase::AwaitingFramework);
+    CHECK(c->failure == DirectClaimFailure::InitFailed);
+    CHECK(h.gw.released == std::vector<int>{-1000});
+}
+
+TEST_CASE("a silent pad of a family that reports on change stays Direct", "[usb-manager][health]") {
+    DirectHarness h;
+
+    for (int i = 0; i < dish::reducer::kSilentScansBeforeUnreadable + 2; i++) { h.m.reconcile(); }
+
+    CHECK(h.gw.released.empty());
+    CHECK(h.phase() == UsbPhase::Direct);
+}
+
+TEST_CASE("a re-claimed pad starts its silent count afresh", "[usb-manager][health]") {
+    DirectHarness h(streamingPadDevice());
+    for (int i = 2; i < dish::reducer::kSilentScansBeforeUnreadable; i++) { h.m.reconcile(); }
+    h.gw.deadClaims.insert(-1000);
+    h.gw.nextClaim = ClaimResult::success(-1001);
+    h.m.reconcile();
+    REQUIRE(h.phase() == UsbPhase::Direct);
+
+    h.m.reconcile();
+
+    CHECK(h.phase() == UsbPhase::Direct);
+}
+
+namespace {
+
 // Drives one decoded report through the onReport callback on claim, so the
 // manager's publish path can be asserted with no real HID IO.
 class ReportingGateway : public UsbDeviceGateway {
@@ -390,7 +588,9 @@ class ReportingGateway : public UsbDeviceGateway {
     }
     void releaseClaim(int /*syntheticId*/) override {}
     bool isKnownFastLaneModel(int /*v*/, int /*p*/) const override { return false; }
+    bool isClaimAlive(int /*syntheticId*/) const override { return true; }
     std::int64_t completionCount(int /*syntheticId*/) const override { return 0; }
+    std::int64_t decodedCount(int /*syntheticId*/) const override { return 0; }
     bool writeOutputReport(int /*syntheticId*/, const std::uint8_t* /*data*/,
                            std::size_t /*len*/) override {
         return false;

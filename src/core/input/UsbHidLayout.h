@@ -14,10 +14,20 @@
 
 #include "core/input/GamepadButtonLayouts.h"
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 
 namespace dish::input::usbhid {
+
+// The order a pad declares its buttons in. Western is DirectInput's A B X Y LB RB Back Start L3 R3
+// Guide; the others are what the named families actually send, and each has a mapper below.
+enum class ButtonOrder : std::uint8_t {
+    Western = 0,
+    Switch = 1,
+    EightBitDo = 2,
+    PlayStationClassic = 3,
+};
 
 struct HidAxis {
     bool present = false;
@@ -42,7 +52,7 @@ struct HidLayout {
     std::uint8_t buttonCount = 0;
     // Set by the attach path from the model catalog, after parseReportDescriptor
     // resets the struct; never derived from the descriptor itself.
-    bool switchOrderButtons = false;
+    ButtonOrder order = ButtonOrder::Western;
 };
 
 inline constexpr std::size_t kMaxUsages = 16;
@@ -75,12 +85,15 @@ inline std::int32_t toSigned(std::uint32_t raw, std::uint8_t bits, std::int32_t 
     return static_cast<std::int32_t>(raw);
 }
 
+// The bounds are the device's own 32-bit words, so their differences are taken in 64 bits.
 inline std::int16_t scaleAxis16(std::uint32_t raw, const HidAxis& a, bool invert) {
-    const std::int32_t v = toSigned(raw, a.bitSize, a.logicalMin);
-    const std::int32_t center = (a.logicalMin + a.logicalMax) / 2;
-    const std::int32_t half = (a.logicalMax - a.logicalMin) / 2;
+    const std::int64_t v = toSigned(raw, a.bitSize, a.logicalMin);
+    const std::int64_t lo = a.logicalMin;
+    const std::int64_t hi = a.logicalMax;
+    const std::int64_t center = (lo + hi) / 2;
+    const std::int64_t half = (hi - lo) / 2;
     if (half <= 0) { return 0; }
-    auto scaled = static_cast<std::int32_t>(static_cast<std::int64_t>(v - center) * 32767 / half);
+    std::int64_t scaled = (v - center) * 32767 / half;
     if (invert) { scaled = -scaled; }
     if (scaled > 32767) { scaled = 32767; }
     if (scaled < -32768) { scaled = -32768; }
@@ -88,80 +101,104 @@ inline std::int16_t scaleAxis16(std::uint32_t raw, const HidAxis& a, bool invert
 }
 
 inline std::uint8_t scaleTrig8(std::uint32_t raw, const HidAxis& a) {
-    const std::int32_t v = toSigned(raw, a.bitSize, a.logicalMin);
-    const std::int32_t span = a.logicalMax - a.logicalMin;
+    const std::int64_t v = toSigned(raw, a.bitSize, a.logicalMin);
+    const std::int64_t lo = a.logicalMin;
+    const std::int64_t span = static_cast<std::int64_t>(a.logicalMax) - lo;
     if (span <= 0) { return 0; }
-    auto scaled =
-        static_cast<std::int32_t>(static_cast<std::int64_t>(v - a.logicalMin) * 255 / span);
+    std::int64_t scaled = (v - lo) * 255 / span;
     if (scaled < 0) { scaled = 0; }
     if (scaled > 255) { scaled = 255; }
     return static_cast<std::uint8_t>(scaled);
 }
 
-// Button 1 = A through button 11 = Guide, the convention the fixed-offset
-// fallback and the other clients also use.
-inline std::uint16_t layoutButtonBit(std::uint8_t idx) {
-    switch (idx) {
-    case 0:
-        return static_cast<std::uint16_t>(layout::kXusbA);
-    case 1:
-        return static_cast<std::uint16_t>(layout::kXusbB);
-    case 2:
-        return static_cast<std::uint16_t>(layout::kXusbX);
-    case 3:
-        return static_cast<std::uint16_t>(layout::kXusbY);
-    case 4:
-        return static_cast<std::uint16_t>(layout::kXusbLeftShoulder);
-    case 5:
-        return static_cast<std::uint16_t>(layout::kXusbRightShoulder);
-    case 6:
-        return static_cast<std::uint16_t>(layout::kXusbBack);
-    case 7:
-        return static_cast<std::uint16_t>(layout::kXusbStart);
-    case 8:
-        return static_cast<std::uint16_t>(layout::kXusbLeftThumb);
-    case 9:
-        return static_cast<std::uint16_t>(layout::kXusbRightThumb);
-    case 10:
-        return static_cast<std::uint16_t>(layout::kXusbGuide);
-    default:
-        return 0;
-    }
+// A three-state axis is a direction pad the device declared as an axis.
+inline bool axisIsDirection(const HidAxis& a) {
+    return a.present && static_cast<std::int64_t>(a.logicalMax) - a.logicalMin == 2;
 }
 
-// Switch-order HID pads declare buttons in usage row Y B A X L R ZL ZR Minus
-// Plus L3 R3 Home Capture; remap by position to match decodeSwitchProUsb. ZL/ZR
-// (indices 6/7) fold into the triggers in decodeFromLayout instead of mapping
-// here.
-inline std::uint16_t switchOrderButtonBit(std::uint8_t idx) {
-    switch (idx) {
-    case 0:
-        return static_cast<std::uint16_t>(layout::kXusbX);
-    case 1:
-        return static_cast<std::uint16_t>(layout::kXusbA);
-    case 2:
-        return static_cast<std::uint16_t>(layout::kXusbB);
-    case 3:
-        return static_cast<std::uint16_t>(layout::kXusbY);
-    case 4:
-        return static_cast<std::uint16_t>(layout::kXusbLeftShoulder);
-    case 5:
-        return static_cast<std::uint16_t>(layout::kXusbRightShoulder);
-    case 8:
-        return static_cast<std::uint16_t>(layout::kXusbBack);
-    case 9:
-        return static_cast<std::uint16_t>(layout::kXusbStart);
-    case 10:
-        return static_cast<std::uint16_t>(layout::kXusbLeftThumb);
-    case 11:
-        return static_cast<std::uint16_t>(layout::kXusbRightThumb);
-    case 12:
-        return static_cast<std::uint16_t>(layout::kXusbGuide);
-    default:
-        return 0;
-    }
+inline std::uint16_t directionBits(std::uint32_t raw, const HidAxis& a, std::uint16_t lowBit,
+                                   std::uint16_t highBit) {
+    const std::int64_t step =
+        static_cast<std::int64_t>(toSigned(raw, a.bitSize, a.logicalMin)) - a.logicalMin;
+    if (step == 0) { return lowBit; }
+    if (step == 2) { return highBit; }
+    return 0;
 }
 
+namespace detail {
+constexpr std::uint16_t bit(int xusb) { return static_cast<std::uint16_t>(xusb); }
+} // namespace detail
+
+inline constexpr int kNoDigitalTrigger = -1;
+
+// One wire bit per declared button index, 0 where the wire has no bit for it. A button that
+// drives a trigger is named apart, since a trigger is a level and not a bit.
+struct ButtonOrderMap {
+    std::array<std::uint16_t, kMaxButtons> bits{};
+    int leftTriggerIndex = kNoDigitalTrigger;
+    int rightTriggerIndex = kNoDigitalTrigger;
+};
+
+// DirectInput's order: A B X Y LB RB Back Start L3 R3 Guide.
+inline constexpr ButtonOrderMap kWesternOrder{
+    {{detail::bit(layout::kXusbA), detail::bit(layout::kXusbB), detail::bit(layout::kXusbX),
+      detail::bit(layout::kXusbY), detail::bit(layout::kXusbLeftShoulder),
+      detail::bit(layout::kXusbRightShoulder), detail::bit(layout::kXusbBack),
+      detail::bit(layout::kXusbStart), detail::bit(layout::kXusbLeftThumb),
+      detail::bit(layout::kXusbRightThumb), detail::bit(layout::kXusbGuide)}},
+    kNoDigitalTrigger,
+    kNoDigitalTrigger,
+};
+
+// Switch-order HID pads: Y B A X L R ZL ZR Minus Plus L3 R3 Home Capture, remapped by position
+// to match decodeSwitchProUsb, with ZL and ZR as the triggers.
+inline constexpr ButtonOrderMap kSwitchOrder{
+    {{detail::bit(layout::kXusbX), detail::bit(layout::kXusbA), detail::bit(layout::kXusbB),
+      detail::bit(layout::kXusbY), detail::bit(layout::kXusbLeftShoulder),
+      detail::bit(layout::kXusbRightShoulder), 0, 0, detail::bit(layout::kXusbBack),
+      detail::bit(layout::kXusbStart), detail::bit(layout::kXusbLeftThumb),
+      detail::bit(layout::kXusbRightThumb), detail::bit(layout::kXusbGuide)}},
+    6,
+    7,
+};
+
+// 8BitDo's D-input order: A B Heart X Y (unused) Z C L R Select Start Heart L3 R3, with Z and C
+// as the shoulders, L and R as the triggers, and Heart at 3 or 13 by firmware.
+inline constexpr ButtonOrderMap kEightBitDoOrder{
+    {{detail::bit(layout::kXusbA), detail::bit(layout::kXusbB), detail::bit(layout::kXusbGuide),
+      detail::bit(layout::kXusbX), detail::bit(layout::kXusbY), 0,
+      detail::bit(layout::kXusbLeftShoulder), detail::bit(layout::kXusbRightShoulder), 0, 0,
+      detail::bit(layout::kXusbBack), detail::bit(layout::kXusbStart),
+      detail::bit(layout::kXusbGuide), detail::bit(layout::kXusbLeftThumb),
+      detail::bit(layout::kXusbRightThumb)}},
+    8,
+    9,
+};
+
+// The PlayStation Classic controller: Triangle Circle Cross Square L2 R2 L1 R1 Select Start, by
+// position, with L2 and R2 as the triggers.
+inline constexpr ButtonOrderMap kPlayStationClassicOrder{
+    {{detail::bit(layout::kXusbY), detail::bit(layout::kXusbB), detail::bit(layout::kXusbA),
+      detail::bit(layout::kXusbX), 0, 0, detail::bit(layout::kXusbLeftShoulder),
+      detail::bit(layout::kXusbRightShoulder), detail::bit(layout::kXusbBack),
+      detail::bit(layout::kXusbStart)}},
+    4,
+    5,
+};
+
+inline const ButtonOrderMap& buttonOrderMap(ButtonOrder order) {
+    switch (order) {
+    case ButtonOrder::Switch:
+        return kSwitchOrder;
+    case ButtonOrder::EightBitDo:
+        return kEightBitDoOrder;
+    case ButtonOrder::PlayStationClassic:
+        return kPlayStationClassicOrder;
+    case ButtonOrder::Western:
+        break;
+    }
+    return kWesternOrder;
+}
 inline std::uint16_t dpadBitsForDir(int dir) {
     switch (dir) {
     case 0:
@@ -313,7 +350,8 @@ inline HidItem readHidItem(const std::uint8_t* desc, std::size_t len, std::size_
 }
 
 // A report id resets the bit cursor: offsets are relative to the payload of the report they are
-// in, not to the descriptor.
+// in, not to the descriptor. The maximum is read the way Linux hid-core reads it: signed only
+// when the minimum before it is negative, so a one-byte 0xFF over a minimum of 0 is 255.
 inline void applyGlobalItem(const HidItem& item, HidParseState& st) {
     switch (item.tag) {
     case 0x0:
@@ -323,7 +361,8 @@ inline void applyGlobalItem(const HidItem& item, HidParseState& st) {
         st.logMin = signExtend(item.data, item.dataLen);
         break;
     case 0x2:
-        st.logMax = signExtend(item.data, item.dataLen);
+        st.logMax = st.logMin < 0 ? signExtend(item.data, item.dataLen)
+                                  : static_cast<std::int32_t>(item.data);
         break;
     case 0x7:
         st.reportSize = item.data;
@@ -463,10 +502,21 @@ inline bool decodeFromLayout(const std::uint8_t* buf, std::size_t len, StateT& s
     const std::uint8_t* d = buf + dataStart;
     const std::size_t dlen = len - dataStart;
 
-    if (L.lx.present) {
+    std::uint16_t b = 0;
+    if (axisIsDirection(L.lx)) {
+        b = static_cast<std::uint16_t>(
+            b | directionBits(extractBits(d, dlen, L.lx.bitOffset, L.lx.bitSize), L.lx,
+                              static_cast<std::uint16_t>(layout::kXusbDpadLeft),
+                              static_cast<std::uint16_t>(layout::kXusbDpadRight)));
+    } else if (L.lx.present) {
         s.lx = scaleAxis16(extractBits(d, dlen, L.lx.bitOffset, L.lx.bitSize), L.lx, false);
     }
-    if (L.ly.present) {
+    if (axisIsDirection(L.ly)) {
+        b = static_cast<std::uint16_t>(
+            b | directionBits(extractBits(d, dlen, L.ly.bitOffset, L.ly.bitSize), L.ly,
+                              static_cast<std::uint16_t>(layout::kXusbDpadUp),
+                              static_cast<std::uint16_t>(layout::kXusbDpadDown)));
+    } else if (L.ly.present) {
         s.ly = scaleAxis16(extractBits(d, dlen, L.ly.bitOffset, L.ly.bitSize), L.ly, true);
     }
     if (L.rx.present) {
@@ -482,7 +532,6 @@ inline bool decodeFromLayout(const std::uint8_t* buf, std::size_t len, StateT& s
         s.rt = scaleTrig8(extractBits(d, dlen, L.rt.bitOffset, L.rt.bitSize), L.rt);
     }
 
-    std::uint16_t b = 0;
     if (L.hasHat) {
         const std::uint32_t raw = extractBits(d, dlen, L.hatBitOffset, L.hatBitSize);
         const int dir = static_cast<int>(raw) - static_cast<int>(L.hatLogicalMin);
@@ -491,29 +540,26 @@ inline bool decodeFromLayout(const std::uint8_t* buf, std::size_t len, StateT& s
             b = static_cast<std::uint16_t>(b | dpadBitsForDir(dir));
         }
     }
-    if (L.switchOrderButtons) {
-        bool zl = false;
-        bool zr = false;
-        for (std::uint8_t i = 0; i < L.buttonCount; i++) {
-            if (!extractBits(d, dlen, static_cast<std::uint32_t>(L.buttonBitOffset) + i, 1)) {
-                continue;
-            }
-            if (i == 6) {
-                zl = true;
-            } else if (i == 7) {
-                zr = true;
-            } else {
-                b = static_cast<std::uint16_t>(b | switchOrderButtonBit(i));
-            }
+    const ButtonOrderMap& order = buttonOrderMap(L.order);
+    bool leftTrigger = false;
+    bool rightTrigger = false;
+    for (std::uint8_t i = 0; i < L.buttonCount; i++) {
+        if (!extractBits(d, dlen, static_cast<std::uint32_t>(L.buttonBitOffset) + i, 1)) {
+            continue;
         }
-        s.lt = zl ? 255 : 0;
-        s.rt = zr ? 255 : 0;
-    } else {
-        for (std::uint8_t i = 0; i < L.buttonCount; i++) {
-            if (extractBits(d, dlen, static_cast<std::uint32_t>(L.buttonBitOffset) + i, 1)) {
-                b = static_cast<std::uint16_t>(b | layoutButtonBit(i));
-            }
+        if (i == order.leftTriggerIndex) {
+            leftTrigger = true;
+        } else if (i == order.rightTriggerIndex) {
+            rightTrigger = true;
+        } else {
+            b = static_cast<std::uint16_t>(b | order.bits[i]);
         }
+    }
+    // A digital trigger is the whole truth about that trigger: an analog usage beside it only
+    // echoes the same button.
+    if (order.leftTriggerIndex != kNoDigitalTrigger) {
+        s.lt = leftTrigger ? 255 : 0;
+        s.rt = rightTrigger ? 255 : 0;
     }
     s.wButtons = b;
     return true;

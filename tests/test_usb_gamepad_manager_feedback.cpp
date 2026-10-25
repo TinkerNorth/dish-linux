@@ -76,7 +76,9 @@ class RecordingGateway : public UsbDeviceGateway {
     }
     void releaseClaim(int syntheticId) override { released.push_back(syntheticId); }
     bool isKnownFastLaneModel(int /*v*/, int /*p*/) const override { return true; }
+    bool isClaimAlive(int /*syntheticId*/) const override { return true; }
     std::int64_t completionCount(int /*syntheticId*/) const override { return 0; }
+    std::int64_t decodedCount(int /*syntheticId*/) const override { return 0; }
     bool writeOutputReport(int syntheticId, const std::uint8_t* data, std::size_t len) override {
         writes.push_back(Written{syntheticId, std::vector<std::uint8_t>(data, data + len)});
         return writeSucceeds;

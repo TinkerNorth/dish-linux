@@ -30,6 +30,7 @@
 #include "core/reducer/CarriedPads.h"
 #include "core/reducer/ConnectionRows.h"
 #include "core/reducer/FoundVisibility.h"
+#include "core/reducer/HostBuiltInPad.h"
 #include "core/reducer/PathChoice.h"
 #include "core/reducer/PickerVisibility.h"
 #include "core/reducer/SlotPathFields.h"
@@ -62,6 +63,7 @@
 #include <chrono>
 #include <map>
 #include <optional>
+#include <vector>
 
 #include "source/system/BluetoothRadioProbe.h"
 
@@ -533,8 +535,21 @@ int AppViewModel::streamingSlotCountFor(const MainUiState& st) {
     return composer::streamingSlotCount(bindings, links);
 }
 
+namespace {
+
+QString defaultPadSlotIdFor(const QList<models::ControllerSlot>& slotList) {
+    std::vector<bool> hostBuiltIn;
+    hostBuiltIn.reserve(static_cast<std::size_t>(slotList.size()));
+    for (const auto& s : slotList) { hostBuiltIn.push_back(s.hostBuiltIn); }
+    const int index = reducer::defaultPadIndex(hostBuiltIn);
+    return index < 0 ? QString() : slotList[index].id;
+}
+
+} // namespace
+
 void AppViewModel::publishSlotCounts(const MainUiState& st) {
     slotCount_ = static_cast<int>(st.slotList.size());
+    defaultPadSlotId_ = defaultPadSlotIdFor(st.slotList);
     int bound = 0;
     for (const auto& s : st.slotList) {
         if (s.boundConnectionId.has_value()) { ++bound; }
