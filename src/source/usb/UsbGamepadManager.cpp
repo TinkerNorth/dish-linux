@@ -234,12 +234,15 @@ void UsbGamepadManager::judgeClaim(int key) {
     {
         std::lock_guard<std::mutex> lock(mtx_);
         const auto it = controllers_.find(key);
-        if (it == controllers_.end() || it->second.phase != reducer::UsbPhase::Direct ||
-            !it->second.syntheticId.has_value()) {
+        if (it == controllers_.end()) {
             directScans_.erase(key);
             return;
         }
         const reducer::UsbController& c = it->second;
+        if (c.phase != reducer::UsbPhase::Direct || !c.syntheticId.has_value()) {
+            directScans_.erase(key);
+            return;
+        }
         const int syntheticId = *c.syntheticId;
         activity.reads = gateway_->completionCount(syntheticId);
         activity.decoded = gateway_->decodedCount(syntheticId);
