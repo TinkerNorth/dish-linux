@@ -428,12 +428,10 @@ ClaimResult HidrawGateway::claim(const UsbDeviceInfo& device,
         // wherever the collection declares real usages; the guess stays as the
         // fallback for a descriptor we cannot parse.
         input::usbhid::parseReportDescriptor(descriptor.data(), descriptor.size(), claimed->layout);
-        // From the model catalog, not the descriptor: the PDP Switch pads
-        // declare their buttons in Switch usage order, and the parse above just
-        // reset this to false.
-        claimed->layout.switchOrderButtons =
-            input::usbparse::buttonOrderForDevice(device.vendorId, device.productId) ==
-            input::usbparse::ButtonOrder::Switch;
+        // From the model catalog, not the descriptor, which the parse above just
+        // reset to the western order.
+        claimed->layout.order =
+            input::usbparse::buttonOrderForDevice(device.vendorId, device.productId);
     }
     claimed->running.store(true);
     Claimed* raw = claimed.get();

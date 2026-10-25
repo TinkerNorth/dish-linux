@@ -179,6 +179,7 @@ set(DISH_TEST_SOURCES
     test_usb_report_parsers.cpp
     test_usb_output_reports.cpp
     test_usb_hid_layout.cpp
+    test_usb_hid_layout_orders.cpp
     test_usb_twin_dedup.cpp
     test_hid_transport.cpp
     test_catalog_prewarm.cpp

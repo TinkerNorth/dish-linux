@@ -16,6 +16,7 @@
 #include <cstdint>
 #include <vector>
 
+using dish::input::usbhid::ButtonOrder;
 using dish::input::usbhid::decodeFromLayout;
 using dish::input::usbhid::HidLayout;
 using dish::input::usbhid::parseReportDescriptor;
@@ -280,7 +281,7 @@ std::vector<std::uint8_t> switchReport(std::uint8_t btnLo, std::uint8_t btnHi,
 HidLayout switchLayout(bool switchOrder) {
     HidLayout L;
     REQUIRE(parseReportDescriptor(kSwitchOrderDescriptor, sizeof(kSwitchOrderDescriptor), L));
-    L.switchOrderButtons = switchOrder;
+    L.order = switchOrder ? ButtonOrder::Switch : ButtonOrder::Western;
     return L;
 }
 
@@ -307,9 +308,9 @@ TEST_CASE("switch-order: the Faceoff report shape parses to the expected field m
 TEST_CASE("switch-order: parse resets the order flag so attach must set it after",
           "[usb-hid-layout][switch-order]") {
     HidLayout L;
-    L.switchOrderButtons = true;
+    L.order = ButtonOrder::Switch;
     REQUIRE(parseReportDescriptor(kSwitchOrderDescriptor, sizeof(kSwitchOrderDescriptor), L));
-    CHECK_FALSE(L.switchOrderButtons);
+    CHECK(L.order == ButtonOrder::Western);
 }
 
 TEST_CASE("switch-order: western decode scrambles the Faceoff pad",
