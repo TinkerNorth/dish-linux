@@ -102,6 +102,12 @@
   <!-- Kept in step with project(Dish VERSION ...); version-consistency.yml
        fails the PR that moves one without the other. -->
   <releases>
+    <release version="2.5.0" date="2026-10-26" type="stable">
+      <url type="details">https://github.com/TinkerNorth/dish-linux/releases/tag/2.5.0</url>
+      <description>
+        <p>Dish can keep a laptop streaming with the lid closed: a new switch in Settings, Power, off by default, holds the lid switch while Dish is keeping the computer awake. The pairing sheet takes the satellite's four-digit PIN, so a typed PIN can be submitted again.</p>
+      </description>
+    </release>
     <release version="2.4.0" date="2026-10-25" type="stable">
       <url type="details">https://github.com/TinkerNorth/dish-linux/releases/tag/2.4.0</url>
       <description>
