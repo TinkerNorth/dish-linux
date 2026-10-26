@@ -14,6 +14,7 @@
 #include "core/input/StickHealth.h"
 #include "core/reducer/ApplyBindingMachine.h"
 #include "core/reducer/DiagnosticsLog.h"
+#include "core/reducer/ReversePairing.h"
 #include "core/reducer/UpdateMachine.h"
 #include "qml/ConnectionListModel.h"
 #include "qml/SlotListModel.h"
@@ -124,6 +125,8 @@ class AppViewModel : public QObject {
     Q_PROPERTY(QString reversePairingPin READ reversePairingPin NOTIFY reversePairingChanged)
     Q_PROPERTY(
         QString reversePairingServerName READ reversePairingServerName NOTIFY reversePairingChanged)
+    // How many digits the satellite's own PIN has, the one typed into the sheet.
+    Q_PROPERTY(int satellitePinDigits READ satellitePinDigits CONSTANT)
 
     // ── Emulate picker catalog lifecycle (AsyncState<CatalogDto>) ─────────────
     // emulateLoading is the in-flight GET with nothing cached yet; once content
@@ -272,6 +275,7 @@ class AppViewModel : public QObject {
     QString reversePairingPhase() const;
     QString reversePairingPin() const;
     QString reversePairingServerName() const;
+    int satellitePinDigits() const { return reducer::kSatellitePinDigits; }
     QString donateSponsorsUrl() const;
     QString donateKofiUrl() const;
     QString donateBmacUrl() const;

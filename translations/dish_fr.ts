@@ -3594,6 +3594,14 @@
         <translation>Appairer</translation>
     </message>
     <message>
+        <source>Enter the 4-digit PIN shown on the Satellite’s screen.</source>
+        <translation>Saisissez le PIN à 4 chiffres affiché sur l&apos;écran de Satellite.</translation>
+    </message>
+    <message>
+        <source>Pairing PIN, 4 digits</source>
+        <translation>PIN d&apos;appairage, 4 chiffres</translation>
+    </message>
+    <message>
         <source>or</source>
         <translation>ou</translation>
     </message>
@@ -3648,14 +3656,6 @@
     <message>
         <source>The code changes if the Satellite screen was refreshed.</source>
         <translation>Le code change si l&apos;écran de Satellite a été actualisé.</translation>
-    </message>
-    <message>
-        <source>Enter the 6-digit PIN shown on the Satellite’s screen.</source>
-        <translation>Saisissez le PIN à 6 chiffres affiché sur l&apos;écran de Satellite.</translation>
-    </message>
-    <message>
-        <source>Pairing PIN, 6 digits</source>
-        <translation>PIN d&apos;appairage, 6 chiffres</translation>
     </message>
 </context>
 <context>

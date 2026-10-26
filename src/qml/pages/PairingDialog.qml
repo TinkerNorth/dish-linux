@@ -3,11 +3,11 @@
 //
 // The shared pairing sheet — ONE sheet, two callers (the wizard's Destination
 // step and Connections' found rows). Both pairing paths run at once and no tap
-// gates either: the forward 6-digit satellite PIN stays typeable while our
+// gates either: the forward 4-digit satellite PIN stays typeable while our
 // reverse 4-digit PIN is POSTed on open and polled. Whichever completes first
 // pairs the box.
 //
-// The PIN is SIX DISCRETE CELLS over one hidden capture field, not a
+// The PIN is FOUR DISCRETE CELLS over one hidden capture field, not a
 // letter-spaced text box: Qt does not composite trailing letter-spacing the way
 // CSS does, and a letter-spaced run of digits is announced badly by a screen
 // reader.
@@ -45,7 +45,7 @@ Kit.ContentDialog {
     // that the satellite re-drew its screen and minted a new code.
     property int rejections: 0
 
-    readonly property int pinLength: 6
+    readonly property int pinLength: App.satellitePinDigits
 
     readonly property string pinErrorText: {
         if (!pairDialog.pinRejected)
@@ -99,7 +99,7 @@ Kit.ContentDialog {
 
     body: [
         Label {
-            text: qsTr("Enter the 6-digit PIN shown on the Satellite’s screen.")
+            text: qsTr("Enter the 4-digit PIN shown on the Satellite’s screen.")
             color: Theme.muted
             font.pixelSize: Tokens.textSummary
             lineHeight: 1.5
@@ -165,7 +165,7 @@ Kit.ContentDialog {
                 activeFocusOnTab: true
 
                 Accessible.role: Accessible.EditableText
-                Accessible.name: qsTr("Pairing PIN, 6 digits")
+                Accessible.name: qsTr("Pairing PIN, 4 digits")
                 Accessible.description: pairDialog.pinErrorText
 
                 onTextChanged: {

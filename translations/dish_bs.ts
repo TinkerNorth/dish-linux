@@ -3613,6 +3613,14 @@
         <translation>Upari</translation>
     </message>
     <message>
+        <source>Enter the 4-digit PIN shown on the Satellite’s screen.</source>
+        <translation>Unesite četvorocifreni PIN prikazan na ekranu satelita.</translation>
+    </message>
+    <message>
+        <source>Pairing PIN, 4 digits</source>
+        <translation>PIN za uparivanje, 4 cifre</translation>
+    </message>
+    <message>
         <source>or</source>
         <translation>ili</translation>
     </message>
@@ -3667,14 +3675,6 @@
     <message>
         <source>The code changes if the Satellite screen was refreshed.</source>
         <translation>Kod se mijenja ako je ekran na satelitu osvježen.</translation>
-    </message>
-    <message>
-        <source>Enter the 6-digit PIN shown on the Satellite’s screen.</source>
-        <translation>Unesite šestocifreni PIN prikazan na ekranu satelita.</translation>
-    </message>
-    <message>
-        <source>Pairing PIN, 6 digits</source>
-        <translation>PIN za uparivanje, 6 cifara</translation>
     </message>
 </context>
 <context>

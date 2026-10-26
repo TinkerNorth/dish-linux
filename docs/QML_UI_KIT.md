@@ -162,13 +162,13 @@ Kit.ContentDialog {
     id: pairDialog
     heading: qsTr("Enter pairing PIN")
     acceptText: qsTr("Pair")
-    acceptEnabled: pinField.text.length === 6
+    acceptEnabled: pinField.text.length === 4
 
     body: [
         Kit.KitTextField {
             id: pinField
-            placeholderText: qsTr("6-digit PIN")
-            maximumLength: 6
+            placeholderText: qsTr("4-digit PIN")
+            maximumLength: 4
             inputMethodHints: Qt.ImhDigitsOnly
         }
     ]

@@ -10,7 +10,9 @@
 
 #include "core/reducer/RestOutcome.h"
 
+#include <cstddef>
 #include <cstdint>
+#include <string>
 
 namespace dish::reducer {
 
@@ -51,6 +53,11 @@ inline ReversePairingAction nextReversePairingAction(ApprovalVerdict approval,
 
 inline constexpr int kReversePinDigits = 4;
 inline constexpr int kReversePinModulus = 10000; // 10^kReversePinDigits
+
+// The satellite's own PIN, the one typed into the sheet on the forward path.
+// The satellite mints it (satellite src/net/pin_rotation.cpp), so this mirrors
+// that contract rather than choosing a length.
+inline constexpr int kSatellitePinDigits = 4;
 
 // Reduced modulo 10000 so any source, such as a 32-bit random draw, lands in
 // range and the output is always exactly 4 digits.

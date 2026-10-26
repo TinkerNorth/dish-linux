@@ -30,6 +30,13 @@ the repos share a version number.
   the lid as before. The README's old claim that no application can do this
   was wrong, and is rewritten.
 
+### Fixed
+
+- **The pairing sheet takes the satellite's 4-digit PIN.** It waited for six
+  digits, while the satellite shows four, so a typed PIN could never be
+  submitted and pairing depended on approving the request on the PC. The
+  sheet now asks for four, the same length the satellite mints.
+
 ## [2.4.0] - 2026-10-25
 
 ### Added

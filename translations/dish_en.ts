@@ -3614,12 +3614,12 @@
         <translation>Pair</translation>
     </message>
     <message>
-        <source>Enter the 6-digit PIN shown on the Satellite’s screen.</source>
-        <translation>Enter the 6-digit PIN shown on the Satellite’s screen.</translation>
+        <source>Enter the 4-digit PIN shown on the Satellite’s screen.</source>
+        <translation>Enter the 4-digit PIN shown on the Satellite’s screen.</translation>
     </message>
     <message>
-        <source>Pairing PIN, 6 digits</source>
-        <translation>Pairing PIN, 6 digits</translation>
+        <source>Pairing PIN, 4 digits</source>
+        <translation>Pairing PIN, 4 digits</translation>
     </message>
     <message>
         <source>or</source>

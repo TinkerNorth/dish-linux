@@ -109,6 +109,7 @@ moc strips it.
 | `reversePairingPhase` | `string` | `reversePairingChanged` | `"idle"` / `"awaiting"` / `"approved"` / `"declined"` / `"timedout"`. |
 | `reversePairingPin` | `string` | `reversePairingChanged` | The 4-digit PIN to show while `awaiting`. Stays set on the terminal phases so the sheet can keep showing it; cleared on the next `requestReversePairing` or `cancelReversePairing`. |
 | `reversePairingServerName` | `string` | `reversePairingChanged` | Name, or ip when unnamed, of the server being reverse-paired. Empty when `idle`. |
+| `satellitePinDigits` | `int` | constant | How many digits the satellite's own PIN has, the one typed into the pairing sheet: `reducer::kSatellitePinDigits`, `4`, because the satellite mints four. |
 
 **The one-spot rule.** `discoveredServers` excludes any server whose stable `id`
 already has a `connectionModel` row. A box gets exactly one row in the UI: once
@@ -255,7 +256,7 @@ because the slot-keyed reads vend nothing before a binding exists.
 | `reconnectConnection(connectionId)` | `string` | Reconnect a **remembered** satellite without a rescan and without re-pairing; the key persists. If the id is in the current scan it connects the fresh endpoint, otherwise it kicks a discovery relearn and tries the last-known endpoint now. Gate on the row **not** being `liveLink`. |
 | `disconnectConnection(connectionId)` | `string` | Graceful disconnect of a live session **without** forgetting: the row and the pairing key survive. Gate on the row's `liveLink`. |
 | `forgetConnection(connectionId)` | `string` | Forget a remembered connection: unbinds its slots and drops the key, the PIN and the row. |
-| `pairByServerId(serverId, pin)` | `string, string` | Submit a 6-digit PIN for the discovered server with that stable id. Watch `pairingFailed` and `errorMessage` for failure, `isPairingInFlight` for the spinner. |
+| `pairByServerId(serverId, pin)` | `string, string` | Submit the satellite's PIN (`satellitePinDigits` digits) for the discovered server with that stable id. Watch `pairingFailed` and `errorMessage` for failure, `isPairingInFlight` for the spinner. |
 | `isPairingInFlight(serverId)` | `string` → `bool` | A pair request is in flight for that server id. |
 | `clearPairingTarget()` | | Drop the one-shot pairing trigger. Call before opening the pairing sheet to avoid re-entry. |
 | `requestReversePairing(serverId)` | `string` | Start host-initiated pairing: the dish shows a 4-digit PIN and the operator approves on the satellite. A second call cancels the first. |
@@ -268,7 +269,7 @@ simultaneously, and no tap gates either one.
 
 On open it calls `cancelReversePairing()` (a stale phase from an earlier sheet
 must not leak in) and then `requestReversePairing(server.id)` immediately, so
-the operator is notified the moment the sheet opens. The 6-digit field stays
+the operator is notified the moment the sheet opens. The 4-digit field stays
 typeable throughout as the live fallback, submitting through `pairByServerId`.
 Show the reverse block only while `reversePairingPhase !== "idle"`: an
 unresolvable id leaves the phase idle and the sheet degrades to forward-only,

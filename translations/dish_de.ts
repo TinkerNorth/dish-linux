@@ -3594,6 +3594,14 @@
         <translation>Koppeln</translation>
     </message>
     <message>
+        <source>Enter the 4-digit PIN shown on the Satellite’s screen.</source>
+        <translation>Gib den 4-stelligen PIN ein, der auf dem Bildschirm des Satelliten angezeigt wird.</translation>
+    </message>
+    <message>
+        <source>Pairing PIN, 4 digits</source>
+        <translation>Kopplungs-PIN, 4 Stellen</translation>
+    </message>
+    <message>
         <source>or</source>
         <translation>oder</translation>
     </message>
@@ -3648,14 +3656,6 @@
     <message>
         <source>The code changes if the Satellite screen was refreshed.</source>
         <translation>Der Code ändert sich, wenn der Bildschirm des Satelliten aktualisiert wurde.</translation>
-    </message>
-    <message>
-        <source>Enter the 6-digit PIN shown on the Satellite’s screen.</source>
-        <translation>Gib den 6-stelligen PIN ein, der auf dem Bildschirm des Satelliten angezeigt wird.</translation>
-    </message>
-    <message>
-        <source>Pairing PIN, 6 digits</source>
-        <translation>Kopplungs-PIN, 6 Stellen</translation>
     </message>
 </context>
 <context>
