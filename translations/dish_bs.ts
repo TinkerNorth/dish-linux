@@ -32,6 +32,10 @@
         <translation>Podesi Dish</translation>
     </message>
     <message>
+        <source>Streaming · kept awake, even with the lid closed</source>
+        <translation>Striming · ostaje budan i sa zatvorenim poklopcem</translation>
+    </message>
+    <message>
         <source>Streaming · display kept awake</source>
         <translation>Striming · ekran ostaje budan</translation>
     </message>
@@ -3790,6 +3794,14 @@
     <message>
         <source>Forwarding a controller needs the machine, not the screen, so this is off unless a game is being watched on this display.</source>
         <translation>Prosljeđivanje kontrolera treba računar, a ne ekran, pa je ovo isključeno osim ako se igra gleda na ovom ekranu.</translation>
+    </message>
+    <message>
+        <source>Keep streaming with the lid closed</source>
+        <translation>Nastavi strimati sa zatvorenim poklopcem</translation>
+    </message>
+    <message>
+        <source>The laptop keeps running with its lid shut and can get hot in a bag, so leave this off unless you need it.</source>
+        <translation>Laptop nastavlja raditi sa zatvorenim poklopcem i može se zagrijati u torbi, pa ovo ostavite isključeno osim ako vam ne treba.</translation>
     </message>
     <message>
         <source>Diagnostics</source>

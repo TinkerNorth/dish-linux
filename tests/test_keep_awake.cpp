@@ -10,7 +10,9 @@
 
 using dish::reducer::clampKeepAwakeTimeoutMinutes;
 using dish::reducer::controllerActiveAt;
+using dish::reducer::deriveKeepAwakeHold;
 using dish::reducer::deriveKeepAwakeReach;
+using dish::reducer::KeepAwakeHold;
 using dish::reducer::KeepAwakeMode;
 using dish::reducer::keepAwakeModeFromKey;
 using dish::reducer::keepAwakeModeKey;
@@ -22,8 +24,13 @@ using dish::reducer::kKeepAwakeMinTimeoutMinutes;
 
 namespace {
 
-KeepAwakePreferences prefs(KeepAwakeMode mode, bool display = false, int minutes = 5) {
-    return KeepAwakePreferences{mode, minutes, display};
+KeepAwakePreferences prefs(KeepAwakeMode mode, bool display = false, int minutes = 5,
+                           bool lid = false) {
+    return KeepAwakePreferences{mode, minutes, display, lid};
+}
+
+KeepAwakePreferences withLid(KeepAwakeMode mode, bool display = false) {
+    return prefs(mode, display, 5, true);
 }
 
 constexpr std::int64_t kMinute = 60'000;
@@ -37,11 +44,25 @@ TEST_CASE("KeepAwakePreferences: the defaults hold the machine, not the panel", 
     REQUIRE_FALSE(p.keepDisplayAwake);
 }
 
+TEST_CASE("KeepAwakePreferences: the lid is not held by default", "[keepawake]") {
+    const KeepAwakePreferences p;
+    REQUIRE_FALSE(p.keepAwakeWithLidClosed);
+}
+
 TEST_CASE("KeepAwakePreferences: equality covers every field", "[keepawake]") {
     REQUIRE(prefs(KeepAwakeMode::WhileConnected) == prefs(KeepAwakeMode::WhileConnected));
     REQUIRE(prefs(KeepAwakeMode::WhileConnected) != prefs(KeepAwakeMode::Off));
     REQUIRE(prefs(KeepAwakeMode::WhileConnected) != prefs(KeepAwakeMode::WhileConnected, true));
     REQUIRE(prefs(KeepAwakeMode::WhileConnected) != prefs(KeepAwakeMode::WhileConnected, false, 6));
+    REQUIRE(prefs(KeepAwakeMode::WhileConnected) != withLid(KeepAwakeMode::WhileConnected));
+}
+
+TEST_CASE("KeepAwakeHold: equality covers the reach and the lid", "[keepawake]") {
+    const KeepAwakeHold machine{KeepAwakeReach::System, false};
+    REQUIRE(machine == KeepAwakeHold{KeepAwakeReach::System, false});
+    REQUIRE(machine != KeepAwakeHold{KeepAwakeReach::SystemAndDisplay, false});
+    REQUIRE(machine != KeepAwakeHold{KeepAwakeReach::System, true});
+    REQUIRE(KeepAwakeHold{} == KeepAwakeHold{KeepAwakeReach::None, false});
 }
 
 TEST_CASE("clampKeepAwakeTimeoutMinutes: pins the ends of the range", "[keepawake]") {
@@ -133,4 +154,47 @@ TEST_CASE("deriveKeepAwakeReach: the display opt-in widens a hold it never creat
             KeepAwakeReach::None);
     REQUIRE(deriveKeepAwakeReach(prefs(KeepAwakeMode::WhileConnected, true), 0, true) ==
             KeepAwakeReach::None);
+}
+
+TEST_CASE("deriveKeepAwakeHold: without the lid opt-in the lid is never held", "[keepawake]") {
+    REQUIRE(deriveKeepAwakeHold(prefs(KeepAwakeMode::WhileConnected), 1, true) ==
+            KeepAwakeHold{KeepAwakeReach::System, false});
+    REQUIRE(deriveKeepAwakeHold(prefs(KeepAwakeMode::WhileConnected, true), 1, true) ==
+            KeepAwakeHold{KeepAwakeReach::SystemAndDisplay, false});
+}
+
+TEST_CASE("deriveKeepAwakeHold: the lid opt-in holds the lid beside the machine", "[keepawake]") {
+    REQUIRE(deriveKeepAwakeHold(withLid(KeepAwakeMode::WhileConnected), 1, false) ==
+            KeepAwakeHold{KeepAwakeReach::System, true});
+    REQUIRE(deriveKeepAwakeHold(withLid(KeepAwakeMode::WhileControllerActive), 1, true) ==
+            KeepAwakeHold{KeepAwakeReach::System, true});
+    REQUIRE(deriveKeepAwakeHold(withLid(KeepAwakeMode::WhileConnected, true), 1, false) ==
+            KeepAwakeHold{KeepAwakeReach::SystemAndDisplay, true});
+}
+
+TEST_CASE("deriveKeepAwakeHold: the lid opt-in widens a hold it never creates", "[keepawake]") {
+    REQUIRE(deriveKeepAwakeHold(withLid(KeepAwakeMode::Off), 1, true) == KeepAwakeHold{});
+    REQUIRE(deriveKeepAwakeHold(withLid(KeepAwakeMode::Off, true), 1, true) == KeepAwakeHold{});
+    REQUIRE(deriveKeepAwakeHold(withLid(KeepAwakeMode::WhileConnected), 0, true) ==
+            KeepAwakeHold{});
+    REQUIRE(deriveKeepAwakeHold(withLid(KeepAwakeMode::WhileControllerActive), 1, false) ==
+            KeepAwakeHold{});
+}
+
+TEST_CASE("deriveKeepAwakeHold: its reach is the reach deriveKeepAwakeReach decides",
+          "[keepawake]") {
+    for (const auto mode : {KeepAwakeMode::Off, KeepAwakeMode::WhileControllerActive,
+                            KeepAwakeMode::WhileConnected}) {
+        for (const bool display : {false, true}) {
+            for (const bool lid : {false, true}) {
+                for (const int count : {0, 1, 2}) {
+                    for (const bool active : {false, true}) {
+                        const KeepAwakePreferences p = prefs(mode, display, 5, lid);
+                        REQUIRE(deriveKeepAwakeHold(p, count, active).reach ==
+                                deriveKeepAwakeReach(p, count, active));
+                    }
+                }
+            }
+        }
+    }
 }

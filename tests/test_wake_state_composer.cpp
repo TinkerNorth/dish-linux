@@ -17,6 +17,7 @@ using dish::arch::Observable;
 using dish::composer::deriveWakeState;
 using dish::composer::WakeState;
 using dish::composer::WakeStateComposer;
+using dish::reducer::KeepAwakeHold;
 using dish::reducer::KeepAwakeMode;
 using dish::reducer::KeepAwakePreferences;
 using dish::reducer::KeepAwakeReach;
@@ -24,10 +25,11 @@ using dish::test::ComposerProbe;
 
 namespace {
 
-KeepAwakePreferences prefs(KeepAwakeMode mode, bool display = false) {
+KeepAwakePreferences prefs(KeepAwakeMode mode, bool display = false, bool lid = false) {
     KeepAwakePreferences p;
     p.mode = mode;
     p.keepDisplayAwake = display;
+    p.keepAwakeWithLidClosed = lid;
     return p;
 }
 
@@ -67,6 +69,26 @@ TEST_CASE("deriveWakeState: the display opt-in widens the reach, never creates o
             KeepAwakeReach::None);
     REQUIRE(deriveWakeState(1, false, prefs(KeepAwakeMode::WhileControllerActive, true)).reach ==
             KeepAwakeReach::None);
+}
+
+TEST_CASE("deriveWakeState: the lid opt-in holds the lid only while the machine is held",
+          "[wake][lid]") {
+    REQUIRE(deriveWakeState(1, false, prefs(KeepAwakeMode::WhileConnected, false, true)).lid);
+    REQUIRE_FALSE(deriveWakeState(1, false, prefs(KeepAwakeMode::WhileConnected)).lid);
+    REQUIRE_FALSE(deriveWakeState(0, true, prefs(KeepAwakeMode::WhileConnected, false, true)).lid);
+    REQUIRE_FALSE(deriveWakeState(1, true, prefs(KeepAwakeMode::Off, false, true)).lid);
+}
+
+TEST_CASE("WakeState: the hold is the reach and the lid", "[wake][lid]") {
+    const WakeState state{KeepAwakeReach::SystemAndDisplay, 2, true};
+    REQUIRE(state.hold() == KeepAwakeHold{KeepAwakeReach::SystemAndDisplay, true});
+}
+
+TEST_CASE("WakeState: equality covers the lid", "[wake][lid]") {
+    const WakeState without{KeepAwakeReach::System, 1, false};
+    const WakeState with{KeepAwakeReach::System, 1, true};
+    REQUIRE(without != with);
+    REQUIRE(with == WakeState{KeepAwakeReach::System, 1, true});
 }
 
 TEST_CASE("deriveWakeState: the streaming count rides along in the value", "[wake]") {
@@ -126,6 +148,20 @@ TEST_CASE("WakeStateComposer: recomputes on a preference change", "[wake]") {
 
     preferences.set(prefs(KeepAwakeMode::Off, true));
     REQUIRE(composer.state().value().reach == KeepAwakeReach::None);
+}
+
+TEST_CASE("WakeStateComposer: recomputes on a lid preference change", "[wake][lid]") {
+    Observable<int> count(1);
+    Observable<bool> active(false);
+    Observable<KeepAwakePreferences> preferences{prefs(KeepAwakeMode::WhileConnected)};
+    WakeStateComposer composer(count, active, preferences);
+    ComposerProbe<WakeState> probe(composer.state());
+    REQUIRE_FALSE(composer.state().value().lid);
+
+    preferences.set(prefs(KeepAwakeMode::WhileConnected, false, true));
+    REQUIRE(composer.state().value().lid);
+    REQUIRE(composer.state().value().reach == KeepAwakeReach::System);
+    REQUIRE(probe.count() == 2);
 }
 
 TEST_CASE("WakeStateComposer: distinct-until-changed suppresses same-value re-emits", "[wake]") {

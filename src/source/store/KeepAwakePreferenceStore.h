@@ -27,6 +27,7 @@ class KeepAwakePreferenceStore : public arch::StateSource<reducer::KeepAwakePref
     static constexpr const char* kKeyMode = "keep_awake_mode";
     static constexpr const char* kKeyTimeoutMinutes = "keep_awake_timeout_minutes";
     static constexpr const char* kKeyDisplay = "keep_awake_display";
+    static constexpr const char* kKeyLid = "keep_awake_lid";
 
     KeepAwakePreferenceStore() : KeepAwakePreferenceStore(repository::makeSettings()) {}
 
@@ -37,8 +38,9 @@ class KeepAwakePreferenceStore : public arch::StateSource<reducer::KeepAwakePref
     reducer::KeepAwakeMode mode() const { return state().value().mode; }
     int idleTimeoutMinutes() const { return state().value().idleTimeoutMinutes; }
     bool keepDisplayAwake() const { return state().value().keepDisplayAwake; }
+    bool keepAwakeWithLidClosed() const { return state().value().keepAwakeWithLidClosed; }
 
-    // All three persist + republish and are idempotent: a repeat set does not
+    // All four persist + republish and are idempotent: a repeat set does not
     // re-emit.
     void setMode(reducer::KeepAwakeMode mode) {
         reducer::KeepAwakePreferences next = state().value();
@@ -66,6 +68,14 @@ class KeepAwakePreferenceStore : public arch::StateSource<reducer::KeepAwakePref
         setState(next);
     }
 
+    void setKeepAwakeWithLidClosed(bool enabled) {
+        reducer::KeepAwakePreferences next = state().value();
+        if (next.keepAwakeWithLidClosed == enabled) { return; }
+        next.keepAwakeWithLidClosed = enabled;
+        write(kKeyLid, enabled);
+        setState(next);
+    }
+
   private:
     void write(const char* key, const QVariant& value) {
         settings_->setValue(QLatin1String(key), value);
@@ -82,6 +92,7 @@ class KeepAwakePreferenceStore : public arch::StateSource<reducer::KeepAwakePref
                 .value(QLatin1String(kKeyTimeoutMinutes), reducer::kKeepAwakeDefaultTimeoutMinutes)
                 .toInt());
         initial.keepDisplayAwake = settings.value(QLatin1String(kKeyDisplay), false).toBool();
+        initial.keepAwakeWithLidClosed = settings.value(QLatin1String(kKeyLid), false).toBool();
         return initial;
     }
 

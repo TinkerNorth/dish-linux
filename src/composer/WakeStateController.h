@@ -26,7 +26,7 @@ class WakeStateController : public arch::Controller<WakeState> {
         const arch::Observable<WakeState>& wakeState, source::WakeInhibitor* inhibitor,
         QString reason = QStringLiteral("Dish is streaming gamepad input to Satellite"));
 
-    reducer::KeepAwakeReach held() const;
+    reducer::KeepAwakeHold held() const;
     bool isInhibiting() const;
 
   protected:

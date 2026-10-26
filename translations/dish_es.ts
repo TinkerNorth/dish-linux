@@ -32,6 +32,10 @@
         <translation>Configurar Dish</translation>
     </message>
     <message>
+        <source>Streaming · kept awake, even with the lid closed</source>
+        <translation>Transmitiendo · activo incluso con la tapa cerrada</translation>
+    </message>
+    <message>
         <source>Streaming · display kept awake</source>
         <translation>Transmitiendo · pantalla activa</translation>
     </message>
@@ -3771,6 +3775,14 @@
     <message>
         <source>Forwarding a controller needs the machine, not the screen, so this is off unless a game is being watched on this display.</source>
         <translation>Reenviar un mando necesita el equipo, no la pantalla, así que esto está desactivado salvo que estés viendo un juego en esta pantalla.</translation>
+    </message>
+    <message>
+        <source>Keep streaming with the lid closed</source>
+        <translation>Seguir transmitiendo con la tapa cerrada</translation>
+    </message>
+    <message>
+        <source>The laptop keeps running with its lid shut and can get hot in a bag, so leave this off unless you need it.</source>
+        <translation>El portátil sigue funcionando con la tapa cerrada y puede calentarse dentro de una mochila, así que déjalo desactivado salvo que lo necesites.</translation>
     </message>
     <message>
         <source>Diagnostics</source>

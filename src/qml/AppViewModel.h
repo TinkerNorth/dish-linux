@@ -154,6 +154,8 @@ class AppViewModel : public QObject {
     Q_PROPERTY(int foundCount READ foundCount NOTIFY discoveredChanged)
     // How far the hold currently reaches: "off" | "system" | "display".
     Q_PROPERTY(QString keepAwakeReach READ keepAwakeReach NOTIFY stateChanged)
+    // Whether the hold also keeps a closed lid from suspending the machine.
+    Q_PROPERTY(bool keepAwakeLid READ keepAwakeLid NOTIFY stateChanged)
     // The app-wide microphone chip: "hidden" | "live" | "muted", folded over
     // every bound slot (core/reducer/MicIndicatorState.h).
     Q_PROPERTY(QString micIndicator READ micIndicator NOTIFY stateChanged)
@@ -173,6 +175,9 @@ class AppViewModel : public QObject {
     // Whether the hold covers the screen as well as the machine.
     Q_PROPERTY(bool keepDisplayAwake READ keepDisplayAwake WRITE setKeepDisplayAwake NOTIFY
                    keepAwakePrefsChanged)
+    // Whether the hold keeps the machine running with the lid closed.
+    Q_PROPERTY(bool keepAwakeWithLidClosed READ keepAwakeWithLidClosed WRITE
+                   setKeepAwakeWithLidClosed NOTIFY keepAwakePrefsChanged)
 
     // ── Bluetooth radio ──────────────────────────────────────────────────────
     // Two facts, not one: an absent adapter and a switched-off radio need
@@ -278,6 +283,7 @@ class AppViewModel : public QObject {
     QString firstOnlineName() const { return firstOnlineName_; }
     int foundCount() const;
     QString keepAwakeReach() const { return keepAwakeReach_; }
+    bool keepAwakeLid() const { return keepAwakeLid_; }
     bool railCollapsed() const;
     Q_INVOKABLE void setRailCollapsed(bool collapsed);
     bool lightbarFollowGame() const;
@@ -289,6 +295,8 @@ class AppViewModel : public QObject {
     Q_INVOKABLE void setKeepAwakeTimeoutMinutes(int minutes);
     bool keepDisplayAwake() const;
     Q_INVOKABLE void setKeepDisplayAwake(bool enabled);
+    bool keepAwakeWithLidClosed() const;
+    Q_INVOKABLE void setKeepAwakeWithLidClosed(bool enabled);
 
     bool bluetoothPresent() const { return bluetoothPresent_; }
     bool bluetoothEnabled() const { return bluetoothEnabled_; }
@@ -680,6 +688,9 @@ class AppViewModel : public QObject {
     void publishSlotCounts(const dish::MainUiState& st);
     void publishPairingTarget(const dish::MainUiState& st);
     void onConnectionsChanged();
+    // The composer's derived intent, so the pill cannot claim a hold the
+    // preferences no longer ask for.
+    void onWakeState(const composer::WakeState& wake);
     void onTelemetryTick();
     void onRawJoystickInput(const QString& deviceId, int kind, int index, int value);
 
@@ -713,6 +724,7 @@ class AppViewModel : public QObject {
     int streamingSlotCount_ = 0;
     QString firstOnlineName_;
     QString keepAwakeReach_ = QStringLiteral("off");
+    bool keepAwakeLid_ = false;
 
     int eventsPerSec_ = 0;
     int sendsPerSec_ = 0;

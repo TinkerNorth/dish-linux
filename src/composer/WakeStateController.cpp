@@ -11,17 +11,17 @@ WakeStateController::WakeStateController(const arch::Observable<WakeState>& wake
                                          source::WakeInhibitor* inhibitor, QString reason)
     : arch::Controller<WakeState>(wakeState), inhibitor_(inhibitor), reason_(std::move(reason)) {}
 
-reducer::KeepAwakeReach WakeStateController::held() const {
-    return inhibitor_ == nullptr ? reducer::KeepAwakeReach::None : inhibitor_->held();
+reducer::KeepAwakeHold WakeStateController::held() const {
+    return inhibitor_ == nullptr ? reducer::KeepAwakeHold{} : inhibitor_->held();
 }
 
-bool WakeStateController::isInhibiting() const { return held() != reducer::KeepAwakeReach::None; }
+bool WakeStateController::isInhibiting() const { return held() != reducer::KeepAwakeHold{}; }
 
 void WakeStateController::apply(const WakeState& value) {
     // Belt-and-braces: the kernel already tore the subscription down on stop().
     if (stopped_ || inhibitor_ == nullptr) { return; }
     // apply is idempotent, so the OS is only touched on a real move.
-    inhibitor_->apply(value.reach, reason_);
+    inhibitor_->apply(value.hold(), reason_);
 }
 
 void WakeStateController::onStarting() {
@@ -32,7 +32,7 @@ void WakeStateController::onStarting() {
 void WakeStateController::stop() {
     stopped_ = true;
     cancelCollection();
-    if (inhibitor_ != nullptr) { inhibitor_->apply(reducer::KeepAwakeReach::None, reason_); }
+    if (inhibitor_ != nullptr) { inhibitor_->apply(reducer::KeepAwakeHold{}, reason_); }
 }
 
 } // namespace dish::composer

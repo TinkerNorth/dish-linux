@@ -21,6 +21,18 @@ enum class KeepAwakeMode : std::uint8_t {
 // machine is not a state any platform offers.
 enum class KeepAwakeReach : std::uint8_t { None, System, SystemAndDisplay };
 
+// What the inhibitor is asked to hold: the reach, and whether closing the lid
+// is held off too. The lid rides on a reach; it is never held on its own.
+struct KeepAwakeHold {
+    KeepAwakeReach reach = KeepAwakeReach::None;
+    bool lid = false;
+
+    constexpr bool operator==(const KeepAwakeHold& o) const {
+        return reach == o.reach && lid == o.lid;
+    }
+    constexpr bool operator!=(const KeepAwakeHold& o) const { return !(*this == o); }
+};
+
 inline constexpr int kKeepAwakeMinTimeoutMinutes = 1;
 inline constexpr int kKeepAwakeMaxTimeoutMinutes = 180;
 inline constexpr int kKeepAwakeDefaultTimeoutMinutes = 5;
@@ -36,10 +48,13 @@ struct KeepAwakePreferences {
     int idleTimeoutMinutes = kKeepAwakeDefaultTimeoutMinutes;
     // Off by default: forwarding a pad needs the machine, not the panel.
     bool keepDisplayAwake = false;
+    // Off by default: a laptop that keeps running shut can overheat in a bag.
+    bool keepAwakeWithLidClosed = false;
 
     bool operator==(const KeepAwakePreferences& o) const {
         return mode == o.mode && idleTimeoutMinutes == o.idleTimeoutMinutes &&
-               keepDisplayAwake == o.keepDisplayAwake;
+               keepDisplayAwake == o.keepDisplayAwake &&
+               keepAwakeWithLidClosed == o.keepAwakeWithLidClosed;
     }
     bool operator!=(const KeepAwakePreferences& o) const { return !(*this == o); }
 };
@@ -89,6 +104,16 @@ inline constexpr KeepAwakeReach deriveKeepAwakeReach(const KeepAwakePreferences&
         return KeepAwakeReach::None;
     }
     return prefs.keepDisplayAwake ? KeepAwakeReach::SystemAndDisplay : KeepAwakeReach::System;
+}
+
+// The reach plus the lid: the lid opt-in widens a hold, like the display one,
+// and never creates one.
+inline constexpr KeepAwakeHold deriveKeepAwakeHold(const KeepAwakePreferences& prefs,
+                                                   int streamingSlotCount, bool controllerActive) {
+    const KeepAwakeReach reach = deriveKeepAwakeReach(prefs, streamingSlotCount, controllerActive);
+    const bool holdsTheMachine = reach != KeepAwakeReach::None;
+    const bool holdsTheLid = prefs.keepAwakeWithLidClosed && holdsTheMachine;
+    return KeepAwakeHold{reach, holdsTheLid};
 }
 
 } // namespace dish::reducer

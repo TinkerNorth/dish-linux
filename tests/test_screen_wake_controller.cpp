@@ -13,6 +13,8 @@
 #include "composer/WakeStateController.h"
 #include "source/system/WakeInhibitor.h"
 
+#include "FakeWakeInhibitor.h"
+
 #include <catch2/catch_test_macros.hpp>
 
 #include <QHash>
@@ -26,36 +28,7 @@ using dish::models::LinkState;
 using dish::reducer::KeepAwakeMode;
 using dish::reducer::KeepAwakePreferences;
 using dish::reducer::KeepAwakeReach;
-using dish::source::WakeInhibitor;
-
-namespace {
-
-// Absolute and idempotent, like the production inhibitor; `changes()` counts
-// only the applies that actually moved the OS.
-class FakeInhibitor : public WakeInhibitor {
-  public:
-    void apply(KeepAwakeReach reach, const QString& reason) override {
-        ++applies_;
-        lastReason_ = reason;
-        if (reach == held_) { return; }
-        held_ = reach;
-        ++changes_;
-    }
-    KeepAwakeReach held() const override { return held_; }
-
-    int applies() const { return applies_; }
-    int changes() const { return changes_; }
-    QString lastReason() const { return lastReason_; }
-    bool isHeld() const { return held_ != KeepAwakeReach::None; }
-
-  private:
-    int applies_ = 0;
-    int changes_ = 0;
-    KeepAwakeReach held_ = KeepAwakeReach::None;
-    QString lastReason_;
-};
-
-} // namespace
+using dish::test::FakeWakeInhibitor;
 
 TEST_CASE("streamingSlotCount: zero when nothing is bound", "[wake]") {
     QHash<QString, QString> bindings;
@@ -108,7 +81,7 @@ struct WakeHarness {
     Observable<bool> active{false};
     Observable<KeepAwakePreferences> preferences;
     WakeStateComposer composer{count, active, preferences};
-    FakeInhibitor fake;
+    FakeWakeInhibitor fake;
     WakeStateController controller{composer.state(), &fake, QStringLiteral("test reason")};
 
     explicit WakeHarness(KeepAwakePreferences initial = KeepAwakePreferences{},
@@ -125,7 +98,7 @@ TEST_CASE("wake: first stream holds the machine", "[wake]") {
     WakeHarness h;
     h.count.set(1);
     REQUIRE(h.fake.changes() == 1);
-    REQUIRE(h.fake.held() == KeepAwakeReach::System);
+    REQUIRE(h.fake.held().reach == KeepAwakeReach::System);
     REQUIRE(h.fake.lastReason() == "test reason");
 }
 
@@ -172,7 +145,7 @@ TEST_CASE("wake: the timed mode holds only while the pad is being played", "[wak
     REQUIRE_FALSE(h.fake.isHeld()); // streaming, but nobody has touched it
 
     h.active.set(true);
-    REQUIRE(h.fake.held() == KeepAwakeReach::System);
+    REQUIRE(h.fake.held().reach == KeepAwakeReach::System);
 
     // The idle window expiring must let the machine sleep again.
     h.active.set(false);
@@ -182,23 +155,23 @@ TEST_CASE("wake: the timed mode holds only while the pad is being played", "[wak
 TEST_CASE("wake: WhileConnected ignores the idle window entirely", "[wake]") {
     WakeHarness h(prefs(KeepAwakeMode::WhileConnected), /*controllerActive=*/false);
     h.count.set(1);
-    REQUIRE(h.fake.held() == KeepAwakeReach::System);
+    REQUIRE(h.fake.held().reach == KeepAwakeReach::System);
 
     h.active.set(true);
     h.active.set(false);
-    REQUIRE(h.fake.held() == KeepAwakeReach::System);
+    REQUIRE(h.fake.held().reach == KeepAwakeReach::System);
     REQUIRE(h.fake.changes() == 1); // activity never moved the reach in this mode
 }
 
 TEST_CASE("wake: the display opt-in reaches the OS", "[wake]") {
     WakeHarness h(prefs(KeepAwakeMode::WhileConnected, true), /*controllerActive=*/false);
     h.count.set(1);
-    REQUIRE(h.fake.held() == KeepAwakeReach::SystemAndDisplay);
+    REQUIRE(h.fake.held().reach == KeepAwakeReach::SystemAndDisplay);
 
     // Toggled off mid-stream, the panel is released without dropping the
     // system hold the stream still needs.
     h.preferences.set(prefs(KeepAwakeMode::WhileConnected, false));
-    REQUIRE(h.fake.held() == KeepAwakeReach::System);
+    REQUIRE(h.fake.held().reach == KeepAwakeReach::System);
 }
 
 TEST_CASE("wake: switching modes mid-stream re-derives the hold", "[wake]") {
@@ -207,7 +180,7 @@ TEST_CASE("wake: switching modes mid-stream re-derives the hold", "[wake]") {
     REQUIRE_FALSE(h.fake.isHeld());
 
     h.preferences.set(prefs(KeepAwakeMode::WhileConnected));
-    REQUIRE(h.fake.held() == KeepAwakeReach::System);
+    REQUIRE(h.fake.held().reach == KeepAwakeReach::System);
 
     h.preferences.set(prefs(KeepAwakeMode::Off));
     REQUIRE_FALSE(h.fake.isHeld());
@@ -217,7 +190,7 @@ TEST_CASE("wake: stop releases the inhibitor (deliberate teardown)", "[wake]") {
     WakeHarness h;
     h.count.set(3);
     h.controller.stop();
-    REQUIRE(h.fake.held() == KeepAwakeReach::None);
+    REQUIRE(h.fake.held().reach == KeepAwakeReach::None);
 }
 
 TEST_CASE("wake: tolerates a null inhibitor", "[wake]") {

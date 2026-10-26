@@ -32,6 +32,10 @@
         <translation>Configurer Dish</translation>
     </message>
     <message>
+        <source>Streaming · kept awake, even with the lid closed</source>
+        <translation>Diffusion · maintenu éveillé, même capot fermé</translation>
+    </message>
+    <message>
         <source>Streaming · display kept awake</source>
         <translation>Diffusion · écran maintenu allumé</translation>
     </message>
@@ -3771,6 +3775,14 @@
     <message>
         <source>Forwarding a controller needs the machine, not the screen, so this is off unless a game is being watched on this display.</source>
         <translation>Transmettre une manette nécessite la machine, pas l&apos;écran, donc ceci est désactivé sauf si vous regardez un jeu sur cet écran.</translation>
+    </message>
+    <message>
+        <source>Keep streaming with the lid closed</source>
+        <translation>Continuer la diffusion capot fermé</translation>
+    </message>
+    <message>
+        <source>The laptop keeps running with its lid shut and can get hot in a bag, so leave this off unless you need it.</source>
+        <translation>L&apos;ordinateur portable continue de fonctionner capot fermé et peut chauffer dans un sac ; laissez donc ceci désactivé sauf si vous en avez besoin.</translation>
     </message>
     <message>
         <source>Diagnostics</source>

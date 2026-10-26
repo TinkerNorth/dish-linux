@@ -28,6 +28,10 @@
         <translation>Set up Dish</translation>
     </message>
     <message>
+        <source>Streaming · kept awake, even with the lid closed</source>
+        <translation>Streaming · kept awake, even with the lid closed</translation>
+    </message>
+    <message>
         <source>Streaming · display kept awake</source>
         <translation>Streaming · display kept awake</translation>
     </message>
@@ -3783,6 +3787,14 @@
     <message>
         <source>Forwarding a controller needs the machine, not the screen, so this is off unless a game is being watched on this display.</source>
         <translation>Forwarding a controller needs the machine, not the screen, so this is off unless a game is being watched on this display.</translation>
+    </message>
+    <message>
+        <source>Keep streaming with the lid closed</source>
+        <translation>Keep streaming with the lid closed</translation>
+    </message>
+    <message>
+        <source>The laptop keeps running with its lid shut and can get hot in a bag, so leave this off unless you need it.</source>
+        <translation>The laptop keeps running with its lid shut and can get hot in a bag, so leave this off unless you need it.</translation>
     </message>
     <message>
         <source>Diagnostics</source>
