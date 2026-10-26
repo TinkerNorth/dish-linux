@@ -32,6 +32,10 @@
         <translation>Configurar Dish</translation>
     </message>
     <message>
+        <source>Streaming · kept awake, even with the lid closed</source>
+        <translation>Transmitiendo · activo incluso con la tapa cerrada</translation>
+    </message>
+    <message>
         <source>Streaming · display kept awake</source>
         <translation>Transmitiendo · pantalla activa</translation>
     </message>
@@ -3590,6 +3594,14 @@
         <translation>Emparejar</translation>
     </message>
     <message>
+        <source>Enter the 4-digit PIN shown on the Satellite’s screen.</source>
+        <translation>Introduce el PIN de 4 dígitos que aparece en la pantalla de Satellite.</translation>
+    </message>
+    <message>
+        <source>Pairing PIN, 4 digits</source>
+        <translation>PIN de emparejamiento, 4 dígitos</translation>
+    </message>
+    <message>
         <source>or</source>
         <translation>o</translation>
     </message>
@@ -3644,14 +3656,6 @@
     <message>
         <source>The code changes if the Satellite screen was refreshed.</source>
         <translation>El código cambia si se actualizó la pantalla de Satellite.</translation>
-    </message>
-    <message>
-        <source>Enter the 6-digit PIN shown on the Satellite’s screen.</source>
-        <translation>Introduce el PIN de 6 dígitos que aparece en la pantalla de Satellite.</translation>
-    </message>
-    <message>
-        <source>Pairing PIN, 6 digits</source>
-        <translation>PIN de emparejamiento, 6 dígitos</translation>
     </message>
 </context>
 <context>
@@ -3771,6 +3775,14 @@
     <message>
         <source>Forwarding a controller needs the machine, not the screen, so this is off unless a game is being watched on this display.</source>
         <translation>Reenviar un mando necesita el equipo, no la pantalla, así que esto está desactivado salvo que estés viendo un juego en esta pantalla.</translation>
+    </message>
+    <message>
+        <source>Keep streaming with the lid closed</source>
+        <translation>Seguir transmitiendo con la tapa cerrada</translation>
+    </message>
+    <message>
+        <source>The laptop keeps running with its lid shut and can get hot in a bag, so leave this off unless you need it.</source>
+        <translation>El portátil sigue funcionando con la tapa cerrada y puede calentarse dentro de una mochila, así que déjalo desactivado salvo que lo necesites.</translation>
     </message>
     <message>
         <source>Diagnostics</source>

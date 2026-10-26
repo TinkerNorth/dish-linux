@@ -14,22 +14,26 @@
 
 namespace dish::composer {
 
-// The controller acts on `reach` alone; `streamingSlotCount` rides along so a
-// count change that doesn't move the reach still reads as a distinct value.
+// The controller acts on `reach` and `lid`; `streamingSlotCount` rides along so
+// a count change that doesn't move the hold still reads as a distinct value.
 struct WakeState {
     reducer::KeepAwakeReach reach = reducer::KeepAwakeReach::None;
     int streamingSlotCount = 0;
+    bool lid = false;
+
+    reducer::KeepAwakeHold hold() const { return reducer::KeepAwakeHold{reach, lid}; }
 
     bool operator==(const WakeState& o) const {
-        return reach == o.reach && streamingSlotCount == o.streamingSlotCount;
+        return reach == o.reach && streamingSlotCount == o.streamingSlotCount && lid == o.lid;
     }
     bool operator!=(const WakeState& o) const { return !(*this == o); }
 };
 
 inline WakeState deriveWakeState(int streamingSlotCount, bool controllerActive,
                                  const reducer::KeepAwakePreferences& prefs) {
-    return WakeState{reducer::deriveKeepAwakeReach(prefs, streamingSlotCount, controllerActive),
-                     streamingSlotCount};
+    const reducer::KeepAwakeHold hold =
+        reducer::deriveKeepAwakeHold(prefs, streamingSlotCount, controllerActive);
+    return WakeState{hold.reach, streamingSlotCount, hold.lid};
 }
 
 class WakeStateComposer

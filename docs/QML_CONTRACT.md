@@ -69,6 +69,7 @@ It adds no behaviour of its own.
 | `firstOnlineName` | `string` | `stateChanged` | Label of the first `Connected` connection; empty when none. |
 | `foundCount` | `int` | `discoveredChanged` | Size of the FOUND list, after the one-spot exclusion below. |
 | `keepAwakeReach` | `string` | `stateChanged` | How far the hold currently reaches: `off`, `system` (the machine only), `display` (machine and screen). Derived by `composer::WakeStateComposer` from the preferences, the streaming count and controller activity, so it reports what is actually being asked for. Drives the streaming pill's suffix and the quit confirm's body. |
+| `keepAwakeLid` | `bool` | `stateChanged` | Whether the hold also keeps a closed lid from suspending the machine: the lid opt-in is on **and** `keepAwakeReach` is not `off`. Derived by the same composer, so it is the intent, not what logind granted; a refused lock is logged by the inhibitor. Takes over the streaming pill's suffix while true. |
 | `micIndicator` | `string` | `stateChanged` | The app-wide microphone chip: `hidden` (no bound pad has an armed mic), `live` (at least one armed mic is delivering), `muted` (armed, and every armed mic is muted). Folded by `core/reducer/MicIndicatorState.h` from the same `AudioSlotFacts` the capture engine reads, so it cannot disagree with the engine. The shell renders it beside the streaming pill on every page. |
 | `busy` | `bool` | `stateChanged` | A controller is registering. |
 
@@ -108,6 +109,7 @@ moc strips it.
 | `reversePairingPhase` | `string` | `reversePairingChanged` | `"idle"` / `"awaiting"` / `"approved"` / `"declined"` / `"timedout"`. |
 | `reversePairingPin` | `string` | `reversePairingChanged` | The 4-digit PIN to show while `awaiting`. Stays set on the terminal phases so the sheet can keep showing it; cleared on the next `requestReversePairing` or `cancelReversePairing`. |
 | `reversePairingServerName` | `string` | `reversePairingChanged` | Name, or ip when unnamed, of the server being reverse-paired. Empty when `idle`. |
+| `satellitePinDigits` | `int` | constant | How many digits the satellite's own PIN has, the one typed into the pairing sheet: `reducer::kSatellitePinDigits`, `4`, because the satellite mints four. |
 
 **The one-spot rule.** `discoveredServers` excludes any server whose stable `id`
 already has a `connectionModel` row. A box gets exactly one row in the UI: once
@@ -138,6 +140,7 @@ project it so the type picker can tell loading from empty from failed.
 | `keepAwakeMode` | `int` (RW) | `keepAwakePrefsChanged` | `0` Never, `1` While playing (streaming **and** a controller actuated inside the idle window), `2` While connected (streaming, however long the pad sits still). Out-of-range reads back as `1`: a bad value must never pin the machine awake. |
 | `keepAwakeTimeoutMinutes` | `int` (RW) | `keepAwakePrefsChanged` | Minutes of stillness before mode `1` lets go. Clamped to 1..180 on both read and write, so a hand-edited config cannot produce a zero-minute or unbounded window. Inert in modes `0` and `2`. |
 | `keepDisplayAwake` | `bool` (RW) | `keepAwakePrefsChanged` | Whether the hold covers the screen as well as the machine. Default off — forwarding a pad needs the machine, not the panel. Widens a hold; never creates one. |
+| `keepAwakeWithLidClosed` | `bool` (RW) | `keepAwakePrefsChanged` | Whether the hold also takes logind's `handle-lid-switch` lock, so closing the lid does not suspend. Default off — a laptop running shut can overheat in a bag. Widens a hold; never creates one. Persisted as `keep_awake_lid`. |
 | `onboardingNeeded` | `bool` | `onboardingNeededChanged` | The first-run welcome has not completed. Flips false after `markOnboardingComplete()`. |
 | `appVersion` | `string` | CONSTANT | The CMake project version. |
 | `donateSponsorsUrl` | `string` | CONSTANT | GitHub Sponsors URL. |
@@ -201,7 +204,7 @@ Republished at the inspector's 33 ms poll while an inspection is armed (see
 | `onboardingNeededChanged` | | `onboardingNeeded` flipped. |
 | `railCollapsedChanged` | | `railCollapsed` flipped. |
 | `lightbarChanged` | | `lightbarFollowGame` flipped. |
-| `keepAwakePrefsChanged` | | Any of the three keep-awake preferences moved. One signal for the group, like the update pair. |
+| `keepAwakePrefsChanged` | | Any of the four keep-awake preferences moved. One signal for the group, like the update pair. |
 | `deadzonesChanged` | | Deadzone device rows or their values moved. Re-pull `deadzoneDevices()`. |
 | `bluetoothChanged` | | The radio presence/enabled pair moved. |
 | `pairingSucceeded` | | One-shot: a connection reached `Connected` after a pair. The pairing sheet may close on it. Best effort. |
@@ -253,7 +256,7 @@ because the slot-keyed reads vend nothing before a binding exists.
 | `reconnectConnection(connectionId)` | `string` | Reconnect a **remembered** satellite without a rescan and without re-pairing; the key persists. If the id is in the current scan it connects the fresh endpoint, otherwise it kicks a discovery relearn and tries the last-known endpoint now. Gate on the row **not** being `liveLink`. |
 | `disconnectConnection(connectionId)` | `string` | Graceful disconnect of a live session **without** forgetting: the row and the pairing key survive. Gate on the row's `liveLink`. |
 | `forgetConnection(connectionId)` | `string` | Forget a remembered connection: unbinds its slots and drops the key, the PIN and the row. |
-| `pairByServerId(serverId, pin)` | `string, string` | Submit a 6-digit PIN for the discovered server with that stable id. Watch `pairingFailed` and `errorMessage` for failure, `isPairingInFlight` for the spinner. |
+| `pairByServerId(serverId, pin)` | `string, string` | Submit the satellite's PIN (`satellitePinDigits` digits) for the discovered server with that stable id. Watch `pairingFailed` and `errorMessage` for failure, `isPairingInFlight` for the spinner. |
 | `isPairingInFlight(serverId)` | `string` → `bool` | A pair request is in flight for that server id. |
 | `clearPairingTarget()` | | Drop the one-shot pairing trigger. Call before opening the pairing sheet to avoid re-entry. |
 | `requestReversePairing(serverId)` | `string` | Start host-initiated pairing: the dish shows a 4-digit PIN and the operator approves on the satellite. A second call cancels the first. |
@@ -266,7 +269,7 @@ simultaneously, and no tap gates either one.
 
 On open it calls `cancelReversePairing()` (a stale phase from an earlier sheet
 must not leak in) and then `requestReversePairing(server.id)` immediately, so
-the operator is notified the moment the sheet opens. The 6-digit field stays
+the operator is notified the moment the sheet opens. The 4-digit field stays
 typeable throughout as the live fallback, submitting through `pairByServerId`.
 Show the reverse block only while `reversePairingPhase !== "idle"`: an
 unresolvable id leaves the phase idle and the sheet degrades to forward-only,
@@ -600,7 +603,8 @@ readonly property string headerDot     // a StatusDot token; empty draws no dot
 ```
 
 The streaming pill is the shell's own and is present on every page whenever
-`App.streamingSlotCount > 0`, with a suffix taken from `App.keepAwakeReach`. Do
+`App.streamingSlotCount > 0`, with a suffix taken from `App.keepAwakeLid` and
+`App.keepAwakeReach`. Do
 not add a second one. The **Configure** button beside it is the shell's too; it
 routes through `requestNavigation` to the Settings destination.
 

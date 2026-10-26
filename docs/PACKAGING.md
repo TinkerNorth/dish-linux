@@ -191,6 +191,7 @@ degrades rather than breaks:
 | reduced motion | XDG settings portal (`org.gnome.desktop.interface enable-animations`), then `kdeglobals` | motion allowed |
 | keep-awake (machine) | `login1.Inhibit("idle", …, "block")` on the system bus | the inhibit silently no-ops |
 | keep-awake (display) | `org.freedesktop.ScreenSaver.Inhibit` on the session bus, only when the display opt-in is on | the inhibit silently no-ops |
+| keep-awake (lid) | `login1.Inhibit("handle-lid-switch", …, "block")` on the system bus, only when the lid opt-in is on | a `dish.wake` warning, and the lid suspends as before |
 
 Bluetooth presence and power come from sysfs and BlueZ directly, not a portal,
 because the wizard needs to tell "no adapter" from "adapter off" and only the

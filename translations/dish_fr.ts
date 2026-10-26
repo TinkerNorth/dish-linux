@@ -32,6 +32,10 @@
         <translation>Configurer Dish</translation>
     </message>
     <message>
+        <source>Streaming · kept awake, even with the lid closed</source>
+        <translation>Diffusion · maintenu éveillé, même capot fermé</translation>
+    </message>
+    <message>
         <source>Streaming · display kept awake</source>
         <translation>Diffusion · écran maintenu allumé</translation>
     </message>
@@ -3590,6 +3594,14 @@
         <translation>Appairer</translation>
     </message>
     <message>
+        <source>Enter the 4-digit PIN shown on the Satellite’s screen.</source>
+        <translation>Saisissez le PIN à 4 chiffres affiché sur l&apos;écran de Satellite.</translation>
+    </message>
+    <message>
+        <source>Pairing PIN, 4 digits</source>
+        <translation>PIN d&apos;appairage, 4 chiffres</translation>
+    </message>
+    <message>
         <source>or</source>
         <translation>ou</translation>
     </message>
@@ -3644,14 +3656,6 @@
     <message>
         <source>The code changes if the Satellite screen was refreshed.</source>
         <translation>Le code change si l&apos;écran de Satellite a été actualisé.</translation>
-    </message>
-    <message>
-        <source>Enter the 6-digit PIN shown on the Satellite’s screen.</source>
-        <translation>Saisissez le PIN à 6 chiffres affiché sur l&apos;écran de Satellite.</translation>
-    </message>
-    <message>
-        <source>Pairing PIN, 6 digits</source>
-        <translation>PIN d&apos;appairage, 6 chiffres</translation>
     </message>
 </context>
 <context>
@@ -3771,6 +3775,14 @@
     <message>
         <source>Forwarding a controller needs the machine, not the screen, so this is off unless a game is being watched on this display.</source>
         <translation>Transmettre une manette nécessite la machine, pas l&apos;écran, donc ceci est désactivé sauf si vous regardez un jeu sur cet écran.</translation>
+    </message>
+    <message>
+        <source>Keep streaming with the lid closed</source>
+        <translation>Continuer la diffusion capot fermé</translation>
+    </message>
+    <message>
+        <source>The laptop keeps running with its lid shut and can get hot in a bag, so leave this off unless you need it.</source>
+        <translation>L&apos;ordinateur portable continue de fonctionner capot fermé et peut chauffer dans un sac ; laissez donc ceci désactivé sauf si vous en avez besoin.</translation>
     </message>
     <message>
         <source>Diagnostics</source>

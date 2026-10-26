@@ -407,16 +407,8 @@ AppViewModel::AppViewModel(dish::AppModel* model, QObject* parent)
                          emit updateNotice(updateNoticeToken(notice), version);
                      });
 
-    // The composer's derived intent, so the pill cannot claim a reach the
-    // preferences no longer ask for.
     keepAwakeSub_ = model_->wakeState().subscribe(
-        [this](const composer::WakeState& wake) {
-            if (const QString token = keepAwakeReachToken(wake.reach); token != keepAwakeReach_) {
-                keepAwakeReach_ = token;
-                emit stateChanged();
-            }
-        },
-        true);
+        [this](const composer::WakeState& wake) { onWakeState(wake); }, true);
 
     keepAwakePrefsSub_ = model_->keepAwakeStore()->state().subscribe(
         [this](const reducer::KeepAwakePreferences&) { emit keepAwakePrefsChanged(); }, false);
@@ -1157,6 +1149,24 @@ bool AppViewModel::keepDisplayAwake() const { return model_->keepAwakeStore()->k
 
 void AppViewModel::setKeepDisplayAwake(bool enabled) {
     model_->keepAwakeStore()->setKeepDisplayAwake(enabled);
+}
+
+void AppViewModel::onWakeState(const composer::WakeState& wake) {
+    const QString token = keepAwakeReachToken(wake.reach);
+    const bool reachMoved = token != keepAwakeReach_;
+    const bool lidMoved = wake.lid != keepAwakeLid_;
+    if (!reachMoved && !lidMoved) { return; }
+    keepAwakeReach_ = token;
+    keepAwakeLid_ = wake.lid;
+    emit stateChanged();
+}
+
+bool AppViewModel::keepAwakeWithLidClosed() const {
+    return model_->keepAwakeStore()->keepAwakeWithLidClosed();
+}
+
+void AppViewModel::setKeepAwakeWithLidClosed(bool enabled) {
+    model_->keepAwakeStore()->setKeepAwakeWithLidClosed(enabled);
 }
 
 bool AppViewModel::trayAvailable() const { return model_->background()->trayAvailable(); }

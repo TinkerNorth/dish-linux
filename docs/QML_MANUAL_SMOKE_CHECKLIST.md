@@ -191,6 +191,14 @@ display one. Neither is visible to CI.
 - [ ] **The display opt-in widens, never creates.** Turn *Keep the display
       awake too* on: the screen stops blanking and the pill reads "display kept
       awake". Turn the mode to Never with the switch still on: no lock at all.
+- [ ] **The lid opt-in takes a second lock.** On a laptop, with a pad
+      streaming, turn *Keep streaming with the lid closed* on: `systemd-inhibit
+      --list` shows a Dish `handle-lid-switch`/`block` lock beside the `idle`
+      one, and the pill reads "kept awake, even with the lid closed". Close the
+      lid (wait out `HoldoffTimeoutSec`, 30 s after boot or resume): the
+      machine stays up and the pad keeps streaming. Turn the switch off, or set
+      the mode to Never: the `handle-lid-switch` lock disappears at once. The
+      switch is hidden while the mode is Never.
 
 ## Suspend and resume
 

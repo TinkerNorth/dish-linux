@@ -16,6 +16,7 @@
 // that reach it take a second or two.
 
 #include "Network/WifiConnectionManager.h"
+#include "core/reducer/ReversePairing.h"
 
 #include "FakePairingListener.h"
 #include "ManagerRig.h"
@@ -75,6 +76,8 @@ TEST_CASE("reverse pairing: the displayed PIN rides as the client PIN, with no o
     CHECK(post.body.value(QStringLiteral("pin")).toString().isEmpty());
     CHECK(post.body.value(QStringLiteral("clientPin")).toString() == rig.wifi->reversePairingPin());
     CHECK(rig.wifi->reversePairingPin().size() == 4);
+    // The same length the satellite's own PIN has, which the sheet types.
+    CHECK(rig.wifi->reversePairingPin().size() == dish::reducer::kSatellitePinDigits);
     CHECK(rig.wifi->reversePairingPhase() == ReversePairingPhase::AwaitingApproval);
     rig.wifi->cancelReversePairing();
 }

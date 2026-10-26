@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 // Copyright (C) 2026 Dish contributors.
 //
-// All three keys are persisted schema, so their NAMES are pinned as literals
+// All four keys are persisted schema, so their NAMES are pinned as literals
 // here: renaming keep_awake_mode silently reverts every user to the timed mode,
-// and renaming keep_awake_display silently un-does the "keep my screen on"
-// opt-in. Neither would fail anything else. The clamp is pinned on both edges —
-// a hand-edited INI is the one path that can put an out-of-range idle window in
-// front of the reducer.
+// and renaming keep_awake_display or keep_awake_lid silently un-does the "keep
+// my screen on" or "keep streaming with the lid closed" opt-in. Neither would fail anything else.
+// The clamp is pinned on both edges — a hand-edited INI is the one path that can put an
+// out-of-range idle window in front of the reducer.
 //
 // Every case runs against a temp INI through the injecting constructor, so no
 // test here touches the user's real settings.
@@ -48,6 +48,8 @@ TEST_CASE("keep-awake preference store: the key names are a persisted schema",
           QStringLiteral("keep_awake_timeout_minutes"));
     CHECK(QString::fromLatin1(KeepAwakePreferenceStore::kKeyDisplay) ==
           QStringLiteral("keep_awake_display"));
+    CHECK(QString::fromLatin1(KeepAwakePreferenceStore::kKeyLid) ==
+          QStringLiteral("keep_awake_lid"));
 }
 
 TEST_CASE("keep-awake preference store: a fresh store is the timed mode, machine only",
@@ -58,6 +60,7 @@ TEST_CASE("keep-awake preference store: a fresh store is the timed mode, machine
     CHECK(store->mode() == KeepAwakeMode::WhileControllerActive);
     CHECK(store->idleTimeoutMinutes() == kKeepAwakeDefaultTimeoutMinutes);
     CHECK_FALSE(store->keepDisplayAwake());
+    CHECK_FALSE(store->keepAwakeWithLidClosed());
     // A fresh file must read back as the struct's own defaults, so the two
     // cannot drift apart.
     CHECK(store->state().value() == KeepAwakePreferences{});
@@ -125,6 +128,36 @@ TEST_CASE("keep-awake preference store: the display opt-in survives a reopen",
     QSettings raw(ini, QSettings::IniFormat);
     CHECK(raw.value(QLatin1String(KeepAwakePreferenceStore::kKeyDisplay)).toBool());
     CHECK(makeStore(ini)->keepDisplayAwake());
+}
+
+TEST_CASE("keep-awake preference store: the lid opt-in survives a reopen",
+          "[settings][keepawake][lid]") {
+    QTemporaryDir dir;
+    REQUIRE(dir.isValid());
+    const QString ini = dir.filePath(QStringLiteral("keepawake.ini"));
+    {
+        const auto store = makeStore(ini);
+        store->setKeepAwakeWithLidClosed(true);
+        CHECK(store->keepAwakeWithLidClosed());
+    }
+    QSettings raw(ini, QSettings::IniFormat);
+    CHECK(raw.value(QLatin1String(KeepAwakePreferenceStore::kKeyLid)).toBool());
+    CHECK(makeStore(ini)->keepAwakeWithLidClosed());
+}
+
+TEST_CASE("keep-awake preference store: turning the lid opt-in off survives a reopen",
+          "[settings][keepawake][lid]") {
+    QTemporaryDir dir;
+    REQUIRE(dir.isValid());
+    const QString ini = dir.filePath(QStringLiteral("keepawake.ini"));
+    {
+        const auto store = makeStore(ini);
+        store->setKeepAwakeWithLidClosed(true);
+        store->setKeepAwakeWithLidClosed(false);
+    }
+    QSettings raw(ini, QSettings::IniFormat);
+    CHECK_FALSE(raw.value(QLatin1String(KeepAwakePreferenceStore::kKeyLid)).toBool());
+    CHECK_FALSE(makeStore(ini)->keepAwakeWithLidClosed());
 }
 
 TEST_CASE("keep-awake preference store: the idle window is clamped on write",
@@ -200,12 +233,14 @@ TEST_CASE("keep-awake preference store: a seeded file is read at construction",
         seed.setValue(QLatin1String(KeepAwakePreferenceStore::kKeyMode), QStringLiteral("off"));
         seed.setValue(QLatin1String(KeepAwakePreferenceStore::kKeyTimeoutMinutes), 42);
         seed.setValue(QLatin1String(KeepAwakePreferenceStore::kKeyDisplay), true);
+        seed.setValue(QLatin1String(KeepAwakePreferenceStore::kKeyLid), true);
         seed.sync();
     }
     const auto store = makeStore(ini);
     CHECK(store->state().value().mode == KeepAwakeMode::Off);
     CHECK(store->state().value().idleTimeoutMinutes == 42);
     CHECK(store->state().value().keepDisplayAwake);
+    CHECK(store->state().value().keepAwakeWithLidClosed);
 }
 
 TEST_CASE("keep-awake preference store: each setter republishes exactly once",
@@ -228,6 +263,10 @@ TEST_CASE("keep-awake preference store: each setter republishes exactly once",
     store->setKeepDisplayAwake(true);
     CHECK(probe.count() == 4);
     CHECK(probe.latest().keepDisplayAwake);
+
+    store->setKeepAwakeWithLidClosed(true);
+    CHECK(probe.count() == 5);
+    CHECK(probe.latest().keepAwakeWithLidClosed);
 }
 
 TEST_CASE("keep-awake preference store: a repeat set does not re-emit", "[settings][keepawake]") {
@@ -252,6 +291,13 @@ TEST_CASE("keep-awake preference store: a repeat set does not re-emit", "[settin
     CHECK(probe.count() == 3);
     store->setKeepDisplayAwake(true);
     CHECK(probe.count() == 3);
+
+    store->setKeepAwakeWithLidClosed(false);
+    CHECK(probe.count() == 3);
+    store->setKeepAwakeWithLidClosed(true);
+    CHECK(probe.count() == 4);
+    store->setKeepAwakeWithLidClosed(true);
+    CHECK(probe.count() == 4);
 }
 
 TEST_CASE("keep-awake preference store: two out-of-range writes clamping alike do not re-emit",
@@ -286,6 +332,12 @@ TEST_CASE("keep-awake preference store: setting one field leaves the others unto
     store->setMode(KeepAwakeMode::WhileConnected);
     CHECK(store->idleTimeoutMinutes() == 11);
     CHECK(store->keepDisplayAwake());
+    CHECK_FALSE(store->keepAwakeWithLidClosed());
+
+    store->setKeepAwakeWithLidClosed(true);
+    CHECK(store->mode() == KeepAwakeMode::WhileConnected);
+    CHECK(store->idleTimeoutMinutes() == 11);
+    CHECK(store->keepDisplayAwake());
 }
 
 TEST_CASE("keep-awake preference store: a relaunch sees the previous run's writes",
@@ -298,9 +350,11 @@ TEST_CASE("keep-awake preference store: a relaunch sees the previous run's write
         first->setMode(KeepAwakeMode::WhileConnected);
         first->setIdleTimeoutMinutes(45);
         first->setKeepDisplayAwake(true);
+        first->setKeepAwakeWithLidClosed(true);
     }
     const auto second = makeStore(ini);
     CHECK(second->mode() == KeepAwakeMode::WhileConnected);
     CHECK(second->idleTimeoutMinutes() == 45);
     CHECK(second->keepDisplayAwake());
+    CHECK(second->keepAwakeWithLidClosed());
 }

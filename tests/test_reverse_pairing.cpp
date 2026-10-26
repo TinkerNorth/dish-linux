@@ -11,6 +11,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <cstddef>
 #include <cstdint>
 #include <string>
 
@@ -125,6 +126,19 @@ TEST_CASE("formatReversePin output always validates as a 4-digit pin", "[reverse
         REQUIRE(pin.size() == 4);
         REQUIRE(reducer::isValidReversePin(pin));
     }
+}
+
+TEST_CASE("the satellite's PIN is four digits", "[reverse][pin]") {
+    // The satellite mints a 4-digit PIN; a sheet that waits for six can never
+    // submit the one it shows.
+    REQUIRE(reducer::kSatellitePinDigits == 4);
+}
+
+TEST_CASE("the PIN this client shows is as long as the satellite's own", "[reverse][pin]") {
+    const auto satelliteDigits = static_cast<std::size_t>(reducer::kSatellitePinDigits);
+    REQUIRE(reducer::kReversePinDigits == reducer::kSatellitePinDigits);
+    REQUIRE(reducer::formatReversePin(0).size() == satelliteDigits);
+    REQUIRE(reducer::formatReversePin(0xFFFFFFFFu).size() == satelliteDigits);
 }
 
 TEST_CASE("isValidReversePin rejects the wrong length or non-digits", "[reverse][pin]") {

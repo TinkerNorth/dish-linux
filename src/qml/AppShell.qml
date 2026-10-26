@@ -91,10 +91,12 @@ Item {
     readonly property string headerDot: _cur && _cur.headerDot !== undefined ? _cur.headerDot : ""
     // The ONE streaming surface: the shell's, not a page's, so it reads the
     // same on every destination and can never disagree with itself. The suffix
-    // follows the reach, so a pill can never claim a hold the preferences
-    // stopped asking for.
+    // follows the hold, so a pill can never claim one the preferences stopped
+    // asking for.
     readonly property string headerPill: App.streamingSlotCount <= 0
                                          ? ""
+                                         : App.keepAwakeLid
+                                         ? qsTr("Streaming · kept awake, even with the lid closed")
                                          : App.keepAwakeReach === "display"
                                            ? qsTr("Streaming · display kept awake")
                                            : App.keepAwakeReach === "system"

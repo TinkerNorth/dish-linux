@@ -32,6 +32,10 @@
         <translation>Dish einrichten</translation>
     </message>
     <message>
+        <source>Streaming · kept awake, even with the lid closed</source>
+        <translation>Streaming · bleibt wach, auch bei geschlossenem Deckel</translation>
+    </message>
+    <message>
         <source>Streaming · display kept awake</source>
         <translation>Streaming · Anzeige bleibt wach</translation>
     </message>
@@ -3590,6 +3594,14 @@
         <translation>Koppeln</translation>
     </message>
     <message>
+        <source>Enter the 4-digit PIN shown on the Satellite’s screen.</source>
+        <translation>Gib den 4-stelligen PIN ein, der auf dem Bildschirm des Satelliten angezeigt wird.</translation>
+    </message>
+    <message>
+        <source>Pairing PIN, 4 digits</source>
+        <translation>Kopplungs-PIN, 4 Stellen</translation>
+    </message>
+    <message>
         <source>or</source>
         <translation>oder</translation>
     </message>
@@ -3644,14 +3656,6 @@
     <message>
         <source>The code changes if the Satellite screen was refreshed.</source>
         <translation>Der Code ändert sich, wenn der Bildschirm des Satelliten aktualisiert wurde.</translation>
-    </message>
-    <message>
-        <source>Enter the 6-digit PIN shown on the Satellite’s screen.</source>
-        <translation>Gib den 6-stelligen PIN ein, der auf dem Bildschirm des Satelliten angezeigt wird.</translation>
-    </message>
-    <message>
-        <source>Pairing PIN, 6 digits</source>
-        <translation>Kopplungs-PIN, 6 Stellen</translation>
     </message>
 </context>
 <context>
@@ -3771,6 +3775,14 @@
     <message>
         <source>Forwarding a controller needs the machine, not the screen, so this is off unless a game is being watched on this display.</source>
         <translation>Zum Weiterleiten eines Controllers wird der Rechner gebraucht, nicht der Bildschirm — daher ist das aus, solange nicht ein Spiel auf dieser Anzeige verfolgt wird.</translation>
+    </message>
+    <message>
+        <source>Keep streaming with the lid closed</source>
+        <translation>Bei geschlossenem Deckel weiterstreamen</translation>
+    </message>
+    <message>
+        <source>The laptop keeps running with its lid shut and can get hot in a bag, so leave this off unless you need it.</source>
+        <translation>Der Laptop läuft mit geschlossenem Deckel weiter und kann in einer Tasche heiß werden — lass das daher aus, solange du es nicht brauchst.</translation>
     </message>
     <message>
         <source>Diagnostics</source>

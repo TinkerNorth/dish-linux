@@ -540,7 +540,7 @@ Kit.Page {
     }
 
     // ---- PAIRING: the shared both-paths-at-once sheet ------------------------
-    // Path A (type the satellite's 6-digit PIN) is always live; Path B (our
+    // Path A (type the satellite's 4-digit PIN) is always live; Path B (our
     // 4-digit clientPin) is sent automatically by openFor(). Same-module bare
     // type — the wizard's destination step opens the same sheet.
     PairingDialog { id: pairDialog }

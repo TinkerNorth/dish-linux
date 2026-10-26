@@ -198,12 +198,33 @@ rather than waiting out the ~10 s heartbeat death. A resume also rescans, so a
 laptop that wakes on a different network relearns a moved satellite instead of
 retrying a stale address.
 
-**Closing the lid still suspends, and no application can change that.**
-`LidSwitchIgnoreInhibited` defaults to `yes` in `logind.conf`, which means
-logind executes the lid action even when an app holds a `handle-lid-switch`
-inhibitor — the lid is treated as a deliberate user action, like the power key.
-Keeping Dish streaming with the lid shut is therefore a system setting, not an
-app one:
+**Closing the lid can keep streaming, if you ask for it.** Settings ▸ Power has
+a *Keep streaming with the lid closed* switch, off by default and shown whenever
+*Keep the computer awake* is not Never. While it is on and Dish is holding the
+machine awake, Dish takes a second logind lock beside its `idle` one,
+`handle-lid-switch`/`block`, and lets go of it the moment the hold ends. A
+laptop that keeps running shut can get hot in a bag, which is why it stays off
+unless you turn it on.
+
+logind honours that lock whatever `LidSwitchIgnoreInhibited` says.
+`logind.conf(5)`: "Low level inhibitor locks ("handle-power-key",
+"handle-suspend-key", "handle-hibernate-key", "handle-lid-switch",
+"handle-reboot-key"), are always honored, irrespective of this setting."
+`LidSwitchIgnoreInhibited=yes` only overrides the high-level `sleep` locks, so it
+does not undo this one. The upstream polkit policy
+(`org.freedesktop.login1.inhibit-handle-lid-switch`) grants the lock without a
+prompt to active and inactive sessions. A system that refuses it anyway, an
+older logind or a machine without systemd, keeps working: Dish logs a warning
+(`dish.wake`), carries on with the `idle` lock alone, and closing the lid
+suspends as before. `systemd-inhibit --list` shows which locks Dish holds.
+
+Two things the lock does not change. `HoldoffTimeoutSec` (30 s by default)
+still applies: for that long after boot or resume logind does not react to the
+lid at all, with or without Dish. And docked already works untouched, because
+`HandleLidSwitchDocked` defaults to `ignore`.
+
+To keep the lid from suspending for every application, not only while Dish
+streams, set it system-wide instead:
 
 ```sh
 # /etc/systemd/logind.conf — pick the ones you want
@@ -212,8 +233,7 @@ HandleLidSwitchExternalPower=ignore
 ```
 
 then `sudo systemctl restart systemd-logind`. GNOME and KDE expose the same
-choice in their power settings. Docked already works untouched:
-`HandleLidSwitchDocked` defaults to `ignore`.
+choice in their power settings.
 
 ### Desktop integration
 
@@ -222,7 +242,8 @@ degrades rather than breaks: light/dark from the XDG appearance portal (falling
 back to dark), reduced motion from the XDG settings portal then `kdeglobals`
 (falling back to motion allowed), and keep-awake from logind's `idle` inhibit
 plus, when the display opt-in is on, `org.freedesktop.ScreenSaver.Inhibit`
-(each falling back to a silent no-op).
+and, when the lid opt-in is on, logind's `handle-lid-switch` inhibit (each
+falling back to a no-op).
 Bluetooth presence and power come from sysfs and BlueZ directly, because the
 wizard needs to tell "no adapter" from "adapter off".
 

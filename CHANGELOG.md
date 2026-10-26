@@ -16,6 +16,27 @@ the repos share a version number.
 
 ---
 
+## [Unreleased]
+
+### Added
+
+- **Dish can keep a laptop streaming with the lid closed.** Settings ▸ Power
+  has a new *Keep streaming with the lid closed* switch, off by default and
+  shown whenever *Keep the computer awake* is not Never. While it is on and
+  Dish is holding the computer awake, closing the lid no longer suspends it:
+  Dish holds logind's `handle-lid-switch` lock beside its idle one, which
+  logind always honours, and lets go of it when the hold ends. The streaming
+  pill says so. A system that refuses the lock logs a warning and suspends on
+  the lid as before. The README's old claim that no application can do this
+  was wrong, and is rewritten.
+
+### Fixed
+
+- **The pairing sheet takes the satellite's 4-digit PIN.** It waited for six
+  digits, while the satellite shows four, so a typed PIN could never be
+  submitted and pairing depended on approving the request on the PC. The
+  sheet now asks for four, the same length the satellite mints.
+
 ## [2.4.0] - 2026-10-25
 
 ### Added

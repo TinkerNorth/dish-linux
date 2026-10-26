@@ -308,6 +308,17 @@ Kit.Page {
                         onToggled: (checked) => App.setKeepDisplayAwake(checked)
                     }
                 }
+
+                Kit.Card {
+                    Layout.fillWidth: true
+                    visible: App.keepAwakeMode !== 0
+                    contentItem: Kit.LabeledSwitch {
+                        label: qsTr("Keep streaming with the lid closed")
+                        description: qsTr("The laptop keeps running with its lid shut and can get hot in a bag, so leave this off unless you need it.")
+                        checked: App.keepAwakeWithLidClosed
+                        onToggled: (checked) => App.setKeepAwakeWithLidClosed(checked)
+                    }
+                }
             }
 
             ColumnLayout {
