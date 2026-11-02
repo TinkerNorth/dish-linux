@@ -653,3 +653,31 @@ ViGEm mode at its defaults, two runs of each; `visible to recv` in microseconds:
 
 The first run of the change met another process's load (68 percent at its end); the second pair
 ran at 2 to 12 percent throughout.
+
+### No lock on the input thread's own work
+
+Three commits take every lock the input threads took for their own state. A session's key and
+token sit behind a seqlock and a compare-and-swap gate covers the counter draw, the seal and a
+`sendto` that no longer blocks (the socket is non-blocking; a full send buffer drops the
+datagram), so `satellite.send` is no longer held across `sendto` and the mic stops queueing pad
+reports behind it. The processor keeps a fixed record per device that its publishing thread writes
+with no lock and the inspector copies out through a seqlock. The SDL thread owns every open pad's
+record, reads pads from their events instead of 21 getters, and trades the device list and the
+GUI's inputs with the GUI through single-consumer handoffs. What is left on the input threads is
+the routing (`app.routing`, `wifi.client`) and the output queue (`bridge.output`), which the next
+changes take.
+
+Synthetic mode at its defaults and with `--mic-hz 1000`, before (`e6208be`, whose synthetic path
+items 1 and 2 did not touch) and after, back to back at 0 to 8 percent load; microseconds:
+
+| scenario | producer | p50 before | p50 after | p99 before | p99 after | p99.9 before | p99.9 after |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| S1 | A | 14.1 | 14.1 | 27.3 | 23.2 | 34.5 | 28.6 |
+| S2 | B | 5.6 | 5.5 | 16.1 | 8.0 | 36.5 | 12.4 |
+| S5 | A | 13.1 | 13.6 | 39.2 | 32.7 | 56.6 | 43.1 |
+| S5 | B | 6.2 | 5.2 | 15.1 | 8.9 | 52.0 | 11.1 |
+| S6 | DualSense | 13.3 | 12.3 | 28.9 | 25.1 | 49.4 | 31.1 |
+| S5 (mic 1000 Hz) | A | 27.9 | 22.1 | 53.4 | 37.7 | 66.8 | 45.0 |
+
+Pad A's median at 1 kHz is still its cold path (see the caveats): a producer that sleeps a
+millisecond between reports meets cold caches whatever it locks.

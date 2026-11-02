@@ -491,6 +491,8 @@ set(DISH_CORE_SOURCES
     src/Input/JoystickMapping.h
     src/Input/JoystickMapping.cpp
     src/Input/OutputCommandQueue.h
+    src/Input/ControllerShadow.h
+    src/Input/ControllerShadow.cpp
     src/Input/PumpWaiter.h
     src/Input/PumpWaiter.cpp
     src/Input/SDLGamepadBridge.h
