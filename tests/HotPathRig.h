@@ -193,7 +193,8 @@ inline BoundSocket bindLoopbackUdp() {
 
 // The satellite end of one session on 127.0.0.1: decrypts what the dish sends and hands each inner
 // message to `handler` on its own receive thread, answers every heartbeat ping with an ack, and
-// sends feedback back to the dish's address once the dish has sent anything.
+// sends feedback back to the address the dish last sent from: a session that replaces its client
+// sends from a new port, and the satellite answers it there, as the real one does.
 class LoopbackSatellite {
   public:
     using Handler = std::function<void(std::uint16_t msgType, const std::uint8_t* body,
@@ -224,7 +225,7 @@ class LoopbackSatellite {
     // thread's wake-up out of what a datagram's arrival stamp measures.
     void setSpinning(bool spinning) { spinning_.store(spinning, std::memory_order_relaxed); }
     std::uint16_t port() const { return bound_.port; }
-    bool knowsDish() const { return knowsDish_.load(std::memory_order_acquire); }
+    bool knowsDish() const { return dish_.load(std::memory_order_acquire) != 0; }
     std::uint64_t rejected() const { return rejected_.load(std::memory_order_relaxed); }
     std::uint64_t acksSent() const { return acksSent_.load(std::memory_order_relaxed); }
 
@@ -248,9 +249,10 @@ class LoopbackSatellite {
                                  packet.data() + kHeaderBytes, &cipherLen)) {
             return false;
         }
+        const sockaddr_in to = unpackAddress(dish_.load(std::memory_order_acquire));
         const ssize_t sent =
             ::sendto(bound_.fd, packet.data(), static_cast<std::size_t>(kHeaderBytes + cipherLen),
-                     0, reinterpret_cast<const sockaddr*>(&dish_), sizeof(dish_));
+                     0, reinterpret_cast<const sockaddr*>(&to), sizeof(to));
         return sent > 0;
     }
 
@@ -270,10 +272,7 @@ class LoopbackSatellite {
                 if (spin) { spinPause(); }
                 continue;
             }
-            if (!knowsDish()) {
-                dish_ = from;
-                knowsDish_.store(true, std::memory_order_release);
-            }
+            dish_.store(packAddress(from), std::memory_order_release);
             handleDatagram(buf.data(), static_cast<std::size_t>(n), plain, arrived);
         }
     }
@@ -315,11 +314,24 @@ class LoopbackSatellite {
         }
     }
 
+    // An IPv4 address and port as one word, network order kept, so the receive thread can move it
+    // while a sender reads it.
+    static std::uint64_t packAddress(const sockaddr_in& a) {
+        return (std::uint64_t{a.sin_addr.s_addr} << 16) | a.sin_port;
+    }
+    static sockaddr_in unpackAddress(std::uint64_t packed) {
+        sockaddr_in a{};
+        a.sin_family = AF_INET;
+        a.sin_addr.s_addr = static_cast<in_addr_t>(packed >> 16);
+        a.sin_port = static_cast<in_port_t>(packed & 0xFFFFU);
+        return a;
+    }
+
     const SessionKey key_;
     const Handler handler_;
     const BoundSocket bound_;
-    sockaddr_in dish_{};
-    std::atomic<bool> knowsDish_{false};
+    // The address the dish last sent from, packed; 0 until it has sent anything.
+    std::atomic<std::uint64_t> dish_{0};
     std::atomic<std::uint64_t> rejected_{0};
     std::atomic<std::uint64_t> acksSent_{0};
     std::mutex sendMtx_;
