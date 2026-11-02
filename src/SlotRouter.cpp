@@ -228,8 +228,8 @@ void SlotRouter::republish(const QStringList& slotIds) {
     }
     // A Moonlight host's feedback follows the same changes: a claim, a pad, the rumble switch.
     if (anyMoonlight_.load(std::memory_order_relaxed)) { refreshMoonlightFeedback(); }
-    // A client the old table held last is released here, outside the lock: its destructor joins
-    // the session's threads.
+    // A client the old table held last is released here, outside the lock. Its session handed it
+    // to the reaper when it let it go, and the reaper closes it, so the release joins nothing.
 }
 
 void SlotRouter::setMoonlightRoutes(const QString& slotId, MoonlightRoutes routes) {

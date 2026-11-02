@@ -309,6 +309,8 @@ set(DISH_CORE_SOURCES
     src/Network/PairingOutcome.cpp
     src/Network/HTTPClient.h
     src/Network/HTTPClient.cpp
+    src/Network/ClientReaper.h
+    src/Network/ClientReaper.cpp
     src/Network/WifiConnection.h
     src/Network/WifiConnection.cpp
     src/Network/WifiConnectionManager.h

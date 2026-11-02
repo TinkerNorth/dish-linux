@@ -49,6 +49,7 @@ void WifiConnection::updateServer(const models::DiscoveredServer& s) {
 
 void WifiConnection::markConnecting() {
     if (state_ == SessionState::Live) { return; }
+    if (state_ == SessionState::Faltering) { teardownClient(); }
     state_ = SessionState::Linking;
     emit changed();
 }
@@ -86,18 +87,22 @@ int WifiConnection::lowestFreeIndex() const {
     }
 }
 
+void WifiConnection::retireClient(std::shared_ptr<SatelliteClient> client) {
+    if (!client) { return; }
+    if (reaper_) {
+        reaper_->retire(std::move(client));
+        return;
+    }
+    client->closeSocket();
+}
+
 void WifiConnection::teardownClient() {
     if (aliveTimer_ != nullptr) {
         aliveTimer_->stop();
         aliveTimer_->deleteLater();
         aliveTimer_ = nullptr;
     }
-    if (auto existing = clientRef_.get()) {
-        existing->stopHeartbeat();
-        existing->stopReceiveLoop();
-        existing->closeSocket();
-    }
-    clientRef_.set(nullptr);
+    retireClient(clientRef_.exchange(nullptr));
     connectionId_.reset();
     lastAppliedEpoch_ = -1;
     mouseControlGranted_ = false;
@@ -123,7 +128,7 @@ void WifiConnection::markConnected(const std::shared_ptr<SatelliteClient>& clien
                                    std::function<void()> onReconcile,
                                    std::function<void()> onRekey) {
     if (state_ != SessionState::Linking) { return; }
-    clientRef_.set(client);
+    retireClient(clientRef_.exchange(client));
     connectionId_ = connectionId;
     lastAppliedEpoch_ = epoch;
     mouseControlGranted_ = mouseControlGranted;

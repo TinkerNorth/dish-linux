@@ -4,6 +4,7 @@
 #pragma once
 
 #include "Models/Models.h"
+#include "Network/ClientReaper.h"
 #include "SatelliteClient.h"
 #include "core/reducer/ProtocolNegotiation.h"
 #include "core/thread/TrackedMutex.h"
@@ -44,11 +45,12 @@ class ClientRef {
     // The client this replaces is released after the lock: its destructor joins the session's
     // heartbeat and receive threads, and a report on another thread would wait out both joins.
     void set(std::shared_ptr<SatelliteClient> v) {
-        std::shared_ptr<SatelliteClient> replaced;
-        {
-            std::lock_guard<thread::TrackedMutex> lock(mtx_);
-            replaced = std::exchange(value_, std::move(v));
-        }
+        const std::shared_ptr<SatelliteClient> replaced = exchange(std::move(v));
+    }
+    // set, handing the replaced client to the caller to close where it chooses.
+    std::shared_ptr<SatelliteClient> exchange(std::shared_ptr<SatelliteClient> v) {
+        std::lock_guard<thread::TrackedMutex> lock(mtx_);
+        return std::exchange(value_, std::move(v));
     }
 
   private:
@@ -94,7 +96,12 @@ class WifiConnection : public QObject {
     bool mouseControlGranted() const { return mouseControlGranted_; }
 
     void updateServer(const models::DiscoveredServer& s);
+    // A session still Faltering when a reconnect starts is torn down first: the new session brings
+    // its own client, and the old one must not keep streaming and pinging meanwhile.
     void markConnecting();
+    // Where a client this session lets go of is closed: the reaper's thread, so the GUI thread
+    // never joins the client's threads. Without one the close happens in place.
+    void setClientReaper(std::shared_ptr<ClientReaper> reaper) { reaper_ = std::move(reaper); }
     // Adopts the UDP tuple and applied state from a session PUT response.
     // `onRekey` fires once per approach to the send-counter threshold, not once
     // per tick. All four callbacks arrive on the main thread's alive-poll.
@@ -279,6 +286,7 @@ class WifiConnection : public QObject {
     std::map<QString, SlotBinding> slots_;
 
     ClientRef clientRef_;
+    std::shared_ptr<ClientReaper> reaper_;
     QTimer* aliveTimer_ = nullptr;
     // Driven from the main-thread alive-poll, never a receive-thread callback, so
     // the session FSM and REST never run off the UDP receive thread.
@@ -319,6 +327,7 @@ class WifiConnection : public QObject {
     void applySteadyState(const SatelliteClient& c);
     void maybeRequestRekey(const SatelliteClient& c);
     void teardownClient();
+    void retireClient(std::shared_ptr<SatelliteClient> client);
 };
 
 } // namespace dish::net

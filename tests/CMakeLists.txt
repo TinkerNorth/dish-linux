@@ -156,6 +156,7 @@ set(DISH_TEST_SOURCES
     test_satellite_client_send_counter.cpp
     test_wifi_connection_rekey.cpp
     test_client_ref.cpp
+    test_client_reaper.cpp
     test_controller_shadow.cpp
     test_slot_router.cpp
     test_output_mailbox.cpp

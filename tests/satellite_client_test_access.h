@@ -19,6 +19,11 @@ class SatelliteClientTestAccess {
         client.sendCounter_.store(next, std::memory_order_relaxed);
     }
 
+    // Parks the missed-ack count where heartbeats the satellite never answered would leave it.
+    static void seedMissedAcks(SatelliteClient& client, int missed) {
+        client.missedAcks_.store(missed, std::memory_order_relaxed);
+    }
+
     // Drives the receive dispatch with a fully framed datagram, so the wire
     // tests exercise decrypt + replay-guard + dispatch without a socket.
     static void processIncoming(SatelliteClient& client, const std::uint8_t* buf, std::size_t n) {

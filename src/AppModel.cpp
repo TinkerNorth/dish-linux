@@ -397,10 +397,12 @@ AppModel::~AppModel() {
     // half-torn-down manager. The gateway's destructor is what releases the live
     // claims, so it must outlive the manager that borrows it.
     bridge_->stop();
-    // The Moonlight control threads route host feedback through router_, which goes with the
-    // members after this body; they end here, with nothing left to tell this object.
+    // The Moonlight control threads and the satellite sessions' receive threads route feedback
+    // through router_, which goes with the members after this body; they end here, with nothing
+    // left to tell this object.
     QObject::disconnect(moonlight_, nullptr, this, nullptr);
     moonlight_->stopSessions();
+    wifi_->closeSessions();
     usbScanTimer_->stop();
     inputRateTimer_->stop();
     // Unregister the tray item and drop the suspend delay lock explicitly: a
