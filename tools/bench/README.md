@@ -193,9 +193,9 @@ its client down; `markConnected` then hands the new client to `ClientRef::set`, 
 old one under `wifi.client`, and when that is its last reference the destructor joins the heartbeat
 thread (up to 100 ms) and the receive thread (up to 500 ms in `recvfrom`) with the lock held. The
 SDL thread did not wait on it in these runs, so the lock was another session's, but a report on a
-Faltering session would wait out both joins. What replaced the first client is most likely the rig's
-own ack; After, below, explains it and re-takes this record with the loopback satellite answering
-the address the dish last sent from, which measures no such hold.
+Faltering session would wait out both joins. What replaced the first client is not established;
+After, below, re-takes this record with the loopback satellite answering the address the dish last
+sent from, which measures no such hold.
 
 The lock table, from `bench_input_path_lockstats` at the same settings, for the reported rep of each
 scenario (times in microseconds):
@@ -533,13 +533,11 @@ replaced, up to 44 us; no hot thread takes that lock.
 | synthetic | S5 (mic 1000 Hz) | app.audioRoutes | Gui | 90 | 0 | 0 | 0.1 | 0.1 | 0.3 |
 | synthetic | S5 (mic 1000 Hz) | app.routes | Gui | 30 | 0 | 0 | 0.1 | 0.1 | 35.2 |
 
-**Session churn, after.** Sessions still re-establish during the runs, as in the re-take: the GUI
-applies new session material and handlers one to three times a scenario. The likely trigger is the
-rig's: its satellite acks every ping with slot 0 applied (`kAckBitmap` in `tests/HotPathRig.h`), and
-a session with no slot bound reads that as a mismatch to reconcile, which opens a new session; the
-fourth session has none outside S7's toggles, and S7, where it is bound half the time,
-re-established once. A replaced client now closes on the reaper's thread, so neither the GUI nor a
-hot thread waits for its joins.
+**Session churn, after.** Sessions still re-establish during the Linux runs, as they did in the
+re-take: the GUI applies new session material and handlers one to three times a scenario and hands
+one to three replaced clients to the reaper. The Windows record, from the same rig, shows none, and
+what starts it here is not established. A replaced client now closes on the reaper's thread, so
+neither the GUI nor a hot thread waits for its joins.
 
 **The SDL pump's wait.** Measured on its own after the scenarios, with the waiter and the schedule
 the SDL thread uses, 4,001 cycles at the 500 us period woke 65.1 us late at the median, 78.0 us at
