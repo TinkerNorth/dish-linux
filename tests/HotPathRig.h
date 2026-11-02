@@ -145,6 +145,15 @@ inline void writeBe32(std::uint8_t* p, std::uint32_t v) {
     p[3] = static_cast<std::uint8_t>(v & 0xFFU);
 }
 
+// The spin-wait hint: x86's pause, which Windows spells YieldProcessor; elsewhere a yield.
+inline void spinPause() {
+#if defined(__x86_64__) || defined(__i386__)
+    __builtin_ia32_pause();
+#else
+    std::this_thread::yield();
+#endif
+}
+
 // Runs the Qt loop of the calling (owner) thread until `done` or the timeout.
 inline bool pumpUntil(const std::function<bool()>& done, int timeoutMs = kSettleMs) {
     const QDeadlineTimer deadline(timeoutMs);
@@ -173,10 +182,10 @@ inline BoundSocket bindLoopbackUdp() {
         ::close(bound.fd);
         return BoundSocket{};
     }
-    // Bounds the blocking receive so the loop sees its stop flag.
+    // Bounds the blocking receive so the loop sees its stop and spin flags.
     timeval timeout{};
     timeout.tv_sec = 0;
-    timeout.tv_usec = 50'000;
+    timeout.tv_usec = 10'000;
     ::setsockopt(bound.fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
     bound.port = ntohs(addr.sin_port);
     return bound;
@@ -210,6 +219,10 @@ class LoopbackSatellite {
     LoopbackSatellite& operator=(LoopbackSatellite&&) = delete;
 
     bool ok() const { return bound_.fd >= 0; }
+
+    // Spinning on a non-blocking receive, as the satellite's own receive loop does, keeps this
+    // thread's wake-up out of what a datagram's arrival stamp measures.
+    void setSpinning(bool spinning) { spinning_.store(spinning, std::memory_order_relaxed); }
     std::uint16_t port() const { return bound_.port; }
     bool knowsDish() const { return knowsDish_.load(std::memory_order_acquire); }
     std::uint64_t rejected() const { return rejected_.load(std::memory_order_relaxed); }
@@ -246,12 +259,17 @@ class LoopbackSatellite {
         std::array<std::uint8_t, proto::kUdpDatagramMaxBytes> buf{};
         std::array<std::uint8_t, proto::kUdpDatagramMaxBytes> plain{};
         while (running_.load(std::memory_order_relaxed)) {
+            const bool spin = spinning_.load(std::memory_order_relaxed);
+            const int flags = spin ? static_cast<int>(MSG_DONTWAIT) : 0;
             sockaddr_in from{};
             socklen_t fromLen = sizeof(from);
-            const ssize_t n = ::recvfrom(bound_.fd, buf.data(), buf.size(), 0,
+            const ssize_t n = ::recvfrom(bound_.fd, buf.data(), buf.size(), flags,
                                          reinterpret_cast<sockaddr*>(&from), &fromLen);
             const auto arrived = Clock::now();
-            if (n <= 0) { continue; }
+            if (n <= 0) {
+                if (spin) { spinPause(); }
+                continue;
+            }
             if (!knowsDish()) {
                 dish_ = from;
                 knowsDish_.store(true, std::memory_order_release);
@@ -306,6 +324,7 @@ class LoopbackSatellite {
     std::atomic<std::uint64_t> acksSent_{0};
     std::mutex sendMtx_;
     std::uint32_t sendCounter_ = 0;
+    std::atomic<bool> spinning_{false};
     std::atomic<bool> running_{false};
     std::thread thread_;
 };
