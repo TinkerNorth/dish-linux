@@ -862,6 +862,14 @@ class HotPathRig {
 
     void unbind(const QString& slotId) { hub_->unbind(slotId); }
 
+    // SDL_TicksInit marks the tick counter started before it reads the frequency, so two threads'
+    // first SDL calls can divide by zero: it starts here, before the SDL thread exists.
+    bool startBridge() {
+        SDL_GetTicks64();
+        bridge_.start();
+        return pumpUntil([] { return SDL_WasInit(SDL_INIT_GAMECONTROLLER) != 0; });
+    }
+
     bool claimDualSense() {
         usbManager_.reconcile();
         return usbGateway_.claimed() &&

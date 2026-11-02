@@ -11,8 +11,6 @@
 #include <QString>
 #include <QStringList>
 
-#include <SDL.h>
-
 #include <algorithm>
 #include <array>
 #include <atomic>
@@ -260,8 +258,7 @@ LawRun runTheHotPathsTogether() {
         hp::HotPathRig rig(2, [&tallies](int session) {
             return countInto(tallies[static_cast<std::size_t>(session)]);
         });
-        rig.bridge().start();
-        if (!hp::pumpUntil([] { return SDL_WasInit(SDL_INIT_GAMECONTROLLER) != 0; })) {
+        if (!rig.startBridge()) {
             run.failed = "the SDL thread never initialised SDL";
             return run;
         }
