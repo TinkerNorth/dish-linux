@@ -7,6 +7,7 @@
 #include "core/input/UsbOutputReports.h"
 #include "core/input/UsbReportParsers.h"
 #include "JoystickMapping.h"
+#include "PumpWaiter.h"
 #include "SdlMotionConvert.h"
 #include "Util/HostBattery.h"
 
@@ -16,6 +17,7 @@
 #include <QMetaObject>
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cstdint>
 #include <utility>
@@ -79,8 +81,9 @@ SDLGamepadBridge::SDLGamepadBridge(GamepadInputProcessor* processor, QObject* pa
 
 SDLGamepadBridge::~SDLGamepadBridge() { stop(); }
 
-void SDLGamepadBridge::start() {
+void SDLGamepadBridge::start(pump::PumpPolicy policy) {
     if (running_.exchange(true)) { return; }
+    policy_ = policy;
     thread_ = std::thread([this] { runLoop(); });
 }
 
@@ -208,6 +211,7 @@ SDLGamepadBridge::ControllerCaps SDLGamepadBridge::probeControllerCaps(SDL_GameC
 
 void SDLGamepadBridge::registerController(int iid, SDL_GameController* gc, const QString& deviceId,
                                           const QString& deviceName, const ControllerCaps& caps) {
+    ++openPads_;
     std::lock_guard<thread::TrackedMutex> lock(mtx_);
     openControllers_[iid] = gc;
     deviceIds_[iid] = deviceId;
@@ -269,6 +273,7 @@ void SDLGamepadBridge::onControllerRemoved(const SDL_Event& ev) {
             thread::blockingRegion("sdl.close");
             SDL_GameControllerClose(it->second);
             openControllers_.erase(it);
+            --openPads_;
         }
         if (auto it = deviceIds_.find(iid); it != deviceIds_.end()) {
             deviceId = it->second.toStdString();
@@ -314,6 +319,7 @@ void SDLGamepadBridge::onJoystickAdded(const SDL_Event& ev) {
     const char* devPath = SDL_JoystickPath(js);
     const bool bluetooth = devPath != nullptr && dish::input::isBluetoothHidDevicePath(devPath);
     const bool hasRumble = SDL_JoystickHasRumble(js) == SDL_TRUE;
+    ++openPads_;
     {
         std::lock_guard<thread::TrackedMutex> lock(mtx_);
         openJoysticks_[iid] = js;
@@ -351,6 +357,7 @@ void SDLGamepadBridge::onJoystickRemoved(const SDL_Event& ev) {
         thread::blockingRegion("sdl.close");
         SDL_JoystickClose(jit->second);
         openJoysticks_.erase(jit);
+        --openPads_;
         if (auto it = deviceIds_.find(iid); it != deviceIds_.end()) {
             deviceId = it->second.toStdString();
             deviceIds_.erase(it);
@@ -457,6 +464,7 @@ void SDLGamepadBridge::closeAllDevices() {
     openJoysticks_.clear();
     deviceIds_.clear();
     deviceNames_.clear();
+    openPads_ = 0;
 }
 
 void SDLGamepadBridge::runLoop() {
@@ -468,17 +476,19 @@ void SDLGamepadBridge::runLoop() {
         return;
     }
 
+    // SDL_WaitEventTimeout with no window is a pump and a 1 ms sleep, which samples a pad every 1.5
+    // to 2 ms; an open pad is pumped on the policy's period instead, from absolute deadlines.
+    const PumpWaiter waiter(policy_.wait);
+    pump::Schedule schedule(pump::Clock::now(), policy_.period);
     while (running_.load(std::memory_order_relaxed)) {
-        SDL_Event ev;
-        if (SDL_WaitEventTimeout(&ev, kSdlWaitMs) == 0) { continue; }
-        dispatchSdlEvent(ev);
-
-        // Here, so every SDL_GameController* is resolved and used only on the SDL thread.
-        drainOutputCommands();
-
-        // Cheap despite running every iteration: the per-device gate inside collapses it to a 30 s
-        // cadence.
-        pollBatteries();
+        if (openPads_ == 0) {
+            if (SDL_Event ev; SDL_WaitEventTimeout(&ev, kSdlWaitMs) != 0) { dispatchSdlEvent(ev); }
+            schedule = pump::Schedule(pump::Clock::now(), policy_.period);
+        } else {
+            waiter.waitUntil(schedule.deadline());
+        }
+        pumpOnce(pump::Clock::now());
+        schedule.advance(pump::Clock::now());
     }
 
     closeAllDevices();
@@ -486,6 +496,24 @@ void SDLGamepadBridge::runLoop() {
     // SDL frees a thread's own storage (its error buffer) only on threads it started; this one is
     // a std::thread, so it hands that back itself.
     SDL_TLSCleanup();
+}
+
+void SDLGamepadBridge::pumpOnce(TimePoint now) {
+    SDL_PumpEvents();
+    std::array<SDL_Event, kPeepBatch> events{};
+    int got = 0;
+    while ((got = SDL_PeepEvents(events.data(), kPeepBatch, SDL_GETEVENT, SDL_FIRSTEVENT,
+                                 SDL_LASTEVENT)) > 0) {
+        for (int i = 0; i < got; ++i) { dispatchSdlEvent(events[static_cast<std::size_t>(i)]); }
+    }
+
+    // Here, so every SDL_GameController* is resolved and used only on the SDL thread.
+    drainOutputCommands();
+
+    if (now - lastBatterySweep_ >= kBatterySweepInterval) {
+        lastBatterySweep_ = now;
+        pollBatteries();
+    }
 }
 
 void SDLGamepadBridge::applyRumble(const QString& deviceId, std::uint16_t strongMagnitude,

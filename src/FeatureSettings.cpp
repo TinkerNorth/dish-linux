@@ -5,6 +5,10 @@
 #include "FeatureSettings.h"
 
 #include <QCoreApplication>
+#include <QVariant>
+
+#include <cstdint>
+#include <optional>
 
 namespace dish {
 
@@ -12,6 +16,8 @@ namespace {
 
 // Persisted verbatim, and shared with the other Dish clients: do not rename.
 constexpr const char* kLightbarModeKey = "feature_lightbar_mode";
+constexpr const char* kPumpSpinKey = "input/pumpSpin";
+constexpr const char* kPumpPeriodUsKey = "input/pumpPeriodUs";
 constexpr const char* kLightbarFollowGame = "followGame";
 constexpr const char* kLightbarOff = "off";
 
@@ -60,6 +66,12 @@ void FeatureSettings::load() {
     const auto raw = settings_->value(QLatin1String(kLightbarModeKey)).toString();
     lightbarMode_ = lightbarModeFromKey(raw);
     lightbarFollowGame_.store(lightbarMode_ == LightbarMode::FollowGame, std::memory_order_relaxed);
+    const QVariant periodUs = settings_->value(QLatin1String(kPumpPeriodUsKey));
+    bool periodOk = false;
+    const qlonglong period = periodUs.toLongLong(&periodOk);
+    pumpPolicy_ = input::pump::policyFromSettings(
+        settings_->value(QLatin1String(kPumpSpinKey), false).toBool(),
+        periodOk ? std::optional<std::int64_t>(period) : std::nullopt);
 }
 
 void FeatureSettings::setLightbarMode(LightbarMode mode) {

@@ -124,6 +124,7 @@ struct Options {
     std::string csv;
     std::vector<std::string> scenarios;
     bool spinReceivers = true;
+    dish::input::pump::PumpPolicy pump{};
     bool smoke = false;
     bool help = false;
 };
@@ -131,6 +132,10 @@ struct Options {
 const char* modeName(Mode mode) { return mode == Mode::Vigem ? "vigem" : "synthetic"; }
 
 const char* receiverName(const Options& o) { return o.spinReceivers ? "spin" : "block"; }
+
+const char* pumpName(const Options& o) {
+    return o.pump.wait == dish::input::pump::WaitStrategy::Spin ? "spin" : "timer";
+}
 
 void printUsage(std::ostream& out) {
     out << "usage: bench_input_path [options]\n"
@@ -144,6 +149,9 @@ void printUsage(std::ostream& out) {
            "  --scenarios <list>      comma-separated subset of S1..S7 (default all)\n"
            "  --receiver spin|block   how a measured session's loopback satellite waits for a\n"
            "                          datagram: spinning (default) or blocked in recvfrom\n"
+           "  --pump timer|spin       how the SDL thread waits between pump cycles (default "
+           "timer)\n"
+           "  --pump-us <us>          the SDL thread's pump period (default 500)\n"
            "  --json <path>           also write the results, settings and machine as JSON\n"
            "  --csv <path>            also write the result rows as CSV\n"
            "  --smoke                 every scenario for 0.2 s, one rep, no warm-up; the exit\n"
@@ -194,6 +202,18 @@ bool applyFlag(Options& o, std::string_view flag, const std::function<const char
     if (flag == "--receiver") {
         if (text != "spin" && text != "block") { return false; }
         o.spinReceivers = text == "spin";
+        return true;
+    }
+    if (flag == "--pump") {
+        if (text != "timer" && text != "spin") { return false; }
+        o.pump.wait = text == "spin" ? dish::input::pump::WaitStrategy::Spin
+                                     : dish::input::pump::WaitStrategy::Timer;
+        return true;
+    }
+    if (flag == "--pump-us") {
+        int periodUs = 0;
+        if (!parseNumber(std::string(text), periodUs) || periodUs <= 0) { return false; }
+        o.pump.period = dish::input::pump::policyFromSettings(false, periodUs).period;
         return true;
     }
     if (flag == "--rate") { return parseNumber(std::string(text), o.rateHz) && o.rateHz > 0.0; }
@@ -551,7 +571,7 @@ class SyntheticBench {
 
     // Brings every session live with its pad bound; empty on success, else what failed.
     std::string setUp() {
-        if (!rig_.startBridge()) { return "the SDL thread never initialised SDL"; }
+        if (!rig_.startBridge(options_.pump)) { return "the SDL thread never initialised SDL"; }
         virtualA_.emplace("Bench pad A");
         virtualB_.emplace("Bench pad B");
         virtualC_.emplace("Bench pad C");
@@ -1079,10 +1099,12 @@ QJsonObject toJson(const Options& o, const Report& report) {
                                      {"maxHoldUs", l.maxHoldUs}});
         }
     }
-    QJsonObject settings{{"mode", modeName(o.mode)}, {"rateHz", o.rateHz},
-                         {"secs", o.secs},           {"reps", o.reps},
-                         {"micHz", o.micHz},         {"receiver", receiverName(o)},
-                         {"smoke", o.smoke},         {"scenarios", toJsonArray(o.scenarios)}};
+    QJsonObject settings{
+        {"mode", modeName(o.mode)}, {"rateHz", o.rateHz},
+        {"secs", o.secs},           {"reps", o.reps},
+        {"micHz", o.micHz},         {"receiver", receiverName(o)},
+        {"pump", pumpName(o)},      {"pumpUs", static_cast<int>(o.pump.period.count())},
+        {"smoke", o.smoke},         {"scenarios", toJsonArray(o.scenarios)}};
     QJsonObject machine{{"cpu", QString::fromStdString(cpuName())},
                         {"logicalCpus", static_cast<int>(std::thread::hardware_concurrency())},
                         {"os", QString::fromStdString(osName())},
@@ -1128,7 +1150,8 @@ bool writeCsv(const std::string& path, const Options& o, const Report& report) {
 void printBanner(std::ostream& out, const Options& o) {
     out << "bench_input_path: mode " << modeName(o.mode) << ", rate " << o.rateHz << " Hz, "
         << o.secs << " s x " << o.reps << " reps, mic " << o.micHz << " Hz, receivers "
-        << receiverName(o) << (o.smoke ? ", smoke" : "") << "\n"
+        << receiverName(o) << ", pump " << pumpName(o) << " " << o.pump.period.count() << " us"
+        << (o.smoke ? ", smoke" : "") << "\n"
         << "machine: " << cpuName() << ", " << std::thread::hardware_concurrency()
         << " logical CPUs, " << osName() << " (" << kernelRelease() << "), " << buildType()
         << " build" << (lockStatsBuild() ? ", lock statistics on" : "") << "\n";

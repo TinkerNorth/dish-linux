@@ -883,9 +883,9 @@ class HotPathRig {
 
     // SDL_TicksInit marks the tick counter started before it reads the frequency, so two threads'
     // first SDL calls can divide by zero: it starts here, before the SDL thread exists.
-    bool startBridge() {
+    bool startBridge(input::pump::PumpPolicy policy = {}) {
         SDL_GetTicks64();
-        bridge_.start();
+        bridge_.start(policy);
         return pumpUntil([] { return SDL_WasInit(SDL_INIT_GAMECONTROLLER) != 0; });
     }
 

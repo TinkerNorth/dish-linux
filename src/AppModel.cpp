@@ -752,7 +752,7 @@ std::optional<models::ConnectionSummary> AppModel::moonlightSummary(const QStrin
 }
 
 void AppModel::start() {
-    bridge_->start();
+    bridge_->start(featureSettings_->pumpPolicy());
     wifi_->autoReconnectAll();
     autoReconnectTimer_->start();
     // An immediate scan so a pad plugged in before launch is claimed promptly.

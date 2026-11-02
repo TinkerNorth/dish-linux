@@ -6,6 +6,7 @@
 #include "GamepadInputProcessor.h"
 #include "JoystickMapping.h"
 #include "OutputCommandQueue.h"
+#include "core/input/PumpPacing.h"
 #include "core/thread/TrackedMutex.h"
 
 #include <QObject>
@@ -40,7 +41,8 @@ class SDLGamepadBridge : public QObject {
     explicit SDLGamepadBridge(GamepadInputProcessor* processor, QObject* parent = nullptr);
     ~SDLGamepadBridge() override;
 
-    void start();
+    // The policy is read once here; the SDL thread is its only reader.
+    void start(pump::PumpPolicy policy = {});
     void stop();
 
     // A snapshot of one attached device. Every field is classified once at
@@ -152,7 +154,12 @@ class SDLGamepadBridge : public QObject {
     void rawJoystickInput(QString deviceId, int kind, int index, int value);
 
   private:
+    using TimePoint = std::chrono::steady_clock::time_point;
+
     void runLoop();
+    // One pump cycle: every queued SDL event, then the output queue, then the batteries when their
+    // sweep is due.
+    void pumpOnce(TimePoint now);
 
     // What one SDL event means, what a raw-joystick event means in particular, and what the loop
     // closes on its way out. All on the SDL thread.
@@ -160,8 +167,11 @@ class SDLGamepadBridge : public QObject {
     void onRawJoystickInput(int iid, CaptureKind kind, int index, int value, bool deliberate);
     void closeAllDevices();
 
-    // Long enough that an idle pump does not spin, short enough that a stop is observed promptly.
+    // With no pad open the loop blocks in SDL_WaitEventTimeout as it always did: long enough that
+    // an idle pump does not spin, short enough that a stop is observed promptly.
     static constexpr int kSdlWaitMs = 100;
+    static constexpr int kPeepBatch = 32;
+    static constexpr std::chrono::seconds kBatterySweepInterval{1};
 
     void applySdlHints();
     bool initSdl();
@@ -177,7 +187,7 @@ class SDLGamepadBridge : public QObject {
     void onJoystickRemoved(const SDL_Event& ev);
     // Drain the pending-command queue and execute each SDL output call
     // (rumble / SetLED / SendEffect) on the SDL thread. Called once per
-    // runLoop iteration.
+    // pump cycle.
     void drainOutputCommands();
     // Build one effect command's DualSense report and hand its body to
     // SDL_GameControllerSendEffect. SDL thread only.
@@ -206,8 +216,6 @@ class SDLGamepadBridge : public QObject {
     void handleTouchpadEvent(const SDL_ControllerTouchpadEvent& ev);
     void pollBatteries();
 
-    using TimePoint = std::chrono::steady_clock::time_point;
-
     // One device whose charge is due to be read, with its joystick handle already resolved so the
     // publish needs no lock of its own.
     struct PollEntry {
@@ -225,6 +233,11 @@ class SDLGamepadBridge : public QObject {
     GamepadInputProcessor* processor_;
     std::thread thread_;
     std::atomic<bool> running_{false};
+    pump::PumpPolicy policy_{};
+    // SDL thread only: the controllers and raw joysticks open now, and when the batteries were last
+    // swept.
+    int openPads_ = 0;
+    TimePoint lastBatterySweep_{};
 
     // Guarded by mtx_; manipulated only from the input thread except for
     // devices() which reads under lock.

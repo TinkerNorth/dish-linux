@@ -583,3 +583,50 @@ bench_input_path_lockstats --mode vigem --json lockstats-vigem.json
 # from one with -DDISH_LOCK_STATS=ON as well):
 ctest --test-dir build -R bench_input_path
 ```
+
+## Windows: on this branch, one change at a time
+
+Each change below is measured against the commit before it: both Release builds of the bench, run
+back to back on the machine above, with the CPU load sampled before, during and after each run
+(the bench's own spinning threads read as 1 to 12 percent).
+
+### The SDL thread pumps on a 500 us timer
+
+With no SDL window, `SDL_WaitEventTimeout` is a pump and a 1 ms `Sleep`, so a pad was sampled every
+1.5 to 2 ms and the output queue was drained only after an event. While a pad is open the SDL thread
+now runs an explicit cycle: `SDL_PumpEvents`, every queued event through `SDL_PeepEvents`, the output
+queue, and the batteries once a second; then it sleeps to the next deadline on a high-resolution
+waitable timer. The deadlines are absolute, cycle n due n periods after the first, so a late cycle
+runs at once, the ones it missed are skipped and the schedule does not drift
+(`tests/test_pump_pacing.cpp`). With no pad open the thread blocks in `SDL_WaitEventTimeout` as it
+always did, so hotplug and idle CPU are unchanged.
+
+ViGEm mode at its defaults (`--mode vigem`), two runs of each; `visible to recv` in microseconds:
+
+| build | p50 | p99 | p99.9 | max | over 1 ms | stimulus reports never sent | dgrams/report | effective Hz |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| before (`e6208be`) | 481.7 | 1032.7 | 1132.8 | 1202.2 | 64 | 935 | 1.38 | 688.3 |
+| before (`e6208be`) | 536.8 | 1029.3 | 1099.5 | 1113.5 | 41 | 1079 | 1.28 | 640.3 |
+| 500 us timer | 140.2 | 688.4 | 966.6 | 1013.1 | 1 | 4 | 2.00 | 998.7 |
+| 500 us timer | 199.1 | 770.0 | 988.6 | 1030.7 | 2 | 14 | 1.99 | 995.3 |
+| 500 us spin | 305.8 | 708.7 | 982.0 | 1053.0 | 1 | 9 | 1.99 | 997.0 |
+| 500 us spin | 430.3 | 882.8 | 1007.7 | 1023.1 | 3 | 20 | 1.99 | 993.3 |
+
+Nearly every stimulus report now leaves the dish, and the median wait for the next sample falls
+from about half a millisecond to under a quarter. Each report still goes out twice, once per stick
+axis SDL reports moved, which is why datagrams per report rose to 2; the next change batches them.
+
+Two settings keys are an experiment, read once when Dish starts and not in the GUI (they live under
+`HKEY_CURRENT_USER\Software\Dish\Dish\input` on Windows, and in the `[input]` group of
+`~/.config/com.tinkernorth.Dish/dish.conf` on Linux): `pumpPeriodUs`, the period (125 to 4000,
+default 500), and `pumpSpin`, which when `true` spins one core on `YieldProcessor` (x86's `pause` on
+Linux) up to each deadline instead of sleeping on the timer. The bench takes the same choice as
+`--pump timer|spin` and `--pump-us`.
+Spinning bought nothing here: its cycles are exact, so they phase-lock with a stimulus at twice the
+period and each run's median is whatever phase it started at (306 and 430 us above), while the
+timer's wake-up jitter spreads the phase. The timer stays the default.
+
+```
+bench_input_path --mode vigem --json vigem.json
+bench_input_path --mode vigem --pump spin --json vigem-spin.json
+```

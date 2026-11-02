@@ -13,6 +13,7 @@
 #include <QString>
 #include <QTemporaryDir>
 
+#include <chrono>
 #include <memory>
 
 using dish::FeatureSettings;
@@ -125,4 +126,29 @@ TEST_CASE("FeatureSettings persists the light-bar mode across a relaunch",
         REQUIRE(reloaded->lightbarMode() == LightbarMode::Off);
         REQUIRE_FALSE(reloaded->lightbarFollowGame());
     }
+}
+
+TEST_CASE("the pump policy is the default timer until the experiment keys say otherwise",
+          "[featuresettings][pump]") {
+    const QTemporaryDir dir;
+    REQUIRE(dir.isValid());
+    CHECK(makeSettings(dir)->pumpPolicy() == dish::input::pump::PumpPolicy{});
+    {
+        QSettings raw(dir.filePath(QStringLiteral("features.ini")), QSettings::IniFormat);
+        raw.setValue(QStringLiteral("input/pumpSpin"), true);
+        raw.setValue(QStringLiteral("input/pumpPeriodUs"), 1000);
+    }
+    const auto policy = makeSettings(dir)->pumpPolicy();
+    CHECK(policy.wait == dish::input::pump::WaitStrategy::Spin);
+    CHECK(policy.period == std::chrono::microseconds(1000));
+}
+
+TEST_CASE("a pump period that is not a number is the default", "[featuresettings][pump]") {
+    const QTemporaryDir dir;
+    REQUIRE(dir.isValid());
+    {
+        QSettings raw(dir.filePath(QStringLiteral("features.ini")), QSettings::IniFormat);
+        raw.setValue(QStringLiteral("input/pumpPeriodUs"), QStringLiteral("fast"));
+    }
+    CHECK(makeSettings(dir)->pumpPolicy().period == dish::input::pump::kDefaultPeriod);
 }
