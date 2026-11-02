@@ -199,6 +199,7 @@ class HidrawGateway : public UsbDeviceGateway {
     std::int64_t completionCount(int syntheticId) const override;
     std::int64_t decodedCount(int syntheticId) const override;
     bool writeOutputReport(int syntheticId, const std::uint8_t* data, std::size_t len) override;
+    std::unique_ptr<HidReportWriter> openReportWriter(int syntheticId) override;
     bool setPadMicMuted(int syntheticId, bool muted) override;
 
   private:
@@ -233,6 +234,8 @@ class HidrawGateway : public UsbDeviceGateway {
         ~Claimed();
     };
 
+    // The live claim for an id, or null. Looked up under mtx_, used after it.
+    Claimed* claimedFor(int syntheticId) const;
     void readLoop(Claimed* c);
     // readLoop's two decisions about one report: whether it was a dongle event rather than input,
     // and which decoder reads it.

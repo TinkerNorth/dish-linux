@@ -278,6 +278,9 @@ set(DISH_CORE_SOURCES
     src/core/input/DirtySet.h
     src/Input/TouchGate.h
     src/core/thread/GraceEpoch.h
+    src/core/thread/MpscQueue.h
+    src/core/thread/WorkerWake.h
+    src/core/input/OutputMailbox.h
     src/core/thread/LatestValue.h
     src/core/thread/Seqlock.h
     src/core/thread/SpscRing.h
@@ -387,6 +390,10 @@ set(DISH_CORE_SOURCES
     src/source/usb/HidrawGateway.cpp
     src/source/usb/UsbGamepadManager.h
     src/source/usb/UsbGamepadManager.cpp
+    src/source/usb/HidReportWriter.h
+    src/source/usb/HidReportWriter.cpp
+    src/source/usb/OutputWorker.h
+    src/source/usb/OutputWorker.cpp
     src/source/notification/EventChannel.h
     src/source/notification/DishNotifications.h
     src/source/notification/DishNotifications.cpp
@@ -492,7 +499,6 @@ set(DISH_CORE_SOURCES
     src/Input/SdlMotionConvert.cpp
     src/Input/JoystickMapping.h
     src/Input/JoystickMapping.cpp
-    src/Input/OutputCommandQueue.h
     src/Input/ControllerShadow.h
     src/Input/ControllerShadow.cpp
     src/Input/PumpWaiter.h

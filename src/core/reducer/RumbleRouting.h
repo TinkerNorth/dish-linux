@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Dish contributors.
 //
 // The routing decision for the MSG_RUMBLE (0x0009) return path: what to actuate,
-// not how. Actuation runs on the SDL thread via OutputCommandQueue.
+// not how. Actuation runs on the SDL thread, through the pad's output mailbox.
 
 #pragma once
 

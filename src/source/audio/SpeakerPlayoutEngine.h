@@ -31,13 +31,17 @@
 #pragma once
 
 #include "core/audio/AudioCodec.h"
+#include "core/audio/AudioEnginePolicy.h"
 #include "core/audio/AudioJitter.h"
+#include "core/model/Protocol.h"
+#include "core/thread/MpscQueue.h"
 #include "core/thread/TrackedMutex.h"
+#include "core/thread/WorkerWake.h"
 #include "source/audio/AudioDeviceGateway.h"
 
-#include <condition_variable>
+#include <array>
+#include <atomic>
 #include <cstdint>
-#include <deque>
 #include <functional>
 #include <map>
 #include <memory>
@@ -94,11 +98,12 @@ class SpeakerPlayoutEngine {
 
     // One MSG_SPEAKER_AUDIO or MSG_HAPTIC_AUDIO frame, on the connection's
     // receive thread. The opus bytes are borrowed (the SatelliteClient message
-    // contract); they are copied before returning, onto the playout thread's
-    // queue, at most kPlayoutPendingFrames deep with the oldest dropped. A
+    // contract); they are copied before returning into a cell of the playout
+    // thread's queue, kPlayoutPendingFrames deep, with no lock and no
+    // allocation. A full queue drops the new frame, as the network would. A
     // frame for a voice that is not held — the caps said so, or the plan moved
-    // — is dropped there, which is also what a host that ignored the caps
-    // deserves.
+    // — is dropped on the playout thread, which is also what a host that
+    // ignored the caps deserves.
     void deliver(const std::string& connectionId, int controllerIndex, PlayoutLane lane,
                  std::uint16_t seq, const std::uint8_t* opus, std::size_t opusLen);
 
@@ -139,23 +144,28 @@ class SpeakerPlayoutEngine {
                         std::uint16_t seq, const std::uint8_t* opus, std::size_t opusLen);
     void workerLoop();
 
-    // One frame as the receive thread handed it over.
+    // One frame as the receive thread handed it over, in a fixed cell. A connection id longer than
+    // the cell is dropped with its frame.
+    static constexpr std::size_t kMaxConnectionIdBytes = 96;
     struct PendingFrame {
-        std::string connectionId;
+        std::array<char, kMaxConnectionIdBytes> connectionId{};
+        std::size_t connectionIdLength = 0;
         int controllerIndex = 0;
         PlayoutLane lane = PlayoutLane::Speaker;
         std::uint16_t seq = 0;
-        std::vector<std::uint8_t> opus;
+        std::size_t opusLength = 0;
+        std::array<std::uint8_t, dish::proto::kAudioWireMaxOpusBytes> opus{};
     };
 
     AudioDeviceGateway* gateway_;
     DecoderFactory decoderFactory_;
     PlayoutDispatch dispatch_;
-    // The hand-off: the receive threads push, the playout thread pops.
-    thread::TrackedMutex pendingMtx_{"playout.pending"};
-    std::condition_variable_any pendingCv_;
-    std::deque<PendingFrame> pending_;
-    bool stopping_ = false;
+    // The hand-off: the receive threads push, the playout thread pops and sleeps on wake_ when
+    // there is nothing to pop.
+    thread::MpscQueue<PendingFrame, static_cast<std::size_t>(dish::audio::kPlayoutPendingFrames)>
+        pending_;
+    thread::WorkerWake wake_;
+    std::atomic<bool> stopping_{false};
     std::thread worker_;
     // One mutex over the voice table: reconcile (main) against deliver
     // (receive threads). Held across a voice's decode+queue so a close cannot

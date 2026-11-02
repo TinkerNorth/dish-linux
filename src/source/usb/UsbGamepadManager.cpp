@@ -7,11 +7,14 @@
 
 #include "Input/TouchGate.h"
 #include "core/input/UsbReportParsers.h"
+#include "core/model/Protocol.h"
 #include "core/reducer/UsbClaimHealth.h"
 #include "core/reducer/UsbPollRate.h"
 
 #include "Input/GamepadInputProcessor.h"
 
+#include <algorithm>
+#include <array>
 #include <atomic>
 #include <memory>
 #include <unordered_set>
@@ -151,6 +154,34 @@ UsbGamepadManager::UsbGamepadManager(UsbDeviceGateway* gateway,
                                      input::GamepadInputProcessor* processor,
                                      UsbPathPreferenceStore* prefs, UsbDirectObserver* observer)
     : gateway_(gateway), processor_(processor), prefs_(prefs), observer_(observer) {}
+
+// Nothing else touches the manager while it is destroyed: a route table that still holds a worker
+// holds it stopped.
+UsbGamepadManager::~UsbGamepadManager() {
+    for (auto& [syntheticId, worker] : workers_) { worker->stop(); }
+}
+
+void UsbGamepadManager::startWorker(int syntheticId, int key) {
+    if (gateway_ == nullptr) { return; }
+    auto worker =
+        std::make_shared<OutputWorker>(gateway_->openReportWriter(syntheticId),
+                                       input::usbparse::parserForDevice(key >> 16, key & 0xFFFF));
+    std::lock_guard<thread::TrackedMutex> lock(mtx_);
+    workers_[syntheticId] = std::move(worker);
+}
+
+void UsbGamepadManager::releaseClaimAndWorker(int syntheticId) {
+    std::shared_ptr<OutputWorker> worker;
+    {
+        std::lock_guard<thread::TrackedMutex> lock(mtx_);
+        if (const auto it = workers_.find(syntheticId); it != workers_.end()) {
+            worker = std::move(it->second);
+            workers_.erase(it);
+        }
+    }
+    if (worker != nullptr) { worker->stop(); }
+    if (gateway_ != nullptr) { gateway_->releaseClaim(syntheticId); }
+}
 
 reducer::PathChoice UsbGamepadManager::resolvePath(int vendorId, int productId) const {
     std::optional<reducer::PathChoice> stored;
@@ -320,12 +351,6 @@ void UsbGamepadManager::fireTimeout(int vendorId, int productId) {
     applyEvent(vpKey(vendorId, productId), reducer::event::Timeout{});
 }
 
-void UsbGamepadManager::forgetFeedbackState(int key) {
-    std::lock_guard<thread::TrackedMutex> lock(feedbackMtx_);
-    feedback_.erase(key);
-    feedbackSeq_.erase(key);
-}
-
 std::optional<UsbGamepadManager::DirectTarget>
 UsbGamepadManager::directTarget(int vendorId, int productId) const {
     std::lock_guard<thread::TrackedMutex> lock(mtx_);
@@ -341,6 +366,7 @@ UsbGamepadManager::directTarget(int vendorId, int productId) const {
     t.vendorId = vendorId;
     t.productId = productId;
     t.syntheticId = *controller.syntheticId;
+    if (const auto w = workers_.find(t.syntheticId); w != workers_.end()) { t.worker = w->second; }
     // The family comes from the identity, not from the gateway: the manager
     // must answer the same question the capability solve asked when it built
     // the descriptor, and that one only ever had (vid, pid).
@@ -360,20 +386,11 @@ bool UsbGamepadManager::applyRumble(int vendorId, int productId, std::uint16_t s
 
 bool UsbGamepadManager::applyRumble(const DirectTarget& target, std::uint16_t strongMagnitude,
                                     std::uint16_t weakMagnitude) {
-    if (gateway_ == nullptr) { return false; }
-    std::array<std::uint8_t, input::usbout::kMaxOutputReportBytes> buf{};
-    std::size_t n = 0;
-    {
-        // The state is read for the DS5 mute-lamp re-assert, so the lookup and
-        // the build are one critical section like the lightbar's.
-        std::lock_guard<thread::TrackedMutex> lock(feedbackMtx_);
-        const std::uint8_t seq = nextSeqLocked(vpKey(target.vendorId, target.productId));
-        const auto& st = feedback_[vpKey(target.vendorId, target.productId)];
-        n = input::usbout::buildRumbleReport(target.parser, st, strongMagnitude, weakMagnitude, seq,
-                                             buf.data(), buf.size());
+    if (target.worker == nullptr || !input::usbparse::parserHasRumble(target.parser)) {
+        return false;
     }
-    if (n == 0) { return false; }
-    return gateway_->writeOutputReport(target.syntheticId, buf.data(), n);
+    target.worker->postRumble(strongMagnitude, weakMagnitude);
+    return true;
 }
 
 bool UsbGamepadManager::applyLightbar(int vendorId, int productId, std::uint8_t r, std::uint8_t g,
@@ -384,19 +401,11 @@ bool UsbGamepadManager::applyLightbar(int vendorId, int productId, std::uint8_t 
 
 bool UsbGamepadManager::applyLightbar(const DirectTarget& target, std::uint8_t r, std::uint8_t g,
                                       std::uint8_t b) {
-    if (gateway_ == nullptr) { return false; }
-    std::array<std::uint8_t, input::usbout::kMaxOutputReportBytes> buf{};
-    std::size_t n = 0;
-    {
-        // The builder mutates the one-time DualSense handoff flag, so the state
-        // lookup and the build are one critical section: two colours racing in
-        // must not both decide they are the first.
-        std::lock_guard<thread::TrackedMutex> lock(feedbackMtx_);
-        auto& st = feedback_[vpKey(target.vendorId, target.productId)];
-        n = input::usbout::buildLightbarReport(target.parser, st, r, g, b, buf.data(), buf.size());
+    if (target.worker == nullptr || !input::usbout::parserHasLightbar(target.parser)) {
+        return false;
     }
-    if (n == 0) { return false; }
-    return gateway_->writeOutputReport(target.syntheticId, buf.data(), n);
+    target.worker->postLightbar(r, g, b);
+    return true;
 }
 
 bool UsbGamepadManager::applyPlayerLeds(int vendorId, int productId, std::uint8_t ledMask) {
@@ -405,18 +414,11 @@ bool UsbGamepadManager::applyPlayerLeds(int vendorId, int productId, std::uint8_
 }
 
 bool UsbGamepadManager::applyPlayerLeds(const DirectTarget& target, std::uint8_t ledMask) {
-    if (gateway_ == nullptr) { return false; }
-    std::array<std::uint8_t, input::usbout::kMaxOutputReportBytes> buf{};
-    std::size_t n = 0;
-    {
-        std::lock_guard<thread::TrackedMutex> lock(feedbackMtx_);
-        const std::uint8_t seq = nextSeqLocked(vpKey(target.vendorId, target.productId));
-        const auto& st = feedback_[vpKey(target.vendorId, target.productId)];
-        n = input::usbout::buildPlayerLedsReport(target.parser, st, ledMask, seq, buf.data(),
-                                                 buf.size());
+    if (target.worker == nullptr || !input::usbout::parserHasPlayerLeds(target.parser)) {
+        return false;
     }
-    if (n == 0) { return false; }
-    return gateway_->writeOutputReport(target.syntheticId, buf.data(), n);
+    target.worker->postPlayerLeds(ledMask);
+    return true;
 }
 
 bool UsbGamepadManager::applyTriggerEffects(
@@ -429,17 +431,15 @@ bool UsbGamepadManager::applyTriggerEffects(
 bool UsbGamepadManager::applyTriggerEffects(
     const DirectTarget& target, const std::uint8_t left[input::usbout::kTriggerEffectBlockBytes],
     const std::uint8_t right[input::usbout::kTriggerEffectBlockBytes]) {
-    if (gateway_ == nullptr) { return false; }
-    std::array<std::uint8_t, input::usbout::kMaxOutputReportBytes> buf{};
-    std::size_t n = 0;
-    {
-        std::lock_guard<thread::TrackedMutex> lock(feedbackMtx_);
-        const auto& st = feedback_[vpKey(target.vendorId, target.productId)];
-        n = input::usbout::buildTriggerEffectsReport(target.parser, st, left, right, buf.data(),
-                                                     buf.size());
+    if (target.worker == nullptr || !input::usbout::parserHasTriggerEffects(target.parser)) {
+        return false;
     }
-    if (n == 0) { return false; }
-    return gateway_->writeOutputReport(target.syntheticId, buf.data(), n);
+    std::array<std::uint8_t, input::usbout::kTriggerEffectBlockBytes> l{};
+    std::array<std::uint8_t, input::usbout::kTriggerEffectBlockBytes> r{};
+    std::copy_n(left, l.size(), l.begin());
+    std::copy_n(right, r.size(), r.begin());
+    target.worker->postTriggerEffects(l, r);
+    return true;
 }
 
 bool UsbGamepadManager::applyMicMuteLed(int vendorId, int productId, std::uint8_t state) {
@@ -447,19 +447,14 @@ bool UsbGamepadManager::applyMicMuteLed(int vendorId, int productId, std::uint8_
     return target.has_value() && applyMicMuteLed(*target, state);
 }
 
+// MSG_MIC_LED's own values only; anything else is refused here, as the builder would.
 bool UsbGamepadManager::applyMicMuteLed(const DirectTarget& target, std::uint8_t state) {
-    if (gateway_ == nullptr) { return false; }
-    std::array<std::uint8_t, input::usbout::kMaxOutputReportBytes> buf{};
-    std::size_t n = 0;
-    {
-        // The builder writes the lamp shadow, so the lookup and the build are
-        // one critical section like the lightbar handoff's.
-        std::lock_guard<thread::TrackedMutex> lock(feedbackMtx_);
-        auto& st = feedback_[vpKey(target.vendorId, target.productId)];
-        n = input::usbout::buildMicMuteLedReport(target.parser, st, state, buf.data(), buf.size());
+    if (target.worker == nullptr || !input::usbout::parserHasMicMuteLed(target.parser) ||
+        state >= proto::kMicLedStateCount) {
+        return false;
     }
-    if (n == 0) { return false; }
-    return gateway_->writeOutputReport(target.syntheticId, buf.data(), n);
+    target.worker->postMicLed(state);
+    return true;
 }
 
 bool UsbGamepadManager::setPadMicMuted(int vendorId, int productId, bool muted) {
@@ -519,10 +514,7 @@ void UsbGamepadManager::execute(int key, const reducer::UsbController& c,
             } else if constexpr (std::is_same_v<T, reducer::effect::Reclaim>) {
                 runReclaim(key, c);
             } else if constexpr (std::is_same_v<T, reducer::effect::Release>) {
-                if (c.syntheticId.has_value() && gateway_ != nullptr) {
-                    gateway_->releaseClaim(*c.syntheticId);
-                }
-                forgetFeedbackState(key);
+                if (c.syntheticId.has_value()) { releaseClaimAndWorker(*c.syntheticId); }
             } else if constexpr (std::is_same_v<T, reducer::effect::RequestPermission>) {
                 // There is no runtime grant to request on hidraw — the open is
                 // the only gate. Treat the request as immediately satisfied so a
@@ -533,9 +525,8 @@ void UsbGamepadManager::execute(int key, const reducer::UsbController& c,
                     observer_->bind(e.frameworkId, *c.connId, c.type.value_or(kControllerTypeXbox));
                 }
             } else if constexpr (std::is_same_v<T, reducer::effect::RemoveSynthetic>) {
-                if (gateway_ != nullptr) { gateway_->releaseClaim(e.syntheticId); }
+                releaseClaimAndWorker(e.syntheticId);
                 if (observer_ != nullptr) { observer_->syntheticRemoved(e.syntheticId); }
-                forgetFeedbackState(key);
             } else if constexpr (std::is_same_v<T, reducer::effect::BeginHold>) {
                 if (observer_ != nullptr) { observer_->beginHold(c.vendorId, c.productId); }
             } else if constexpr (std::is_same_v<T, reducer::effect::EndHold>) {
@@ -585,6 +576,7 @@ ClaimResult UsbGamepadManager::claimTracked(int key) {
 void UsbGamepadManager::runClaim(int key) {
     const ClaimResult outcome = claimTracked(key);
     if (outcome.ok) {
+        startWorker(outcome.syntheticId, key);
         applyEvent(key, reducer::event::ClaimSucceeded{outcome.syntheticId});
     } else {
         applyEvent(key, reducer::event::ClaimFailed{outcome.reason, outcome.frameworkStolen});
@@ -597,10 +589,11 @@ void UsbGamepadManager::runReclaim(int key, const reducer::UsbController& c) {
     // The old placeholder synthetic is dropped on a reclaim (android removes it
     // before feeding the outcome back).
     if (oldPlaceholder.has_value()) {
-        if (gateway_ != nullptr) { gateway_->releaseClaim(*oldPlaceholder); }
+        releaseClaimAndWorker(*oldPlaceholder);
         if (observer_ != nullptr) { observer_->syntheticRemoved(*oldPlaceholder); }
     }
     if (outcome.ok) {
+        startWorker(outcome.syntheticId, key);
         if (observer_ != nullptr && c.connId.has_value()) {
             observer_->bind(outcome.syntheticId, *c.connId, c.type.value_or(kControllerTypeXbox));
         }

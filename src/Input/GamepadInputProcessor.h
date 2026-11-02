@@ -207,6 +207,8 @@ class GamepadInputProcessor {
     // The device's index, the one it already has or a free one, without a lock. Empty when the
     // table is full or the id is too long. One thread introduces a given id.
     std::optional<DeviceIndex> add(const DeviceId& id);
+    // The device's index if it has one, without making one. Any thread, no lock.
+    std::optional<DeviceIndex> find(const DeviceId& id) const;
     // Frees the device's record. Called once whoever publishes for the device has stopped.
     void remove(const DeviceId& id);
     void setDeadzones(const DeviceId& id, const Deadzones& dz);
@@ -293,7 +295,6 @@ class GamepadInputProcessor {
         std::optional<TouchpadSample> lastTouchpad;
     };
 
-    std::optional<DeviceIndex> find(const DeviceId& id) const;
     bool idMatches(const Record& r, const DeviceId& id) const;
     Record* recordAt(DeviceIndex index);
     // The device's thread, catching up with a plugGen the cold side moved.

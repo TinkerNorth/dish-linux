@@ -560,40 +560,28 @@ bool HidrawGateway::setPadMicMuted(int syntheticId, bool muted) {
     return true;
 }
 
-bool HidrawGateway::writeOutputReport(int syntheticId, const std::uint8_t* data, std::size_t len) {
-    if (data == nullptr || len == 0) { return false; }
-    Claimed* c = nullptr;
-    {
-        // The claim map's lock is released before the write: a write can block
-        // on a sleeping pad, and holding mtx_ across it would stall reconcile().
-        // Safe because releaseClaim() joins the reader and erases the entry only
-        // from the owner thread, and every caller here is downstream of a live
-        // binding for this device.
-        std::lock_guard<thread::TrackedMutex> lock(mtx_);
-        const auto it = claimed_.find(syntheticId);
-        if (it == claimed_.end()) { return false; }
-        c = it->second.get();
-    }
-    const int fd = c->fd;
-    if (fd < 0) { return false; }
+HidrawGateway::Claimed* HidrawGateway::claimedFor(int syntheticId) const {
+    // The claim map's lock is released before any write: a write can block on a sleeping pad, and
+    // holding mtx_ across it would stall reconcile(). Safe because releaseClaim() joins the reader
+    // and erases the entry only from the owner thread, after the manager stopped the claim's
+    // output worker.
+    std::lock_guard<thread::TrackedMutex> lock(mtx_);
+    const auto it = claimed_.find(syntheticId);
+    return it == claimed_.end() ? nullptr : it->second.get();
+}
 
-    std::lock_guard<thread::TrackedMutex> lock(c->writeMtx);
-    // hidraw takes the report exactly as built, with the id as byte 0 and no
-    // padding: unlike the Windows HID stack it does not demand a fixed-length
-    // buffer, so the builder's length IS the transfer length.
-    for (;;) {
-        thread::blockingRegion("hid.write");
-        const ssize_t written = ::write(fd, data, len);
-        if (written >= 0) { return static_cast<std::size_t>(written) == len; }
-        // A signal during the write is not a failure; anything else is. Retrying
-        // EINTR here matters because the app installs handlers (crash reporting,
-        // session management) that can land on any thread.
-        if (errno == EINTR) { continue; }
-        // Silent, like every other IO path in this file: a feedback write is
-        // lossy telemetry, and a pad that has gone away is about to surface as
-        // a claim failure anyway.
-        return false;
-    }
+// The claim's own node and write lock; the manager stops the worker that holds the writer before
+// it releases the claim, which is what closes the node.
+std::unique_ptr<HidReportWriter> HidrawGateway::openReportWriter(int syntheticId) {
+    Claimed* c = claimedFor(syntheticId);
+    if (c == nullptr || c->fd < 0) { return UsbDeviceGateway::openReportWriter(syntheticId); }
+    return std::make_unique<FdReportWriter>(c->fd, &c->writeMtx);
+}
+
+bool HidrawGateway::writeOutputReport(int syntheticId, const std::uint8_t* data, std::size_t len) {
+    Claimed* c = claimedFor(syntheticId);
+    if (c == nullptr) { return false; }
+    return FdReportWriter(c->fd, &c->writeMtx).write(data, len);
 }
 
 } // namespace dish::source::usb

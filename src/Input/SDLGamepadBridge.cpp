@@ -190,6 +190,8 @@ void SDLGamepadBridge::releasePad(Pad& pad) {
 // so a user's dead zones set from that list land on the same record.
 void SDLGamepadBridge::registerPad(Pad& pad) {
     pad.index = processor_->add(pad.id);
+    // Feedback left for a device that held this index before is not this pad's.
+    if (pad.index.has_value()) { mailboxes_[*pad.index].clear(); }
     processor_->setDeadzones(pad.id, {kDefaultStickFlat, kDefaultTriggerFlat});
     applyInputs(pad);
 }
@@ -489,7 +491,7 @@ void SDLGamepadBridge::pumpOnce(TimePoint now) {
     rebuildDirty();
 
     // Here, so every SDL_GameController* is resolved and used only on the SDL thread.
-    drainOutputCommands();
+    drainMailboxes();
 
     if (now - lastBatterySweep_ >= kBatterySweepInterval) {
         lastBatterySweep_ = now;
@@ -497,9 +499,12 @@ void SDLGamepadBridge::pumpOnce(TimePoint now) {
     }
 }
 
-void SDLGamepadBridge::applyRumble(const QString& deviceId, std::uint16_t strongMagnitude,
-                                   std::uint16_t weakMagnitude, std::uint16_t durationMs) {
-    outputQueue_.push(OutputCommand::rumble(deviceId, strongMagnitude, weakMagnitude, durationMs));
+void SDLGamepadBridge::postRumble(GamepadInputProcessor::DeviceIndex device,
+                                  std::uint16_t strongMagnitude, std::uint16_t weakMagnitude,
+                                  std::uint16_t durationMs) {
+    if (device < mailboxes_.size()) {
+        mailboxes_[device].postRumble(strongMagnitude, weakMagnitude, durationMs);
+    }
 }
 
 void SDLGamepadBridge::setSuppressedDeviceIds(const std::unordered_set<std::string>& ids) {
@@ -636,90 +641,74 @@ void SDLGamepadBridge::pollBatteries(TimePoint now) {
     if (anyChange) { publishDevices(); }
 }
 
-void SDLGamepadBridge::applyLightbar(const QString& deviceId, std::uint8_t r, std::uint8_t g,
-                                     std::uint8_t b) {
-    outputQueue_.push(OutputCommand::lightbar(deviceId, r, g, b));
+void SDLGamepadBridge::postLightbar(GamepadInputProcessor::DeviceIndex device, std::uint8_t r,
+                                    std::uint8_t g, std::uint8_t b) {
+    if (device < mailboxes_.size()) { mailboxes_[device].postLightbar(r, g, b); }
 }
 
-void SDLGamepadBridge::applyTriggerEffects(
-    const QString& deviceId, const std::array<std::uint8_t, usbout::kTriggerEffectBlockBytes>& left,
+void SDLGamepadBridge::postTriggerEffects(
+    GamepadInputProcessor::DeviceIndex device,
+    const std::array<std::uint8_t, usbout::kTriggerEffectBlockBytes>& left,
     const std::array<std::uint8_t, usbout::kTriggerEffectBlockBytes>& right) {
-    outputQueue_.push(OutputCommand::triggerEffects(deviceId, left, right));
+    if (device < mailboxes_.size()) { mailboxes_[device].postTriggerEffects(left, right); }
 }
 
-void SDLGamepadBridge::applyPlayerLeds(const QString& deviceId, std::uint8_t ledMask) {
-    outputQueue_.push(OutputCommand::playerLeds(deviceId, ledMask));
+void SDLGamepadBridge::postPlayerLeds(GamepadInputProcessor::DeviceIndex device,
+                                      std::uint8_t ledMask) {
+    if (device < mailboxes_.size()) { mailboxes_[device].postPlayerLeds(ledMask); }
 }
 
-void SDLGamepadBridge::applyMicLed(const QString& deviceId, std::uint8_t state) {
-    outputQueue_.push(OutputCommand::micLed(deviceId, state));
+void SDLGamepadBridge::postMicLed(GamepadInputProcessor::DeviceIndex device, std::uint8_t state) {
+    if (device < mailboxes_.size()) { mailboxes_[device].postMicLed(state); }
 }
 
-void SDLGamepadBridge::drainOutputCommands() {
-    // drain() takes the batch atomically so the receive thread can keep
-    // enqueueing while this executes.
-    for (const auto& cmd : outputQueue_.drain()) {
-        // Resolved here, on the SDL thread. A pad removed since the command was enqueued is no
-        // longer in the table, so the command is dropped rather than used after close.
-        const auto pad = std::find_if(pads_.begin(), pads_.end(), [&cmd](const Pad& p) {
-            return p.kind == PadKind::Controller && p.device.id == cmd.deviceId;
-        });
-        if (pad == pads_.end()) { continue; }
-        switch (cmd.kind) {
-        case OutputKind::Rumble:
-            // Return value ignored: -1 just means the pad has no rumble, and
-            // neither the caller nor the satellite-side game has any recourse.
-            SDL_GameControllerRumble(pad->gc, cmd.strongMagnitude, cmd.weakMagnitude,
-                                     cmd.durationMs);
-            break;
-        case OutputKind::Lightbar:
-            SDL_GameControllerSetLED(pad->gc, cmd.r, cmd.g, cmd.b);
-            break;
-        case OutputKind::TriggerEffects:
-        case OutputKind::PlayerLeds:
-        case OutputKind::MicLed:
-            sendEffect(*pad, cmd);
-            break;
-        }
+void SDLGamepadBridge::drainMailboxes() {
+    for (Pad& pad : pads_) {
+        if (pad.kind != PadKind::Controller || !pad.index.has_value()) { continue; }
+        if (const auto taken = mailboxes_[*pad.index].take()) { applyOutput(pad, *taken); }
     }
 }
 
-// One arm per effect kind the DualSense takes over SDL, each a builder call. Long because the
-// kinds are this many; the switch is what the compiler checks when OutputKind gains one.
-void SDLGamepadBridge::sendEffect(Pad& pad, const OutputCommand& cmd) {
-    // The family from the pad's USB identity, which a Bluetooth pad reports
-    // too. The builders answer 0 for any family without the surface, and the
-    // router upstream only sends a DualSense here, so a 0 is a pad that
-    // changed identity under us rather than a wrong report on the wire.
+// Return values ignored: -1 means the pad has no such actuator or its driver changed under us, and
+// neither the caller nor the satellite-side game has any recourse.
+void SDLGamepadBridge::applyOutput(Pad& pad, const OutputMailbox::Taken& taken) {
+    const OutputState& s = taken.state;
+    if ((taken.kinds & output::kRumble) != 0) {
+        SDL_GameControllerRumble(pad.gc, s.strong, s.weak, s.durationMs);
+    }
+    if ((taken.kinds & output::kLightbar) != 0) { SDL_GameControllerSetLED(pad.gc, s.r, s.g, s.b); }
+    // The family from the pad's USB identity, which a Bluetooth pad reports too. The builders
+    // answer 0 for any family without the surface, and the router only sends a DualSense here.
     const usbparse::HidParser parser =
         usbparse::parserForDevice(pad.device.vendorId, pad.device.productId);
-    usbout::FeedbackState& st = pad.effectState;
     std::array<std::uint8_t, usbout::kMaxOutputReportBytes> report{};
-    std::size_t n = 0;
-    switch (cmd.kind) {
-    case OutputKind::TriggerEffects:
-        n = usbout::buildTriggerEffectsReport(parser, st, cmd.leftTrigger.data(),
-                                              cmd.rightTrigger.data(), report.data(),
-                                              report.size());
-        break;
-    case OutputKind::PlayerLeds:
-        // The Switch Pro's counter is unused: only the DualSense reaches here.
-        n = usbout::buildPlayerLedsReport(parser, st, cmd.ledMask, /*seq=*/0, report.data(),
-                                          report.size());
-        break;
-    case OutputKind::MicLed:
-        n = usbout::buildMicMuteLedReport(parser, st, cmd.micLedState, report.data(),
-                                          report.size());
-        break;
-    case OutputKind::Rumble:
-    case OutputKind::Lightbar:
-        break;
+    if ((taken.kinds & output::kTriggerEffects) != 0) {
+        sendEffect(pad,
+                   usbout::buildTriggerEffectsReport(parser, pad.effectState, s.leftTrigger.data(),
+                                                     s.rightTrigger.data(), report.data(),
+                                                     report.size()),
+                   report);
     }
-    if (n < usbout::kDs5EffectBodyOffset + usbout::kDs5EffectBodyBytes) { return; }
-    // The body without its report id: SDL's driver frames it for the link
-    // (see kDs5EffectBodyBytes). Return value ignored for the same reason as
-    // rumble's: a refusal is a pad whose driver changed under us, and nothing
-    // downstream has a recourse.
+    if ((taken.kinds & output::kPlayerLeds) != 0) {
+        // The Switch Pro's counter is unused: only the DualSense reaches here.
+        sendEffect(pad,
+                   usbout::buildPlayerLedsReport(parser, pad.effectState, s.ledMask, /*seq=*/0,
+                                                 report.data(), report.size()),
+                   report);
+    }
+    if ((taken.kinds & output::kMicLed) != 0) {
+        sendEffect(pad,
+                   usbout::buildMicMuteLedReport(parser, pad.effectState, s.micLedState,
+                                                 report.data(), report.size()),
+                   report);
+    }
+}
+
+// The body without its report id: SDL's driver frames it for the link (see kDs5EffectBodyBytes).
+void SDLGamepadBridge::sendEffect(
+    Pad& pad, std::size_t reportBytes,
+    const std::array<std::uint8_t, usbout::kMaxOutputReportBytes>& report) {
+    if (reportBytes < usbout::kDs5EffectBodyOffset + usbout::kDs5EffectBodyBytes) { return; }
     SDL_GameControllerSendEffect(pad.gc, report.data() + usbout::kDs5EffectBodyOffset,
                                  static_cast<int>(usbout::kDs5EffectBodyBytes));
 }

@@ -6,8 +6,9 @@
 #include "ControllerShadow.h"
 #include "GamepadInputProcessor.h"
 #include "JoystickMapping.h"
-#include "OutputCommandQueue.h"
 #include "core/input/DirtySet.h"
+#include "core/input/OutputMailbox.h"
+#include "core/input/UsbOutputReports.h"
 #include "core/input/PumpPacing.h"
 #include "core/thread/LatestValue.h"
 #include "core/thread/TrackedMutex.h"
@@ -112,33 +113,31 @@ class SDLGamepadBridge : public QObject {
     // during capture, and the flag costs a relaxed atomic load when off.
     void setJoystickCaptureEnabled(bool enabled);
 
-    // Vibration only; never touches the LED. Magnitudes are on the XUSB 16-bit
-    // scale so they pass through SDL2 verbatim, and `durationMs == 0` is
-    // forwarded as-is because SDL already reads it as "stop".
+    // Feedback for a pad, by its processor device index. Callable from any thread (in practice a
+    // SatelliteClient receive thread): the newest value of each kind waits in the device's mailbox
+    // and the next pump cycle makes the SDL call on the SDL thread, so a burst collapses to its
+    // last value and nothing queues. A device the bridge does not hold drops it there.
     //
-    // Callable from any thread (in practice a SatelliteClient receive thread):
-    // the request is queued and the pump cycle makes the SDL call on the SDL
-    // thread, resolving the pad fresh there. A pad closed in the meantime is
-    // skipped, so there is no use-after-close race.
-    void applyRumble(const QString& deviceId, std::uint16_t strongMagnitude,
-                     std::uint16_t weakMagnitude, std::uint16_t durationMs);
-
-    // The sole lightbar entry point; a no-op for pads without an LED. Queued
-    // onto the SDL thread exactly like applyRumble.
-    void applyLightbar(const QString& deviceId, std::uint8_t r, std::uint8_t g, std::uint8_t b);
+    // Rumble is vibration only and never touches the LED. Magnitudes are on the XUSB 16-bit scale
+    // so they pass through SDL2 verbatim, and `durationMs == 0` is forwarded as-is because SDL
+    // already reads it as "stop". The lightbar is a no-op for pads without an LED.
+    void postRumble(GamepadInputProcessor::DeviceIndex device, std::uint16_t strongMagnitude,
+                    std::uint16_t weakMagnitude, std::uint16_t durationMs);
+    void postLightbar(GamepadInputProcessor::DeviceIndex device, std::uint8_t r, std::uint8_t g,
+                      std::uint8_t b);
 
     // The DualSense surfaces SDL has no typed call for. Each is built into the
     // family's own OUT report by core/input/UsbOutputReports.h on the SDL
     // thread (the per-pad FeedbackState shadow lives there) and handed to
     // SDL_GameControllerSendEffect, which only SDL's HIDAPI drivers implement:
-    // every other backend refuses it, and AppModel never routes here for one
-    // of those (SlotFeedbackInputs::standardEffects). Queued like applyRumble.
+    // every other backend refuses it, and the router never routes here for one
+    // of those (SlotFeedbackInputs::standardEffects).
     void
-    applyTriggerEffects(const QString& deviceId,
-                        const std::array<std::uint8_t, usbout::kTriggerEffectBlockBytes>& left,
-                        const std::array<std::uint8_t, usbout::kTriggerEffectBlockBytes>& right);
-    void applyPlayerLeds(const QString& deviceId, std::uint8_t ledMask);
-    void applyMicLed(const QString& deviceId, std::uint8_t state);
+    postTriggerEffects(GamepadInputProcessor::DeviceIndex device,
+                       const std::array<std::uint8_t, usbout::kTriggerEffectBlockBytes>& left,
+                       const std::array<std::uint8_t, usbout::kTriggerEffectBlockBytes>& right);
+    void postPlayerLeds(GamepadInputProcessor::DeviceIndex device, std::uint8_t ledMask);
+    void postMicLed(GamepadInputProcessor::DeviceIndex device, std::uint8_t state);
 
   signals:
     void devicesChanged();
@@ -244,13 +243,13 @@ class SDLGamepadBridge : public QObject {
     // Hands the GUI a fresh device list and tells it so.
     void publishDevices();
 
-    // Drain the pending-command queue and execute each SDL output call
-    // (rumble / SetLED / SendEffect) on the SDL thread. Called once per
-    // pump cycle.
-    void drainOutputCommands();
-    // Build one effect command's DualSense report and hand its body to
-    // SDL_GameControllerSendEffect. SDL thread only.
-    static void sendEffect(Pad& pad, const OutputCommand& cmd);
+    // Every open pad's mailbox, applied with SDL's calls (rumble, SetLED, SendEffect) on the SDL
+    // thread. Called once per pump cycle.
+    void drainMailboxes();
+    void applyOutput(Pad& pad, const OutputMailbox::Taken& taken);
+    // Build one effect kind's DualSense report and hand its body to SDL_GameControllerSendEffect.
+    static void sendEffect(Pad& pad, std::size_t reportBytes,
+                           const std::array<std::uint8_t, usbout::kMaxOutputReportBytes>& report);
     void rebuildState(Pad& pad);
     // RAW-joystick twin of rebuildState: reads an open SDL_Joystick's current
     // raw axis/button/hat state, runs the SDL-free JoystickMapping default
@@ -301,13 +300,9 @@ class SDLGamepadBridge : public QObject {
     // overwhelmingly common case).
     std::atomic<bool> captureEnabled_{false};
 
-    // SDL_GameControllerRumble / SDL_GameControllerSetLED must run on the SDL
-    // thread because the SDL thread is also the only thread allowed to
-    // SDL_GameControllerClose a controller. applyRumble / applyLightbar are
-    // called from the SatelliteClient receive thread; they push onto this queue
-    // and the pump cycle drains it, resolving the device id → pad on the SDL
-    // thread (a closed pad is just skipped).
-    OutputCommandQueue outputQueue_;
+    // One mailbox per processor device index: written by whoever routes feedback to the device,
+    // taken by the SDL thread, which alone may call SDL on a pad it might also close.
+    std::array<OutputMailbox, GamepadInputProcessor::kMaxDevices> mailboxes_;
 };
 
 } // namespace dish::input

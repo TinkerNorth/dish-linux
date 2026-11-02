@@ -3,8 +3,10 @@
 
 #include "core/thread/GraceEpoch.h"
 #include "core/thread/LatestValue.h"
+#include "core/thread/MpscQueue.h"
 #include "core/thread/Seqlock.h"
 #include "core/thread/SpscRing.h"
+#include "core/thread/WorkerWake.h"
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -14,6 +16,7 @@
 #include <cstdint>
 #include <memory>
 #include <thread>
+#include <vector>
 
 using dish::thread::AtomicWords;
 using dish::thread::LatestValue;
@@ -221,4 +224,78 @@ TEST_CASE("a reader that keeps opening brackets cannot starve the grace wait",
     stop.store(true);
     reader.join();
     SUCCEED("every wait returned");
+}
+
+TEST_CASE("a full multi-producer queue refuses the push and counts the drop",
+          "[thread-primitives][mpsc]") {
+    dish::thread::MpscQueue<int, 4> queue;
+    for (int i = 0; i < 4; ++i) {
+        CHECK(queue.push([i](int& cell) { cell = i; }));
+    }
+    CHECK_FALSE(queue.push([](int& cell) { cell = 99; }));
+    CHECK(queue.dropped() == 1U);
+    int out = -1;
+    for (int i = 0; i < 4; ++i) {
+        REQUIRE(queue.pop(out));
+        CHECK(out == i);
+    }
+    CHECK(queue.empty());
+    CHECK_FALSE(queue.pop(out));
+}
+
+TEST_CASE("producers on several threads each keep their own order through the queue",
+          "[thread-primitives][mpsc]") {
+    constexpr int kProducers = 3;
+    constexpr int kEach = 30'000;
+    dish::thread::MpscQueue<std::uint64_t, 64> queue;
+    std::vector<std::thread> producers;
+    for (int p = 0; p < kProducers; ++p) {
+        producers.emplace_back([&queue, p] {
+            for (int i = 0; i < kEach;) {
+                const auto item =
+                    (static_cast<std::uint64_t>(p) << 32) | static_cast<std::uint64_t>(i);
+                if (queue.push([item](std::uint64_t& cell) { cell = item; })) { ++i; }
+            }
+        });
+    }
+    std::array<std::int64_t, kProducers> last{-1, -1, -1};
+    bool ordered = true;
+    int popped = 0;
+    std::uint64_t item = 0;
+    while (popped < kProducers * kEach) {
+        if (!queue.pop(item)) { continue; }
+        const auto producer = static_cast<std::size_t>(item >> 32);
+        const auto sequence = static_cast<std::int64_t>(item & 0xFFFFFFFFU);
+        ordered = ordered && sequence == last[producer] + 1;
+        last[producer] = sequence;
+        ++popped;
+    }
+    for (auto& p : producers) { p.join(); }
+    CHECK(ordered);
+}
+
+TEST_CASE("a worker asleep on its wake is woken by the next notify, and none is lost",
+          "[thread-primitives][wake]") {
+    dish::thread::WorkerWake wake;
+    std::atomic<int> posted{0};
+    std::atomic<int> handled{0};
+    std::atomic<bool> stop{false};
+    std::thread worker([&] {
+        while (!stop.load()) {
+            wake.sleepUnless([&] { return stop.load() || handled.load() < posted.load(); });
+            handled.store(posted.load());
+        }
+    });
+    for (int i = 1; i <= 2000; ++i) {
+        posted.store(i);
+        wake.notify();
+        if (i % 100 == 0) {
+            while (handled.load() < i) { std::this_thread::yield(); }
+        }
+    }
+    while (handled.load() < 2000) { std::this_thread::yield(); }
+    stop.store(true);
+    wake.notify();
+    worker.join();
+    CHECK(handled.load() == 2000);
 }

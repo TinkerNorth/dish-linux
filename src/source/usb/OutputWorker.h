@@ -1,0 +1,71 @@
+// SPDX-License-Identifier: LGPL-3.0-or-later
+// Copyright (C) 2026 Dish contributors.
+
+#pragma once
+
+#include "source/usb/HidReportWriter.h"
+
+#include "core/input/OutputMailbox.h"
+#include "core/input/UsbOutputReports.h"
+#include "core/input/UsbReportParsers.h"
+#include "core/thread/WorkerWake.h"
+
+#include <array>
+#include <atomic>
+#include <cstdint>
+#include <memory>
+#include <thread>
+
+namespace dish::source::usb {
+
+// One claimed pad's feedback. A producer posts the newest state of a kind to the mailbox and
+// returns at once; the worker's own thread builds each pending kind's OUT report and writes it,
+// however long the pad takes, so a slow pad never holds the receive thread. Started at the claim
+// and stopped before the claim is released.
+class OutputWorker {
+  public:
+    OutputWorker(std::unique_ptr<HidReportWriter> writer, input::usbparse::HidParser parser);
+    ~OutputWorker();
+
+    OutputWorker(const OutputWorker&) = delete;
+    OutputWorker& operator=(const OutputWorker&) = delete;
+    OutputWorker(OutputWorker&&) = delete;
+    OutputWorker& operator=(OutputWorker&&) = delete;
+
+    // Any thread.
+    void postRumble(std::uint16_t strong, std::uint16_t weak);
+    void postLightbar(std::uint8_t r, std::uint8_t g, std::uint8_t b);
+    void postPlayerLeds(std::uint8_t ledMask);
+    void postTriggerEffects(
+        const std::array<std::uint8_t, input::usbout::kTriggerEffectBlockBytes>& left,
+        const std::array<std::uint8_t, input::usbout::kTriggerEffectBlockBytes>& right);
+    void postMicLed(std::uint8_t state);
+
+    // Joins the worker; whatever is still pending is dropped with the claim. Idempotent.
+    void stop();
+
+    // Reports the writer took, and ones it gave up on or a family without the surface refused.
+    std::uint64_t writes() const { return writes_.load(std::memory_order_acquire); }
+    std::uint64_t failedWrites() const { return failedWrites_.load(std::memory_order_acquire); }
+
+  private:
+    void run();
+    void writeTaken(const input::OutputMailbox::Taken& taken);
+    void writeReport(const std::uint8_t* report, std::size_t n);
+    std::uint8_t nextSeq();
+
+    const std::unique_ptr<HidReportWriter> writer_;
+    const input::usbparse::HidParser parser_;
+    input::OutputMailbox mailbox_;
+    thread::WorkerWake wake_;
+    std::atomic<bool> stopping_{false};
+    // The worker thread's own: the DualSense lamp and light-bar handoff shadow, and the Switch
+    // Pro's rolling packet counter, which belong to the claim rather than to any one write.
+    input::usbout::FeedbackState state_{};
+    std::uint8_t seq_ = 0;
+    std::atomic<std::uint64_t> writes_{0};
+    std::atomic<std::uint64_t> failedWrites_{0};
+    std::thread thread_;
+};
+
+} // namespace dish::source::usb

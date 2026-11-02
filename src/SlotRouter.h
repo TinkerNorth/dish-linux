@@ -168,6 +168,8 @@ class SlotRouter final : public input::GamepadInputProcessor::InputSink {
         QString slotId;
         std::array<reducer::FeedbackTarget, kFeedbackKinds> targets{};
         std::optional<source::usb::UsbGamepadManager::DirectTarget> direct;
+        // The SDL pad's mailbox, for the Standard path.
+        std::optional<DeviceIndex> padIndex;
         bool rumbleOn = true;
 
         reducer::FeedbackTarget target(reducer::FeedbackKind kind) const {

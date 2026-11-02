@@ -183,6 +183,7 @@ SlotRouter::FeedbackRoute SlotRouter::liveRoute(const QString& slotId) const {
             route.direct = deps_.usbManager->directTarget(vp->first, vp->second);
         }
     }
+    route.padIndex = deps_.processor->find(slotId.toStdString());
     route.rumbleOn = deps_.rumbleEnabled->isEnabled(slotId);
     return route;
 }
@@ -427,9 +428,11 @@ void SlotRouter::routeRumble(const FeedbackRoute& route, std::uint16_t strong, s
                              std::uint16_t durationMs) {
     switch (route.target(reducer::FeedbackKind::Rumble)) {
     case reducer::FeedbackTarget::Standard:
-        // applyRumble marshals the actuation onto the SDL thread internally.
-        deps_.bridge->applyRumble(route.slotId, strong, weak, durationMs);
-        rumblesRouted_.fetch_add(1, std::memory_order_relaxed);
+        // The SDL thread actuates it from the pad's mailbox on its next cycle.
+        if (route.padIndex.has_value()) {
+            deps_.bridge->postRumble(*route.padIndex, strong, weak, durationMs);
+            rumblesRouted_.fetch_add(1, std::memory_order_relaxed);
+        }
         return;
     case reducer::FeedbackTarget::DirectUsb:
         // No duration on the raw path: the pad's motors run until the next write, and the
@@ -448,8 +451,10 @@ void SlotRouter::routeLightbar(const FeedbackRoute& route, std::uint8_t r, std::
                                std::uint8_t b) {
     switch (route.target(reducer::FeedbackKind::Lightbar)) {
     case reducer::FeedbackTarget::Standard:
-        deps_.bridge->applyLightbar(route.slotId, r, g, b);
-        lightbarsRouted_.fetch_add(1, std::memory_order_relaxed);
+        if (route.padIndex.has_value()) {
+            deps_.bridge->postLightbar(*route.padIndex, r, g, b);
+            lightbarsRouted_.fetch_add(1, std::memory_order_relaxed);
+        }
         return;
     case reducer::FeedbackTarget::DirectUsb:
         if (route.direct.has_value() && deps_.usbManager != nullptr) {
@@ -470,7 +475,9 @@ void SlotRouter::routeTriggerEffects(
     case reducer::FeedbackTarget::Standard:
         // The same report the Direct branch writes, built on the SDL thread and handed to SDL's
         // driver instead of the device.
-        deps_.bridge->applyTriggerEffects(route.slotId, left, right);
+        if (route.padIndex.has_value()) {
+            deps_.bridge->postTriggerEffects(*route.padIndex, left, right);
+        }
         return;
     case reducer::FeedbackTarget::DirectUsb:
         if (route.direct.has_value() && deps_.usbManager != nullptr) {
@@ -485,7 +492,7 @@ void SlotRouter::routeTriggerEffects(
 void SlotRouter::routePlayerLeds(const FeedbackRoute& route, std::uint8_t ledMask) {
     switch (route.target(reducer::FeedbackKind::PlayerLeds)) {
     case reducer::FeedbackTarget::Standard:
-        deps_.bridge->applyPlayerLeds(route.slotId, ledMask);
+        if (route.padIndex.has_value()) { deps_.bridge->postPlayerLeds(*route.padIndex, ledMask); }
         return;
     case reducer::FeedbackTarget::DirectUsb:
         if (route.direct.has_value() && deps_.usbManager != nullptr) {
@@ -500,7 +507,7 @@ void SlotRouter::routePlayerLeds(const FeedbackRoute& route, std::uint8_t ledMas
 void SlotRouter::routeMicLed(const FeedbackRoute& route, std::uint8_t state) {
     switch (route.target(reducer::FeedbackKind::MicLed)) {
     case reducer::FeedbackTarget::Standard:
-        deps_.bridge->applyMicLed(route.slotId, state);
+        if (route.padIndex.has_value()) { deps_.bridge->postMicLed(*route.padIndex, state); }
         return;
     case reducer::FeedbackTarget::DirectUsb:
         if (route.direct.has_value() && deps_.usbManager != nullptr) {

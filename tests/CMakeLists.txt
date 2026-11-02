@@ -157,7 +157,8 @@ set(DISH_TEST_SOURCES
     test_client_ref.cpp
     test_controller_shadow.cpp
     test_slot_router.cpp
-    test_output_command_queue.cpp
+    test_output_mailbox.cpp
+    test_output_worker.cpp
     test_lightbar_routing.cpp
     test_feature_settings.cpp
     test_host_battery.cpp
