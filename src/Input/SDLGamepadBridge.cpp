@@ -464,6 +464,7 @@ void SDLGamepadBridge::runLoop() {
     applySdlHints();
     if (!initSdl()) {
         running_.store(false);
+        SDL_TLSCleanup();
         return;
     }
 
@@ -482,6 +483,9 @@ void SDLGamepadBridge::runLoop() {
 
     closeAllDevices();
     SDL_QuitSubSystem(SDL_INIT_GAMECONTROLLER | SDL_INIT_JOYSTICK);
+    // SDL frees a thread's own storage (its error buffer) only on threads it started; this one is
+    // a std::thread, so it hands that back itself.
+    SDL_TLSCleanup();
 }
 
 void SDLGamepadBridge::applyRumble(const QString& deviceId, std::uint16_t strongMagnitude,
