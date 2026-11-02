@@ -20,9 +20,11 @@
 #include <atomic>
 #include <chrono>
 #include <cstdint>
+#include <cstring>
 #include <functional>
 #include <string>
 #include <thread>
+#include <vector>
 
 namespace {
 
@@ -309,6 +311,38 @@ dish::SlotRouter::MoonlightRoutes moonlightBinding(const std::string& host,
     return routes;
 }
 
+using MicSender = dish::SlotRouter::MicSender;
+
+constexpr std::array<std::uint8_t, 5> kMicOpus{0xF8, 0x01, 0x02, 0x03, 0x04};
+constexpr std::size_t kMicHeaderBytes = 3;
+
+// The mic frames the one session's satellite saw: ctrlIdx, seq and the Opus bytes, each checked
+// whole on its receive thread.
+struct MicSeen {
+    std::atomic<std::uint64_t> frames{0};
+    std::atomic<std::uint64_t> torn{0};
+    std::atomic<std::uint32_t> lastSeq{0};
+};
+
+hp::HotPathRig::HandlerFor micInto(MicSeen& seen) {
+    return [&seen](int /*session*/) {
+        return [&seen](std::uint16_t type, const std::uint8_t* body, std::size_t len,
+                       hp::Clock::time_point /*arrived*/) {
+            if (type != dish::proto::kMsgMicAudio) { return; }
+            const bool whole =
+                len == kMicHeaderBytes + kMicOpus.size() && body[0] == 0 &&
+                std::memcmp(body + kMicHeaderBytes, kMicOpus.data(), kMicOpus.size()) == 0;
+            if (!whole) { seen.torn.fetch_add(1); }
+            if (len >= kMicHeaderBytes) { seen.lastSeq.store(hp::readBe16(body + 1)); }
+            seen.frames.fetch_add(1);
+        };
+    };
+}
+
+bool sendMic(const MicSender& mic, std::uint16_t seq) {
+    return mic(seq, kMicOpus.data(), kMicOpus.size());
+}
+
 } // namespace
 
 TEST_CASE("a Moonlight host's rumble reaches its pad from the control thread, without the GUI",
@@ -368,4 +402,95 @@ TEST_CASE("a Moonlight host's light-bar colour lands only while it follows the g
     CHECK(waitWithoutQt([&] { return rig.router().lightbarsRouted() >= 1; }));
 
     rig.router().setMoonlightRoutes(padId, {});
+}
+
+TEST_CASE("a slot's mic frames go where the published table routes the slot", "[slot-router]") {
+    MicSeen seen;
+    hp::HotPathRig rig(1, micInto(seen));
+    REQUIRE(rig.connectAll());
+    const QString slot = QStringLiteral("mic-pad");
+    const QString lonely = QStringLiteral("unbound-mic-pad");
+    REQUIRE(rig.bind(slot, 0));
+    const MicSender mic = rig.router().micSenderForSlot(slot);
+    const MicSender unbound = rig.router().micSenderForSlot(lonely);
+    REQUIRE(mic != nullptr);
+    REQUIRE(unbound != nullptr);
+
+    CHECK_FALSE(sendMic(mic, 1));
+
+    rig.router().republish({slot, lonely});
+    CHECK(sendMic(mic, 2));
+    REQUIRE(hp::pumpUntil([&] { return seen.frames.load() >= 1; }));
+    CHECK(seen.lastSeq.load() == 2);
+    CHECK_FALSE(sendMic(unbound, 3));
+
+    rig.router().republish({});
+    CHECK_FALSE(sendMic(mic, 4));
+    CHECK(staysAt(seen.frames, 1));
+    CHECK(seen.torn.load() == 0);
+}
+
+TEST_CASE("republishing under a mic stream never pulls a table from under it, nor tears a frame",
+          "[slot-router]") {
+    MicSeen seen;
+    hp::HotPathRig rig(1, micInto(seen));
+    REQUIRE(rig.connectAll());
+    const QString slot = QStringLiteral("talking-pad");
+    REQUIRE(rig.bind(slot, 0));
+    rig.router().republish({slot});
+    const MicSender mic = rig.router().micSenderForSlot(slot);
+    REQUIRE(mic != nullptr);
+
+    std::atomic<bool> stop{false};
+    std::atomic<std::uint64_t> sent{0};
+    std::thread capture([&] {
+        const dish::thread::ScopedThreadRole role(dish::thread::ThreadRole::AudioCapture);
+        for (std::uint16_t seq = 0; !stop.load(std::memory_order_relaxed); ++seq) {
+            if (sendMic(mic, seq)) { sent.fetch_add(1); }
+        }
+    });
+    for (int round = 0; round < 300; ++round) {
+        rig.router().republish(round % 2 == 0 ? QStringList{} : QStringList{slot});
+    }
+    rig.router().republish({slot});
+    const bool streamed = hp::pumpUntil([&] { return seen.frames.load() > 0; });
+    stop.store(true);
+    capture.join();
+    CHECK(streamed);
+    CHECK(sent.load() > 0);
+    CHECK(seen.torn.load() == 0);
+}
+
+TEST_CASE("a mic sender kept past its router sends nothing", "[slot-router]") {
+    MicSeen seen;
+    MicSender mic;
+    {
+        hp::HotPathRig rig(1, micInto(seen));
+        REQUIRE(rig.connectAll());
+        const QString slot = QStringLiteral("parting-pad");
+        REQUIRE(rig.bind(slot, 0));
+        rig.router().republish({slot});
+        mic = rig.router().micSenderForSlot(slot);
+        REQUIRE(mic != nullptr);
+        CHECK(sendMic(mic, 1));
+    }
+    CHECK_FALSE(sendMic(mic, 2));
+}
+
+TEST_CASE("a mic sender's participant comes back when its last copy goes", "[slot-router]") {
+    MicSeen seen;
+    hp::HotPathRig rig(1, micInto(seen));
+    std::vector<MicSender> senders;
+    for (std::size_t i = 0; i < dish::SlotRouter::kMicSenders; ++i) {
+        senders.push_back(rig.router().micSenderForSlot(QStringLiteral("pad-%1").arg(i)));
+        REQUIRE(senders.back() != nullptr);
+    }
+    CHECK(rig.router().micSenderForSlot(QStringLiteral("one-too-many")) == nullptr);
+
+    {
+        const MicSender copy = senders.back();
+        senders.pop_back();
+        CHECK(rig.router().micSenderForSlot(QStringLiteral("held-by-a-copy")) == nullptr);
+    }
+    CHECK(rig.router().micSenderForSlot(QStringLiteral("given-back")) != nullptr);
 }

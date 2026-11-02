@@ -320,6 +320,7 @@ The threads in the app:
 | Heartbeat | [`SatelliteClient`](../src/Network/SatelliteClient.h) | Per-session keepalive sends and ping arming |
 | Receive | `SatelliteClient` | Ack decode, RTT sampling, the feedback callbacks (rumble, lightbar, trigger effects, player LEDs, mic LED), the hand-off of speaker and haptics frames to the playout thread, close-notify |
 | Playout | [`SpeakerPlayoutEngine`](../src/source/audio/SpeakerPlayoutEngine.h) | The reorder window, the Opus decode and the capped queue to the pad's own endpoint, off the receive thread |
+| Mic capture | [`SdlAudioGateway`](../src/source/audio/SdlAudioGateway.h), one per open capture | The 20 ms window, the Opus encode and the send through the slot's mic sender, which reads the published table |
 
 The SDL input, USB direct and receive threads ask rtkit for nice -10 as they
 start, and inside a Flatpak the realtime portal, which maps the sandbox's
@@ -329,16 +330,19 @@ a refusal changes nothing and is logged once.
 **The input hot path is intentionally not routed through the kernel.** The
 input, decode, encode, `sendto` path is plain C++ with no queue, no Qt event
 hop and no cross-thread signal, and the SDL input, USB direct and receive
-threads take no lock and allocate nothing per report or message. What another
-thread changes reaches them in one of four ways, each with one owner:
+threads take no lock and allocate nothing per report or message; the mic
+capture thread sends its frames without a lock too. What another thread
+changes reaches them in one of four ways, each with one owner:
 
 - **A published table.** [`SlotRouter`](../src/SlotRouter.h) is the routing:
   the GUI builds one immutable table per rebuild (by device index, the session
-  client and controller index a pad's reports go to; by session, where each
-  feedback kind lands) and swaps it in with an atomic pointer. Readers bracket
-  each use in a grace epoch ([`GraceEpoch`](../src/core/thread/GraceEpoch.h),
-  the satellite's), and the GUI frees the table it replaced once no bracket can
-  hold it.
+  client and controller index a pad's reports go to; by slot, the same for its
+  mic frames; by session, where each feedback kind lands) and swaps it in with
+  an atomic pointer. Readers bracket each use in a grace epoch
+  ([`GraceEpoch`](../src/core/thread/GraceEpoch.h), the satellite's), and the
+  GUI frees the table it replaced once no bracket can hold it. A mic sender
+  brackets on a participant of its own in an epoch it shares with the router,
+  so one kept past the router reads no table and sends nothing.
 - **A seqlock.** A session's key and token
   ([`SatelliteClient`](../src/Network/SatelliteClient.h)), a device's record in
   the processor (which the inspector copies), and a pad's
@@ -355,8 +359,9 @@ thread changes reaches them in one of four ways, each with one owner:
   worker sleeps on [`WorkerWake`](../src/core/thread/WorkerWake.h).
 
 [`tests/test_lock_laws.cpp`](../tests/test_lock_laws.cpp) runs every hot thread
-at once over the production objects and fails if one of these three takes any
-tracked lock; [`tools/bench`](../tools/bench/README.md) measures the path.
+at once over the production objects and fails if one of these three, or the
+mic capture thread's send, takes any tracked lock;
+[`tools/bench`](../tools/bench/README.md) measures the path.
 
 ### The feedback path: one owner for "may I" and "where to"
 

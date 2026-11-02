@@ -401,60 +401,6 @@ std::optional<WifiConnection::SendTarget> WifiConnection::sendTarget() const {
     return SendTarget{std::move(client), it->second.controllerIndex};
 }
 
-void WifiConnection::sendReport(std::uint16_t buttons, std::uint8_t lt, std::uint8_t rt,
-                                std::int16_t lx, std::int16_t ly, std::int16_t rx,
-                                std::int16_t ry) {
-    if (!boundSlotId_.has_value()) { return; }
-    const auto it = slots_.find(*boundSlotId_);
-    if (it == slots_.end() || !it->second.registered) { return; }
-    if (auto c = clientRef_.get()) {
-        c->sendReport(it->second.controllerIndex, buttons, lt, rt, lx, ly, rx, ry);
-    }
-}
-
-void WifiConnection::sendMotion(std::int16_t gyroX, std::int16_t gyroY, std::int16_t gyroZ,
-                                std::int16_t accelX, std::int16_t accelY, std::int16_t accelZ,
-                                std::uint32_t timestampDeltaUs) {
-    if (!boundSlotId_.has_value()) { return; }
-    const auto it = slots_.find(*boundSlotId_);
-    if (it == slots_.end() || !it->second.registered) { return; }
-    if (auto c = clientRef_.get()) {
-        c->sendMotion(it->second.controllerIndex, gyroX, gyroY, gyroZ, accelX, accelY, accelZ,
-                      timestampDeltaUs);
-    }
-}
-
-void WifiConnection::sendBattery(std::uint8_t level, std::uint8_t status) {
-    if (!boundSlotId_.has_value()) { return; }
-    const auto it = slots_.find(*boundSlotId_);
-    if (it == slots_.end() || !it->second.registered) { return; }
-    if (auto c = clientRef_.get()) { c->sendBattery(it->second.controllerIndex, level, status); }
-}
-
-void WifiConnection::sendTouchpad(bool finger0Active, std::uint8_t finger0Id, std::int16_t finger0X,
-                                  std::int16_t finger0Y, bool finger1Active, std::uint8_t finger1Id,
-                                  std::int16_t finger1X, std::int16_t finger1Y, bool buttonPressed,
-                                  std::uint32_t eventTimeMs) {
-    if (!boundSlotId_.has_value()) { return; }
-    const auto it = slots_.find(*boundSlotId_);
-    if (it == slots_.end() || !it->second.registered) { return; }
-    if (auto c = clientRef_.get()) {
-        c->sendTouchpad(it->second.controllerIndex, finger0Active, finger0Id, finger0X, finger0Y,
-                        finger1Active, finger1Id, finger1X, finger1Y, buttonPressed, eventTimeMs);
-    }
-}
-
-bool WifiConnection::sendMicAudio(std::uint16_t seq, const std::uint8_t* opus,
-                                  std::size_t opusLen) {
-    if (!boundSlotId_.has_value()) { return false; }
-    const auto it = slots_.find(*boundSlotId_);
-    if (it == slots_.end() || !it->second.registered) { return false; }
-    if (auto c = clientRef_.get()) {
-        return c->sendMicAudio(it->second.controllerIndex, seq, opus, opusLen);
-    }
-    return false;
-}
-
 void WifiConnection::setRumbleHandler(RumbleHandler handler) {
     rumbleHandler_ = std::move(handler);
     if (auto c = clientRef_.get()) { c->setRumbleHandler(rumbleHandler_); }

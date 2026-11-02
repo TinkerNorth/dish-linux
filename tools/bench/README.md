@@ -69,10 +69,10 @@ pacer and does the GUI's work there.
 | scenario | what runs |
 |---|---|
 | S1 | pad A at `--rate` (1000 Hz), nothing else |
-| S2 | S1 plus pad B at 250 Hz, published by the same SdlInput thread, as the one SDL thread serves every pad. A dish binds one pad per satellite session (`ConnectionHub::bind` evicts the slot already bound to the connection, and `WifiConnection::sendReport` sends only for its bound slot), so pad B streams to a second session |
+| S2 | S1 plus pad B at 250 Hz, published by the same SdlInput thread, as the one SDL thread serves every pad. A dish binds one pad per satellite session (`ConnectionHub::bind` evicts the slot already bound to the connection, and `WifiConnection::sendTarget` names only its bound slot), so pad B streams to a second session |
 | S3 | S2 plus the GUI while a pad plays: routing republish every 100 ms, `devices()` every 100 ms, `inspect()` at 30 Hz, `inputCounters()` at 1 Hz |
 | S4 | S3 plus 100 rumbles and 10 light-bar colours a second from pad A's satellite to the receive thread, which routes them to the SDL output queue ("queued for SDL") |
-| S5 | S4 plus the session's heartbeat thread (a ping every 2 s, acked) and an AudioCapture thread sending mic frames at `--mic-hz` (50) through the hub's mic sender on pad A's session; `S5 (mic 1000 Hz)` is the `--mic-hz 1000` run |
+| S5 | S4 plus the session's heartbeat thread (a ping every 2 s, acked) and an AudioCapture thread sending mic frames at `--mic-hz` (50) through pad A's mic sender (the hub's in 2.5.0, `SlotRouter`'s now) on pad A's session; `S5 (mic 1000 Hz)` is the `--mic-hz 1000` run |
 | S6 | a Direct DualSense alone: a UsbReader thread hands `UsbGamepadManager`'s report sink a full USB DualSense report (input, motion, touchpad and battery valid, as the decoder leaves them) at `--rate`, on a third session |
 | S7 | S4 plus the GUI binding and unbinding pad C on a fourth session every 200 ms, the desktop's equivalent of the satellite's 200 ms plug |
 
@@ -762,7 +762,7 @@ ViGEm mode, paired:
 
 The lock table from `bench_input_path_lockstats` at the same settings. No row belongs to the SDL
 input, USB reader or receive roles: what remains is the GUI's work and the mic thread's
-`wifi.client`, the hub's mic sender, which is outside the hot-path laws.
+`wifi.client`, taken by the hub's mic sender of the time, which the next section takes off.
 
 | mode | scenario | lock | role | acquisitions | contended | try fails | max wait us | p99 wait us | max hold us |
 | --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
@@ -830,6 +830,40 @@ each:
 | normal | 239.7 | 885.4 | 997.9 | 1117.6 | 2 | 2 | 999.3 |
 | raised | 167.1 | 773.8 | 998.8 | 1056.8 | 2 | 20 | 993.3 |
 | raised | 167.2 | 826.2 | 982.4 | 1031.7 | 2 | 16 | 994.7 |
+
+### The mic sender reads the published table
+
+The hub's mic sender read the session's slot map, which the GUI rewrites, with nothing between them,
+then took `wifi.client` for the client. A mic frame now leaves through `SlotRouter`'s table in a
+grace bracket, like a report. The lockstats twin's S5 runs, at 50 Hz and at 1 kHz, record the eight
+GUI locks of the table above and no AudioCapture row, and law 6 of the lock-law test holds the mic
+thread to no lock.
+
+Pad A, paired with the bench built at `f0a2bc4` (the record above), two runs of each, on the same
+machine with a `satellite` process running beside it, CPU load 0 to 16 percent:
+
+| scenario | build | p50 us | p99 us | p99.9 us | max us |
+| --- | --- | ---: | ---: | ---: | ---: |
+| S5 | before | 15.7 | 21.7 | 35.4 | 51.5 |
+| S5 | before | 13.4 | 22.6 | 35.4 | 59.2 |
+| S5 | after | 15.3 | 30.7 | 49.0 | 129.2 |
+| S5 | after | 12.6 | 29.5 | 40.1 | 45.0 |
+| S5 (mic 1000 Hz) | before | 14.0 | 40.6 | 46.8 | 169.9 |
+| S5 (mic 1000 Hz) | before | 13.4 | 40.1 | 46.8 | 53.7 |
+| S5 (mic 1000 Hz) | after | 18.4 | 46.4 | 50.3 | 214.3 |
+| S5 (mic 1000 Hz) | after | 23.2 | 42.8 | 56.5 | 233.9 |
+| S5 (mic 997 Hz) | before | 12.1 | 25.7 | 34.6 | 97.0 |
+| S5 (mic 997 Hz) | before | 12.8 | 24.3 | 34.9 | 42.8 |
+| S5 (mic 997 Hz) | after | 13.1 | 25.3 | 35.4 | 47.5 |
+| S5 (mic 997 Hz) | after | 13.0 | 22.3 | 32.3 | 51.0 |
+
+Pad A's reports and the mic frames share the session's send gate, and the bench paces both from one
+start: at 50 Hz every mic frame is due with one of pad A's reports, and at 1 kHz every one of them
+is. The hub's sender reached the gate after the report and mostly lost; the table's sender gets there
+as fast and wins about as often as not, so those reports wait out one mic send, 5 to 10 us. That is
+pad A's p99 at 50 Hz (one report in twenty) and its median at 1 kHz. At 997 Hz, where the two
+drift past each other, after matches before. A capture thread is clocked by its audio device and not
+by the pump, so the app meets the 997 Hz case.
 
 ### Commands
 

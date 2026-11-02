@@ -24,41 +24,12 @@ namespace dish::net {
 class ConnectionHub : public QObject {
     Q_OBJECT
   public:
-    using ReportSender = std::function<void(std::uint16_t, std::uint8_t, std::uint8_t, std::int16_t,
-                                            std::int16_t, std::int16_t, std::int16_t)>;
-
-    // gyroX/Y/Z, accelX/Y/Z, timestampDeltaUs.
-    using MotionSender = std::function<void(std::int16_t, std::int16_t, std::int16_t, std::int16_t,
-                                            std::int16_t, std::int16_t, std::uint32_t)>;
-
-    // level (0..100 or 0xFF), status (BATTERY_STATUS_*).
-    using BatterySender = std::function<void(std::uint8_t, std::uint8_t)>;
-
-    // finger0(active,id,x,y), finger1(active,id,x,y), button, eventTimeMs.
-    using TouchpadSender =
-        std::function<void(bool, std::uint8_t, std::int16_t, std::int16_t, bool, std::uint8_t,
-                           std::int16_t, std::int16_t, bool, std::uint32_t)>;
-
     ConnectionHub(WifiConnectionManager* wifi, ConnectionStore* store, QObject* parent = nullptr);
 
     QList<models::ConnectionSummary> connections() const { return summaries_; }
     // A copy taken under the lock the UI thread writes under: the SatelliteClient
     // receive threads call this while the UI thread binds and unbinds.
     QHash<QString, QString> bindings() const;
-
-    // Empty when nothing is bound. The returned closure does one mutex-guarded
-    // shared_ptr load, so it is safe to call from the SDL input thread.
-    ReportSender reportSenderForSlot(const QString& slotId) const;
-
-    MotionSender motionSenderForSlot(const QString& slotId) const;
-    BatterySender batterySenderForSlot(const QString& slotId) const;
-    TouchpadSender touchpadSenderForSlot(const QString& slotId) const;
-
-    // seq, opus bytes, length -> sent. For the mic capture engine, which calls
-    // it from the audio thread (same closure contract as ReportSender from the
-    // SDL input thread).
-    using MicAudioSender = std::function<bool(std::uint16_t, const std::uint8_t*, std::size_t)>;
-    MicAudioSender micAudioSenderForSlot(const QString& slotId) const;
 
     // The seams below let bind() stamp per-device hardware facts onto the
     // REST descriptor. AppModel installs them off the SDL bridge's device

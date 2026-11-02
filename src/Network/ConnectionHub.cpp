@@ -133,59 +133,6 @@ std::optional<models::ConnectionSummary> ConnectionHub::summary(const QString& i
     return std::nullopt;
 }
 
-ConnectionHub::ReportSender ConnectionHub::reportSenderForSlot(const QString& slotId) const {
-    const auto cid = bindings_.value(slotId);
-    if (cid.isEmpty()) { return {}; }
-    auto* conn = wifi_->get(cid);
-    if (conn == nullptr) { return {}; }
-    // A raw pointer is safe here: WifiConnection is parented to the manager, whose
-    // dtor disconnects every session before destruction, and the internal ClientRef
-    // gives per-call thread safety.
-    return [conn](std::uint16_t buttons, std::uint8_t lt, std::uint8_t rt, std::int16_t lx,
-                  std::int16_t ly, std::int16_t rx,
-                  std::int16_t ry) { conn->sendReport(buttons, lt, rt, lx, ly, rx, ry); };
-}
-
-ConnectionHub::MotionSender ConnectionHub::motionSenderForSlot(const QString& slotId) const {
-    const auto cid = bindings_.value(slotId);
-    if (cid.isEmpty()) { return {}; }
-    auto* conn = wifi_->get(cid);
-    if (conn == nullptr) { return {}; }
-    return [conn](std::int16_t gx, std::int16_t gy, std::int16_t gz, std::int16_t ax,
-                  std::int16_t ay, std::int16_t az,
-                  std::uint32_t dtUs) { conn->sendMotion(gx, gy, gz, ax, ay, az, dtUs); };
-}
-
-ConnectionHub::BatterySender ConnectionHub::batterySenderForSlot(const QString& slotId) const {
-    const auto cid = bindings_.value(slotId);
-    if (cid.isEmpty()) { return {}; }
-    auto* conn = wifi_->get(cid);
-    if (conn == nullptr) { return {}; }
-    return [conn](std::uint8_t level, std::uint8_t status) { conn->sendBattery(level, status); };
-}
-
-ConnectionHub::TouchpadSender ConnectionHub::touchpadSenderForSlot(const QString& slotId) const {
-    const auto cid = bindings_.value(slotId);
-    if (cid.isEmpty()) { return {}; }
-    auto* conn = wifi_->get(cid);
-    if (conn == nullptr) { return {}; }
-    return [conn](bool f0a, std::uint8_t f0id, std::int16_t f0x, std::int16_t f0y, bool f1a,
-                  std::uint8_t f1id, std::int16_t f1x, std::int16_t f1y, bool button,
-                  std::uint32_t eventTimeMs) {
-        conn->sendTouchpad(f0a, f0id, f0x, f0y, f1a, f1id, f1x, f1y, button, eventTimeMs);
-    };
-}
-
-ConnectionHub::MicAudioSender ConnectionHub::micAudioSenderForSlot(const QString& slotId) const {
-    const auto cid = bindings_.value(slotId);
-    if (cid.isEmpty()) { return {}; }
-    auto* conn = wifi_->get(cid);
-    if (conn == nullptr) { return {}; }
-    return [conn](std::uint16_t seq, const std::uint8_t* opus, std::size_t opusLen) {
-        return conn->sendMicAudio(seq, opus, opusLen);
-    };
-}
-
 void ConnectionHub::bind(const QString& slotId, const QString& connectionId) {
     QHash<QString, QString> current = bindings_;
     QString priorSlot;

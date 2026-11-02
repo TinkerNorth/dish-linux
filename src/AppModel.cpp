@@ -1390,7 +1390,7 @@ void AppModel::collectMicForSlot(const models::ControllerSlot& s, net::WifiConne
     source::audio::MicCaptureTarget target;
     target.slotId = slotId;
     target.captureDeviceName = route.captureDeviceName;
-    auto sender = hub_->micAudioSenderForSlot(s.id);
+    auto sender = router_->micSenderForSlot(s.id);
     if (!sender) { return; }
     target.send = std::move(sender);
     out.micTargets.push_back(std::move(target));

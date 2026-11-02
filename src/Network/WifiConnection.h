@@ -35,7 +35,8 @@ namespace dish::net {
 //                close-notify(unpaired), or a silent retry is in flight.
 enum class SessionState : std::uint8_t { Idle, Linking, Live, Faltering, Stale };
 
-// Written on the Qt main thread, read on the SDL input thread every report.
+// The session's live client, on the Qt main thread. The hot threads hold theirs through
+// SlotRouter's published table.
 class ClientRef {
   public:
     std::shared_ptr<SatelliteClient> get() const {
@@ -198,23 +199,6 @@ class WifiConnection : public QObject {
     bool matchesAppliedView(const models::SessionViewDto& view) const;
     // Registered controller indices, for comparison against the ack's bitmap.
     std::uint16_t registeredBitmap() const;
-
-    // Hot path, called on the SDL input thread. Silently drops unless the bound
-    // slot is registered, since the server would discard it anyway.
-    void sendReport(std::uint16_t buttons, std::uint8_t lt, std::uint8_t rt, std::int16_t lx,
-                    std::int16_t ly, std::int16_t rx, std::int16_t ry);
-    void sendMotion(std::int16_t gyroX, std::int16_t gyroY, std::int16_t gyroZ, std::int16_t accelX,
-                    std::int16_t accelY, std::int16_t accelZ, std::uint32_t timestampDeltaUs);
-    void sendBattery(std::uint8_t level, std::uint8_t status);
-    void sendTouchpad(bool finger0Active, std::uint8_t finger0Id, std::int16_t finger0X,
-                      std::int16_t finger0Y, bool finger1Active, std::uint8_t finger1Id,
-                      std::int16_t finger1X, std::int16_t finger1Y, bool buttonPressed,
-                      std::uint32_t eventTimeMs);
-    // MSG_MIC_AUDIO for the bound slot; the capture engine calls it from the
-    // audio thread, the same cross-thread contract as sendReport from the SDL
-    // input thread. Gated on `registered` like every stream — the server drops
-    // audio for an unapplied slot anyway. Returns false when nothing was sent.
-    bool sendMicAudio(std::uint16_t seq, const std::uint8_t* opus, std::size_t opusLen);
 
     // Held here rather than on the per-session SatelliteClient so they survive a
     // reconnect; markConnected re-installs them.

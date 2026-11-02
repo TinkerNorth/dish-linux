@@ -379,7 +379,8 @@ The full cross-repo verification recipe lives in
 Three threads carry every report and every feedback message: the SDL input
 thread, a Direct pad's raw-HID read thread, and each session's receive thread.
 None of them takes a lock, allocates per report, or waits on the network, the
-GUI or a pad. If you are modifying `SDLGamepadBridge`, `GamepadInputProcessor`,
+GUI or a pad, and a mic capture thread sends its frames without a lock too. If
+you are modifying `SDLGamepadBridge`, `GamepadInputProcessor`,
 `SlotRouter`, `UsbGamepadManager`'s publisher or its output worker, or
 `SatelliteClient`:
 

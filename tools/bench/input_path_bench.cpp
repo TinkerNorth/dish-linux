@@ -51,7 +51,7 @@ namespace hp = dish::test::hotpath;
 
 using bench::Clock;
 using DeviceState = dish::input::GamepadInputProcessor::DeviceState;
-using MicSender = dish::net::ConnectionHub::MicAudioSender;
+using MicSender = dish::SlotRouter::MicSender;
 
 constexpr double kDefaultRateHz = 1000.0;
 constexpr double kDefaultSecs = 3.0;
@@ -597,7 +597,7 @@ class SyntheticBench {
         for (int s = 0; s < rig_.sessionCount(); ++s) {
             rig_.connection(s)->client()->stopHeartbeat();
         }
-        mic_ = rig_.hub().micAudioSenderForSlot(slotA_);
+        mic_ = rig_.router().micSenderForSlot(slotA_);
         if (!mic_) { return "pad A has no mic sender"; }
         republish();
         return {};

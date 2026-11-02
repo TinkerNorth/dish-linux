@@ -18,6 +18,7 @@
 #include "source/store/MotionEnabledStore.h"
 #include "source/store/RumbleEnabledStore.h"
 
+#include <bit>
 #include <chrono>
 #include <mutex>
 #include <string>
@@ -48,7 +49,9 @@ SlotRouter::SlotRouter(const Dependencies& deps) : deps_(deps) {}
 
 SlotRouter::~SlotRouter() {
     table_.store(nullptr, std::memory_order_seq_cst);
+    mics_->table.store(nullptr, std::memory_order_seq_cst);
     grace_.waitQuiescent();
+    mics_->grace.waitQuiescent();
 }
 
 void SlotRouter::attach() { deps_.processor->setSink(this); }
@@ -57,6 +60,13 @@ const SlotRouter::FeedbackRoute*
 SlotRouter::RouteTable::feedbackFor(const QString& connectionId) const {
     for (const FeedbackRoute& route : feedback) {
         if (route.connectionId == connectionId) { return &route; }
+    }
+    return nullptr;
+}
+
+const SlotRouter::MicRoute* SlotRouter::RouteTable::micFor(const std::string& slotId) const {
+    for (const MicRoute& route : mics) {
+        if (route.slotId == slotId) { return &route; }
     }
     return nullptr;
 }
@@ -199,9 +209,11 @@ std::unique_ptr<const SlotRouter::RouteTable> SlotRouter::build(const QStringLis
         const QString connectionId = bindings.value(slotId);
         net::WifiConnection* conn =
             connectionId.isEmpty() ? nullptr : deps_.wifi->get(connectionId);
-        if (!index.has_value() || conn == nullptr) { continue; }
+        if (conn == nullptr) { continue; }
         auto target = conn->sendTarget();
         if (!target.has_value()) { continue; }
+        table->mics.push_back(MicRoute{id, target->client, target->controllerIndex});
+        if (!index.has_value()) { continue; }
         InputRoute& route = table->inputs[*index];
         route.client = std::move(target->client);
         route.controllerIndex = target->controllerIndex;
@@ -223,8 +235,10 @@ void SlotRouter::republish(const QStringList& slotIds) {
     {
         std::lock_guard<thread::TrackedMutex> lock(routesMtx_);
         table_.store(next.get(), std::memory_order_seq_cst);
+        mics_->table.store(next.get(), std::memory_order_seq_cst);
         retired = std::exchange(published_, std::move(next));
         grace_.waitQuiescent();
+        mics_->grace.waitQuiescent();
     }
     // A Moonlight host's feedback follows the same changes: a claim, a pad, the rumble switch.
     if (anyMoonlight_.load(std::memory_order_relaxed)) { refreshMoonlightFeedback(); }
@@ -384,6 +398,52 @@ void SlotRouter::touchpad(DeviceIndex index, const DeviceId& id, const TouchpadS
     // A Moonlight-bound slot takes the SAME full-state frame; its sender diffs it into
     // CONTROLLER_TOUCH events on the way out.
     if (const auto send = moonlightSender(id, &MoonlightRoutes::touch)) { send(s); }
+}
+
+// One mic sender's participant and slot; every copy of the sender shares it, and the last one to
+// go gives the participant back.
+class SlotRouter::MicLease {
+  public:
+    MicLease(std::shared_ptr<MicShare> share, std::size_t participant, std::string slotId)
+        : share_(std::move(share)), participant_(participant), slotId_(std::move(slotId)) {}
+    ~MicLease() {
+        share_->taken.fetch_and(~(std::uint64_t{1} << participant_), std::memory_order_release);
+    }
+
+    MicLease(const MicLease&) = delete;
+    MicLease& operator=(const MicLease&) = delete;
+    MicLease(MicLease&&) = delete;
+    MicLease& operator=(MicLease&&) = delete;
+
+    // On the capture thread: the slot's route in the table published now, no lock, no heap.
+    bool send(std::uint16_t seq, const std::uint8_t* opus, std::size_t len) const {
+        const thread::GraceGuard guard(share_->grace, participant_);
+        const RouteTable* table = share_->table.load(std::memory_order_seq_cst);
+        if (table == nullptr) { return false; }
+        const MicRoute* route = table->micFor(slotId_);
+        return route != nullptr &&
+               route->client->sendMicAudio(route->controllerIndex, seq, opus, len);
+    }
+
+  private:
+    const std::shared_ptr<MicShare> share_;
+    const std::size_t participant_;
+    const std::string slotId_;
+};
+
+SlotRouter::MicSender SlotRouter::micSenderForSlot(const QString& slotId) const {
+    std::uint64_t taken = mics_->taken.load(std::memory_order_relaxed);
+    std::size_t participant = 0;
+    do {
+        if (taken == std::numeric_limits<std::uint64_t>::max()) { return {}; }
+        participant = static_cast<std::size_t>(std::countr_one(taken));
+    } while (!mics_->taken.compare_exchange_weak(taken, taken | (std::uint64_t{1} << participant),
+                                                 std::memory_order_acquire,
+                                                 std::memory_order_relaxed));
+    const auto lease = std::make_shared<const MicLease>(mics_, participant, slotId.toStdString());
+    return [lease](std::uint16_t seq, const std::uint8_t* opus, std::size_t len) {
+        return lease->send(seq, opus, len);
+    };
 }
 
 void SlotRouter::sendBattery(const QString& slotId, std::uint8_t level, std::uint8_t status) {

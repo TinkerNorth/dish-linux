@@ -21,6 +21,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <limits>
 #include <map>
 #include <memory>
 #include <optional>
@@ -50,12 +51,12 @@ class SpeakerPlayoutEngine;
 }
 } // namespace source
 
-// Where every pad's reports go and where every session's feedback lands, as one immutable table
-// the GUI thread builds and publishes and every input and receive thread reads without a lock. A
-// reader brackets each use in a grace epoch on a participant of its own (a device's index for the
-// thread that publishes that device, a session's own for its receive thread), so the GUI can
-// retire the table it replaced once no bracket holds it. AppModel and the hot-path harness use it
-// alike.
+// Where every pad's reports and mic frames go and where every session's feedback lands, as one
+// immutable table the GUI thread builds and publishes and every input, receive and capture thread
+// reads without a lock. A reader brackets each use in a grace epoch on a participant of its own (a
+// device's index for the thread that publishes that device, a session's own for its receive
+// thread, a mic sender's own for its capture thread), so the GUI can retire the table it replaced
+// once no bracket holds it. AppModel and the hot-path harness use it alike.
 class SlotRouter final : public input::GamepadInputProcessor::InputSink {
   public:
     using DeviceIndex = input::GamepadInputProcessor::DeviceIndex;
@@ -128,6 +129,17 @@ class SlotRouter final : public input::GamepadInputProcessor::InputSink {
     void moonlightLightbar(std::string_view hostUuid, std::uint8_t controllerNumber, std::uint8_t r,
                            std::uint8_t g, std::uint8_t b);
 
+    // seq, the Opus packet and its length; true when the frame was sent.
+    using MicSender = std::function<bool(std::uint16_t, const std::uint8_t*, std::size_t)>;
+    // One participant per bit of the word that hands them out.
+    static constexpr std::size_t kMicSenders = std::numeric_limits<std::uint64_t>::digits;
+    // GUI thread: how one slot's mic frames leave its capture thread. Each frame goes where the
+    // table the GUI last published routes the slot, read inside a bracket on a participant the
+    // sender owns, so one thread at a time calls a sender; the participant comes back when the
+    // sender's last copy goes. Empty while kMicSenders are alive. Kept past the router, a sender
+    // sends nothing.
+    MicSender micSenderForSlot(const QString& slotId) const;
+
     // GUI thread, answered live: the descriptor's caps and the actuation the GUI starts itself.
     SlotHardware slotHardware(const QString& slotId) const;
     reducer::SlotFeedbackInputs feedbackInputs(const QString& slotId) const;
@@ -187,11 +199,26 @@ class SlotRouter final : public input::GamepadInputProcessor::InputSink {
             return targets[static_cast<std::size_t>(kind)];
         }
     };
+    struct MicRoute {
+        std::string slotId;
+        std::shared_ptr<net::SatelliteClient> client;
+        int controllerIndex = 0;
+    };
     struct RouteTable {
         std::array<InputRoute, kDeviceParticipants> inputs;
+        std::vector<MicRoute> mics;
         std::vector<FeedbackRoute> feedback;
         const FeedbackRoute* feedbackFor(const QString& connectionId) const;
+        const MicRoute* micFor(const std::string& slotId) const;
     };
+    // What the mic senders share with the router and keep past it: the published table's address
+    // and the brackets that guard it, with a participant taken for each sender alive.
+    struct MicShare {
+        thread::GraceEpoch<kMicSenders> grace;
+        std::atomic<const RouteTable*> table{nullptr};
+        std::atomic<std::uint64_t> taken{0};
+    };
+    class MicLease;
 
     std::unique_ptr<const RouteTable> build(const QStringList& slotIds) const;
     // The Moonlight sender `member` names for a device, copied out under moonlight.routes; none
@@ -224,6 +251,7 @@ class SlotRouter final : public input::GamepadInputProcessor::InputSink {
     thread::TrackedMutex routesMtx_{"app.routes"};
     std::unique_ptr<const RouteTable> published_;
     std::atomic<const RouteTable*> table_{nullptr};
+    const std::shared_ptr<MicShare> mics_ = std::make_shared<MicShare>();
     // GUI thread only.
     QHash<QString, std::size_t> sessionParticipants_;
     // The matcher's answer, written and read on the GUI thread.

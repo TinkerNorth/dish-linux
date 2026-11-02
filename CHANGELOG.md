@@ -26,12 +26,13 @@ the repos share a version number.
   sends one packet instead of two, and a report that changed nothing sends
   none.
 - **Nothing on the input or feedback path waits for anything else.** Sending
-  a report takes no lock; a full send buffer still drops the packet, as the
-  network itself would. Rumble, light-bar and the other feedback reach a pad
-  through a mailbox its own thread empties, so a slow pad on the direct USB
-  path can no longer hold up the session's other traffic. The threads that
-  read pads and the network ask rtkit to run ahead of the desktop, and in the
-  Flatpak the realtime portal; where neither answers, nothing changes.
+  a report takes no lock, and neither does a pad's microphone; a full send
+  buffer still drops the packet, as the network itself would. Rumble,
+  light-bar and the other feedback reach a pad through a mailbox its own
+  thread empties, so a slow pad on the direct USB path can no longer hold up
+  the session's other traffic. The threads that read pads and the network
+  ask rtkit to run ahead of the desktop, and in the Flatpak the realtime
+  portal; where neither answers, nothing changes.
 - **A DualSense or DualShock 4 on the direct USB path sends its touchpad the
   way Android does.** A touch, a lift or a click goes at once, a move at most
   every 8 ms, and an idle touchpad nothing, which takes such a pad from about
