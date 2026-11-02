@@ -301,3 +301,17 @@ if(NOT DISH_LOCK_STATS)
     # alone; an unbuilt twin would read as a failing test.
     add_dependencies(DishTests DishTrackedMutexStatsTests)
 endif()
+
+# The lock-law ratchet reads the lock statistics, so only a DISH_LOCK_STATS
+# build has it. It wires the real objects through tests/HotPathRig.h, which the
+# input-path bench shares; main.cpp is the suite's own, for its one
+# QCoreApplication.
+if(DISH_LOCK_STATS)
+    add_executable(DishLockLawTests main.cpp test_lock_laws.cpp)
+    target_link_libraries(DishLockLawTests
+        PRIVATE
+            dish_core
+            Catch2::Catch2
+            dish_warnings)
+    catch_discover_tests(DishLockLawTests)
+endif()
