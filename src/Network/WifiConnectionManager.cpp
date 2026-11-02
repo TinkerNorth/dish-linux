@@ -806,6 +806,7 @@ void WifiConnectionManager::onSessionReply(const QString& id,
         return;
     }
     auto client = std::make_shared<SatelliteClient>();
+    client->setPriorityRequester(priority_);
     const bool socketOpened = client->openSocket(server.ip.toStdString(), server.udpPort);
     if (!socketOpened) {
         onGrantUnusable(conn, server, intent, *resp.connectionId);

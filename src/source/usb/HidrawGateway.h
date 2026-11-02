@@ -44,6 +44,10 @@
 #include <utility>
 #include <vector>
 
+namespace dish::source {
+class PriorityRequester;
+} // namespace dish::source
+
 namespace dish::source::usb {
 
 namespace detail {
@@ -198,6 +202,10 @@ class HidrawGateway : public UsbDeviceGateway {
     bool isClaimAlive(int syntheticId) const override;
     std::int64_t completionCount(int syntheticId) const override;
     std::int64_t decodedCount(int syntheticId) const override;
+    // Before the first claim: what each claim's read thread asks for its priority through as it
+    // starts. None asks for nothing.
+    void setPriorityRequester(const PriorityRequester* requester) { priority_ = requester; }
+
     bool writeOutputReport(int syntheticId, const std::uint8_t* data, std::size_t len) override;
     std::unique_ptr<HidReportWriter> openReportWriter(int syntheticId) override;
     bool setPadMicMuted(int syntheticId, bool muted) override;
@@ -246,6 +254,7 @@ class HidrawGateway : public UsbDeviceGateway {
     // Negative and decreasing, mirroring the android synthetic-id space so they
     // never collide with positive SDL ids.
     std::atomic<int> nextSyntheticId_{-1000};
+    const PriorityRequester* priority_ = nullptr;
 
     mutable thread::TrackedMutex mtx_{"hid.claims"};
     std::map<int, std::unique_ptr<Claimed>> claimed_;

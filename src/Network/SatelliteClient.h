@@ -32,6 +32,10 @@
 #include <thread>
 #include <vector>
 
+namespace dish::source {
+class PriorityRequester;
+} // namespace dish::source
+
 namespace dish::net {
 
 // sendReport() runs on the SDL input thread. Every other public call is expected
@@ -351,6 +355,9 @@ class SatelliteClient {
 
     void startHeartbeat();
     void stopHeartbeat();
+    // Before startReceiveLoop: what the receive thread asks for its priority through as it
+    // starts. None asks for nothing.
+    void setPriorityRequester(const source::PriorityRequester* requester) { priority_ = requester; }
     void startReceiveLoop();
     void stopReceiveLoop();
 
@@ -450,6 +457,7 @@ class SatelliteClient {
     std::atomic<bool> ackRunning_{false};
     std::thread heartbeatThread_;
     std::thread ackThread_;
+    const source::PriorityRequester* priority_ = nullptr;
 
     // µs stamp of the in-flight heartbeat ping, 0 for none. Armed on the
     // heartbeat thread, consumed on the receive thread via exchange(0). Per

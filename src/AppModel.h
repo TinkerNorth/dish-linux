@@ -11,6 +11,7 @@
 #include "Network/ConnectionStore.h"
 #include "Network/WifiConnectionManager.h"
 #include "SlotRouter.h"
+#include "Util/Sandbox.h"
 #include "architecture/Observable.h"
 #include "composer/CatalogComposer.h"
 #include "composer/BackgroundCoordinator.h"
@@ -65,6 +66,7 @@
 #include "source/store/UpdatePreferenceStore.h"
 #include "source/store/UsbPathPreferenceStore.h"
 #include "source/system/SleepMonitor.h"
+#include "source/system/ThreadPriority.h"
 #include "source/system/WakeInhibitor.h"
 #include "source/tray/StatusNotifierTrayIcon.h"
 #include "source/tray/TrayIcon.h"
@@ -709,6 +711,12 @@ class AppModel : public QObject {
     source::UsbPathPreferenceRepository usbPathRepo_;
     source::UsbPathPreferenceStore usbPathStore_;
     std::unique_ptr<source::usb::HidrawGateway> usbGateway_;
+    // The SDL thread, each claim's read thread and each session's receive thread ask for their
+    // priority through these as they start.
+    source::DbusPriorityBus priorityBus_;
+    source::PriorityRequester priority_{priorityBus_, util::runningInFlatpak()
+                                                          ? source::PriorityBroker::Portal
+                                                          : source::PriorityBroker::RealtimeKit};
     UsbObserver usbObserver_;
     std::unique_ptr<source::usb::UsbGamepadManager> usbManager_;
     QTimer* usbScanTimer_;

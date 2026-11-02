@@ -10,6 +10,7 @@
 #include "PumpWaiter.h"
 #include "SdlMotionConvert.h"
 #include "Util/HostBattery.h"
+#include "source/system/ThreadPriority.h"
 
 #include <SDL2/SDL.h>
 
@@ -449,6 +450,7 @@ void SDLGamepadBridge::closeAllDevices() {
 
 void SDLGamepadBridge::runLoop() {
     const thread::ScopedThreadRole role(thread::ThreadRole::SdlInput);
+    if (priority_ != nullptr) { priority_->request(thread::ThreadRole::SdlInput); }
     applySdlHints();
     if (!initSdl()) {
         running_.store(false);

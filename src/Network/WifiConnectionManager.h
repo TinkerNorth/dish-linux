@@ -103,6 +103,8 @@ class WifiConnectionManager : public QObject {
     // announced: for an owner whose parts the sessions' receive threads call into, and which goes
     // before this manager does.
     void closeSessions();
+    // What each session's receive thread asks for its priority through as it starts.
+    void setPriorityRequester(const source::PriorityRequester* requester) { priority_ = requester; }
 
     // Suspend/resume. Tearing down first matters: a session the machine slept
     // through comes back Faltering, which slips past both autoReconnectAll's
@@ -292,6 +294,7 @@ class WifiConnectionManager : public QObject {
     QHash<QString, WifiConnection*> connections_;
     // Closes the clients the sessions let go of, off the GUI thread; each session holds it too.
     std::shared_ptr<ClientReaper> reaper_ = std::make_shared<ClientReaper>();
+    const source::PriorityRequester* priority_ = nullptr;
     QList<models::DiscoveredServer> discovered_;
     bool scanning_ = false;
     QSet<QString> pairingInFlight_;

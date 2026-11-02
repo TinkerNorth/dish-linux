@@ -328,6 +328,9 @@ AppModel::AppModel(std::unique_ptr<source::WakeInhibitor> inhibitor, QObject* pa
     // the verified fast-lane models; every other or failed pad stays on SDL via
     // the FSM's Routed phase.
     usbGateway_ = std::make_unique<source::usb::HidrawGateway>();
+    usbGateway_->setPriorityRequester(&priority_);
+    bridge_->setPriorityRequester(&priority_);
+    wifi_->setPriorityRequester(&priority_);
     usbManager_ = std::make_unique<source::usb::UsbGamepadManager>(usbGateway_.get(), &processor_,
                                                                    &usbPathStore_, &usbObserver_);
     router_ = std::make_unique<SlotRouter>(SlotRouter::Dependencies{

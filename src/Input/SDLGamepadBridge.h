@@ -35,6 +35,10 @@
 // this header already compiles against SDL.
 #include <SDL2/SDL_events.h>
 
+namespace dish::source {
+class PriorityRequester;
+} // namespace dish::source
+
 namespace dish::input {
 
 // Pumps SDL_GameController events on a dedicated thread and forwards each
@@ -52,6 +56,9 @@ class SDLGamepadBridge : public QObject {
 
     // The policy is read once here; the SDL thread is its only reader.
     void start(pump::PumpPolicy policy = {});
+    // Before start: what the SDL thread asks for its priority through as it starts. None asks
+    // for nothing.
+    void setPriorityRequester(const source::PriorityRequester* requester) { priority_ = requester; }
     void stop();
 
     // A snapshot of one attached device. Every field is classified once at
@@ -276,6 +283,7 @@ class SDLGamepadBridge : public QObject {
     std::thread thread_;
     std::atomic<bool> running_{false};
     pump::PumpPolicy policy_{};
+    const source::PriorityRequester* priority_ = nullptr;
 
     // SDL thread only.
     std::array<Pad, kMaxPads> pads_{};

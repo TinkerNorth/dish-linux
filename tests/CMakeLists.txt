@@ -177,6 +177,7 @@ set(DISH_TEST_SOURCES
     test_poll_rate_sampler.cpp
     test_pump_pacing.cpp
     test_pump_waiter.cpp
+    test_thread_priority.cpp
     test_dirty_set.cpp
     test_touch_gate.cpp
     test_thread_primitives.cpp

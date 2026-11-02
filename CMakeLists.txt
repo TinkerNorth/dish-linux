@@ -413,6 +413,8 @@ set(DISH_CORE_SOURCES
     src/source/system/SecretServiceStore.cpp
     src/source/system/SleepMonitor.cpp
     src/source/system/WakeInhibitor.cpp
+    src/source/system/ThreadPriority.h
+    src/source/system/ThreadPriority.cpp
     src/source/tray/TrayIcon.h
     src/source/tray/SniIcon.h
     src/source/tray/SniIcon.cpp
@@ -596,7 +598,7 @@ target_link_libraries(dish_core
         Qt6::Core Qt6::Network
         # For the theme palette (QColor + QStyleHints) and the role models.
         Qt6::Gui
-        # ScreenSaver inhibit, the BlueZ adapter probe and the appearance portal.
+        # ScreenSaver inhibit, the BlueZ adapter probe, the appearance portal and rtkit.
         Qt6::DBus
         # The Moonlight mDNS scan runs off the GUI thread via QtConcurrent::run.
         Qt6::Concurrent

@@ -3,6 +3,8 @@
 
 #include "source/usb/HidrawGateway.h"
 
+#include "source/system/ThreadPriority.h"
+
 #include <linux/hidraw.h>
 #include <linux/input.h>
 #include <sys/ioctl.h>
@@ -474,6 +476,7 @@ bool HidrawGateway::decodeOneReport(Claimed* c, const std::uint8_t* data, std::s
 // pure functions over them that mutate the device's stick auto-range state in place.
 void HidrawGateway::readLoop(Claimed* c) {
     const thread::ScopedThreadRole role(thread::ThreadRole::UsbReader);
+    if (priority_ != nullptr) { priority_->request(thread::ThreadRole::UsbReader); }
     std::array<std::uint8_t, 128> buf{};
     pollfd pfd{};
     pfd.fd = c->fd;
