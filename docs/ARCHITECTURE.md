@@ -557,10 +557,6 @@ CI), so each needs a device-in-the-loop test pass.
 - [`MotionCapabilityComposer`](../src/composer/MotionCapabilityComposer.h)
   exists and is tested but nothing consumes it. It needs the device-list
   Observable fed in.
-- The SDL `devices()` getter plus its content-free `devicesChanged()` signal
-  should be a `StateSource<vector<DeviceSnapshot>>`. Distinct-until-changed
-  would end the battery-poll rebuild storm and close the cross-thread
-  time-of-check/time-of-use gap on the device list.
 - `AppModel` still performs work that belongs in dedicated coordinators: USB
   framework-presence driving, the catalog and Emulate flow, and the remap,
   deadzone, and rumble pushes. Extracting them would leave it a pure

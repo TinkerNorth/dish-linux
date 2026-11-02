@@ -159,6 +159,7 @@ set(DISH_TEST_SOURCES
     test_slot_router.cpp
     test_output_mailbox.cpp
     test_output_worker.cpp
+    test_sdl_bridge_devices.cpp
     test_lightbar_routing.cpp
     test_feature_settings.cpp
     test_host_battery.cpp
