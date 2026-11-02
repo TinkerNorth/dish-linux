@@ -170,6 +170,7 @@ set(DISH_TEST_SOURCES
     test_poll_rate_sampler.cpp
     test_pump_pacing.cpp
     test_pump_waiter.cpp
+    test_dirty_set.cpp
     test_path_choice.cpp
     test_transport_failure.cpp
     test_app_settings_migration.cpp

@@ -38,16 +38,18 @@ void GamepadInputProcessor::publish(const DeviceId& id, const DeviceState& state
         Deadzones dz{};
         if (auto it = deadzones_.find(id); it != deadzones_.end()) { dz = it->second; }
         filtered = applyDeadzones(state, dz);
-        states_[id] = filtered;
         rawStates_[id] = state;
         if (DeviceState& ref = activityRef_[id]; isActuation(ref, filtered)) {
             ref = filtered;
             actuations_.fetch_add(1, std::memory_order_relaxed);
         }
         ++telEvents_;
+        rateCounters_[id].gamepad.fetch_add(1, std::memory_order_relaxed);
+        const auto [last, first] = states_.try_emplace(id, filtered);
+        if (!first && last->second == filtered) { return; }
+        last->second = filtered;
         ++telSends_;
         ++telTotalSent_;
-        rateCounters_[id].gamepad.fetch_add(1, std::memory_order_relaxed);
         snapshot = sender_;
     }
     if (snapshot) {

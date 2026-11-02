@@ -630,3 +630,26 @@ timer's wake-up jitter spreads the phase. The timer stays the default.
 bench_input_path --mode vigem --json vigem.json
 bench_input_path --mode vigem --pump spin --json vigem-spin.json
 ```
+
+### One report, one datagram
+
+A stick moved diagonally arrives from SDL as one controller event per axis, and the bridge rebuilt
+and sent the pad's state for each. The cycle now marks a moved pad in a dirty set
+(`core/input/DirtySet.h`, keyed by the pad's slot in a table only the SDL thread touches) and rebuilds
+each marked pad once after the last event. `GamepadInputProcessor::publish` latches: a report equal,
+after the dead zones, to the last one forwarded for the device is counted as an event and not sent;
+the first report after a device appears or is removed always goes, and `zeroAndSendAll` always
+sends. The raw joystick events SDL raises beside a game controller's own no longer take
+`bridge.devices` or build a string to find out they are not a raw joystick's: the slot table says so.
+
+ViGEm mode at its defaults, two runs of each; `visible to recv` in microseconds:
+
+| build | p50 | p99 | p99.9 | max | over 1 ms | stimulus reports never sent | dgrams/report | effective Hz |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| before | 168.6 | 872.2 | 1005.6 | 1063.6 | 4 | 20 | 1.99 | 993.3 |
+| before | 139.1 | 740.3 | 1026.1 | 1041.9 | 7 | 4 | 2.00 | 998.7 |
+| one per report | 371.4 | 904.4 | 1029.7 | 1179.4 | 8 | 44 | 0.99 | 985.3 |
+| one per report | 136.7 | 864.7 | 998.5 | 1025.6 | 1 | 17 | 0.99 | 994.3 |
+
+The first run of the change met another process's load (68 percent at its end); the second pair
+ran at 2 to 12 percent throughout.

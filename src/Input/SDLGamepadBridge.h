@@ -6,6 +6,7 @@
 #include "GamepadInputProcessor.h"
 #include "JoystickMapping.h"
 #include "OutputCommandQueue.h"
+#include "core/input/DirtySet.h"
 #include "core/input/PumpPacing.h"
 #include "core/thread/TrackedMutex.h"
 
@@ -18,6 +19,7 @@
 #include <cstdint>
 #include <map>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <thread>
 #include <unordered_map>
@@ -161,6 +163,21 @@ class SDLGamepadBridge : public QObject {
     // sweep is due.
     void pumpOnce(TimePoint now);
 
+    // The pads open now, by slot, and which path each takes; the dirty set is keyed by slot. A pad
+    // past the table still works, rebuilding on each of its events instead of once a cycle.
+    enum class PadKind : std::uint8_t { Free, Controller, Joystick };
+    struct PadSlot {
+        int iid = -1;
+        PadKind kind = PadKind::Free;
+    };
+    static constexpr std::size_t kMaxPads = 32;
+    std::optional<std::size_t> slotOf(int iid) const;
+    void claimSlot(int iid, PadKind kind);
+    void releaseSlot(int iid);
+    bool isRawJoystick(int iid) const;
+    void markDirty(int iid);
+    void rebuildDirty();
+
     // What one SDL event means, what a raw-joystick event means in particular, and what the loop
     // closes on its way out. All on the SDL thread.
     void dispatchSdlEvent(const SDL_Event& ev);
@@ -238,6 +255,8 @@ class SDLGamepadBridge : public QObject {
     // swept.
     int openPads_ = 0;
     TimePoint lastBatterySweep_{};
+    std::array<PadSlot, kMaxPads> pads_{};
+    DirtySet<kMaxPads> dirty_;
 
     // Guarded by mtx_; manipulated only from the input thread except for
     // devices() which reads under lock.

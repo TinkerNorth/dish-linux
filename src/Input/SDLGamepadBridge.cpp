@@ -211,7 +211,7 @@ SDLGamepadBridge::ControllerCaps SDLGamepadBridge::probeControllerCaps(SDL_GameC
 
 void SDLGamepadBridge::registerController(int iid, SDL_GameController* gc, const QString& deviceId,
                                           const QString& deviceName, const ControllerCaps& caps) {
-    ++openPads_;
+    claimSlot(iid, PadKind::Controller);
     std::lock_guard<thread::TrackedMutex> lock(mtx_);
     openControllers_[iid] = gc;
     deviceIds_[iid] = deviceId;
@@ -273,7 +273,7 @@ void SDLGamepadBridge::onControllerRemoved(const SDL_Event& ev) {
             thread::blockingRegion("sdl.close");
             SDL_GameControllerClose(it->second);
             openControllers_.erase(it);
-            --openPads_;
+            releaseSlot(iid);
         }
         if (auto it = deviceIds_.find(iid); it != deviceIds_.end()) {
             deviceId = it->second.toStdString();
@@ -319,7 +319,7 @@ void SDLGamepadBridge::onJoystickAdded(const SDL_Event& ev) {
     const char* devPath = SDL_JoystickPath(js);
     const bool bluetooth = devPath != nullptr && dish::input::isBluetoothHidDevicePath(devPath);
     const bool hasRumble = SDL_JoystickHasRumble(js) == SDL_TRUE;
-    ++openPads_;
+    claimSlot(iid, PadKind::Joystick);
     {
         std::lock_guard<thread::TrackedMutex> lock(mtx_);
         openJoysticks_[iid] = js;
@@ -357,7 +357,7 @@ void SDLGamepadBridge::onJoystickRemoved(const SDL_Event& ev) {
         thread::blockingRegion("sdl.close");
         SDL_JoystickClose(jit->second);
         openJoysticks_.erase(jit);
-        --openPads_;
+        releaseSlot(iid);
         if (auto it = deviceIds_.find(iid); it != deviceIds_.end()) {
             deviceId = it->second.toStdString();
             deviceIds_.erase(it);
@@ -380,7 +380,8 @@ void SDLGamepadBridge::onJoystickRemoved(const SDL_Event& ev) {
 // what "deliberate" means for their kind.
 void SDLGamepadBridge::onRawJoystickInput(int iid, CaptureKind kind, int index, int value,
                                           bool deliberate) {
-    rebuildJoystickState(iid);
+    // A game controller's own joystick events land here too; its controller events carry the input.
+    if (isRawJoystick(iid)) { markDirty(iid); }
     if (!deliberate) { return; }
     // Checked second: the flag keeps capture free when off, and it is read per event rather than
     // held, because the page can be left at any point in this loop.
@@ -407,7 +408,7 @@ void SDLGamepadBridge::dispatchSdlEvent(const SDL_Event& ev) {
     case SDL_CONTROLLERAXISMOTION:
     case SDL_CONTROLLERBUTTONDOWN:
     case SDL_CONTROLLERBUTTONUP:
-        rebuildState(ev.cdevice.which);
+        markDirty(ev.cdevice.which);
         break;
     case SDL_AUDIODEVICEADDED:
     case SDL_AUDIODEVICEREMOVED:
@@ -417,8 +418,6 @@ void SDLGamepadBridge::dispatchSdlEvent(const SDL_Event& ev) {
         QMetaObject::invokeMethod(this, "audioDevicesChanged", Qt::QueuedConnection);
         break;
     case SDL_JOYAXISMOTION:
-        // A game controller's joystick events also land here, but its iid is in openControllers_
-        // and never openJoysticks_, so this no-ops for it.
         onRawJoystickInput(ev.jaxis.which, CaptureKind::Axis, ev.jaxis.axis, ev.jaxis.value,
                            captureAxisPasses(ev.jaxis.value));
         break;
@@ -465,6 +464,8 @@ void SDLGamepadBridge::closeAllDevices() {
     deviceIds_.clear();
     deviceNames_.clear();
     openPads_ = 0;
+    pads_ = {};
+    dirty_ = {};
 }
 
 void SDLGamepadBridge::runLoop() {
@@ -506,6 +507,7 @@ void SDLGamepadBridge::pumpOnce(TimePoint now) {
                                  SDL_LASTEVENT)) > 0) {
         for (int i = 0; i < got; ++i) { dispatchSdlEvent(events[static_cast<std::size_t>(i)]); }
     }
+    rebuildDirty();
 
     // Here, so every SDL_GameController* is resolved and used only on the SDL thread.
     drainOutputCommands();
@@ -514,6 +516,51 @@ void SDLGamepadBridge::pumpOnce(TimePoint now) {
         lastBatterySweep_ = now;
         pollBatteries();
     }
+}
+
+std::optional<std::size_t> SDLGamepadBridge::slotOf(int iid) const {
+    for (std::size_t slot = 0; slot < pads_.size(); ++slot) {
+        if (pads_[slot].kind != PadKind::Free && pads_[slot].iid == iid) { return slot; }
+    }
+    return std::nullopt;
+}
+
+void SDLGamepadBridge::claimSlot(int iid, PadKind kind) {
+    ++openPads_;
+    for (PadSlot& pad : pads_) {
+        if (pad.kind == PadKind::Free) {
+            pad = PadSlot{iid, kind};
+            return;
+        }
+    }
+}
+
+void SDLGamepadBridge::releaseSlot(int iid) {
+    --openPads_;
+    if (const auto slot = slotOf(iid); slot.has_value()) { pads_[*slot] = PadSlot{}; }
+}
+
+bool SDLGamepadBridge::isRawJoystick(int iid) const {
+    const auto slot = slotOf(iid);
+    return !slot.has_value() || pads_[*slot].kind == PadKind::Joystick;
+}
+
+void SDLGamepadBridge::markDirty(int iid) {
+    if (const auto slot = slotOf(iid); slot.has_value()) {
+        dirty_.mark(*slot);
+        return;
+    }
+    rebuildState(iid);
+    rebuildJoystickState(iid);
+}
+
+// One report per moved pad per cycle, however many of its axes and buttons SDL reported.
+void SDLGamepadBridge::rebuildDirty() {
+    dirty_.drain([this](std::size_t slot) {
+        const PadSlot pad = pads_[slot];
+        if (pad.kind == PadKind::Controller) { rebuildState(pad.iid); }
+        if (pad.kind == PadKind::Joystick) { rebuildJoystickState(pad.iid); }
+    });
 }
 
 void SDLGamepadBridge::applyRumble(const QString& deviceId, std::uint16_t strongMagnitude,

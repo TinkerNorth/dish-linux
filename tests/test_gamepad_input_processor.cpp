@@ -33,7 +33,7 @@ TEST_CASE("scaleTrigger clamps and rounds to [0, 255]", "[input]") {
     REQUIRE(scaleTrigger(2.0F) == 255);
 }
 
-TEST_CASE("publish forwards every state to the report sender", "[input]") {
+TEST_CASE("publish forwards every changed state to the report sender", "[input]") {
     GamepadInputProcessor p;
     int calls = 0;
     std::uint16_t lastButtons = 0;
@@ -82,18 +82,108 @@ TEST_CASE("drainTelemetry resets per-second counters and keeps lifetime total", 
 
     GamepadInputProcessor::DeviceState s;
     p.publish("pad", s);
+    s.wButtons = GamepadInputProcessor::Buttons::kX;
     p.publish("pad", s);
     p.publish("pad", s);
 
     auto snap = p.drainTelemetry();
     REQUIRE(snap.events == 3);
-    REQUIRE(snap.sends == 3);
-    REQUIRE(snap.totalSent == 3);
+    REQUIRE(snap.sends == 2);
+    REQUIRE(snap.totalSent == 2);
 
     auto snap2 = p.drainTelemetry();
     REQUIRE(snap2.events == 0);
     REQUIRE(snap2.sends == 0);
-    REQUIRE(snap2.totalSent == 3);
+    REQUIRE(snap2.totalSent == 2);
+}
+
+namespace {
+
+struct ForwardLog {
+    int calls = 0;
+    GamepadInputProcessor::DeviceState last{};
+
+    void install(GamepadInputProcessor& p) {
+        p.setReportSender([this](const std::string&, std::uint16_t b, std::uint8_t lt,
+                                 std::uint8_t rt, std::int16_t lx, std::int16_t ly, std::int16_t rx,
+                                 std::int16_t ry) {
+            ++calls;
+            last = GamepadInputProcessor::DeviceState{b, lt, rt, lx, ly, rx, ry};
+        });
+    }
+};
+
+} // namespace
+
+TEST_CASE("an unchanged report forwards nothing", "[input][latch]") {
+    GamepadInputProcessor p;
+    ForwardLog log;
+    log.install(p);
+    GamepadInputProcessor::DeviceState s;
+    s.lx = 12000;
+    p.publish("pad", s);
+    p.publish("pad", s);
+    p.publish("pad", s);
+    CHECK(log.calls == 1);
+    CHECK(p.drainTelemetry().events == 3);
+}
+
+TEST_CASE("a one-bit change forwards once", "[input][latch]") {
+    GamepadInputProcessor p;
+    ForwardLog log;
+    log.install(p);
+    GamepadInputProcessor::DeviceState s;
+    p.publish("pad", s);
+    s.wButtons = GamepadInputProcessor::Buttons::kDpadUp;
+    p.publish("pad", s);
+    p.publish("pad", s);
+    CHECK(log.calls == 2);
+    CHECK(log.last.wButtons == GamepadInputProcessor::Buttons::kDpadUp);
+}
+
+TEST_CASE("the first report of a device forwards even when it is all zero", "[input][latch]") {
+    GamepadInputProcessor p;
+    ForwardLog log;
+    log.install(p);
+    p.publish("pad", GamepadInputProcessor::DeviceState{});
+    CHECK(log.calls == 1);
+}
+
+TEST_CASE("jitter inside the dead zone forwards nothing", "[input][latch]") {
+    GamepadInputProcessor p;
+    ForwardLog log;
+    log.install(p);
+    p.setDeadzones("pad", {3277, 13});
+    GamepadInputProcessor::DeviceState s;
+    s.lx = 1200;
+    p.publish("pad", s);
+    s.lx = -900;
+    s.lt = 5;
+    p.publish("pad", s);
+    CHECK(log.calls == 1);
+}
+
+TEST_CASE("zeroAndSendAll forwards even when the pad already rests at zero", "[input][latch]") {
+    GamepadInputProcessor p;
+    ForwardLog log;
+    log.install(p);
+    p.publish("pad", GamepadInputProcessor::DeviceState{});
+    p.zeroAndSendAll();
+    CHECK(log.calls == 2);
+    p.publish("pad", GamepadInputProcessor::DeviceState{});
+    CHECK(log.calls == 2);
+}
+
+TEST_CASE("remove clears the latch, so the next report forwards", "[input][latch]") {
+    GamepadInputProcessor p;
+    ForwardLog log;
+    log.install(p);
+    GamepadInputProcessor::DeviceState s;
+    s.ry = -20000;
+    p.publish("pad", s);
+    p.remove("pad");
+    p.publish("pad", s);
+    CHECK(log.calls == 2);
 }
 
 TEST_CASE("applyDeadzones zeroes sticks at or below threshold", "[input]") {

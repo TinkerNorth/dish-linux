@@ -117,6 +117,7 @@ class GamepadInputProcessor {
         }
     };
 
+    // `events` counts every report published, `sends` the ones that went on to the sender.
     struct TelemetrySnapshot {
         int events = 0;
         int sends = 0;
@@ -161,6 +162,8 @@ class GamepadInputProcessor {
     void setBatterySender(BatterySender sender);
     void setTouchpadSender(TouchpadSender sender);
     void setDeadzones(const DeviceId& id, const Deadzones& dz);
+    // Forwards the report only when it differs, after the dead zones, from the last one forwarded
+    // for the device; the first report after the device appears, or after remove(), always goes.
     void publish(const DeviceId& id, const DeviceState& state);
 
     // False when the rate limiter dropped the sample. The device threads that
@@ -180,6 +183,8 @@ class GamepadInputProcessor {
 
   private:
     mutable thread::TrackedMutex mtx_{"input.processor"};
+    // The last report forwarded per device, after the dead zones: the latch publish() compares
+    // with.
     std::unordered_map<DeviceId, DeviceState> states_;
     // The same reports before the dead zones, for the inspector's stick tests:
     // a drift the dead zone hides is still the drift the test has to measure.
