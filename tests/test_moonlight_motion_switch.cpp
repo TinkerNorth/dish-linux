@@ -100,8 +100,8 @@ struct Rig {
 
     MoonlightSession* session() const { return manager->session(hostId()); }
 
-    // The pad bound and its session streaming, with the host holding the pad and asking it for
-    // both sensors.
+    // The pad bound and its session streaming, the host holding its arrival and first frame and
+    // asking it for both sensors. The host asks on the arrival, so the frame is waited for too.
     bool bindLive() {
         if (!host.listening() || bind() != 0) { return false; }
         return spinFor([this] {
@@ -109,7 +109,8 @@ struct Rig {
             return live != nullptr &&
                    live->machineState().phase == moonlight::SessionPhase::Streaming &&
                    live->motionRequested(0, moonproto::kMotionGyroscope) &&
-                   live->motionRequested(0, moonproto::kMotionAcceleration);
+                   live->motionRequested(0, moonproto::kMotionAcceleration) &&
+                   padPacketsAfter(host, 0) >= 2;
         });
     }
 
