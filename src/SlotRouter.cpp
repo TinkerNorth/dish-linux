@@ -305,16 +305,18 @@ void SlotRouter::touchpad(DeviceIndex index, const DeviceId& id, const TouchpadS
         if (const RouteTable* table = table_.load(std::memory_order_seq_cst)) {
             const InputRoute& route = table->inputs[index];
             if (route.client) {
-                // MSG_TOUCHPAD carries a sender-side uptime-ms stamp, because mouse-mode timing
-                // scales by the delta between consecutive samples; a fresh monotonic stamp per
-                // forwarded frame is the contract's eventTimeMs.
-                const auto nowMs = static_cast<std::uint32_t>(
-                    std::chrono::duration_cast<std::chrono::milliseconds>(
-                        std::chrono::steady_clock::now().time_since_epoch())
-                        .count());
+                // Mouse-mode timing scales by the delta between uptime-ms stamps, so a frame keeps
+                // the stamp its source gave it (a heal repeats one) and an unstamped one gets now.
+                const std::uint32_t eventTimeMs =
+                    s.eventTimeMs != 0
+                        ? s.eventTimeMs
+                        : static_cast<std::uint32_t>(
+                              std::chrono::duration_cast<std::chrono::milliseconds>(
+                                  std::chrono::steady_clock::now().time_since_epoch())
+                                  .count());
                 const auto fwd = reducer::assembleTouchpadForward(
                     s.finger0Active, s.finger0Id, s.finger0X, s.finger0Y, s.finger1Active,
-                    s.finger1Id, s.finger1X, s.finger1Y, s.buttonPressed, nowMs);
+                    s.finger1Id, s.finger1X, s.finger1Y, s.buttonPressed, eventTimeMs);
                 route.client->sendTouchpad(route.controllerIndex, fwd.finger0Active, fwd.finger0Id,
                                            fwd.finger0X, fwd.finger0Y, fwd.finger1Active,
                                            fwd.finger1Id, fwd.finger1X, fwd.finger1Y,

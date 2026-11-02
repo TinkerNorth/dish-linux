@@ -80,8 +80,8 @@ class GamepadInputProcessor {
     using BatterySender =
         std::function<void(const DeviceId& id, std::uint8_t level, std::uint8_t status)>;
 
-    // Genuinely event-driven (finger down/move/up), so unlike motion it is
-    // neither rate-limited nor coalesced.
+    // Forwarded as published: a raw-HID pad's publisher gates its report stream first
+    // (Input/TouchGate.h). An eventTimeMs of 0 is stamped at the forward.
     struct TouchpadSample {
         bool finger0Active = false;
         std::uint8_t finger0Id = 0;
@@ -92,8 +92,17 @@ class GamepadInputProcessor {
         std::int16_t finger1X = 0;
         std::int16_t finger1Y = 0;
         bool buttonPressed = false;
+        std::uint32_t eventTimeMs = 0;
+        bool sameTouch(const TouchpadSample& o) const {
+            return finger0Active == o.finger0Active && finger0Id == o.finger0Id &&
+                   finger0X == o.finger0X && finger0Y == o.finger0Y &&
+                   finger1Active == o.finger1Active && finger1Id == o.finger1Id &&
+                   finger1X == o.finger1X && finger1Y == o.finger1Y &&
+                   buttonPressed == o.buttonPressed;
+        }
     };
     using TouchpadSender = std::function<void(const DeviceId& id, const TouchpadSample& sample)>;
+    using NanoTime = std::function<std::int64_t()>;
 
     // Max forwarded MSG_MOTION rate per controller; faster samples are dropped.
     static constexpr std::uint32_t kMotionRateLimitHz = 250;
@@ -192,6 +201,8 @@ class GamepadInputProcessor {
     void setMotionSender(MotionSender sender);
     void setBatterySender(BatterySender sender);
     void setTouchpadSender(TouchpadSender sender);
+    void setNanoTime(NanoTime nanoTime);
+    std::int64_t nanoTime() const { return nanoTime_(); }
 
     // The device's index, the one it already has or a free one, without a lock. Empty when the
     // table is full or the id is too long. One thread introduces a given id.
@@ -279,6 +290,7 @@ class GamepadInputProcessor {
         // deliberate push still accumulates against it and trips.
         DeviceState activityRef{};
         MotionGate gate{};
+        std::optional<TouchpadSample> lastTouchpad;
     };
 
     std::optional<DeviceIndex> find(const DeviceId& id) const;
@@ -286,6 +298,7 @@ class GamepadInputProcessor {
     Record* recordAt(DeviceIndex index);
     // The device's thread, catching up with a plugGen the cold side moved.
     static void syncOwner(Record& r);
+    static std::int64_t steadyNanoTime();
 
     std::array<Record, kMaxDevices> records_;
     InputSink* sink_ = nullptr;
@@ -293,6 +306,7 @@ class GamepadInputProcessor {
     MotionSender motionSender_;
     BatterySender batterySender_;
     TouchpadSender touchpadSender_;
+    NanoTime nanoTime_ = steadyNanoTime;
 
     std::atomic<std::uint64_t> actuations_{0};
     std::atomic<int> telEvents_{0};

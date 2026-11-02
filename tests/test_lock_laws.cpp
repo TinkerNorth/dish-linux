@@ -169,6 +169,12 @@ std::int16_t stickValue(std::uint32_t tick) {
                                      static_cast<int>(tick % kStickSteps) * kStickStride);
 }
 
+dish::source::usb::UsbReport movingFingerReport(std::uint32_t tick) {
+    auto report = hp::dualSenseReport(stickValue(tick));
+    report.finger0X = stickValue(tick);
+    return report;
+}
+
 bool padPresent(const dish::input::SDLGamepadBridge& bridge, const QString& id) {
     const auto devices = bridge.devices();
     return std::any_of(
@@ -285,7 +291,7 @@ LawRun runTheHotPathsTogether() {
                     pad.setRightX(stickValue(tick));
                 });
                 const Worker reader(dt::ThreadRole::UsbReader, kTick, [&rig](std::uint32_t tick) {
-                    rig.usbGateway().deliver(hp::dualSenseReport(stickValue(tick)));
+                    rig.usbGateway().deliver(movingFingerReport(tick));
                 });
                 const Worker capture(
                     dt::ThreadRole::AudioCapture, kMicPeriod, [&mic](std::uint32_t tick) {

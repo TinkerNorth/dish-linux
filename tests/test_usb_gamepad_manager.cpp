@@ -738,3 +738,129 @@ TEST_CASE("a claimed report with a touchpad publishes TOUCHPAD through the proce
     CHECK(got.finger0X == -100);
     CHECK(got.buttonPressed);
 }
+
+namespace {
+
+constexpr std::int64_t kMsNs = 1'000'000;
+constexpr std::int64_t kStreamStartMs = 7'000;
+
+using TouchpadSample = dish::input::GamepadInputProcessor::TouchpadSample;
+
+// Keeps the claim's report callback, so a test streams reports through it.
+class StreamingGateway : public UsbDeviceGateway {
+  public:
+    std::vector<UsbDeviceInfo> enumerate() override { return {padDevice()}; }
+    ClaimResult claim(const UsbDeviceInfo& /*d*/,
+                      std::function<void(const UsbReport&)> onReport) override {
+        onReport_ = std::move(onReport);
+        return ClaimResult::success(-1000);
+    }
+    void releaseClaim(int /*syntheticId*/) override {}
+    bool isKnownFastLaneModel(int /*v*/, int /*p*/) const override { return false; }
+    bool isClaimAlive(int /*syntheticId*/) const override { return true; }
+    std::int64_t completionCount(int /*syntheticId*/) const override { return 0; }
+    std::int64_t decodedCount(int /*syntheticId*/) const override { return 0; }
+    bool writeOutputReport(int /*syntheticId*/, const std::uint8_t* /*data*/,
+                           std::size_t /*len*/) override {
+        return false;
+    }
+
+    bool claimed() const { return static_cast<bool>(onReport_); }
+    void deliver(const UsbReport& report) const { onReport_(report); }
+
+  private:
+    std::function<void(const UsbReport&)> onReport_;
+};
+
+// A decoded DualSense report: sticks at rest, one finger on the pad or none.
+UsbReport dualSenseTouch(std::int16_t x, bool fingerDown = true) {
+    UsbReport r;
+    r.touchpadValid = true;
+    r.finger0Active = fingerDown;
+    r.finger0Id = 5;
+    r.finger0X = x;
+    r.finger0Y = 300;
+    return r;
+}
+
+// A claimed DualSense on a clock the test drives, and every touch frame the processor forwarded
+// with the clock reading it left at.
+struct TouchStream {
+    StreamingGateway gw;
+    dish::input::GamepadInputProcessor processor;
+    UsbPathPreferenceRepository repo{makeSharedSettings()};
+    UsbPathPreferenceStore prefs{&repo};
+    std::int64_t nowNs = kStreamStartMs * kMsNs;
+    std::vector<TouchpadSample> sent;
+    std::vector<std::int64_t> sentAtMs;
+    UsbGamepadManager manager{&gw, &processor, &prefs, nullptr};
+
+    TouchStream() {
+        processor.setNanoTime([this] { return nowNs; });
+        processor.setTouchpadSender([this](const std::string& /*id*/, const TouchpadSample& s) {
+            sent.push_back(s);
+            sentAtMs.push_back(nowNs / kMsNs);
+        });
+        manager.tryDirectMode(kVid, kPid);
+    }
+
+    // One report a millisecond, the rate a USB DualSense reports at.
+    void reportFor(const UsbReport& report, int ms) {
+        for (int i = 0; i < ms; ++i) {
+            gw.deliver(report);
+            nowNs += kMsNs;
+        }
+    }
+};
+
+} // namespace
+
+TEST_CASE("a claimed DualSense's resting finger goes once, heals twice, then goes quiet",
+          "[usb-manager][touch-gate]") {
+    TouchStream stream;
+    REQUIRE(stream.gw.claimed());
+
+    stream.reportFor(dualSenseTouch(100), 100);
+
+    REQUIRE(stream.sent.size() == 3);
+    for (const TouchpadSample& frame : stream.sent) {
+        CHECK(frame.finger0Active);
+        CHECK(frame.finger0X == 100);
+        CHECK(frame.eventTimeMs == kStreamStartMs);
+    }
+    CHECK(stream.sentAtMs ==
+          std::vector<std::int64_t>{kStreamStartMs, kStreamStartMs + 8, kStreamStartMs + 16});
+}
+
+TEST_CASE("after the heals, a claimed DualSense's move waits out the interval and a lift does not",
+          "[usb-manager][touch-gate]") {
+    TouchStream stream;
+    REQUIRE(stream.gw.claimed());
+    stream.reportFor(dualSenseTouch(100), 100);
+    REQUIRE(stream.sent.size() == 3);
+
+    stream.reportFor(dualSenseTouch(110), 1);
+    stream.reportFor(dualSenseTouch(120), 7);
+    stream.reportFor(dualSenseTouch(120), 1);
+    stream.reportFor(dualSenseTouch(120, /*fingerDown=*/false), 1);
+
+    REQUIRE(stream.sent.size() == 6);
+    CHECK(stream.sent[3].finger0X == 110);
+    CHECK(stream.sent[3].eventTimeMs == kStreamStartMs + 100);
+    CHECK(stream.sent[4].finger0X == 120);
+    CHECK(stream.sent[4].eventTimeMs == kStreamStartMs + 108);
+    CHECK_FALSE(stream.sent[5].finger0Active);
+    CHECK(stream.sent[5].eventTimeMs == kStreamStartMs + 109);
+}
+
+TEST_CASE("an untouched claimed DualSense sends its resting frame, heals it, and is no activity",
+          "[usb-manager][touch-gate]") {
+    TouchStream stream;
+    REQUIRE(stream.gw.claimed());
+
+    stream.reportFor(dualSenseTouch(-32768, /*fingerDown=*/false), 1'000);
+
+    REQUIRE(stream.sent.size() == 3);
+    CHECK_FALSE(stream.sent[0].finger0Active);
+    CHECK(stream.processor.actuationCount() == 0);
+}

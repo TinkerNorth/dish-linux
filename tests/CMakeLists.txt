@@ -174,6 +174,7 @@ set(DISH_TEST_SOURCES
     test_pump_pacing.cpp
     test_pump_waiter.cpp
     test_dirty_set.cpp
+    test_touch_gate.cpp
     test_thread_primitives.cpp
     test_satellite_client_send_gate.cpp
     test_path_choice.cpp

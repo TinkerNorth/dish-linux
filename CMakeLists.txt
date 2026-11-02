@@ -276,6 +276,7 @@ set(DISH_CORE_SOURCES
     src/core/input/HidTransport.h
     src/core/input/PumpPacing.h
     src/core/input/DirtySet.h
+    src/Input/TouchGate.h
     src/core/thread/GraceEpoch.h
     src/core/thread/LatestValue.h
     src/core/thread/Seqlock.h

@@ -5,6 +5,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <array>
 #include <atomic>
 #include <cstdint>
 #include <optional>
@@ -539,6 +540,7 @@ TEST_CASE("publishTouchpad forwards the sample to the touchpad sender", "[touchp
     sample.finger1X = -1;
     sample.finger1Y = 32767;
     sample.buttonPressed = true;
+    sample.eventTimeMs = 4321;
     p.publishTouchpad("pad-1", sample);
 
     REQUIRE(calls == 1);
@@ -551,6 +553,7 @@ TEST_CASE("publishTouchpad forwards the sample to the touchpad sender", "[touchp
     REQUIRE(observed.finger1X == -1);
     REQUIRE(observed.finger1Y == 32767);
     REQUIRE(observed.buttonPressed);
+    REQUIRE(observed.eventTimeMs == 4321);
 }
 
 TEST_CASE("publishTouchpad forwards every sample, including unchanged ones", "[touchpad]") {
@@ -795,12 +798,78 @@ TEST_CASE("actuationCount: a resting jittery axis never trips, however long it d
     REQUIRE(p.actuationCount() == 0);
 }
 
-TEST_CASE("actuationCount: publishTouchpad always counts", "[input][activity]") {
+TEST_CASE("actuationCount: a touch frame with no finger, no click and no change is not activity",
+          "[input][activity]") {
     GamepadInputProcessor p;
-    const GamepadInputProcessor::TouchpadSample sample{}; // no threshold, no sender needed
-    p.publishTouchpad("pad", sample);
-    p.publishTouchpad("pad", sample);
+    GamepadInputProcessor::TouchpadSample idle{}; // no sender needed
+    p.publishTouchpad("pad", idle);
+    p.publishTouchpad("pad", idle);
+    idle.eventTimeMs = 5; // a new stamp on the same touch is not a change
+    p.publishTouchpad("pad", idle);
+    REQUIRE(p.actuationCount() == 0);
+}
+
+TEST_CASE("actuationCount: a touch frame counts while a finger is down or the click is held",
+          "[input][activity]") {
+    struct Case {
+        const char* what;
+        GamepadInputProcessor::TouchpadSample frame;
+    };
+    const auto held = [](bool finger0, bool finger1, bool click) {
+        GamepadInputProcessor::TouchpadSample t;
+        t.finger0Active = finger0;
+        t.finger1Active = finger1;
+        t.buttonPressed = click;
+        return t;
+    };
+    const std::array<Case, 3> cases{{
+        {"first finger", held(true, false, false)},
+        {"second finger", held(false, true, false)},
+        {"click", held(false, false, true)},
+    }};
+    for (const Case& c : cases) {
+        INFO(c.what);
+        GamepadInputProcessor p;
+        p.publishTouchpad("pad", c.frame);
+        p.publishTouchpad("pad", c.frame);
+        p.publishTouchpad("pad", c.frame);
+        CHECK(p.actuationCount() == 3);
+    }
+}
+
+TEST_CASE("actuationCount: a lift counts once, and the idle frames after it do not",
+          "[input][activity]") {
+    GamepadInputProcessor p;
+    GamepadInputProcessor::TouchpadSample touch;
+    touch.finger0Active = true;
+    touch.finger0X = 900;
+    p.publishTouchpad("pad", touch);
+    REQUIRE(p.actuationCount() == 1);
+
+    touch.finger0Active = false; // the pad keeps reporting the lifted finger's coordinates
+    p.publishTouchpad("pad", touch);
     REQUIRE(p.actuationCount() == 2);
+    p.publishTouchpad("pad", touch);
+    p.publishTouchpad("pad", touch);
+    REQUIRE(p.actuationCount() == 2);
+}
+
+TEST_CASE("actuationCount: a device's first touch frame is its baseline, and remove starts it over",
+          "[input][activity]") {
+    GamepadInputProcessor p;
+    GamepadInputProcessor::TouchpadSample resting;
+    resting.finger0X = -32768; // no finger: a pad keeps reporting where the last one was
+    GamepadInputProcessor::TouchpadSample elsewhere = resting;
+    elsewhere.finger0X = 900;
+
+    p.publishTouchpad("pad", resting);
+    REQUIRE(p.actuationCount() == 0);
+    p.publishTouchpad("pad", elsewhere);
+    REQUIRE(p.actuationCount() == 1);
+
+    p.remove("pad");
+    p.publishTouchpad("pad", resting);
+    REQUIRE(p.actuationCount() == 1);
 }
 
 TEST_CASE("actuationCount: remove re-baselines the device's reference", "[input][activity]") {

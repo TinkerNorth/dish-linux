@@ -51,6 +51,14 @@ void GamepadInputProcessor::setTouchpadSender(TouchpadSender sender) {
     touchpadSender_ = std::move(sender);
 }
 
+void GamepadInputProcessor::setNanoTime(NanoTime nanoTime) { nanoTime_ = std::move(nanoTime); }
+
+std::int64_t GamepadInputProcessor::steadyNanoTime() {
+    return std::chrono::duration_cast<std::chrono::nanoseconds>(
+               std::chrono::steady_clock::now().time_since_epoch())
+        .count();
+}
+
 bool GamepadInputProcessor::idMatches(const Record& r, const DeviceId& id) const {
     IdText text;
     if (!readWithRetry([&] { return r.idSeq.read([&] { text = r.idText.load(); }); })) {
@@ -140,6 +148,7 @@ void GamepadInputProcessor::syncOwner(Record& r) {
         r.lastForwarded = DeviceState{};
         r.activityRef = DeviceState{};
         r.gate = MotionGate{};
+        r.lastTouchpad.reset();
     }
     if (const std::uint32_t gen = r.zeroGen.load(std::memory_order_acquire); gen != r.ownZeroGen) {
         r.ownZeroGen = gen;
@@ -229,13 +238,16 @@ void GamepadInputProcessor::publishBattery(DeviceIndex index, const BatterySampl
 void GamepadInputProcessor::publishTouchpad(DeviceIndex index, const TouchpadSample& sample) {
     Record* const r = recordAt(index);
     if (r == nullptr) { return; }
+    syncOwner(*r);
     r->seq.beginWrite();
     r->touchpad.store(sample);
     r->seen.store(r->seen.load(std::memory_order_relaxed) | kSeenTouchpad,
                   std::memory_order_release);
     r->seq.endWrite();
-    // No threshold: a touchpad sample is a finger, not a poll.
-    actuations_.fetch_add(1, std::memory_order_relaxed);
+    const bool touching = sample.finger0Active || sample.finger1Active || sample.buttonPressed;
+    const bool changed = r->lastTouchpad.has_value() && !sample.sameTouch(*r->lastTouchpad);
+    r->lastTouchpad = sample;
+    if (touching || changed) { actuations_.fetch_add(1, std::memory_order_relaxed); }
     if (sink_ != nullptr) { sink_->touchpad(index, r->id, sample); }
     if (touchpadSender_) { touchpadSender_(r->id, sample); }
 }

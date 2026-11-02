@@ -224,3 +224,63 @@ TEST_CASE("republishing under a reporting thread never pulls a table from under 
     reporter.join();
     CHECK(hp::pumpUntil([&] { return seen.inputs.load() > 0; }));
 }
+
+namespace {
+
+// The event time on the wire of the last touch frame the one session's satellite saw.
+struct TouchStamps {
+    std::atomic<std::uint64_t> frames{0};
+    std::atomic<std::uint32_t> last{0};
+};
+
+std::uint32_t readLe32(const std::uint8_t* p) {
+    return static_cast<std::uint32_t>(p[0]) | (static_cast<std::uint32_t>(p[1]) << 8) |
+           (static_cast<std::uint32_t>(p[2]) << 16) | (static_cast<std::uint32_t>(p[3]) << 24);
+}
+
+hp::HotPathRig::HandlerFor stampsInto(TouchStamps& seen) {
+    return [&seen](int /*session*/) {
+        return [&seen](std::uint16_t type, const std::uint8_t* body, std::size_t len,
+                       hp::Clock::time_point /*arrived*/) {
+            // The stamp is u32 LE at 12 in the 16-byte v1 frame and at 13 in the 19-byte v2 one.
+            if (type != dish::proto::kMsgTouchpad || (len != 16 && len != 19)) { return; }
+            seen.last.store(readLe32(body + (len == 16 ? 12 : 13)));
+            seen.frames.fetch_add(1);
+        };
+    };
+}
+
+std::uint32_t uptimeMs() {
+    return static_cast<std::uint32_t>(std::chrono::duration_cast<std::chrono::milliseconds>(
+                                          std::chrono::steady_clock::now().time_since_epoch())
+                                          .count());
+}
+
+} // namespace
+
+TEST_CASE("a touch frame keeps the stamp its source gave it, and an unstamped one is stamped now",
+          "[slot-router]") {
+    TouchStamps seen;
+    hp::HotPathRig rig(1, stampsInto(seen));
+    REQUIRE(rig.startBridge());
+    REQUIRE(rig.connectAll());
+    const QString slot = QStringLiteral("touch-pad");
+    REQUIRE(rig.bind(slot, 0));
+    const auto index = rig.processor().add(slot.toStdString());
+    REQUIRE(index.has_value());
+    rig.router().republish({slot});
+
+    GamepadInputProcessor::TouchpadSample touch;
+    touch.finger0Active = true;
+    touch.eventTimeMs = 4242;
+    rig.processor().publishTouchpad(*index, touch);
+    REQUIRE(hp::pumpUntil([&] { return seen.frames.load() >= 1; }));
+    CHECK(seen.last.load() == 4242);
+
+    touch.eventTimeMs = 0;
+    const std::uint32_t before = uptimeMs();
+    rig.processor().publishTouchpad(*index, touch);
+    REQUIRE(hp::pumpUntil([&] { return seen.frames.load() >= 2; }));
+    const std::uint32_t after = uptimeMs();
+    CHECK(seen.last.load() - before <= after - before);
+}

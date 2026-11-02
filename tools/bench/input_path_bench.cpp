@@ -703,8 +703,12 @@ class SyntheticBench {
                                     const std::uint32_t sequence = bench::sequenceOf(frame);
                                     const std::int64_t stamp = nowNs();
                                     stream->published(sequence, stamp, stamp - dueNs);
-                                    gateway->deliver(
-                                        hp::dualSenseReport(bench::encodeSequence(sequence)));
+                                    // The finger moves with the stick, as a finger on the pad
+                                    // does; a resting one is gated to nothing after its heals.
+                                    auto report =
+                                        hp::dualSenseReport(bench::encodeSequence(sequence));
+                                    report.finger0X = bench::encodeSequence(sequence);
+                                    gateway->deliver(report);
                                 }});
         return std::thread(runPaced, dt::ThreadRole::UsbReader, std::move(streams), start, end);
     }
