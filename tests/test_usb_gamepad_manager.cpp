@@ -23,6 +23,7 @@
 #include <cstdint>
 #include <optional>
 #include <set>
+#include <utility>
 #include <vector>
 
 using namespace dish::source::usb;
@@ -200,6 +201,34 @@ TEST_CASE("successful claim reaches Direct and registers a synthetic", "[usb-man
     CHECK_FALSE(c->failure.has_value());
     REQUIRE(obs.syntheticsAdded.size() == 1);
     CHECK(obs.syntheticsAdded.front() == -1000);
+}
+
+TEST_CASE("a pad unplugged between the scan and its claim settles without a claim",
+          "[usb-manager]") {
+    struct UnplugOnHold : RecordingObserver {
+        std::function<void()> unplug;
+        void beginHold(int /*v*/, int /*p*/) override {
+            if (unplug) { std::exchange(unplug, nullptr)(); }
+        }
+    };
+    FakeGateway gw;
+    gw.nextClaim = ClaimResult::success(-1000);
+    UsbPathPreferenceRepository repo(makeSharedSettings());
+    UsbPathPreferenceStore prefs(&repo);
+    UnplugOnHold obs;
+    UsbGamepadManager m(&gw, nullptr, &prefs, &obs);
+    m.reconcile();
+    REQUIRE(m.controllerFor(kVid, kPid).has_value());
+    obs.unplug = [&] {
+        gw.devices.clear();
+        m.onUsbGone(kVid, kPid);
+    };
+
+    REQUIRE_NOTHROW(m.tryDirectMode(kVid, kPid));
+
+    CHECK(gw.claimCalls == 0);
+    CHECK_FALSE(m.controllerFor(kVid, kPid).has_value());
+    CHECK(obs.syntheticsAdded.empty());
 }
 
 TEST_CASE("controllersChanged fires on a held-synthetic transition (Direct->AwaitingFramework)",

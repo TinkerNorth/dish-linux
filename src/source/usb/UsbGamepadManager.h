@@ -220,7 +220,10 @@ class UsbGamepadManager {
         return next;
     }
 
-    // Effectors.
+    // Effectors. Each looks the device up under mtx_ and claims and applies the outcome after
+    // releasing it, because applyEvent takes mtx_ itself.
+    std::optional<UsbDeviceInfo> trackedDevice(int key) const;
+    ClaimResult claimTracked(int key);
     void runClaim(int key);
     void runReclaim(int key, const reducer::UsbController& c);
     // Open + claim + read-loop bring-up; classify the outcome. The single place

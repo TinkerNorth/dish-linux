@@ -535,20 +535,23 @@ void UsbGamepadManager::execute(int key, const reducer::UsbController& c,
         fx);
 }
 
+std::optional<UsbDeviceInfo> UsbGamepadManager::trackedDevice(int key) const {
+    std::lock_guard<thread::TrackedMutex> lock(mtx_);
+    const auto it = devices_.find(key);
+    if (it == devices_.end()) { return std::nullopt; }
+    return it->second;
+}
+
+// A device gone between Choose and Claim is Busy with the framework not stolen, android's
+// `null -> Busy` arm.
+ClaimResult UsbGamepadManager::claimTracked(int key) {
+    const std::optional<UsbDeviceInfo> device = trackedDevice(key);
+    return device.has_value() ? doClaim(*device)
+                              : ClaimResult::fail(reducer::DirectClaimFailure::Busy, false);
+}
+
 void UsbGamepadManager::runClaim(int key) {
-    UsbDeviceInfo device;
-    {
-        std::lock_guard<thread::TrackedMutex> lock(mtx_);
-        const auto it = devices_.find(key);
-        if (it == devices_.end()) {
-            // No device to claim (gone between Choose and Claim): treat as Busy,
-            // framework not stolen — mirrors android's `null -> Busy` arm.
-            applyEvent(key, reducer::event::ClaimFailed{reducer::DirectClaimFailure::Busy, false});
-            return;
-        }
-        device = it->second;
-    }
-    const ClaimResult outcome = doClaim(device);
+    const ClaimResult outcome = claimTracked(key);
     if (outcome.ok) {
         applyEvent(key, reducer::event::ClaimSucceeded{outcome.syntheticId});
     } else {
@@ -558,18 +561,7 @@ void UsbGamepadManager::runClaim(int key) {
 
 void UsbGamepadManager::runReclaim(int key, const reducer::UsbController& c) {
     const std::optional<int> oldPlaceholder = c.syntheticId;
-    UsbDeviceInfo device;
-    bool haveDevice = false;
-    {
-        std::lock_guard<thread::TrackedMutex> lock(mtx_);
-        const auto it = devices_.find(key);
-        if (it != devices_.end()) {
-            device = it->second;
-            haveDevice = true;
-        }
-    }
-    const ClaimResult outcome =
-        haveDevice ? doClaim(device) : ClaimResult::fail(reducer::DirectClaimFailure::Busy, false);
+    const ClaimResult outcome = claimTracked(key);
     // The old placeholder synthetic is dropped on a reclaim (android removes it
     // before feeding the outcome back).
     if (oldPlaceholder.has_value()) {
