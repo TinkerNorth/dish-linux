@@ -21,6 +21,7 @@ set(DISH_TEST_SOURCES
     test_kernel.cpp
     test_async_state.cpp
     test_tracked_mutex.cpp
+    test_bench_support.cpp
     test_session_crypto.cpp
     test_http_framing.cpp
     test_moonlight_wire.cpp
@@ -251,6 +252,9 @@ target_link_libraries(DishTests
         dish_core
         Catch2::Catch2
         dish_warnings)
+
+# The input-path bench's pure helpers, tested here because they decide what the bench reports.
+target_include_directories(DishTests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../tools/bench)
 
 # The manifest is a resource of the Dish exe, not of dish_core, which is what
 # DishTests links — so the test reads the source file by absolute path instead.

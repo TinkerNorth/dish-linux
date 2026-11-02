@@ -36,6 +36,7 @@ set(DISH_SANITIZER "" CACHE STRING
 # TrackedMutex counts its use per lock and thread role. The release preset
 # never sets it, so the shipped binary has plain mutexes.
 option(DISH_LOCK_STATS "Count tracked-lock use per lock and thread role" OFF)
+option(DISH_BUILD_BENCH "Build the input-path latency bench (tools/bench)" OFF)
 
 # udev scans only /etc/udev/rules.d, /run/udev/rules.d and (/usr)/lib/udev/rules.d.
 # NOT ${CMAKE_INSTALL_SYSCONFDIR}: the relative form stays "etc" even where
@@ -915,6 +916,13 @@ if(DISH_BUILD_TESTS)
     if(Qt6LinguistTools_FOUND)
         cmake_language(DEFER CALL add_dependencies DishTests release_translations)
     endif()
+endif()
+
+# --------------------------------------------------------------------------
+# The input-path latency bench (tools/bench); never part of a package.
+# --------------------------------------------------------------------------
+if(DISH_BUILD_BENCH)
+    add_subdirectory(tools/bench)
 endif()
 
 # --------------------------------------------------------------------------
