@@ -21,6 +21,7 @@
 
 #include "core/input/UsbOutputReports.h"
 #include "core/reducer/UsbPathMachine.h"
+#include "core/thread/TrackedMutex.h"
 
 #include <array>
 #include <cstdint>
@@ -232,7 +233,7 @@ class UsbGamepadManager {
     UsbPathPreferenceStore* prefs_;
     UsbDirectObserver* observer_;
 
-    mutable std::mutex mtx_; // guards the maps below.
+    mutable thread::TrackedMutex mtx_{"usb.manager"}; // guards the maps below.
     std::map<int, reducer::UsbController> controllers_;
     // The last-known device descriptor per tracked model (for re-claim).
     std::unordered_map<int, UsbDeviceInfo> devices_;
@@ -252,7 +253,7 @@ class UsbGamepadManager {
     // the Switch Pro's rolling packet counter, both of which are properties of
     // the claim rather than of any one write. Erased when the claim ends, so a
     // replugged pad gets its handoff again.
-    mutable std::mutex feedbackMtx_;
+    mutable thread::TrackedMutex feedbackMtx_{"usb.feedback"};
     std::unordered_map<int, input::usbout::FeedbackState> feedback_;
     std::unordered_map<int, std::uint8_t> feedbackSeq_;
 };

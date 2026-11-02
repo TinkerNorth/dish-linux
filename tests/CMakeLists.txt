@@ -20,6 +20,7 @@ set(DISH_TEST_SOURCES
     main.cpp
     test_kernel.cpp
     test_async_state.cpp
+    test_tracked_mutex.cpp
     test_session_crypto.cpp
     test_http_framing.cpp
     test_moonlight_wire.cpp
@@ -281,3 +282,22 @@ target_compile_definitions(DishTests PRIVATE
 # and every headless box, so treating its skip as a failure made the whole suite
 # red anywhere without a desktop keyring.
 catch_discover_tests(DishTests PROPERTIES SKIP_RETURN_CODE 4)
+
+# The statistics half of test_tracked_mutex.cpp, so a plain build runs both
+# halves. The header is all it needs, so nothing of dish_core (whose mutexes
+# are plain here) links in.
+if(NOT DISH_LOCK_STATS)
+    add_executable(DishTrackedMutexStatsTests test_tracked_mutex.cpp)
+    target_include_directories(DishTrackedMutexStatsTests PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/../src)
+    target_compile_definitions(DishTrackedMutexStatsTests PRIVATE DISH_LOCK_STATS)
+    target_link_libraries(DishTrackedMutexStatsTests
+        PRIVATE
+            Catch2::Catch2WithMain
+            Threads::Threads
+            dish_warnings)
+    catch_discover_tests(DishTrackedMutexStatsTests TEST_PREFIX "lockstats/")
+    # ctest lists it beside DishTests, and the sanitizer lanes build DishTests
+    # alone; an unbuilt twin would read as a failing test.
+    add_dependencies(DishTests DishTrackedMutexStatsTests)
+endif()

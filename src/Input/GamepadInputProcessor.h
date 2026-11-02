@@ -3,6 +3,8 @@
 
 #pragma once
 
+#include "core/thread/TrackedMutex.h"
+
 #include <QString>
 
 #include <atomic>
@@ -177,7 +179,7 @@ class GamepadInputProcessor {
     TelemetrySnapshot drainTelemetry();
 
   private:
-    mutable std::mutex mtx_;
+    mutable thread::TrackedMutex mtx_{"input.processor"};
     std::unordered_map<DeviceId, DeviceState> states_;
     // The same reports before the dead zones, for the inspector's stick tests:
     // a drift the dead zone hides is still the drift the test has to measure.

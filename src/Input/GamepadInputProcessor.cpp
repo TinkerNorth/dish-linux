@@ -11,22 +11,22 @@
 namespace dish::input {
 
 void GamepadInputProcessor::setReportSender(ReportSender sender) {
-    std::lock_guard<std::mutex> lock(mtx_);
+    std::lock_guard<thread::TrackedMutex> lock(mtx_);
     sender_ = std::move(sender);
 }
 
 void GamepadInputProcessor::setMotionSender(MotionSender sender) {
-    std::lock_guard<std::mutex> lock(mtx_);
+    std::lock_guard<thread::TrackedMutex> lock(mtx_);
     motionSender_ = std::move(sender);
 }
 
 void GamepadInputProcessor::setBatterySender(BatterySender sender) {
-    std::lock_guard<std::mutex> lock(mtx_);
+    std::lock_guard<thread::TrackedMutex> lock(mtx_);
     batterySender_ = std::move(sender);
 }
 
 void GamepadInputProcessor::setDeadzones(const DeviceId& id, const Deadzones& dz) {
-    std::lock_guard<std::mutex> lock(mtx_);
+    std::lock_guard<thread::TrackedMutex> lock(mtx_);
     deadzones_[id] = dz;
 }
 
@@ -34,7 +34,7 @@ void GamepadInputProcessor::publish(const DeviceId& id, const DeviceState& state
     ReportSender snapshot;
     DeviceState filtered;
     {
-        std::lock_guard<std::mutex> lock(mtx_);
+        std::lock_guard<thread::TrackedMutex> lock(mtx_);
         Deadzones dz{};
         if (auto it = deadzones_.find(id); it != deadzones_.end()) { dz = it->second; }
         filtered = applyDeadzones(state, dz);
@@ -60,7 +60,7 @@ void GamepadInputProcessor::zeroAndSendAll() {
     std::vector<DeviceId> ids;
     ReportSender snapshot;
     {
-        std::lock_guard<std::mutex> lock(mtx_);
+        std::lock_guard<thread::TrackedMutex> lock(mtx_);
         ids.reserve(states_.size());
         for (auto& [k, v] : states_) {
             v = DeviceState{};
@@ -73,7 +73,7 @@ void GamepadInputProcessor::zeroAndSendAll() {
 }
 
 void GamepadInputProcessor::remove(const DeviceId& id) {
-    std::lock_guard<std::mutex> lock(mtx_);
+    std::lock_guard<thread::TrackedMutex> lock(mtx_);
     states_.erase(id);
     rawStates_.erase(id);
     touchpads_.erase(id);
@@ -84,7 +84,7 @@ void GamepadInputProcessor::remove(const DeviceId& id) {
 }
 
 GamepadInputProcessor::Inspection GamepadInputProcessor::inspect(const DeviceId& id) const {
-    std::lock_guard<std::mutex> lock(mtx_);
+    std::lock_guard<thread::TrackedMutex> lock(mtx_);
     Inspection seen;
     if (const auto it = states_.find(id); it != states_.end()) { seen.wire = it->second; }
     if (const auto it = rawStates_.find(id); it != rawStates_.end()) { seen.raw = it->second; }
@@ -97,7 +97,7 @@ GamepadInputProcessor::Inspection GamepadInputProcessor::inspect(const DeviceId&
 
 GamepadInputProcessor::InputRateCounters
 GamepadInputProcessor::inputCounters(const DeviceId& id) const {
-    std::lock_guard<std::mutex> lock(mtx_);
+    std::lock_guard<thread::TrackedMutex> lock(mtx_);
     const auto it = rateCounters_.find(id);
     if (it == rateCounters_.end()) { return InputRateCounters{}; }
     return InputRateCounters{it->second.gamepad.load(std::memory_order_relaxed),
@@ -109,7 +109,7 @@ bool GamepadInputProcessor::publishMotionAt(const DeviceId& id, const MotionSamp
     MotionSender snapshot;
     std::uint32_t deltaUs = 0;
     {
-        std::lock_guard<std::mutex> lock(mtx_);
+        std::lock_guard<thread::TrackedMutex> lock(mtx_);
         MotionGate& gate = lastMotionUs_[id];
         if (gate.hasEmitted && nowUs - gate.lastUs < kMotionMinIntervalUs) {
             // Deliberately do NOT advance `gate`: a hot stream of dropped
@@ -147,21 +147,21 @@ bool GamepadInputProcessor::publishMotion(const DeviceId& id, const MotionSample
 void GamepadInputProcessor::publishBattery(const DeviceId& id, const BatterySample& sample) {
     BatterySender snapshot;
     {
-        std::lock_guard<std::mutex> lock(mtx_);
+        std::lock_guard<thread::TrackedMutex> lock(mtx_);
         snapshot = batterySender_;
     }
     if (snapshot) { snapshot(id, sample.level, sample.status); }
 }
 
 void GamepadInputProcessor::setTouchpadSender(TouchpadSender sender) {
-    std::lock_guard<std::mutex> lock(mtx_);
+    std::lock_guard<thread::TrackedMutex> lock(mtx_);
     touchpadSender_ = std::move(sender);
 }
 
 void GamepadInputProcessor::publishTouchpad(const DeviceId& id, const TouchpadSample& sample) {
     TouchpadSender snapshot;
     {
-        std::lock_guard<std::mutex> lock(mtx_);
+        std::lock_guard<thread::TrackedMutex> lock(mtx_);
         snapshot = touchpadSender_;
         touchpads_[id] = sample;
         // No threshold: a touchpad sample is a finger, not a poll.
@@ -171,7 +171,7 @@ void GamepadInputProcessor::publishTouchpad(const DeviceId& id, const TouchpadSa
 }
 
 GamepadInputProcessor::TelemetrySnapshot GamepadInputProcessor::drainTelemetry() {
-    std::lock_guard<std::mutex> lock(mtx_);
+    std::lock_guard<thread::TrackedMutex> lock(mtx_);
     TelemetrySnapshot snap{telEvents_, telSends_, telTotalSent_};
     telEvents_ = 0;
     telSends_ = 0;

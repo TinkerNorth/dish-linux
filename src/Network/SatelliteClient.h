@@ -13,6 +13,7 @@
 #include "core/reducer/LatencyWindow.h"
 #include "core/reducer/Reconcile.h"
 #include "core/reducer/TouchpadRouting.h"
+#include "core/thread/TrackedMutex.h"
 
 #include <arpa/inet.h>
 #include <netinet/in.h>
@@ -414,7 +415,7 @@ class SatelliteClient {
     // on a LIVE session: pairing an old key with a fresh counter would reuse a
     // nonce. Senders draw (key, token, counter) in one hold and encrypt on the
     // copies.
-    mutable std::mutex materialMtx_;
+    mutable thread::TrackedMutex materialMtx_{"satellite.material"};
     std::array<std::uint8_t, 4> token_{};
     std::uint32_t tokenBe_ = 0; // the 4 raw BE bytes as a host u32, for the AAD
     std::array<std::uint8_t, 32> key_{};
@@ -424,7 +425,7 @@ class SatelliteClient {
     // Replay guard: drop counter <= this, with the first packet exempt while it
     // is 0. Advanced only by the receive thread, reset by a re-key.
     std::uint32_t lastRecvCounter_ = 0;
-    std::mutex sendLock_;
+    thread::TrackedMutex sendLock_{"satellite.send"};
 
     std::atomic<bool> heartbeatRunning_{false};
     std::atomic<bool> ackRunning_{false};
@@ -436,7 +437,7 @@ class SatelliteClient {
     // client, so concurrent satellites cannot cross-pair a ping with another's
     // ack.
     std::atomic<std::int64_t> pingSentUs_{0};
-    mutable std::mutex latencyMtx_;
+    mutable thread::TrackedMutex latencyMtx_{"satellite.latency"};
     reducer::LatencyWindow latencyWindow_;
 
     std::atomic<int> missedAcks_{0};
@@ -447,19 +448,19 @@ class SatelliteClient {
     std::atomic<std::int8_t> activeControllerCount_{-1};
     std::atomic<std::int32_t> sessionCloseReason_{-1};
 
-    std::mutex rumbleHandlerMtx_;
+    thread::TrackedMutex rumbleHandlerMtx_{"satellite.handlers"};
     RumbleHandler rumbleHandler_;
-    std::mutex lightbarHandlerMtx_;
+    thread::TrackedMutex lightbarHandlerMtx_{"satellite.handlers"};
     LightbarHandler lightbarHandler_;
-    std::mutex triggerEffectsHandlerMtx_;
+    thread::TrackedMutex triggerEffectsHandlerMtx_{"satellite.handlers"};
     TriggerEffectsHandler triggerEffectsHandler_;
-    std::mutex playerLedsHandlerMtx_;
+    thread::TrackedMutex playerLedsHandlerMtx_{"satellite.handlers"};
     PlayerLedsHandler playerLedsHandler_;
-    std::mutex speakerAudioHandlerMtx_;
+    thread::TrackedMutex speakerAudioHandlerMtx_{"satellite.handlers"};
     SpeakerAudioHandler speakerAudioHandler_;
-    std::mutex hapticAudioHandlerMtx_;
+    thread::TrackedMutex hapticAudioHandlerMtx_{"satellite.handlers"};
     HapticAudioHandler hapticAudioHandler_;
-    std::mutex micLedHandlerMtx_;
+    thread::TrackedMutex micLedHandlerMtx_{"satellite.handlers"};
     MicLedHandler micLedHandler_;
     // One log line per client for an oversize send, not one per frame: at 50
     // audio frames a second a misconfigured caller would otherwise turn one
@@ -472,9 +473,9 @@ class SatelliteClient {
     // across a re-key can only cost one mis-shaped packet, which the receiver
     // disambiguates by length anyway.
     std::atomic<int> settledProtocolVersion_{proto::kProtocolVersionMin};
-    std::mutex ackHandlerMtx_;
+    thread::TrackedMutex ackHandlerMtx_{"satellite.handlers"};
     HeartbeatAckHandler ackHandler_;
-    std::mutex closeHandlerMtx_;
+    thread::TrackedMutex closeHandlerMtx_{"satellite.handlers"};
     CloseHandler closeHandler_;
 };
 

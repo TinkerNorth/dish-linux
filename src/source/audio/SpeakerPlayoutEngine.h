@@ -32,6 +32,7 @@
 
 #include "core/audio/AudioCodec.h"
 #include "core/audio/AudioJitter.h"
+#include "core/thread/TrackedMutex.h"
 #include "source/audio/AudioDeviceGateway.h"
 
 #include <condition_variable>
@@ -151,8 +152,8 @@ class SpeakerPlayoutEngine {
     DecoderFactory decoderFactory_;
     PlayoutDispatch dispatch_;
     // The hand-off: the receive threads push, the playout thread pops.
-    std::mutex pendingMtx_;
-    std::condition_variable pendingCv_;
+    thread::TrackedMutex pendingMtx_{"playout.pending"};
+    std::condition_variable_any pendingCv_;
     std::deque<PendingFrame> pending_;
     bool stopping_ = false;
     std::thread worker_;
@@ -160,7 +161,7 @@ class SpeakerPlayoutEngine {
     // (receive threads). Held across a voice's decode+queue so a close cannot
     // free the decoder under a frame; both sides are bounded and 50 frames/s
     // per voice is nothing next to it.
-    mutable std::mutex mtx_;
+    mutable thread::TrackedMutex mtx_{"playout.voices"};
     std::map<VoiceKey, std::unique_ptr<Voice>> voices_;
 };
 

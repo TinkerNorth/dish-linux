@@ -6,6 +6,7 @@
 #include "GamepadInputProcessor.h"
 #include "JoystickMapping.h"
 #include "OutputCommandQueue.h"
+#include "core/thread/TrackedMutex.h"
 
 #include <QObject>
 #include <QString>
@@ -227,7 +228,7 @@ class SDLGamepadBridge : public QObject {
 
     // Guarded by mtx_; manipulated only from the input thread except for
     // devices() which reads under lock.
-    mutable std::mutex mtx_;
+    mutable thread::TrackedMutex mtx_{"bridge.devices"};
     std::unordered_map<int, SDL_GameController*> openControllers_;
     std::unordered_map<int, QString> deviceIds_;
     std::unordered_map<int, QString> deviceNames_;
@@ -291,7 +292,7 @@ class SDLGamepadBridge : public QObject {
     // / UsbTwinDedup). Guarded by its OWN mutex (not mtx_) so installing a fresh
     // set on the main thread never contends with the device-map critical section
     // on the input thread, and the per-report read is a tiny independent lock.
-    mutable std::mutex suppressedMtx_;
+    mutable thread::TrackedMutex suppressedMtx_{"bridge.suppressed"};
     std::unordered_set<std::string> suppressedIds_;
 
     // Per-(vid,pid) raw-joystick remap overrides (see setJoystickRemap). Keyed by
@@ -299,7 +300,7 @@ class SDLGamepadBridge : public QObject {
     // thread push never contends with the device-map critical section; the hot
     // path copies the matched remap under this lock and maps outside it. A device
     // absent from the map decodes under the default JoystickRemap.
-    mutable std::mutex remapMtx_;
+    mutable thread::TrackedMutex remapMtx_{"bridge.remap"};
     std::map<std::pair<int, int>, input::JoystickRemap> joystickRemaps_;
 
     // Capture mode flag (see setJoystickCaptureEnabled). A relaxed atomic so the

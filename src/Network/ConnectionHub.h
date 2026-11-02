@@ -6,6 +6,7 @@
 #include "ConnectionStore.h"
 #include "Models/Models.h"
 #include "WifiConnectionManager.h"
+#include "core/thread/TrackedMutex.h"
 
 #include <QHash>
 #include <QList>
@@ -141,7 +142,7 @@ class ConnectionHub : public QObject {
     // slotId -> connectionId. Written only on the UI thread, and only through
     // publishBindings; any other thread reads it only through bindings().
     QHash<QString, QString> bindings_;
-    mutable std::mutex bindingsMtx_;
+    mutable thread::TrackedMutex bindingsMtx_{"hub.bindings"};
     LightbarCapabilityFn lightbarCapabilityFn_;
     MotionCapabilityFn motionCapabilityFn_;
     RumbleCapabilityFn rumbleCapabilityFn_;

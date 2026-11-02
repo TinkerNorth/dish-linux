@@ -271,7 +271,7 @@ AppModel::AppModel(std::unique_ptr<source::WakeInhibitor> inhibitor, QObject* pa
                                       std::int16_t ly, std::int16_t rx, std::int16_t ry) {
         net::ConnectionHub::ReportSender sender;
         {
-            std::lock_guard<std::mutex> lock(routingMtx_);
+            std::lock_guard<thread::TrackedMutex> lock(routingMtx_);
             const QString key = QString::fromStdString(did);
             sender = routing_.value(key);
             // A slot bound to a Moonlight host has no satellite sender; fall
@@ -286,7 +286,7 @@ AppModel::AppModel(std::unique_ptr<source::WakeInhibitor> inhibitor, QObject* pa
                                       std::int16_t az, std::uint32_t dtUs) {
         net::ConnectionHub::MotionSender sender;
         {
-            std::lock_guard<std::mutex> lock(routingMtx_);
+            std::lock_guard<thread::TrackedMutex> lock(routingMtx_);
             const QString key = QString::fromStdString(did);
             sender = motionRouting_.value(key);
             if (!sender) { sender = moonlightMotionRouting_.value(key); }
@@ -298,7 +298,7 @@ AppModel::AppModel(std::unique_ptr<source::WakeInhibitor> inhibitor, QObject* pa
         [this](const std::string& did, std::uint8_t level, std::uint8_t status) {
             net::ConnectionHub::BatterySender sender;
             {
-                std::lock_guard<std::mutex> lock(routingMtx_);
+                std::lock_guard<thread::TrackedMutex> lock(routingMtx_);
                 const QString key = QString::fromStdString(did);
                 sender = batteryRouting_.value(key);
                 // Same fall-through as the report and motion senders: a slot is
@@ -313,7 +313,7 @@ AppModel::AppModel(std::unique_ptr<source::WakeInhibitor> inhibitor, QObject* pa
                                         const input::GamepadInputProcessor::TouchpadSample& s) {
         net::ConnectionHub::TouchpadSender sender;
         {
-            std::lock_guard<std::mutex> lock(routingMtx_);
+            std::lock_guard<thread::TrackedMutex> lock(routingMtx_);
             const QString key = QString::fromStdString(did);
             sender = touchpadRouting_.value(key);
             // A Moonlight-bound slot takes the SAME full-state frame; its sender
@@ -632,7 +632,7 @@ AppModel::MoonlightRoutes AppModel::moonlightRoutesFor(source::moon::MoonlightSe
 // A slot routes to exactly one transport: the satellite routes always come off, so the report
 // sender's fall-through reaches the Moonlight table. Empty routes clear the Moonlight table too.
 void AppModel::installMoonlightRoutes(const QString& slotId, MoonlightRoutes routes) {
-    std::lock_guard<std::mutex> lock(routingMtx_);
+    std::lock_guard<thread::TrackedMutex> lock(routingMtx_);
     routing_.remove(slotId);
     motionRouting_.remove(slotId);
     batteryRouting_.remove(slotId);
@@ -676,7 +676,7 @@ int AppModel::moonlightBindingType(const QString& hostUuid, const QString& slotI
 
 void AppModel::unbindMoonlightSlot(const QString& slotId) {
     {
-        std::lock_guard<std::mutex> lock(routingMtx_);
+        std::lock_guard<thread::TrackedMutex> lock(routingMtx_);
         moonlightRouting_.remove(slotId);
         moonlightMotionRouting_.remove(slotId);
         moonlightBatteryRouting_.remove(slotId);
@@ -1286,7 +1286,7 @@ void AppModel::republishRouting() {
         }
     }
     {
-        std::lock_guard<std::mutex> lock(routingMtx_);
+        std::lock_guard<thread::TrackedMutex> lock(routingMtx_);
         routing_ = std::move(nextRouting);
         motionRouting_ = std::move(nextMotion);
         batteryRouting_ = std::move(nextBattery);
@@ -1672,7 +1672,7 @@ audio::PadAudioRoute AppModel::audioRouteForSlot(const QString& slotId) const {
         if (!found) { return {}; }
     }
     if (vendorId == 0 && productId == 0) { return {}; }
-    std::lock_guard<std::mutex> lock(audioRoutesMtx_);
+    std::lock_guard<thread::TrackedMutex> lock(audioRoutesMtx_);
     const auto it = padAudioRoutes_.find(audio::padAudioKey(vendorId, productId));
     if (it == padAudioRoutes_.end()) { return {}; }
     return it->second;
@@ -1700,7 +1700,7 @@ void AppModel::resolveAudioRoutes() {
         pads, audioGateway_.captureDeviceNames(), audioGateway_.playbackDeviceNames(),
         [this](const std::string& name) { return audioGateway_.playbackDeviceChannels(name); });
     {
-        std::lock_guard<std::mutex> lock(audioRoutesMtx_);
+        std::lock_guard<thread::TrackedMutex> lock(audioRoutesMtx_);
         if (routes == padAudioRoutes_) { return; }
         padAudioRoutes_ = std::move(routes);
     }

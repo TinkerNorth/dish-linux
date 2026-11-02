@@ -176,7 +176,7 @@ void UsbGamepadManager::reconcile() {
     // false positive here would tear down and re-claim a perfectly live pad.
     std::vector<std::pair<int, int>> departed;
     {
-        std::lock_guard<std::mutex> lock(mtx_);
+        std::lock_guard<thread::TrackedMutex> lock(mtx_);
         for (const auto& [key, c] : controllers_) {
             if (presentKeys.find(key) != presentKeys.end()) {
                 missedScans_.erase(key);
@@ -192,7 +192,7 @@ void UsbGamepadManager::ensureTracked(const UsbDeviceInfo& device) {
     const int key = device.vpKey();
     bool isNew = false;
     {
-        std::lock_guard<std::mutex> lock(mtx_);
+        std::lock_guard<thread::TrackedMutex> lock(mtx_);
         devices_[key] = device;
         if (controllers_.find(key) == controllers_.end()) {
             reducer::UsbController c;
@@ -221,7 +221,7 @@ void UsbGamepadManager::ensureTracked(const UsbDeviceInfo& device) {
 }
 
 bool UsbGamepadManager::claimEnded(int key) const {
-    std::lock_guard<std::mutex> lock(mtx_);
+    std::lock_guard<thread::TrackedMutex> lock(mtx_);
     const auto it = controllers_.find(key);
     if (it == controllers_.end()) { return false; }
     const reducer::UsbController& c = it->second;
@@ -232,7 +232,7 @@ bool UsbGamepadManager::claimEnded(int key) const {
 void UsbGamepadManager::judgeClaim(int key) {
     reducer::ClaimActivity activity;
     {
-        std::lock_guard<std::mutex> lock(mtx_);
+        std::lock_guard<thread::TrackedMutex> lock(mtx_);
         const auto it = controllers_.find(key);
         if (it == controllers_.end()) {
             directScans_.erase(key);
@@ -301,7 +301,7 @@ void UsbGamepadManager::onFrameworkDown(int vendorId, int productId) {
 void UsbGamepadManager::onUsbGone(int vendorId, int productId) {
     const int key = vpKey(vendorId, productId);
     applyEvent(key, reducer::event::UsbUnplugged{});
-    std::lock_guard<std::mutex> lock(mtx_);
+    std::lock_guard<thread::TrackedMutex> lock(mtx_);
     devices_.erase(key);
     missedScans_.erase(key);
     directScans_.erase(key);
@@ -315,14 +315,14 @@ void UsbGamepadManager::fireTimeout(int vendorId, int productId) {
 }
 
 void UsbGamepadManager::forgetFeedbackState(int key) {
-    std::lock_guard<std::mutex> lock(feedbackMtx_);
+    std::lock_guard<thread::TrackedMutex> lock(feedbackMtx_);
     feedback_.erase(key);
     feedbackSeq_.erase(key);
 }
 
 std::optional<UsbGamepadManager::DirectTarget>
 UsbGamepadManager::directTarget(int vendorId, int productId) const {
-    std::lock_guard<std::mutex> lock(mtx_);
+    std::lock_guard<thread::TrackedMutex> lock(mtx_);
     const auto it = controllers_.find(vpKey(vendorId, productId));
     if (it == controllers_.end()) { return std::nullopt; }
     // Split from the lookup rather than folded into one `||`: a controller
@@ -353,7 +353,7 @@ bool UsbGamepadManager::applyRumble(int vendorId, int productId, std::uint16_t s
     {
         // The state is read for the DS5 mute-lamp re-assert, so the lookup and
         // the build are one critical section like the lightbar's.
-        std::lock_guard<std::mutex> lock(feedbackMtx_);
+        std::lock_guard<thread::TrackedMutex> lock(feedbackMtx_);
         const std::uint8_t seq = nextSeqLocked(vpKey(vendorId, productId));
         const auto& st = feedback_[vpKey(vendorId, productId)];
         n = input::usbout::buildRumbleReport(target->parser, st, strongMagnitude, weakMagnitude,
@@ -373,7 +373,7 @@ bool UsbGamepadManager::applyLightbar(int vendorId, int productId, std::uint8_t 
         // The builder mutates the one-time DualSense handoff flag, so the state
         // lookup and the build are one critical section: two colours racing in
         // must not both decide they are the first.
-        std::lock_guard<std::mutex> lock(feedbackMtx_);
+        std::lock_guard<thread::TrackedMutex> lock(feedbackMtx_);
         auto& st = feedback_[vpKey(vendorId, productId)];
         n = input::usbout::buildLightbarReport(target->parser, st, r, g, b, buf.data(), buf.size());
     }
@@ -387,7 +387,7 @@ bool UsbGamepadManager::applyPlayerLeds(int vendorId, int productId, std::uint8_
     std::array<std::uint8_t, input::usbout::kMaxOutputReportBytes> buf{};
     std::size_t n = 0;
     {
-        std::lock_guard<std::mutex> lock(feedbackMtx_);
+        std::lock_guard<thread::TrackedMutex> lock(feedbackMtx_);
         const std::uint8_t seq = nextSeqLocked(vpKey(vendorId, productId));
         const auto& st = feedback_[vpKey(vendorId, productId)];
         n = input::usbout::buildPlayerLedsReport(target->parser, st, ledMask, seq, buf.data(),
@@ -405,7 +405,7 @@ bool UsbGamepadManager::applyTriggerEffects(
     std::array<std::uint8_t, input::usbout::kMaxOutputReportBytes> buf{};
     std::size_t n = 0;
     {
-        std::lock_guard<std::mutex> lock(feedbackMtx_);
+        std::lock_guard<thread::TrackedMutex> lock(feedbackMtx_);
         const auto& st = feedback_[vpKey(vendorId, productId)];
         n = input::usbout::buildTriggerEffectsReport(target->parser, st, left, right, buf.data(),
                                                      buf.size());
@@ -422,7 +422,7 @@ bool UsbGamepadManager::applyMicMuteLed(int vendorId, int productId, std::uint8_
     {
         // The builder writes the lamp shadow, so the lookup and the build are
         // one critical section like the lightbar handoff's.
-        std::lock_guard<std::mutex> lock(feedbackMtx_);
+        std::lock_guard<thread::TrackedMutex> lock(feedbackMtx_);
         auto& st = feedback_[vpKey(vendorId, productId)];
         n = input::usbout::buildMicMuteLedReport(target->parser, st, state, buf.data(), buf.size());
     }
@@ -437,13 +437,13 @@ bool UsbGamepadManager::setPadMicMuted(int vendorId, int productId, bool muted) 
 }
 
 std::map<int, reducer::UsbController> UsbGamepadManager::controllers() const {
-    std::lock_guard<std::mutex> lock(mtx_);
+    std::lock_guard<thread::TrackedMutex> lock(mtx_);
     return controllers_;
 }
 
 std::optional<reducer::UsbController> UsbGamepadManager::controllerFor(int vendorId,
                                                                        int productId) const {
-    std::lock_guard<std::mutex> lock(mtx_);
+    std::lock_guard<thread::TrackedMutex> lock(mtx_);
     const auto it = controllers_.find(vpKey(vendorId, productId));
     if (it == controllers_.end()) { return std::nullopt; }
     return it->second;
@@ -452,14 +452,14 @@ std::optional<reducer::UsbController> UsbGamepadManager::controllerFor(int vendo
 void UsbGamepadManager::applyEvent(int key, const reducer::UsbEvent& event) {
     std::optional<reducer::UsbController> cur;
     {
-        std::lock_guard<std::mutex> lock(mtx_);
+        std::lock_guard<thread::TrackedMutex> lock(mtx_);
         const auto it = controllers_.find(key);
         if (it == controllers_.end()) { return; }
         cur = it->second;
     }
     auto [next, effects] = reducer::reduce(*cur, event);
     {
-        std::lock_guard<std::mutex> lock(mtx_);
+        std::lock_guard<thread::TrackedMutex> lock(mtx_);
         if (next.has_value()) {
             controllers_[key] = *next;
         } else {
@@ -538,7 +538,7 @@ void UsbGamepadManager::execute(int key, const reducer::UsbController& c,
 void UsbGamepadManager::runClaim(int key) {
     UsbDeviceInfo device;
     {
-        std::lock_guard<std::mutex> lock(mtx_);
+        std::lock_guard<thread::TrackedMutex> lock(mtx_);
         const auto it = devices_.find(key);
         if (it == devices_.end()) {
             // No device to claim (gone between Choose and Claim): treat as Busy,
@@ -561,7 +561,7 @@ void UsbGamepadManager::runReclaim(int key, const reducer::UsbController& c) {
     UsbDeviceInfo device;
     bool haveDevice = false;
     {
-        std::lock_guard<std::mutex> lock(mtx_);
+        std::lock_guard<thread::TrackedMutex> lock(mtx_);
         const auto it = devices_.find(key);
         if (it != devices_.end()) {
             device = it->second;

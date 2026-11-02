@@ -32,6 +32,10 @@ option(DISH_REQUIRE_TRANSLATIONS
     "Fail configuration when Qt Linguist tools are missing"       OFF)
 set(DISH_SANITIZER "" CACHE STRING
     "Sanitizer to build with: address+undefined, thread, or empty")
+# A measurement build, configured in its own build directory: every
+# TrackedMutex counts its use per lock and thread role. The release preset
+# never sets it, so the shipped binary has plain mutexes.
+option(DISH_LOCK_STATS "Count tracked-lock use per lock and thread role" OFF)
 
 # udev scans only /etc/udev/rules.d, /run/udev/rules.d and (/usr)/lib/udev/rules.d.
 # NOT ${CMAKE_INSTALL_SYSCONFDIR}: the relative form stays "etc" even where
@@ -159,6 +163,7 @@ set(DISH_CORE_SOURCES
     src/architecture/Controller.h
     src/architecture/Repository.h
     src/core/AsyncState.h
+    src/core/thread/TrackedMutex.h
     src/core/wire/SessionCrypto.h
     src/core/wire/SessionCrypto.cpp
     src/core/wire/HttpFraming.h
@@ -550,6 +555,11 @@ endif()
 add_library(dish_core STATIC ${DISH_CORE_SOURCES})
 target_include_directories(dish_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_compile_definitions(dish_core PUBLIC DISH_VERSION="${PROJECT_VERSION}")
+# PUBLIC: TrackedMutex changes layout with it, so every consumer must agree.
+if(DISH_LOCK_STATS)
+    target_compile_definitions(dish_core PUBLIC DISH_LOCK_STATS)
+    message(STATUS "dish: lock statistics ON (a measurement build, never a release)")
+endif()
 # Crash-reporting identity. PRIVATE: only the backend needs these, and a
 # PUBLIC define would leak the DSN onto every consumer's command line.
 target_compile_definitions(dish_core PRIVATE

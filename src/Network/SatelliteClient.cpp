@@ -103,7 +103,7 @@ void SatelliteClient::setConnectionParams(const std::array<std::uint8_t, 4>& tok
                                                                            : settledProtocolVersion;
     settledProtocolVersion_.store(clamped, std::memory_order_relaxed);
     {
-        std::lock_guard<std::mutex> lock(materialMtx_);
+        std::lock_guard<thread::TrackedMutex> lock(materialMtx_);
         token_ = token;
         tokenBe_ = util::readU32Be(token.data()); // the 4 raw token bytes are already big-endian
         key_ = key;
@@ -122,7 +122,7 @@ void SatelliteClient::setConnectionParams(const std::array<std::uint8_t, 4>& tok
     // A stale in-flight stamp must not pair with the new session's first ack.
     pingSentUs_.store(0, std::memory_order_relaxed);
     {
-        std::lock_guard<std::mutex> lock(latencyMtx_);
+        std::lock_guard<thread::TrackedMutex> lock(latencyMtx_);
         latencyWindow_.reset();
     }
 }
@@ -327,7 +327,7 @@ bool SatelliteClient::sendEncrypted(std::uint16_t msgType, const std::uint8_t* p
     std::array<std::uint8_t, 32> key{};
     std::uint64_t seq = 0;
     {
-        std::lock_guard<std::mutex> lock(materialMtx_);
+        std::lock_guard<thread::TrackedMutex> lock(materialMtx_);
         token = token_;
         tokenBe = tokenBe_;
         key = key_;
@@ -352,7 +352,7 @@ bool SatelliteClient::sendEncrypted(std::uint16_t msgType, const std::uint8_t* p
     }
     packet.resize(kHeaderSize + cipherLen);
 
-    std::lock_guard<std::mutex> lock(sendLock_);
+    std::lock_guard<thread::TrackedMutex> lock(sendLock_);
     if (sock_ < 0) { return false; }
     // MSG_DONTWAIT: this runs on the SDL input thread, where a blocking sendto
     // was observed to stall 1.5s across a Wi-Fi power-save transition.
@@ -377,6 +377,7 @@ void SatelliteClient::stopHeartbeat() {
 }
 
 void SatelliteClient::heartbeatLoop() {
+    const thread::ScopedThreadRole role(thread::ThreadRole::Heartbeat);
     using namespace std::chrono;
     while (heartbeatRunning_.load(std::memory_order_relaxed)) {
         sendEncrypted(kMsgHeartbeatPing, nullptr, 0);
@@ -411,6 +412,7 @@ void SatelliteClient::stopReceiveLoop() {
 }
 
 void SatelliteClient::receiveLoop() {
+    const thread::ScopedThreadRole role(thread::ThreadRole::Receive);
     // A full datagram, not the 256 bytes of the pre-audio protocol: recvfrom
     // TRUNCATES a UDP datagram to the buffer and a truncated SPEAKER_AUDIO
     // ciphertext then fails the AEAD, so every full-size audio frame would be
@@ -435,11 +437,12 @@ namespace {
 // stored handler is copied under its own lock, and the copy is called with the lock released so a
 // handler cannot hold the receive thread against a setter.
 template <typename Handler, typename Parsed>
-void callHandler(std::mutex& mtx, const Handler& stored, const std::optional<Parsed>& msg) {
+void callHandler(thread::TrackedMutex& mtx, const Handler& stored,
+                 const std::optional<Parsed>& msg) {
     if (!msg) { return; }
     Handler handler;
     {
-        std::lock_guard<std::mutex> lock(mtx);
+        std::lock_guard<thread::TrackedMutex> lock(mtx);
         handler = stored;
     }
     if (handler) { handler(*msg); }
@@ -458,7 +461,7 @@ struct SatelliteClient::IncomingMaterial {
 
 SatelliteClient::IncomingMaterial SatelliteClient::takeIncomingMaterial() {
     IncomingMaterial m;
-    std::lock_guard<std::mutex> lock(materialMtx_);
+    std::lock_guard<thread::TrackedMutex> lock(materialMtx_);
     m.token = token_;
     m.tokenBe = tokenBe_;
     m.key = key_;
@@ -483,7 +486,7 @@ bool SatelliteClient::decryptIncoming(const std::uint8_t* buf, std::size_t n,
                              buf + kHeaderSize, n - kHeaderSize, plain.data(), &plainLen)) {
         return false;
     }
-    std::lock_guard<std::mutex> lock(materialMtx_);
+    std::lock_guard<thread::TrackedMutex> lock(materialMtx_);
     if (lastRecvCounter_ == m.lastRecv) { lastRecvCounter_ = counter; }
     return true;
 }
@@ -494,7 +497,7 @@ void SatelliteClient::recordAckLatency() {
     const std::int64_t sent = pingSentUs_.exchange(0, std::memory_order_relaxed);
     if (sent == 0) { return; }
     const double rttMs = static_cast<double>(nowSteadyUs() - sent) / 1000.0;
-    std::lock_guard<std::mutex> lock(latencyMtx_);
+    std::lock_guard<thread::TrackedMutex> lock(latencyMtx_);
     latencyWindow_.push(rttMs);
 }
 
@@ -522,7 +525,7 @@ void SatelliteClient::onSessionClose(const std::uint8_t* body, std::size_t bodyL
 
     CloseHandler handler;
     {
-        std::lock_guard<std::mutex> lock(closeHandlerMtx_);
+        std::lock_guard<thread::TrackedMutex> lock(closeHandlerMtx_);
         handler = closeHandler_;
     }
     if (handler) { handler(reason); }
@@ -583,57 +586,57 @@ void SatelliteClient::processIncoming(const std::uint8_t* buf, std::size_t n) {
 }
 
 void SatelliteClient::setRumbleHandler(RumbleHandler handler) {
-    std::lock_guard<std::mutex> lock(rumbleHandlerMtx_);
+    std::lock_guard<thread::TrackedMutex> lock(rumbleHandlerMtx_);
     rumbleHandler_ = std::move(handler);
 }
 
 void SatelliteClient::setLightbarHandler(LightbarHandler handler) {
-    std::lock_guard<std::mutex> lock(lightbarHandlerMtx_);
+    std::lock_guard<thread::TrackedMutex> lock(lightbarHandlerMtx_);
     lightbarHandler_ = std::move(handler);
 }
 
 void SatelliteClient::setTriggerEffectsHandler(TriggerEffectsHandler handler) {
-    std::lock_guard<std::mutex> lock(triggerEffectsHandlerMtx_);
+    std::lock_guard<thread::TrackedMutex> lock(triggerEffectsHandlerMtx_);
     triggerEffectsHandler_ = std::move(handler);
 }
 
 void SatelliteClient::setPlayerLedsHandler(PlayerLedsHandler handler) {
-    std::lock_guard<std::mutex> lock(playerLedsHandlerMtx_);
+    std::lock_guard<thread::TrackedMutex> lock(playerLedsHandlerMtx_);
     playerLedsHandler_ = std::move(handler);
 }
 
 void SatelliteClient::setSpeakerAudioHandler(SpeakerAudioHandler handler) {
-    std::lock_guard<std::mutex> lock(speakerAudioHandlerMtx_);
+    std::lock_guard<thread::TrackedMutex> lock(speakerAudioHandlerMtx_);
     speakerAudioHandler_ = std::move(handler);
 }
 
 void SatelliteClient::setHapticAudioHandler(HapticAudioHandler handler) {
-    std::lock_guard<std::mutex> lock(hapticAudioHandlerMtx_);
+    std::lock_guard<thread::TrackedMutex> lock(hapticAudioHandlerMtx_);
     hapticAudioHandler_ = std::move(handler);
 }
 
 void SatelliteClient::setMicLedHandler(MicLedHandler handler) {
-    std::lock_guard<std::mutex> lock(micLedHandlerMtx_);
+    std::lock_guard<thread::TrackedMutex> lock(micLedHandlerMtx_);
     micLedHandler_ = std::move(handler);
 }
 
 void SatelliteClient::setHeartbeatAckHandler(HeartbeatAckHandler handler) {
-    std::lock_guard<std::mutex> lock(ackHandlerMtx_);
+    std::lock_guard<thread::TrackedMutex> lock(ackHandlerMtx_);
     ackHandler_ = std::move(handler);
 }
 
 void SatelliteClient::setCloseHandler(CloseHandler handler) {
-    std::lock_guard<std::mutex> lock(closeHandlerMtx_);
+    std::lock_guard<thread::TrackedMutex> lock(closeHandlerMtx_);
     closeHandler_ = std::move(handler);
 }
 
 SatelliteClient::LatencySnapshot SatelliteClient::latencySnapshot() const {
-    std::lock_guard<std::mutex> lock(latencyMtx_);
+    std::lock_guard<thread::TrackedMutex> lock(latencyMtx_);
     return {latencyWindow_.oneWayP50Ms(), latencyWindow_.count()};
 }
 
 reducer::LatencySummary SatelliteClient::latencySummary() const {
-    std::lock_guard<std::mutex> lock(latencyMtx_);
+    std::lock_guard<thread::TrackedMutex> lock(latencyMtx_);
     return latencyWindow_.summary();
 }
 

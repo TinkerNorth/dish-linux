@@ -4,6 +4,7 @@
 #pragma once
 
 #include "core/input/UsbOutputReports.h"
+#include "core/thread/TrackedMutex.h"
 
 #include <QString>
 
@@ -104,7 +105,7 @@ struct OutputCommand {
 class OutputCommandQueue {
   public:
     void push(OutputCommand cmd) {
-        std::lock_guard<std::mutex> lock(mtx_);
+        std::lock_guard<thread::TrackedMutex> lock(mtx_);
         queue_.push_back(std::move(cmd));
     }
 
@@ -112,18 +113,18 @@ class OutputCommandQueue {
     // batch outside the lock while producers keep enqueueing.
     std::vector<OutputCommand> drain() {
         std::vector<OutputCommand> batch;
-        std::lock_guard<std::mutex> lock(mtx_);
+        std::lock_guard<thread::TrackedMutex> lock(mtx_);
         batch.swap(queue_);
         return batch;
     }
 
     std::size_t size() const {
-        std::lock_guard<std::mutex> lock(mtx_);
+        std::lock_guard<thread::TrackedMutex> lock(mtx_);
         return queue_.size();
     }
 
   private:
-    mutable std::mutex mtx_;
+    mutable thread::TrackedMutex mtx_{"bridge.output"};
     std::vector<OutputCommand> queue_;
 };
 

@@ -26,6 +26,7 @@ constexpr int kPeriodSamples = dish::proto::kAudioFrameSamples;
 // SDL's capture callback, on the device's audio thread. The format was pinned
 // with allowed_changes = 0, so the stream is whole int16 mono samples.
 void SdlAudioGateway::captureCallback(void* userdata, std::uint8_t* stream, int len) {
+    thread::setThreadRole(thread::ThreadRole::AudioCapture);
     auto* holder = static_cast<CaptureHolder*>(userdata);
     if (holder == nullptr || stream == nullptr || len <= 0) { return; }
     holder->onSamples(reinterpret_cast<const std::int16_t*>(stream),
@@ -45,9 +46,15 @@ SdlAudioGateway::SdlAudioGateway() {
 
 SdlAudioGateway::~SdlAudioGateway() {
     {
-        std::lock_guard<std::mutex> lock(mtx_);
-        for (const auto& [handle, dev] : captureDevices_) { SDL_CloseAudioDevice(dev); }
-        for (const auto& [handle, dev] : playbackDevices_) { SDL_CloseAudioDevice(dev); }
+        std::lock_guard<thread::TrackedMutex> lock(mtx_);
+        for (const auto& [handle, dev] : captureDevices_) {
+            thread::blockingRegion("sdl.closeAudio");
+            SDL_CloseAudioDevice(dev);
+        }
+        for (const auto& [handle, dev] : playbackDevices_) {
+            thread::blockingRegion("sdl.closeAudio");
+            SDL_CloseAudioDevice(dev);
+        }
         captureDevices_.clear();
         captureHolders_.clear();
         playbackDevices_.clear();
@@ -109,6 +116,7 @@ int SdlAudioGateway::openCapture(const std::string& deviceName,
     // allowed_changes = 0: SDL converts whatever the endpoint really runs to
     // the wire format, so the callback only ever sees 48 kHz mono S16 and no
     // resampler lives in this repo.
+    thread::blockingRegion("sdl.openAudio");
     const SDL_AudioDeviceID dev =
         SDL_OpenAudioDevice(deviceName.c_str(), SDL_TRUE, &want, &have, 0);
     if (dev == 0) {
@@ -118,11 +126,12 @@ int SdlAudioGateway::openCapture(const std::string& deviceName,
     }
     int handle = kNoAudioDevice;
     {
-        std::lock_guard<std::mutex> lock(mtx_);
+        std::lock_guard<thread::TrackedMutex> lock(mtx_);
         handle = nextHandle_++;
         captureDevices_[handle] = dev;
         captureHolders_[handle] = std::move(holder);
     }
+    thread::blockingRegion("sdl.audioDevice");
     SDL_PauseAudioDevice(dev, 0);
     return handle;
 }
@@ -131,7 +140,7 @@ void SdlAudioGateway::closeCapture(int handle) {
     std::uint32_t dev = 0;
     std::unique_ptr<CaptureHolder> holder;
     {
-        std::lock_guard<std::mutex> lock(mtx_);
+        std::lock_guard<thread::TrackedMutex> lock(mtx_);
         const auto it = captureDevices_.find(handle);
         if (it == captureDevices_.end()) { return; }
         dev = it->second;
@@ -145,6 +154,7 @@ void SdlAudioGateway::closeCapture(int handle) {
     // SDL_CloseAudioDevice waits out a callback in flight, which is the join
     // the interface promises: after this returns, no more samples. The holder
     // is destroyed after, so the callback never sees a dead function.
+    thread::blockingRegion("sdl.closeAudio");
     SDL_CloseAudioDevice(dev);
 }
 
@@ -161,6 +171,7 @@ int SdlAudioGateway::openPlayback(const std::string& deviceName, int channels) {
     want.samples = static_cast<Uint16>(kPeriodSamples);
     want.callback = nullptr; // queued mode: the engine pushes whole frames
     SDL_AudioSpec have{};
+    thread::blockingRegion("sdl.openAudio");
     const SDL_AudioDeviceID dev =
         SDL_OpenAudioDevice(deviceName.c_str(), SDL_FALSE, &want, &have, 0);
     if (dev == 0) {
@@ -172,7 +183,7 @@ int SdlAudioGateway::openPlayback(const std::string& deviceName, int channels) {
     // the start cushion is queued.
     int handle = kNoAudioDevice;
     {
-        std::lock_guard<std::mutex> lock(mtx_);
+        std::lock_guard<thread::TrackedMutex> lock(mtx_);
         handle = nextHandle_++;
         playbackDevices_[handle] = dev;
     }
@@ -184,11 +195,12 @@ bool SdlAudioGateway::queuePlayback(int handle, const std::int16_t* samples,
     if (samples == nullptr || sampleCount == 0) { return false; }
     std::uint32_t dev = 0;
     {
-        std::lock_guard<std::mutex> lock(mtx_);
+        std::lock_guard<thread::TrackedMutex> lock(mtx_);
         const auto it = playbackDevices_.find(handle);
         if (it == playbackDevices_.end()) { return false; }
         dev = it->second;
     }
+    thread::blockingRegion("sdl.audioDevice");
     return SDL_QueueAudio(dev, samples, static_cast<Uint32>(sampleCount * sizeof(std::int16_t))) ==
            0;
 }
@@ -196,34 +208,37 @@ bool SdlAudioGateway::queuePlayback(int handle, const std::int16_t* samples,
 std::size_t SdlAudioGateway::queuedPlaybackBytes(int handle) {
     std::uint32_t dev = 0;
     {
-        std::lock_guard<std::mutex> lock(mtx_);
+        std::lock_guard<thread::TrackedMutex> lock(mtx_);
         const auto it = playbackDevices_.find(handle);
         if (it == playbackDevices_.end()) { return 0; }
         dev = it->second;
     }
+    thread::blockingRegion("sdl.audioDevice");
     return SDL_GetQueuedAudioSize(dev);
 }
 
 void SdlAudioGateway::resumePlayback(int handle) {
     std::uint32_t dev = 0;
     {
-        std::lock_guard<std::mutex> lock(mtx_);
+        std::lock_guard<thread::TrackedMutex> lock(mtx_);
         const auto it = playbackDevices_.find(handle);
         if (it == playbackDevices_.end()) { return; }
         dev = it->second;
     }
+    thread::blockingRegion("sdl.audioDevice");
     SDL_PauseAudioDevice(dev, 0);
 }
 
 void SdlAudioGateway::closePlayback(int handle) {
     std::uint32_t dev = 0;
     {
-        std::lock_guard<std::mutex> lock(mtx_);
+        std::lock_guard<thread::TrackedMutex> lock(mtx_);
         const auto it = playbackDevices_.find(handle);
         if (it == playbackDevices_.end()) { return; }
         dev = it->second;
         playbackDevices_.erase(it);
     }
+    thread::blockingRegion("sdl.closeAudio");
     SDL_CloseAudioDevice(dev);
 }
 

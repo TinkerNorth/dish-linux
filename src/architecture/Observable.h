@@ -6,6 +6,8 @@
 
 #pragma once
 
+#include "core/thread/TrackedMutex.h"
+
 #include <cstdint>
 #include <functional>
 #include <map>
@@ -19,7 +21,7 @@ namespace dish::arch {
 template <class S> class Observable {
     struct Impl {
         explicit Impl(S v) : value(std::move(v)) {}
-        mutable std::mutex mutex;
+        mutable thread::TrackedMutex mutex{"store.observable"};
         S value;
         std::uint64_t nextToken = 1; // 0 is reserved for "no subscription"
         std::map<std::uint64_t, std::function<void(const S&)>> subscribers;
@@ -47,7 +49,7 @@ template <class S> class Observable {
         void reset() {
             if (token_ != 0) {
                 if (auto impl = impl_.lock()) {
-                    std::lock_guard<std::mutex> lock(impl->mutex);
+                    std::lock_guard<thread::TrackedMutex> lock(impl->mutex);
                     impl->subscribers.erase(token_);
                 }
             }
@@ -75,7 +77,7 @@ template <class S> class Observable {
     ~Observable() = default;
 
     S value() const {
-        std::lock_guard<std::mutex> lock(impl_->mutex);
+        std::lock_guard<thread::TrackedMutex> lock(impl_->mutex);
         return impl_->value;
     }
 
@@ -83,7 +85,7 @@ template <class S> class Observable {
     // must not copy it. The lock is not recursive: `reader` must not call back into
     // this Observable.
     template <class Reader> auto read(Reader&& reader) const {
-        std::lock_guard<std::mutex> lock(impl_->mutex);
+        std::lock_guard<thread::TrackedMutex> lock(impl_->mutex);
         return std::forward<Reader>(reader)(std::as_const(impl_->value));
     }
 
@@ -92,7 +94,7 @@ template <class S> class Observable {
         std::vector<std::function<void(const S&)>> toNotify;
         S snapshot;
         {
-            std::lock_guard<std::mutex> lock(impl_->mutex);
+            std::lock_guard<thread::TrackedMutex> lock(impl_->mutex);
             if (impl_->value == next) { return; }
             impl_->value = std::move(next);
             snapshot = impl_->value;
@@ -111,7 +113,7 @@ template <class S> class Observable {
         S snapshot;
         std::function<void(const S&)> immediate = callback;
         {
-            std::lock_guard<std::mutex> lock(impl_->mutex);
+            std::lock_guard<thread::TrackedMutex> lock(impl_->mutex);
             token = impl_->nextToken++;
             impl_->subscribers.emplace(token, std::move(callback));
             snapshot = impl_->value;

@@ -20,6 +20,7 @@
 
 #pragma once
 
+#include "core/thread/TrackedMutex.h"
 #include "source/audio/AudioDeviceGateway.h"
 
 #include <cstdint>
@@ -67,7 +68,7 @@ class SdlAudioGateway : public AudioDeviceGateway {
     // handle -> SDL device id (+ holder for captures). Guarded by mtx_; the
     // capture callback itself never touches the maps (its holder is reached
     // through SDL's userdata), so the audio thread and these stay apart.
-    std::mutex mtx_;
+    thread::TrackedMutex mtx_{"audio.gateway"};
     int nextHandle_ = 1;
     std::map<int, std::uint32_t> captureDevices_;
     std::map<int, std::unique_ptr<CaptureHolder>> captureHolders_;

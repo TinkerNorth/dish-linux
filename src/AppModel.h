@@ -40,6 +40,7 @@
 #include "core/reducer/MicIndicatorState.h"
 #include "core/reducer/PollRateSampler.h"
 #include "core/audio/PadAudioMatcher.h"
+#include "core/thread/TrackedMutex.h"
 #include "source/audio/MicCaptureEngine.h"
 #include "source/audio/SdlAudioGateway.h"
 #include "source/audio/SpeakerPlayoutEngine.h"
@@ -684,7 +685,7 @@ class AppModel : public QObject {
     // The matcher's current answer, whole-table per resolve. Guarded because
     // feedbackInputs() reads it from the receive threads while resolve writes
     // it on the main thread.
-    mutable std::mutex audioRoutesMtx_;
+    mutable thread::TrackedMutex audioRoutesMtx_{"app.audioRoutes"};
     std::map<int, audio::PadAudioRoute> padAudioRoutes_;
     // Absent = never picked; declaredTouchpadMode sends ds4 for it.
     repository::TouchpadModeRepository touchpadModeRepo_;
@@ -809,7 +810,7 @@ class AppModel : public QObject {
 
     // slotId -> active sender. Read on the SDL gamepad thread, written on the Qt
     // main thread; routingMtx_ guards both directions.
-    mutable std::mutex routingMtx_;
+    mutable thread::TrackedMutex routingMtx_{"app.routing"};
     QHash<QString, net::ConnectionHub::ReportSender> routing_;
     // Read on the SDL sensor / battery-poll threads, both inside
     // SDLGamepadBridge::runLoop, under the same routingMtx_.

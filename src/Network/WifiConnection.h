@@ -6,6 +6,7 @@
 #include "Models/Models.h"
 #include "SatelliteClient.h"
 #include "core/reducer/ProtocolNegotiation.h"
+#include "core/thread/TrackedMutex.h"
 
 #include <QObject>
 #include <QString>
@@ -36,16 +37,16 @@ enum class SessionState : std::uint8_t { Idle, Linking, Live, Faltering, Stale }
 class ClientRef {
   public:
     std::shared_ptr<SatelliteClient> get() const {
-        std::lock_guard<std::mutex> lock(mtx_);
+        std::lock_guard<thread::TrackedMutex> lock(mtx_);
         return value_;
     }
     void set(std::shared_ptr<SatelliteClient> v) {
-        std::lock_guard<std::mutex> lock(mtx_);
+        std::lock_guard<thread::TrackedMutex> lock(mtx_);
         value_ = std::move(v);
     }
 
   private:
-    mutable std::mutex mtx_;
+    mutable thread::TrackedMutex mtx_{"wifi.client"};
     std::shared_ptr<SatelliteClient> value_;
 };
 

@@ -117,12 +117,12 @@ void ConnectionHub::rebuild() {
 }
 
 QHash<QString, QString> ConnectionHub::bindings() const {
-    std::lock_guard<std::mutex> lock(bindingsMtx_);
+    std::lock_guard<thread::TrackedMutex> lock(bindingsMtx_);
     return bindings_;
 }
 
 void ConnectionHub::publishBindings(QHash<QString, QString> next) {
-    std::lock_guard<std::mutex> lock(bindingsMtx_);
+    std::lock_guard<thread::TrackedMutex> lock(bindingsMtx_);
     bindings_ = std::move(next);
 }
 
