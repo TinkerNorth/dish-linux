@@ -6,7 +6,6 @@
 #include "Util/HostBattery.h"
 #include "core/reducer/BatteryRouting.h"
 
-#include "LightbarRouting.h"
 #include "composer/StreamingSlotCount.h"
 #include "core/input/UsbOutputReports.h"
 #include "core/input/UsbReportParsers.h"
@@ -231,21 +230,16 @@ AppModel::AppModel(std::unique_ptr<source::WakeInhibitor> inhibitor, QObject* pa
                          }
                          emit errorMessage(tr("The Moonlight session ended."));
                      });
-    // Host->local actuation shares the SDL output plumbing the satellite path
-    // uses. The manager has already resolved the event's controller number to
-    // the pad that holds it, because one session drives up to four.
+    // Host->local actuation, on the session's control stream thread, through the router the
+    // satellite feedback takes: it resolves the host's controller number to the pad bound to it.
+    // The session has already mapped the wire's low/high onto the pad's motors and mixed the
+    // host's trigger stream in, so the rumble is the final value for both.
     moonlight_->setRumbleSink(
-        [this](const QString& slotId, std::uint16_t strong, std::uint16_t weak) {
-            if (slotId.isEmpty()) { return; }
-            // Straight through: the session has already mapped the wire's
-            // low/high onto the pad's motors and mixed the host's trigger
-            // stream in, so this is the final value for both. Duration 0
-            // because the host refreshes on its own schedule and a stop is an
-            // explicit 0,0.
-            deliverRumble(slotId, strong, weak, 0);
-        });
-    moonlight_->setLedSink([this](const QString& slotId, std::uint8_t r, std::uint8_t g,
-                                  std::uint8_t b) { onMoonlightLed(slotId, r, g, b); });
+        [this](const std::string& host, std::uint8_t number, std::uint16_t strong,
+               std::uint16_t weak) { router_->moonlightRumble(host, number, strong, weak); });
+    moonlight_->setLedSink(
+        [this](const std::string& host, std::uint8_t number, std::uint8_t r, std::uint8_t g,
+               std::uint8_t b) { router_->moonlightLightbar(host, number, r, g, b); });
     // A pad's Motion switch, for the slots bound to a Moonlight host: read when a slot binds and
     // again whenever the store moves, whoever moved it.
     moonlight_->setMotionSwitch([this](const QString& slotId) {
@@ -403,6 +397,10 @@ AppModel::~AppModel() {
     // half-torn-down manager. The gateway's destructor is what releases the live
     // claims, so it must outlive the manager that borrows it.
     bridge_->stop();
+    // The Moonlight control threads route host feedback through router_, which goes with the
+    // members after this body; they end here, with nothing left to tell this object.
+    QObject::disconnect(moonlight_, nullptr, this, nullptr);
+    moonlight_->stopSessions();
     usbScanTimer_->stop();
     inputRateTimer_->stop();
     // Unregister the tray item and drop the suspend delay lock explicitly: a
@@ -431,24 +429,17 @@ void AppModel::installRumbleHandlers() {
     }
 }
 
-// The same gate for a Moonlight host: the setting says "Off: leave the LED untouched", and a
-// host is a host.
-void AppModel::onMoonlightLed(const QString& slotId, std::uint8_t r, std::uint8_t g,
-                              std::uint8_t b) {
-    const auto color = lightbarColorFromRgb(r, g, b, featureSettings_->lightbarFollowGame());
-    if (!color || slotId.isEmpty()) { return; }
-    actuateLightbar(slotId, color->r, color->g, color->b);
-}
-
 // The four hot-path senders for one bound pad, each a one-expression forward so the work it does
 // has a name. Raw pointers: the session is parented to the manager, which outlives the SDL thread
 // (stopped in ~AppModel before these tables clear). The controller number is resolved once here so
 // the hot path carries it.
 AppModel::MoonlightRoutes AppModel::moonlightRoutesFor(source::moon::MoonlightSession* session,
-                                                       std::uint8_t pad) {
+                                                       const QString& hostUuid, std::uint8_t pad) {
     MoonlightRoutes routes;
     // No session to send through is no routes, never a sender holding a null pointer.
     if (session == nullptr) { return routes; }
+    routes.hostUuid = hostUuid.toStdString();
+    routes.controllerNumber = pad;
     routes.report = [session, pad](const input::GamepadInputProcessor::DeviceState& s) {
         session->sendControllerState(pad, s.wButtons, s.lt, s.rt, s.lx, s.ly, s.rx, s.ry);
     };
@@ -487,9 +478,9 @@ void AppModel::bindMoonlightSlot(const QString& slotId, const QString& hostUuid)
     const int storedType = moonlightBindingType(hostUuid, slotId);
 
     const auto number = moonlight_->bindController(slotId, hostUuid, storedType, source);
-    installMoonlightRoutes(slotId, number
-                                       ? moonlightRoutesFor(moonlight_->session(hostUuid), *number)
-                                       : MoonlightRoutes{});
+    installMoonlightRoutes(
+        slotId, number ? moonlightRoutesFor(moonlight_->session(hostUuid), hostUuid, *number)
+                       : MoonlightRoutes{});
     // rebuild() re-derives the slot list against the new binding and emits.
     rebuild();
 }

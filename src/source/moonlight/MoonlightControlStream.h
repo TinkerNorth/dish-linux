@@ -3,8 +3,8 @@
 //
 // The Moonlight control-stream link: an ENet client connection carrying
 // AES-GCM-sealed control messages both ways. Owns the service thread that
-// pumps ENet, decrypts host events (rumble, trigger rumble, motion requests,
-// RGB LED, termination) and sends the periodic keep-alive ping.
+// waits for the host, pumps ENet, decrypts host events (rumble, trigger rumble,
+// motion requests, RGB LED, termination) and sends the periodic keep-alive ping.
 //
 // Hot path: sendControllerMulti runs on the SDL input thread. It encodes and
 // seals into a preallocated ring slot under the link mutex and hands ENet the
@@ -105,17 +105,26 @@ class MoonlightControlStream {
     // would mean spelling its reserved struct tags.
     struct Link;
 
-    void serviceLoop();
+    void serviceLoop(int socket);
 
-    // What one bounded pass over ENet saw, gathered under the link lock and acted on after it.
-    struct ServicePass {
-        std::vector<moonwire::HostEvent> events;
+    // What one service call saw, gathered under the link lock and acted on after it.
+    struct ServiceStep {
+        bool hostGone = false; // torn down under us: the loop ends
+        bool event = false;    // false when ENet had nothing to hand over
         bool linkUp = false;
         bool linkDown = false;
-        bool hostGone = false; // torn down under us: the loop ends
+        bool received = false; // a packet, copied into the loop's buffer
     };
-    ServicePass serviceUnderLock();
+    // One enet_host_service under the link lock. A received packet is copied into `payload` and
+    // released there, so it is opened after the lock.
+    ServiceStep serviceOnce(std::vector<std::uint8_t>& payload);
+    // Whether a service call is owed: the socket turned readable within the poll interval, ENet
+    // holds reliable data the host has not acknowledged (it resends only inside a service call),
+    // or the handshake is still running. Waits holding nothing.
+    bool serviceDue(int socket) const;
     void pingIfDue();
+    // Opens, decodes and hands over one received packet, on the service thread.
+    void dispatchReceived(const std::vector<std::uint8_t>& payload);
     void notifyLink(bool connected);
     // Seals `plaintext` and queues it. Caller must NOT hold linkMtx_.
     void sealAndSend(const std::uint8_t* plaintext, std::size_t len);
@@ -129,12 +138,16 @@ class MoonlightControlStream {
     EventHandler eventHandler_;
     LinkHandler linkHandler_;
 
-    mutable thread::TrackedMutex linkMtx_{"moonlight.send"}; // guards everything below
+    // Guards the link and the send side: the cipher's seal context, seq_ and the slots. The
+    // cipher's open context belongs to the service thread, which alone opens packets.
+    mutable thread::TrackedMutex linkMtx_{"moonlight.send"};
     std::unique_ptr<Link> link_;
     mooncrypto::ControlCipher cipher_;
     std::uint32_t seq_ = 0;
     std::array<Slot, kSlotCount> slots_{};
     std::size_t nextSlot_ = 0;
+
+    // The service thread's own once start() has set them.
     std::int64_t lastPingMs_ = 0;
     std::int64_t connectDeadlineMs_ = 0;
 
@@ -142,6 +155,9 @@ class MoonlightControlStream {
     std::atomic<bool> running_{false};
     std::atomic<bool> connected_{false};
     std::atomic<bool> stopRequested_{false};
+    // Set by a sender that queued reliable data, reset by every service call: while it is set the
+    // service thread keeps a 2 ms cadence, so ENet resends what the host has not acknowledged.
+    std::atomic<bool> awaitingAck_{false};
 };
 
 } // namespace dish::source::moon

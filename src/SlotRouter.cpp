@@ -226,18 +226,73 @@ void SlotRouter::republish(const QStringList& slotIds) {
         retired = std::exchange(published_, std::move(next));
         grace_.waitQuiescent();
     }
+    // A Moonlight host's feedback follows the same changes: a claim, a pad, the rumble switch.
+    if (anyMoonlight_.load(std::memory_order_relaxed)) { refreshMoonlightFeedback(); }
     // A client the old table held last is released here, outside the lock: its destructor joins
     // the session's threads.
 }
 
 void SlotRouter::setMoonlightRoutes(const QString& slotId, MoonlightRoutes routes) {
-    std::lock_guard<thread::TrackedMutex> lock(moonlightMtx_);
-    if (routes.report) {
-        moonlightRoutes_[slotId.toStdString()] = std::move(routes);
-    } else {
-        moonlightRoutes_.erase(slotId.toStdString());
+    {
+        std::lock_guard<thread::TrackedMutex> lock(moonlightMtx_);
+        if (routes.report) {
+            moonlightRoutes_[slotId.toStdString()] = std::move(routes);
+        } else {
+            moonlightRoutes_.erase(slotId.toStdString());
+        }
+        anyMoonlight_.store(!moonlightRoutes_.empty(), std::memory_order_relaxed);
     }
-    anyMoonlight_.store(!moonlightRoutes_.empty(), std::memory_order_relaxed);
+    refreshMoonlightFeedback();
+}
+
+void SlotRouter::refreshMoonlightFeedback() {
+    std::vector<MoonlightFeedback> next;
+    {
+        std::lock_guard<thread::TrackedMutex> lock(moonlightMtx_);
+        next.reserve(moonlightRoutes_.size());
+        for (const auto& [slotId, routes] : moonlightRoutes_) {
+            MoonlightFeedback feedback;
+            feedback.hostUuid = routes.hostUuid;
+            feedback.controllerNumber = routes.controllerNumber;
+            feedback.route.slotId = QString::fromStdString(slotId);
+            next.push_back(std::move(feedback));
+        }
+    }
+    // Built with the lock released: a live route reads the bridge, the USB manager and the stores.
+    for (MoonlightFeedback& feedback : next) { feedback.route = liveRoute(feedback.route.slotId); }
+    std::lock_guard<thread::TrackedMutex> lock(moonlightMtx_);
+    moonlightFeedback_.swap(next);
+}
+
+std::optional<SlotRouter::FeedbackRoute>
+SlotRouter::moonlightFeedbackRoute(std::string_view hostUuid, std::uint8_t controllerNumber) const {
+    if (!anyMoonlight_.load(std::memory_order_relaxed)) { return std::nullopt; }
+    std::lock_guard<thread::TrackedMutex> lock(moonlightMtx_);
+    for (const MoonlightFeedback& feedback : moonlightFeedback_) {
+        if (feedback.controllerNumber == controllerNumber && feedback.hostUuid == hostUuid) {
+            return feedback.route;
+        }
+    }
+    return std::nullopt;
+}
+
+void SlotRouter::moonlightRumble(std::string_view hostUuid, std::uint8_t controllerNumber,
+                                 std::uint16_t strong, std::uint16_t weak) {
+    const auto route = moonlightFeedbackRoute(hostUuid, controllerNumber);
+    if (!route.has_value()) { return; }
+    // Duration 0: the host refreshes rumble on its own schedule and a stop is an explicit 0,0.
+    const auto command = reducer::rumbleTheUserAllows({strong, weak, 0}, route->rumbleOn);
+    routeRumble(*route, command.strong, command.weak, command.durationMs);
+}
+
+// The same gate as a satellite's MSG_LIGHTBAR: "Off" leaves the LED untouched.
+void SlotRouter::moonlightLightbar(std::string_view hostUuid, std::uint8_t controllerNumber,
+                                   std::uint8_t r, std::uint8_t g, std::uint8_t b) {
+    const auto color = lightbarColorFromRgb(r, g, b, deps_.features->lightbarFollowGame());
+    if (!color.has_value()) { return; }
+    const auto route = moonlightFeedbackRoute(hostUuid, controllerNumber);
+    if (!route.has_value()) { return; }
+    routeLightbar(*route, color->r, color->g, color->b);
 }
 
 template <typename Sender>

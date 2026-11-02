@@ -142,7 +142,8 @@ class MoonlightSession : public QObject {
         motionGate_.clear(controllerNumber);
     }
 
-    // Host->client actuation, delivered on the Qt main thread. The controller
+    // Host->client actuation, delivered on the control stream's service thread:
+    // a handler touches nothing that belongs to the Qt thread. The controller
     // number is carried through: a session drives up to four pads, so an event
     // that named none of them could only be applied to the wrong one.
     // Already MIXED and already mapped onto the pad's two motors: the host's
@@ -170,7 +171,7 @@ class MoonlightSession : public QObject {
     // trust; a lambda posted from the service thread is allocated in our own
     // code and read on the Qt thread, which reads as a race between the two.
     void controlLinkChanged(bool connected);
-    void hostEventReceived(dish::moonwire::HostEvent event);
+    void hostTerminated();
 
   private:
     void dispatch(const moonlight::SessionEvent& event);
@@ -224,8 +225,9 @@ class MoonlightSession : public QObject {
     // next attempt is not refused by our own leftovers.
     void cancelStrandedApp();
 
-    // Applies one host event; runs on the Qt main thread, delivered by the
-    // queued hostEventReceived connection.
+    // Applies one host event on the control stream's service thread: rumble and
+    // the LED go to their handlers, a motion request moves the gate before the
+    // next sample, and only a TERMINATION hops to the Qt loop.
     void onHostEvent(const moonwire::HostEvent& event);
 
     MoonlightHttp* http_;
@@ -348,5 +350,3 @@ class MoonlightSession : public QObject {
 };
 
 } // namespace dish::source::moon
-
-Q_DECLARE_METATYPE(dish::moonwire::HostEvent)

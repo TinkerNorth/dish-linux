@@ -20,6 +20,8 @@
 #include <atomic>
 #include <chrono>
 #include <cstdint>
+#include <functional>
+#include <string>
 #include <thread>
 
 namespace {
@@ -283,4 +285,87 @@ TEST_CASE("a touch frame keeps the stamp its source gave it, and an unstamped on
     REQUIRE(hp::pumpUntil([&] { return seen.frames.load() >= 2; }));
     const std::uint32_t after = uptimeMs();
     CHECK(seen.last.load() - before <= after - before);
+}
+
+namespace {
+
+// Waits on the clock alone: the Qt loop does not run, so nothing queued to this thread can land.
+bool waitWithoutQt(const std::function<bool()>& done) {
+    const auto deadline = std::chrono::steady_clock::now() + 5s;
+    while (!done()) {
+        if (std::chrono::steady_clock::now() > deadline) { return false; }
+        std::this_thread::sleep_for(1ms);
+    }
+    return true;
+}
+
+// A Moonlight binding for `padId`: the host and number its feedback names the pad by.
+dish::SlotRouter::MoonlightRoutes moonlightBinding(const std::string& host,
+                                                   std::uint8_t controllerNumber) {
+    dish::SlotRouter::MoonlightRoutes routes;
+    routes.report = [](const GamepadInputProcessor::DeviceState&) {};
+    routes.hostUuid = host;
+    routes.controllerNumber = controllerNumber;
+    return routes;
+}
+
+} // namespace
+
+TEST_CASE("a Moonlight host's rumble reaches its pad from the control thread, without the GUI",
+          "[slot-router][moonlight]") {
+    Seen seen;
+    hp::HotPathRig rig(1, countInto(seen));
+    REQUIRE(rig.startBridge());
+    const hp::VirtualPad pad("Router Moonlight pad");
+    REQUIRE(pad.ok());
+    const QString padId = pad.deviceId();
+    REQUIRE(hp::pumpUntil([&] { return !rig.bridge().devices().isEmpty(); }));
+    rig.router().setMoonlightRoutes(padId, moonlightBinding("host-a", 2));
+    rig.router().republish({padId});
+
+    std::thread control([&rig] { rig.router().moonlightRumble("host-a", 2, 0x4000, 0x2000); });
+    control.join();
+    CHECK(waitWithoutQt([&] { return pad.lastRumble() == ((0x4000U << 16) | 0x2000U); }));
+
+    // Another number, or another host, names no pad of this binding.
+    std::thread strangers([&rig] {
+        rig.router().moonlightRumble("host-a", 1, 0x7000, 0x7000);
+        rig.router().moonlightRumble("host-b", 2, 0x7000, 0x7000);
+    });
+    strangers.join();
+    std::this_thread::sleep_for(std::chrono::milliseconds(kQuietMs));
+    CHECK(pad.lastRumble() == ((0x4000U << 16) | 0x2000U));
+
+    rig.rumbleSwitch().setEnabled(padId, false);
+    rig.router().republish({padId});
+    std::thread switchedOff([&rig] { rig.router().moonlightRumble("host-a", 2, 0x5000, 0x5000); });
+    switchedOff.join();
+    CHECK(waitWithoutQt([&] { return pad.lastRumble() == 0U; }));
+
+    rig.router().setMoonlightRoutes(padId, {});
+}
+
+TEST_CASE("a Moonlight host's light-bar colour lands only while it follows the game",
+          "[slot-router][moonlight]") {
+    Seen seen;
+    hp::HotPathRig rig(1, countInto(seen));
+    REQUIRE(rig.startBridge());
+    const hp::VirtualPad pad("Router Moonlight light-bar pad");
+    REQUIRE(pad.ok());
+    const QString padId = pad.deviceId();
+    REQUIRE(hp::pumpUntil([&] { return !rig.bridge().devices().isEmpty(); }));
+    rig.router().setMoonlightRoutes(padId, moonlightBinding("host-a", 0));
+    rig.router().republish({padId});
+
+    rig.features().setLightbarMode(dish::LightbarMode::Off);
+    std::thread off([&rig] { rig.router().moonlightLightbar("host-a", 0, 0x10, 0x20, 0x30); });
+    off.join();
+    CHECK(rig.router().lightbarsRouted() == 0);
+
+    rig.features().setLightbarMode(dish::LightbarMode::FollowGame);
+    std::thread follow([&rig] { rig.router().moonlightLightbar("host-a", 0, 0x10, 0x20, 0x30); });
+    follow.join();
+    CHECK(waitWithoutQt([&] { return rig.router().lightbarsRouted() >= 1; }));
+
+    rig.router().setMoonlightRoutes(padId, {});
 }

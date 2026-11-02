@@ -89,7 +89,9 @@ MoonlightManager::MoonlightManager(const std::shared_ptr<QSettings>& settings, Q
         });
 }
 
-MoonlightManager::~MoonlightManager() {
+MoonlightManager::~MoonlightManager() { stopSessions(); }
+
+void MoonlightManager::stopSessions() {
     for (auto* session : sessions_) { session->stop(); }
 }
 
@@ -580,20 +582,17 @@ void MoonlightManager::wireSession(MoonlightSession* session, const QString& uui
                          emit sessionFailed(uuid, reasonToken);
                          emit rowsChanged();
                      });
-    session->setRumbleHandler(
-        [this, uuid](std::uint8_t number, std::uint16_t low, std::uint16_t high) {
-            auto* live = sessions_.value(uuid, nullptr);
-            if (live == nullptr || !rumbleSink_) { return; }
-            const QString slotId = live->slotForController(number);
-            if (!slotId.isEmpty()) { rumbleSink_(slotId, low, high); }
-        });
-    session->setLedHandler(
-        [this, uuid](std::uint8_t number, std::uint8_t r, std::uint8_t g, std::uint8_t b) {
-            auto* live = sessions_.value(uuid, nullptr);
-            if (live == nullptr || !ledSink_) { return; }
-            const QString slotId = live->slotForController(number);
-            if (!slotId.isEmpty()) { ledSink_(slotId, r, g, b); }
-        });
+    // Both run on the session's control stream thread, so they read nothing of this object's but
+    // the sinks, which are installed before any session exists. A host forgotten under a late
+    // event has had its slots unbound first, and the router has no route for it.
+    session->setRumbleHandler([this, host = uuid.toStdString()](
+                                  std::uint8_t number, std::uint16_t strong, std::uint16_t weak) {
+        if (rumbleSink_) { rumbleSink_(host, number, strong, weak); }
+    });
+    session->setLedHandler([this, host = uuid.toStdString()](std::uint8_t number, std::uint8_t r,
+                                                             std::uint8_t g, std::uint8_t b) {
+        if (ledSink_) { ledSink_(host, number, r, g, b); }
+    });
 }
 
 void MoonlightManager::ensureSessionRunning(MoonlightSession* session,

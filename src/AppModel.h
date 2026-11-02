@@ -344,7 +344,7 @@ class AppModel : public QObject {
     // through, and where they go. bindMoonlightSlot is these two plus the bind itself.
     using MoonlightRoutes = SlotRouter::MoonlightRoutes;
     static MoonlightRoutes moonlightRoutesFor(source::moon::MoonlightSession* session,
-                                              std::uint8_t pad);
+                                              const QString& hostUuid, std::uint8_t pad);
     void installMoonlightRoutes(const QString& slotId, MoonlightRoutes routes);
 
     void rebuild();
@@ -409,10 +409,6 @@ class AppModel : public QObject {
 
     // Idempotent: invoked on every poolChanged so new connections get wired.
     void installRumbleHandlers();
-
-    // A Moonlight host's RGB_LED for the slot bound to it; the light-bar setting gates it the
-    // way it gates a satellite's MSG_LIGHTBAR.
-    void onMoonlightLed(const QString& slotId, std::uint8_t r, std::uint8_t g, std::uint8_t b);
 
     void syncInputRateDevices();
     // Emits stateChanged() only when a visible number moved, so a quiet 1 Hz

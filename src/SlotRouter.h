@@ -25,6 +25,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace dish {
@@ -90,12 +91,15 @@ class SlotRouter final : public input::GamepadInputProcessor::InputSink {
         bool sdlEffects = false;
     };
 
-    // Where a slot bound to a Moonlight host sends, its pad number resolved when it bound.
+    // Where a slot bound to a Moonlight host sends, its pad number resolved when it bound, and the
+    // host and number its feedback names the pad by.
     struct MoonlightRoutes {
         std::function<void(const DeviceState&)> report;
         std::function<void(const MotionSample&)> motion;
         std::function<void(const BatterySample&)> battery;
         std::function<void(const TouchpadSample&)> touch;
+        std::string hostUuid;
+        std::uint8_t controllerNumber = 0;
     };
 
     explicit SlotRouter(const Dependencies& deps);
@@ -116,6 +120,13 @@ class SlotRouter final : public input::GamepadInputProcessor::InputSink {
     // GUI thread: a slot's Moonlight senders, or none (empty routes) to take them away. A slot
     // with a session route sends there and never here.
     void setMoonlightRoutes(const QString& slotId, MoonlightRoutes routes);
+    // A Moonlight host's feedback for the pad it calls `controllerNumber`, on the host's control
+    // stream thread: routed to the pad's mailbox or its Direct worker, with the user's rumble
+    // switch and light-bar setting applied, and no hop through the GUI thread.
+    void moonlightRumble(std::string_view hostUuid, std::uint8_t controllerNumber,
+                         std::uint16_t strong, std::uint16_t weak);
+    void moonlightLightbar(std::string_view hostUuid, std::uint8_t controllerNumber, std::uint8_t r,
+                           std::uint8_t g, std::uint8_t b);
 
     // GUI thread, answered live: the descriptor's caps and the actuation the GUI starts itself.
     SlotHardware slotHardware(const QString& slotId) const;
@@ -187,6 +198,8 @@ class SlotRouter final : public input::GamepadInputProcessor::InputSink {
     // while no slot is bound, which costs one relaxed load.
     template <typename Sender>
     Sender moonlightSender(const DeviceId& id, Sender MoonlightRoutes::* member) const;
+    // GUI thread: each Moonlight-bound slot's feedback route, rebuilt live.
+    void refreshMoonlightFeedback();
     static SlotHardware syntheticHardware(int vendorId, int productId);
     SlotHardware sdlHardware(const QString& slotId) const;
 
@@ -218,9 +231,18 @@ class SlotRouter final : public input::GamepadInputProcessor::InputSink {
     std::map<int, audio::PadAudioRoute> padAudioRoutes_;
     std::atomic<std::uint64_t> rumblesRouted_{0};
     std::atomic<std::uint64_t> lightbarsRouted_{0};
-    // Written on the GUI thread, read by the input threads.
+    // Written on the GUI thread, read by the input threads and the Moonlight control threads.
+    struct MoonlightFeedback {
+        std::string hostUuid;
+        std::uint8_t controllerNumber = 0;
+        FeedbackRoute route;
+    };
+    // The route a Moonlight host's feedback for one pad takes, copied out under moonlight.routes.
+    std::optional<FeedbackRoute> moonlightFeedbackRoute(std::string_view hostUuid,
+                                                        std::uint8_t controllerNumber) const;
     mutable thread::TrackedMutex moonlightMtx_{"moonlight.routes"};
     std::map<std::string, MoonlightRoutes, std::less<>> moonlightRoutes_;
+    std::vector<MoonlightFeedback> moonlightFeedback_;
     std::atomic<bool> anyMoonlight_{false};
 };
 
