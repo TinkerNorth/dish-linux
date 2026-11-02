@@ -185,16 +185,17 @@ A's and its thread sends A's frame first.
 **Session churn, Linux only.** A heartbeat thread pinged about every 2 s in every scenario, although
 the bench stops every session's heartbeat after setup, and in S3 and S7 the GUI thread took
 `satellite.material` once and set three satellite handlers, which is `WifiConnection::markConnected`
-re-establishing a session, and held one session's `wifi.client` for 285 and 323 ms. The loopback
-satellite answers the address of the first datagram it received, so a session that gets a new client
-stops hearing its acks and falters after two missed pings; each discovery scan ends in
+re-establishing a session, and held one session's `wifi.client` for 323 ms in S3 and 285 ms in S7.
+The loopback satellite answers the address of the first datagram it received, so a session that gets
+a new client stops hearing its acks and falters after two missed pings; each discovery scan ends in
 `autoReconnectAll`, whose `connectTo` takes a Faltering session straight to Linking without tearing
 its client down; `markConnected` then hands the new client to `ClientRef::set`, which lets go of the
 old one under `wifi.client`, and when that is its last reference the destructor joins the heartbeat
 thread (up to 100 ms) and the receive thread (up to 500 ms in `recvfrom`) with the lock held. The
 SDL thread did not wait on it in these runs, so the lock was another session's, but a report on a
-Faltering session would wait out both joins. What made the first session falter in these runs is
-not established.
+Faltering session would wait out both joins. What replaced the first client is most likely the rig's
+own ack; After, below, explains it and re-takes this record with the loopback satellite answering
+the address the dish last sent from, which measures no such hold.
 
 The lock table, from `bench_input_path_lockstats` at the same settings, for the reported rep of each
 scenario (times in microseconds):
@@ -363,6 +364,201 @@ python3 scripts/measurements-report.py --input-dir measurements-raw --output-dir
 
 # The smoke runs: linux-ci.yml's Release build has -DDISH_BUILD_BENCH=ON, so
 ctest --preset release -R bench_input_path
+```
+
+## Linux: after, this branch
+
+The same runner image and settings as the Before record (a GitHub-hosted `ubuntu-24.04` runner,
+image 20261026.354.1: AMD EPYC 7763, 4 logical CPUs, Linux 7.0.0-1017-azure), Release builds, taken
+by `measurements.yml` at `ead82af` with the label `after-2.5.0`; the commits after it change a test
+and this file. The before figures are the Before record re-taken on another runner of the same
+image, at 02184bb with one change to the rig, the loopback satellite answering the address the dish
+last sent from as this branch's rig does (label `before-2.5.0-rig`). Its latency rows match the
+first take's within the runner's noise, and its GUI held no `wifi.client` longer than 0.5 us, where
+the first take held one for 323 ms in S3 and 285 ms in S7. S6's finger now moves with the stick (a
+resting finger is gated to nothing after its two heals, which the bench's accounting would read as a
+lost touchpad); the before bench holds it still, and 2.5.0 sends it with every report either way.
+
+Every report now leaves with no lock and no allocation: the bridge reads a pad from its own record
+on the SDL thread, the processor writes the device's record and latches an unchanged report,
+`SlotRouter` reads the published table inside a grace bracket, and the session seals on the stack
+and sends with `MSG_DONTWAIT` under a compare-and-swap gate. Feedback from the receive thread and
+the mic's frames go through the same table.
+
+Paired, microseconds:
+
+| scenario | producer | p50 before | p50 after | p99 before | p99 after | p99.9 before | p99.9 after | dgrams/report before | dgrams/report after |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| S1 | A | 10.8 | 9.6 | 17.9 | 15.8 | 23.6 | 21.2 | 1.00 | 1.00 |
+| S2 | A | 11.5 | 10.7 | 18.1 | 15.3 | 24.3 | 23.0 | 1.00 | 1.00 |
+| S2 | B | 8.4 | 8.1 | 10.3 | 9.6 | 53.7 | 30.7 | 1.00 | 1.00 |
+| S3 | A | 11.4 | 10.3 | 16.9 | 17.7 | 25.9 | 21.6 | 1.00 | 1.00 |
+| S3 | B | 8.4 | 8.0 | 10.4 | 9.7 | 25.9 | 150.6 | 1.00 | 1.00 |
+| S4 | A | 11.8 | 11.0 | 16.1 | 14.1 | 22.1 | 18.4 | 1.00 | 1.00 |
+| S4 | B | 8.5 | 8.0 | 9.9 | 8.7 | 14.2 | 12.4 | 1.00 | 1.00 |
+| S5 | A | 11.0 | 10.6 | 19.6 | 32.3 | 41.1 | 109.1 | 1.00 | 1.00 |
+| S5 | B | 8.4 | 22.4 | 9.8 | 30.6 | 23.1 | 48.2 | 1.00 | 1.00 |
+| S6 | DualSense | 10.1 | 10.3 | 17.5 | 15.1 | 23.4 | 21.7 | 2.22 | 1.33 |
+| S7 | A | 11.1 | 10.9 | 18.3 | 14.9 | 25.0 | 23.9 | 1.00 | 1.00 |
+| S7 | B | 8.5 | 8.0 | 10.4 | 12.1 | 26.5 | 160.9 | 1.00 | 1.00 |
+| S5 (mic 1000 Hz) | A | 31.0 | 24.6 | 40.9 | 32.6 | 60.1 | 354.0 | 1.00 | 1.00 |
+| S5 (mic 1000 Hz) | B | 8.5 | 8.0 | 9.5 | 11.3 | 11.5 | 26.3 | 1.00 | 1.00 |
+
+Pad A's median is 0.2 to 1.2 us lower from S1 to S7 (S1: 10.8 to 9.6 us at the median, 17.9 to 15.8
+us at p99), small next to the runner's noise: as on Windows, the five locks and three allocations a
+report paid were cheap while no other thread held them. What they cost was the waits. The 1 kHz mic
+made the SdlInput thread wait on `satellite.send` for 2,320 of its 3,750 sends, up to 801 us, and
+took pad A's median from 11.0 to 31.0 us; now it is 24.6 us there. What is left is the effect
+Windows measured: reports and mic frames share the session's send gate, the bench paces both from
+one start, and at 1 kHz every mic frame is due with one of pad A's reports, so a report that loses
+the gate waits out one mic send. A Direct DualSense sends 1.33 datagrams a report instead of 2.22:
+its touchpad goes out the way Android sends it, a move at most every 8 ms, instead of with every
+report.
+
+The rows that read worse are single runs. Pad B's p99.9 is its slowest frame (750 frames a run), so
+one preemption sets it, and S5's pad B median of 22.4 us is one rep's: the lockstats twin in the
+same run measured 8.2 us there. The PR's measurements run of the same tree, on another runner at the
+same time, measured S5 at 11.8, 16.4 and 22.1 us (p50, p99, p99.9) for pad A and 8.1, 14.1 and 24.2
+us for pad B, pad B's p99.9 at 14.8 us in S3 and 96.5 us in S7, and pad A with the 1 kHz mic at
+20.6, 29.1 and 118.4 us.
+
+The after runs in full, the same columns as Before:
+
+| mode | scenario | producer | rate Hz | frames | p50 us | p99 us | p99.9 us | max us | over 1 ms | longest gap ms | dgrams/report | drops |
+| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| synthetic | S1 | A | 1000 | 3000 | 9.6 | 15.8 | 21.2 | 22.1 | 0 | 1.277 | 1.00 | 0 |
+| synthetic | S2 | A | 1000 | 3000 | 10.7 | 15.3 | 23.0 | 50.1 | 0 | 3.275 | 1.00 | 0 |
+| synthetic | S2 | B | 250 | 750 | 8.1 | 9.6 | 30.7 | 30.7 | 0 | 6.274 | 1.00 | 0 |
+| synthetic | S3 | A | 1000 | 3000 | 10.3 | 17.7 | 21.6 | 24.3 | 0 | 2.832 | 1.00 | 0 |
+| synthetic | S3 | B | 250 | 750 | 8.0 | 9.7 | 150.6 | 150.6 | 0 | 4.150 | 1.00 | 0 |
+| synthetic | S4 | A | 1000 | 3000 | 11.0 | 14.1 | 18.4 | 52.7 | 0 | 1.345 | 1.00 | 0 |
+| synthetic | S4 | B | 250 | 750 | 8.0 | 8.7 | 12.4 | 12.4 | 0 | 4.031 | 1.00 | 0 |
+| synthetic | S5 | A | 1000 | 3000 | 10.6 | 32.3 | 109.1 | 152.6 | 0 | 3.072 | 1.00 | 0 |
+| synthetic | S5 | B | 250 | 750 | 22.4 | 30.6 | 48.2 | 48.2 | 0 | 6.056 | 1.00 | 0 |
+| synthetic | S6 | DualSense | 1000 | 3000 | 10.3 | 15.1 | 21.7 | 28.3 | 0 | 1.059 | 1.33 | 0 |
+| synthetic | S7 | A | 1000 | 3000 | 10.9 | 14.9 | 23.9 | 27.4 | 0 | 1.571 | 1.00 | 0 |
+| synthetic | S7 | B | 250 | 750 | 8.0 | 12.1 | 160.9 | 160.9 | 0 | 4.571 | 1.00 | 0 |
+| synthetic | S5 (mic 1000 Hz) | A | 1000 | 3000 | 24.6 | 32.6 | 354.0 | 688.7 | 0 | 3.566 | 1.00 | 0 |
+| synthetic | S5 (mic 1000 Hz) | B | 250 | 750 | 8.0 | 11.3 | 26.3 | 26.3 | 0 | 5.573 | 1.00 | 0 |
+
+The side traffic is the Before record's: 300 rumbles and 30 light-bar colours in S4, S5 and S7, all
+330 queued for SDL, 150 mic frames in S5 and 3,000 with `--mic-hz 1000`, two pings, 15 binding
+toggles in S7.
+
+The lock table from `bench_input_path_lockstats` at the same settings. No row belongs to the SDL
+input, USB reader, receive or audio capture roles, where the re-take counted 127,500, 35,700, 11,844
+and 9,450 acquisitions across the scenarios, and the measurements gate, enforced now, passed on all
+78 rows. What remains is the GUI's own work and the session reaper's (`wifi.reaper`, role Other).
+The GUI's republish holds `app.routes` while it waits out the reports still reading the table it
+replaced, up to 44 us; no hot thread takes that lock.
+
+| mode | scenario | lock | role | acquisitions | contended | try fails | max wait us | p99 wait us | max hold us |
+| --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| synthetic | S1 | wifi.reaper | Gui | 3 | 0 | 0 | 0.0 | 0.1 | 0.2 |
+| synthetic | S1 | wifi.reaper | Other | 5 | 0 | 0 | 0.3 | 0.5 | 0.2 |
+| synthetic | S1 | satellite.material | Gui | 2 | 0 | 0 | 0.1 | 0.1 | 0.2 |
+| synthetic | S1 | satellite.latency | Gui | 14 | 0 | 0 | 0.1 | 0.1 | 2.2 |
+| synthetic | S1 | wifi.client | Gui | 32 | 0 | 0 | 0.7 | 1.0 | 0.5 |
+| synthetic | S1 | satellite.handlers | Gui | 14 | 0 | 0 | 0.0 | 0.1 | 0.7 |
+| synthetic | S2 | wifi.reaper | Gui | 2 | 0 | 0 | 0.0 | 0.1 | 0.3 |
+| synthetic | S2 | wifi.reaper | Other | 5 | 0 | 0 | 0.2 | 0.3 | 0.2 |
+| synthetic | S2 | satellite.material | Gui | 3 | 0 | 0 | 0.1 | 0.3 | 0.2 |
+| synthetic | S2 | satellite.latency | Gui | 14 | 0 | 0 | 0.1 | 0.3 | 1.8 |
+| synthetic | S2 | wifi.client | Gui | 29 | 0 | 0 | 0.9 | 1.0 | 0.6 |
+| synthetic | S2 | satellite.handlers | Gui | 21 | 0 | 0 | 0.0 | 0.1 | 0.8 |
+| synthetic | S3 | wifi.reaper | Gui | 3 | 0 | 0 | 0.0 | 0.1 | 0.4 |
+| synthetic | S3 | wifi.reaper | Other | 6 | 0 | 0 | 0.6 | 1.0 | 0.2 |
+| synthetic | S3 | bridge.devices | Gui | 150 | 0 | 0 | 0.2 | 0.3 | 0.2 |
+| synthetic | S3 | usb.manager | Gui | 60 | 0 | 0 | 0.1 | 0.3 | 0.5 |
+| synthetic | S3 | satellite.material | Gui | 3 | 0 | 0 | 0.1 | 0.3 | 0.2 |
+| synthetic | S3 | satellite.latency | Gui | 15 | 0 | 0 | 0.1 | 0.3 | 1.7 |
+| synthetic | S3 | wifi.client | Gui | 123 | 0 | 0 | 0.2 | 0.3 | 0.2 |
+| synthetic | S3 | satellite.handlers | Gui | 21 | 0 | 0 | 0.1 | 0.1 | 0.9 |
+| synthetic | S3 | hub.bindings | Gui | 30 | 0 | 0 | 0.3 | 0.5 | 0.5 |
+| synthetic | S3 | store.observable | Gui | 180 | 0 | 0 | 0.1 | 0.1 | 0.2 |
+| synthetic | S3 | app.audioRoutes | Gui | 90 | 0 | 0 | 0.1 | 0.1 | 0.3 |
+| synthetic | S3 | app.routes | Gui | 30 | 0 | 0 | 0.1 | 0.3 | 11.3 |
+| synthetic | S4 | wifi.reaper | Gui | 3 | 0 | 0 | 0.0 | 0.1 | 0.2 |
+| synthetic | S4 | wifi.reaper | Other | 6 | 0 | 0 | 0.2 | 0.3 | 0.2 |
+| synthetic | S4 | bridge.devices | Gui | 150 | 0 | 0 | 0.1 | 0.1 | 0.3 |
+| synthetic | S4 | usb.manager | Gui | 60 | 0 | 0 | 0.1 | 0.3 | 0.8 |
+| synthetic | S4 | satellite.material | Gui | 3 | 0 | 0 | 0.1 | 0.3 | 0.2 |
+| synthetic | S4 | satellite.latency | Gui | 15 | 0 | 0 | 0.1 | 0.3 | 1.4 |
+| synthetic | S4 | wifi.client | Gui | 123 | 0 | 0 | 0.3 | 0.5 | 0.2 |
+| synthetic | S4 | satellite.handlers | Gui | 21 | 0 | 0 | 0.1 | 0.3 | 0.8 |
+| synthetic | S4 | hub.bindings | Gui | 30 | 0 | 0 | 0.5 | 1.0 | 0.4 |
+| synthetic | S4 | store.observable | Gui | 180 | 0 | 0 | 0.4 | 0.1 | 0.2 |
+| synthetic | S4 | app.audioRoutes | Gui | 90 | 0 | 0 | 0.1 | 0.1 | 0.5 |
+| synthetic | S4 | app.routes | Gui | 30 | 0 | 0 | 0.1 | 0.1 | 8.1 |
+| synthetic | S5 | wifi.reaper | Gui | 3 | 0 | 0 | 0.0 | 0.1 | 0.2 |
+| synthetic | S5 | wifi.reaper | Other | 5 | 0 | 0 | 0.2 | 0.3 | 0.2 |
+| synthetic | S5 | bridge.devices | Gui | 150 | 0 | 0 | 0.1 | 0.1 | 0.3 |
+| synthetic | S5 | usb.manager | Gui | 60 | 0 | 0 | 0.4 | 0.5 | 0.6 |
+| synthetic | S5 | satellite.material | Gui | 3 | 0 | 0 | 0.3 | 0.3 | 0.2 |
+| synthetic | S5 | satellite.latency | Gui | 15 | 0 | 0 | 0.4 | 0.5 | 1.9 |
+| synthetic | S5 | wifi.client | Gui | 123 | 0 | 0 | 0.5 | 0.3 | 0.5 |
+| synthetic | S5 | satellite.handlers | Gui | 21 | 0 | 0 | 0.1 | 0.3 | 0.9 |
+| synthetic | S5 | hub.bindings | Gui | 30 | 0 | 0 | 0.4 | 0.5 | 0.2 |
+| synthetic | S5 | store.observable | Gui | 180 | 0 | 0 | 0.2 | 0.1 | 0.3 |
+| synthetic | S5 | app.audioRoutes | Gui | 90 | 0 | 0 | 0.1 | 0.1 | 0.5 |
+| synthetic | S5 | app.routes | Gui | 30 | 0 | 0 | 0.1 | 0.3 | 43.8 |
+| synthetic | S6 | wifi.reaper | Gui | 2 | 0 | 0 | 0.0 | 0.1 | 0.5 |
+| synthetic | S6 | wifi.reaper | Other | 4 | 0 | 0 | 0.2 | 0.3 | 0.2 |
+| synthetic | S6 | satellite.material | Gui | 3 | 0 | 0 | 0.1 | 0.3 | 0.2 |
+| synthetic | S6 | satellite.latency | Gui | 14 | 0 | 0 | 0.2 | 0.3 | 1.7 |
+| synthetic | S6 | wifi.client | Gui | 29 | 0 | 0 | 0.8 | 1.0 | 0.3 |
+| synthetic | S6 | satellite.handlers | Gui | 21 | 0 | 0 | 0.0 | 0.1 | 0.8 |
+| synthetic | S7 | wifi.reaper | Gui | 1 | 0 | 0 | 0.0 | 0.0 | 0.2 |
+| synthetic | S7 | wifi.reaper | Other | 2 | 0 | 0 | 0.3 | 0.5 | 0.2 |
+| synthetic | S7 | bridge.devices | Gui | 256 | 0 | 0 | 0.1 | 0.1 | 0.3 |
+| synthetic | S7 | usb.manager | Gui | 90 | 0 | 0 | 0.1 | 0.3 | 0.6 |
+| synthetic | S7 | satellite.material | Gui | 1 | 0 | 0 | 0.1 | 0.1 | 0.4 |
+| synthetic | S7 | satellite.latency | Gui | 17 | 0 | 0 | 0.2 | 0.3 | 1.2 |
+| synthetic | S7 | wifi.client | Gui | 185 | 0 | 0 | 0.3 | 0.5 | 0.2 |
+| synthetic | S7 | satellite.handlers | Gui | 7 | 0 | 0 | 0.0 | 0.1 | 0.8 |
+| synthetic | S7 | hub.bindings | Gui | 60 | 0 | 0 | 0.4 | 0.5 | 1.3 |
+| synthetic | S7 | store.observable | Gui | 308 | 0 | 0 | 0.1 | 0.1 | 0.5 |
+| synthetic | S7 | app.audioRoutes | Gui | 158 | 0 | 0 | 0.1 | 0.1 | 0.4 |
+| synthetic | S7 | app.routes | Gui | 45 | 0 | 0 | 0.1 | 0.1 | 14.3 |
+| synthetic | S5 (mic 1000 Hz) | wifi.reaper | Gui | 3 | 0 | 0 | 0.1 | 0.1 | 0.3 |
+| synthetic | S5 (mic 1000 Hz) | wifi.reaper | Other | 6 | 0 | 0 | 0.2 | 0.3 | 0.2 |
+| synthetic | S5 (mic 1000 Hz) | bridge.devices | Gui | 150 | 0 | 0 | 0.1 | 0.1 | 0.5 |
+| synthetic | S5 (mic 1000 Hz) | usb.manager | Gui | 60 | 0 | 0 | 0.1 | 0.3 | 0.7 |
+| synthetic | S5 (mic 1000 Hz) | satellite.material | Gui | 3 | 0 | 0 | 0.2 | 0.3 | 0.2 |
+| synthetic | S5 (mic 1000 Hz) | satellite.latency | Gui | 15 | 0 | 0 | 0.1 | 0.3 | 1.5 |
+| synthetic | S5 (mic 1000 Hz) | wifi.client | Gui | 123 | 0 | 0 | 0.4 | 0.5 | 0.2 |
+| synthetic | S5 (mic 1000 Hz) | satellite.handlers | Gui | 21 | 0 | 0 | 0.2 | 0.3 | 0.8 |
+| synthetic | S5 (mic 1000 Hz) | hub.bindings | Gui | 30 | 0 | 0 | 0.3 | 0.5 | 0.2 |
+| synthetic | S5 (mic 1000 Hz) | store.observable | Gui | 180 | 0 | 0 | 0.4 | 0.3 | 0.2 |
+| synthetic | S5 (mic 1000 Hz) | app.audioRoutes | Gui | 90 | 0 | 0 | 0.1 | 0.1 | 0.3 |
+| synthetic | S5 (mic 1000 Hz) | app.routes | Gui | 30 | 0 | 0 | 0.1 | 0.1 | 35.2 |
+
+**Session churn, after.** Sessions still re-establish during the runs, as in the re-take: the GUI
+applies new session material and handlers one to three times a scenario. The likely trigger is the
+rig's: its satellite acks every ping with slot 0 applied (`kAckBitmap` in `tests/HotPathRig.h`), and
+a session with no slot bound reads that as a mismatch to reconcile, which opens a new session; the
+fourth session has none outside S7's toggles, and S7, where it is bound half the time,
+re-established once. A replaced client now closes on the reaper's thread, so neither the GUI nor a
+hot thread waits for its joins.
+
+**The SDL pump's wait.** Measured on its own after the scenarios, with the waiter and the schedule
+the SDL thread uses, 4,001 cycles at the 500 us period woke 65.1 us late at the median, 78.0 us at
+p99 and 93.8 us at worst, and never early (61.7 to 76.1 us at the median across the run's four bench
+invocations). That is the 50 us timer slack a normal Linux thread has, plus the wake-up. The
+deadlines are absolute, so the lateness moves when the pump samples, not how often.
+
+**Thread priority.** The SDL input, USB reader and receive threads ask rtkit for a nice level of -10
+(a Flatpak asks the realtime portal), as AppModel wires them; the bench builds no requester, so both
+records run at the default policy and neither measures the request.
+
+### Commands (Linux, after)
+
+Both records are runs of the measurements workflow, as in Commands (Linux) above:
+
+```
+gh workflow run measurements.yml --ref perf/hot-path-measured -f version=after-2.5.0
+# the re-take: a branch holding 02184bb plus 22bfb43's change to tests/HotPathRig.h
+gh workflow run measurements.yml --ref <that branch> -f version=before-2.5.0-rig
 ```
 
 ## Windows: before, 2.5.0 input path
