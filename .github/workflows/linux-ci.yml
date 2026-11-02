@@ -137,10 +137,13 @@ jobs:
               clang-tidy -p build --quiet --warnings-as-errors='*'
 
       # The configure line lives in CMakePresets.json (preset release); same
-      # ccache-on-top note as the Debug configure above.
+      # ccache-on-top note as the Debug configure above. The input-path bench
+      # (tools/bench) builds here too, so ctest runs its --smoke against the
+      # configuration that ships.
       - name: Configure (Release, tests on)
         run: |
           cmake --preset release \
+            -DDISH_BUILD_BENCH=ON \
             -DCMAKE_C_COMPILER_LAUNCHER=ccache \
             -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
 
@@ -230,6 +233,90 @@ jobs:
         # Serial: two instrumented processes at once is what makes a sanitizer
         # run flake on a shared runner.
         run: ctest --output-on-failure --parallel 1
+
+  # The lock-law ratchet (tests/test_lock_laws.cpp) and the statistics half of
+  # tests/test_tracked_mutex.cpp exist only in a DISH_LOCK_STATS build, which no
+  # other lane configures and no package ships. The whole suite runs in it too,
+  # so counting locks is proven to change nothing else.
+  lock-stats:
+    name: Lock statistics and the lock laws
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up build dependencies
+        uses: ./.github/actions/setup-build-deps
+        with:
+          cache-key: lockstats
+
+      - name: Set up Qt
+        uses: ./.github/actions/setup-qt
+
+      - name: Configure (Debug, lock statistics)
+        run: |
+          cmake --preset debug -B build-lockstats \
+            -DDISH_LOCK_STATS=ON \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+
+      - name: Build
+        run: cmake --build build-lockstats --parallel --target DishTests DishLockLawTests
+
+      # A failing law prints the set it observed; its list is corrected from that.
+      - name: Run tests
+        working-directory: build-lockstats
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: ctest --output-on-failure --parallel
+
+  # The lock laws drive every hot-path thread at once over the real objects
+  # (tests/HotPathRig.h, which the bench shares), as no plain-build test does,
+  # so they run under each sanitizer as well.
+  lock-laws-sanitize:
+    name: Lock laws under sanitizers (${{ matrix.san }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        san: ["address+undefined", "thread"]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up build dependencies
+        uses: ./.github/actions/setup-build-deps
+        with:
+          cache-key: lockstats-san-${{ matrix.san }}
+
+      - name: Set up Qt
+        uses: ./.github/actions/setup-qt
+
+      - name: Configure
+        run: |
+          cmake -S . -B build-san -G Ninja \
+            -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+            -DDISH_BUILD_TESTS=ON \
+            -DDISH_LOCK_STATS=ON \
+            -DDISH_SANITIZER=${{ matrix.san }} \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+
+      - name: Build
+        run: cmake --build build-san --parallel --target DishLockLawTests
+
+      # The same options and suppressions as the sanitize job; -R leaves out
+      # the DishTests this tree registers but does not build.
+      - name: Run the lock laws
+        working-directory: build-san
+        env:
+          QT_QPA_PLATFORM: offscreen
+          ASAN_OPTIONS: detect_leaks=1:abort_on_error=1
+          UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
+          TSAN_OPTIONS: halt_on_error=1:suppressions=${{ github.workspace }}/tests/tsan.suppressions
+        run: ctest --output-on-failure --parallel 1 -R "^lock law"
 
   package:
     name: Package (.deb) and launch it

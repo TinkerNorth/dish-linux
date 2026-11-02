@@ -9,6 +9,7 @@
 #   scripts/ci-local.sh                    every ci-job gate
 #   scripts/ci-local.sh --no-tidy          skip clang-tidy (fastest loop)
 #   scripts/ci-local.sh --with-package     also build and lint the .deb
+#   scripts/ci-local.sh --with-lock-stats  also run the lock-statistics build
 #   scripts/ci-local.sh --with-sanitizers  also run the ASan/UBSan and TSan legs
 #   scripts/ci-local.sh --allow-missing    downgrade a missing tool to a notice
 #   scripts/ci-local.sh --compiler clang   set CC/CXX for this run
@@ -27,6 +28,7 @@ cd "$(dirname "$0")/.."
 
 TIDY=1
 PACKAGE=0
+LOCK_STATS=0
 SANITIZE=0
 ALLOW_MISSING=0
 COMPILER=""
@@ -34,6 +36,7 @@ while [ "$#" -gt 0 ]; do
   case "$1" in
     --no-tidy) TIDY=0 ;;
     --with-package) PACKAGE=1 ;;
+    --with-lock-stats) LOCK_STATS=1 ;;
     --with-sanitizers) SANITIZE=1 ;;
     --allow-missing|--allow-missing-tools) ALLOW_MISSING=1 ;;
     --compiler)
@@ -154,8 +157,8 @@ fi
 step "Configure + build + test (Release)"
 # -O3 plus LTO is a different compiler: undefined behaviour that Debug
 # tolerates surfaces here, and the suite must pass against the configuration
-# that actually ships.
-cmake --preset release
+# that actually ships. The input-path bench builds here too, for its --smoke.
+cmake --preset release -DDISH_BUILD_BENCH=ON
 cmake --build --preset release --parallel
 ctest --preset release --parallel
 
@@ -164,6 +167,15 @@ readelf -lW  build-release/dish | grep -q 'GNU_RELRO'         || { echo "no RELR
 readelf -dW  build-release/dish | grep -qE 'BIND_NOW|FLAGS.*NOW' || { echo "no full RELRO" >&2; exit 1; }
 readelf -lW  build-release/dish | grep -qE 'GNU_STACK.*RW '   || { echo "executable stack" >&2; exit 1; }
 readelf -hW  build-release/dish | grep -q 'Type:.*DYN'        || { echo "not PIE" >&2; exit 1; }
+
+if [ "$LOCK_STATS" -eq 1 ]; then
+  step "Lock statistics (Debug, DISH_LOCK_STATS)"
+  # Mirrors linux-ci.yml's lock-stats job: the lock laws and the statistics
+  # half of the tracked-mutex tests, and the whole suite in that build.
+  cmake --preset debug -B build-lockstats -DDISH_LOCK_STATS=ON
+  cmake --build build-lockstats --parallel --target DishTests DishLockLawTests
+  ( cd build-lockstats && QT_QPA_PLATFORM=offscreen ctest --output-on-failure --parallel )
+fi
 
 if [ "$SANITIZE" -eq 1 ]; then
   for san in address+undefined thread; do
@@ -181,6 +193,18 @@ if [ "$SANITIZE" -eq 1 ]; then
       UBSAN_OPTIONS=print_stacktrace=1:halt_on_error=1 \
       TSAN_OPTIONS="halt_on_error=1:suppressions=$(pwd)/../tests/tsan.suppressions" \
       ctest --output-on-failure --parallel 1 )
+
+    step "Lock laws under sanitizer: ${san}"
+    # Mirrors linux-ci.yml's lock-laws-sanitize job.
+    cmake -S . -B "build-san-lockstats-${san}" -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+      -DDISH_BUILD_TESTS=ON -DDISH_LOCK_STATS=ON -DDISH_SANITIZER="${san}"
+    cmake --build "build-san-lockstats-${san}" --parallel --target DishLockLawTests
+    ( cd "build-san-lockstats-${san}" && \
+      QT_QPA_PLATFORM=offscreen \
+      ASAN_OPTIONS=detect_leaks=1:abort_on_error=1 \
+      UBSAN_OPTIONS=print_stacktrace=1:halt_on_error=1 \
+      TSAN_OPTIONS="halt_on_error=1:suppressions=$(pwd)/../tests/tsan.suppressions" \
+      ctest --output-on-failure --parallel 1 -R "^lock law" )
   done
 fi
 
