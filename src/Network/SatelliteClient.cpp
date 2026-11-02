@@ -10,11 +10,13 @@
 
 #include <sodium.h>
 
-#include <chrono>
 #include <unistd.h>
 
+#include <array>
 #include <cerrno>
+#include <chrono>
 #include <cstring>
+#include <thread>
 
 namespace dish::net {
 
@@ -29,6 +31,11 @@ constexpr std::size_t kHeaderSize = 8; // token(4) + counter(4)
 // port nobody asked for.
 constexpr int kLowestPort = 1;
 constexpr int kHighestPort = 65535;
+constexpr std::size_t kInnerHeaderSize = 4;
+// Room for a burst of audio frames and reports while the link drains, before a send is dropped.
+constexpr int kSendBufferBytes = 256 * 1024;
+// How long the receive thread waits for a datagram before it looks at its stop flag again.
+constexpr long kReceivePollUs = 100'000;
 
 std::int64_t nowSteadyUs() {
     return std::chrono::duration_cast<std::chrono::microseconds>(
@@ -63,10 +70,14 @@ bool SatelliteClient::openSocket(const std::string& ip, int port) {
     int busyPoll = 50;
     ::setsockopt(s, SOL_SOCKET, SO_BUSY_POLL, &busyPoll, sizeof(busyPoll));
 
-    // Bounds the recv block so the ACK loop can poll `ackRunning_` and exit.
+    // A sender never blocks: every sendto passes MSG_DONTWAIT, and a datagram the send buffer
+    // cannot take is dropped (softDrops). The socket itself stays blocking, so the receive thread
+    // waits in recvfrom, where SO_BUSY_POLL applies, for at most kReceivePollUs.
+    const int sendBuffer = kSendBufferBytes;
+    ::setsockopt(s, SOL_SOCKET, SO_SNDBUF, &sendBuffer, sizeof(sendBuffer));
     timeval rtv{};
     rtv.tv_sec = 0;
-    rtv.tv_usec = 500'000;
+    rtv.tv_usec = kReceivePollUs;
     ::setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, &rtv, sizeof(rtv));
 
     sockaddr_in addr{};
@@ -77,18 +88,20 @@ bool SatelliteClient::openSocket(const std::string& ip, int port) {
         return false;
     }
 
-    sock_ = s;
     dest_ = addr;
+    sock_.store(s, std::memory_order_release);
     return true;
 }
 
+// The descriptor is swapped out inside the send gate, so no sender is between its own load of it
+// and sendto when it closes, and none can send on a descriptor the kernel has handed out again.
 void SatelliteClient::closeSocket() {
     stopHeartbeat();
     stopReceiveLoop();
-    if (sock_ >= 0) {
-        ::close(sock_);
-        sock_ = -1;
-    }
+    holdSendGate();
+    const int s = sock_.exchange(-1, std::memory_order_acq_rel);
+    releaseSendGate();
+    if (s >= 0) { ::close(s); }
 }
 
 void SatelliteClient::setConnectionParams(const std::array<std::uint8_t, 4>& token,
@@ -104,13 +117,14 @@ void SatelliteClient::setConnectionParams(const std::array<std::uint8_t, 4>& tok
     settledProtocolVersion_.store(clamped, std::memory_order_relaxed);
     {
         std::lock_guard<thread::TrackedMutex> lock(materialMtx_);
-        token_ = token;
-        tokenBe_ = util::readU32Be(token.data()); // the 4 raw token bytes are already big-endian
-        key_ = key;
+        const std::uint32_t written = materialSeq_.generation() + 2;
+        materialSeq_.beginWrite();
+        material_.store(Material{token, key});
         // Safe to restart only because the key rotated with the token; the recv
         // guard resets so the first server packet is accepted.
-        sendCounter_.reset(1);
-        lastRecvCounter_ = 0;
+        sendCounter_.store(1, std::memory_order_release);
+        recvMark_.store(std::uint64_t{written} << 32, std::memory_order_release);
+        materialSeq_.endWrite();
     }
     missedAcks_.store(0, std::memory_order_relaxed);
     connectionAlive_.store(true, std::memory_order_relaxed);
@@ -123,6 +137,7 @@ void SatelliteClient::setConnectionParams(const std::array<std::uint8_t, 4>& tok
     pingSentUs_.store(0, std::memory_order_relaxed);
     {
         std::lock_guard<thread::TrackedMutex> lock(latencyMtx_);
+        drainLatencySamplesLocked();
         latencyWindow_.reset();
     }
 }
@@ -290,13 +305,28 @@ bool SatelliteClient::sendMicAudio(int controllerIndex, std::uint16_t seq, const
     if (opus == nullptr || opusLen == 0 || opusLen > proto::kAudioWireMaxOpusBytes) {
         return false;
     }
-    std::vector<std::uint8_t> payload(static_cast<std::size_t>(proto::kAudioWireHeaderBytes) +
-                                      opusLen);
+    std::array<std::uint8_t, proto::kUdpMaxInnerPayloadBytes> payload{};
     const auto header = encodeAudioFrameHeader(static_cast<std::uint8_t>(controllerIndex), seq);
     std::memcpy(payload.data(), header.data(), header.size());
     std::memcpy(payload.data() + header.size(), opus, opusLen);
-    return sendEncrypted(kMsgMicAudio, payload.data(), payload.size());
+    return sendEncrypted(kMsgMicAudio, payload.data(), header.size() + opusLen);
 }
+
+bool SatelliteClient::readMaterial(Material& out, std::uint32_t& generation) const {
+    generation = materialSeq_.generation();
+    return materialSeq_.read([&] { out = material_.load(); });
+}
+
+void SatelliteClient::holdSendGate() {
+    std::uint32_t free = 0;
+    while (!sendGate_.compare_exchange_weak(free, 1, std::memory_order_acquire,
+                                            std::memory_order_relaxed)) {
+        free = 0;
+        std::this_thread::yield();
+    }
+}
+
+void SatelliteClient::releaseSendGate() { sendGate_.store(0, std::memory_order_release); }
 
 bool SatelliteClient::sendEncrypted(std::uint16_t msgType, const std::uint8_t* payload,
                                     std::size_t len) {
@@ -313,55 +343,47 @@ bool SatelliteClient::sendEncrypted(std::uint16_t msgType, const std::uint8_t* p
         }
         return false;
     }
-    // Inner: msgType(BE16) + payloadLen(BE16) + payload.
-    const std::size_t innerLen = 4 + len;
-    std::vector<std::uint8_t> inner(innerLen);
-    putU16Be(inner.data(), msgType);
-    putU16Be(inner.data() + 2, static_cast<std::uint16_t>(len));
-    if (len > 0) { std::memcpy(inner.data() + 4, payload, len); }
+    Material m;
+    std::uint32_t generation = 0;
+    if (!readMaterial(m, generation)) { return false; }
 
-    // One hold, so a re-key landing mid-send can never pair an old key with a
-    // fresh counter.
-    std::array<std::uint8_t, 4> token{};
-    std::uint32_t tokenBe = 0;
-    std::array<std::uint8_t, 32> key{};
-    std::uint64_t seq = 0;
-    {
-        std::lock_guard<thread::TrackedMutex> lock(materialMtx_);
-        token = token_;
-        tokenBe = tokenBe_;
-        key = key_;
-        seq = sendCounter_.next();
-    }
+    // token(4) | counter(4 BE) | ciphertext+tag, sealed in place over the inner message
+    // msgType(BE16) + payloadLen(BE16) + payload. The nonce and AAD are built inside
+    // wire::encryptPacket.
+    std::array<std::uint8_t, proto::kUdpDatagramMaxBytes> packet{};
+    std::uint8_t* const inner = packet.data() + kHeaderSize;
+    const std::size_t innerLen = kInnerHeaderSize + len;
+    putU16Be(inner, msgType);
+    putU16Be(inner + 2, static_cast<std::uint16_t>(len));
+    if (len > 0) { std::memcpy(inner + kInnerHeaderSize, payload, len); }
+    std::memcpy(packet.data(), m.token.data(), m.token.size());
+
+    bool sent = false;
+    holdSendGate();
     // Must never wrap: a second plaintext under one (key, nonce) leaks
     // keystream, so past 2^32-1 the session goes silent instead. The proactive
     // re-key re-PUTs long before that.
-    const auto ctr = reducer::wireSendCounter(seq);
-    if (!ctr.has_value()) { return false; }
-
-    // token(4) | counter(4 BE) | ciphertext+tag. The nonce and AAD are built
-    // inside wire::encryptPacket.
-    std::vector<std::uint8_t> packet(kHeaderSize + innerLen + kAuthTag);
-    std::memcpy(packet.data(), token.data(), 4);
-    putU32Be(packet.data() + 4, *ctr);
-
+    const auto ctr = reducer::wireSendCounter(sendCounter_.fetch_add(1, std::memory_order_acq_rel));
+    const int sock = sock_.load(std::memory_order_acquire);
     unsigned long long cipherLen = 0;
-    if (!wire::encryptPacket(key.data(), wire::kDirClientToServer, *ctr, tokenBe, inner.data(),
-                             inner.size(), packet.data() + kHeaderSize, &cipherLen)) {
-        return false;
+    if (ctr.has_value() && sock >= 0 && materialSeq_.generation() == generation) {
+        putU32Be(packet.data() + 4, *ctr);
+        if (wire::encryptPacket(m.key.data(), wire::kDirClientToServer, *ctr,
+                                util::readU32Be(m.token.data()), inner, innerLen, inner,
+                                &cipherLen)) {
+            const std::size_t packetLen = kHeaderSize + static_cast<std::size_t>(cipherLen);
+            // MSG_DONTWAIT: a blocking sendto on the input thread was observed to stall 1.5 s
+            // across a Wi-Fi power-save transition.
+            const ssize_t rc = ::sendto(sock, packet.data(), packetLen, MSG_NOSIGNAL | MSG_DONTWAIT,
+                                        reinterpret_cast<const sockaddr*>(&dest_), sizeof(dest_));
+            sent = rc == static_cast<ssize_t>(packetLen);
+            if (rc < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+                softDrops_.fetch_add(1, std::memory_order_relaxed);
+            }
+        }
     }
-    packet.resize(kHeaderSize + cipherLen);
-
-    std::lock_guard<thread::TrackedMutex> lock(sendLock_);
-    if (sock_ < 0) { return false; }
-    // MSG_DONTWAIT: this runs on the SDL input thread, where a blocking sendto
-    // was observed to stall 1.5s across a Wi-Fi power-save transition.
-    const ssize_t sent = ::sendto(sock_, packet.data(), packet.size(), MSG_NOSIGNAL | MSG_DONTWAIT,
-                                  reinterpret_cast<sockaddr*>(&dest_), sizeof(dest_));
-    // Soft-drop on buffer-full: UDP semantics absorb it and the next tick
-    // refreshes state.
-    if (sent < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) { return true; }
-    return sent == static_cast<ssize_t>(packet.size());
+    releaseSendGate();
+    return sent;
 }
 
 void SatelliteClient::startHeartbeat() {
@@ -417,88 +439,68 @@ void SatelliteClient::receiveLoop() {
     // TRUNCATES a UDP datagram to the buffer and a truncated SPEAKER_AUDIO
     // ciphertext then fails the AEAD, so every full-size audio frame would be
     // silently dropped here.
-    std::uint8_t buf[proto::kUdpDatagramMaxBytes];
+    std::array<std::uint8_t, proto::kUdpDatagramMaxBytes> buf{};
     while (ackRunning_.load(std::memory_order_relaxed)) {
-        if (sock_ < 0) { break; }
+        const int sock = sock_.load(std::memory_order_acquire);
+        if (sock < 0) { break; }
         sockaddr_in from{};
         socklen_t fl = sizeof(from);
         const ssize_t n =
-            ::recvfrom(sock_, buf, sizeof(buf), 0, reinterpret_cast<sockaddr*>(&from), &fl);
+            ::recvfrom(sock, buf.data(), buf.size(), 0, reinterpret_cast<sockaddr*>(&from), &fl);
         if (n <= 0) {
             continue; // EAGAIN / EWOULDBLOCK on SO_RCVTIMEO
         }
-        processIncoming(buf, static_cast<std::size_t>(n));
+        processIncomingInPlace(buf.data(), static_cast<std::size_t>(n));
     }
 }
 
 namespace {
 
-// Every feedback message is dispatched the same way: a message that did not parse is dropped, the
-// stored handler is copied under its own lock, and the copy is called with the lock released so a
-// handler cannot hold the receive thread against a setter.
+// A message that did not parse is dropped, and so is one nobody handles.
 template <typename Handler, typename Parsed>
-void callHandler(thread::TrackedMutex& mtx, const Handler& stored,
-                 const std::optional<Parsed>& msg) {
-    if (!msg) { return; }
-    Handler handler;
-    {
-        std::lock_guard<thread::TrackedMutex> lock(mtx);
-        handler = stored;
-    }
-    if (handler) { handler(*msg); }
+void callHandler(const Handler& handler, const std::optional<Parsed>& msg) {
+    if (msg && handler) { handler(*msg); }
 }
 
 } // namespace
 
-// What the receive thread needs out of the session material: one hold for the key and the replay
-// mark together, so a re-key swaps them as a pair.
-struct SatelliteClient::IncomingMaterial {
-    std::array<std::uint8_t, 4> token{};
-    std::uint32_t tokenBe = 0;
-    std::array<std::uint8_t, 32> key{};
-    std::uint32_t lastRecv = 0;
-};
-
-SatelliteClient::IncomingMaterial SatelliteClient::takeIncomingMaterial() {
-    IncomingMaterial m;
-    std::lock_guard<thread::TrackedMutex> lock(materialMtx_);
-    m.token = token_;
-    m.tokenBe = tokenBe_;
-    m.key = key_;
-    m.lastRecv = lastRecvCounter_;
-    return m;
-}
-
-// False for a packet this session cannot read: a foreign token, a replay, or a body that does not
-// authenticate. The counter advances only if no re-key raced the decrypt; since this is the only
-// thread that advances it, an unchanged value means the same session.
-bool SatelliteClient::decryptIncoming(const std::uint8_t* buf, std::size_t n,
-                                      std::vector<std::uint8_t>& plain,
+// False for a packet this session cannot read: a foreign token, a replay, a body that does not
+// authenticate, or one that arrived while a re-key replaced the key it was read under. Opened in
+// place; the plaintext starts kHeaderSize into `buf`.
+bool SatelliteClient::decryptIncoming(std::uint8_t* buf, std::size_t n,
                                       unsigned long long& plainLen) {
-    const IncomingMaterial m = takeIncomingMaterial();
-    if (std::memcmp(buf, m.token.data(), 4) != 0) { return false; }
+    Material m;
+    std::uint32_t generation = 0;
+    if (!readMaterial(m, generation)) { return false; }
+    if (std::memcmp(buf, m.token.data(), m.token.size()) != 0) { return false; }
 
+    const std::uint64_t mark = recvMark_.load(std::memory_order_acquire);
+    if ((mark >> 32) != generation) { return false; }
+    const auto last = static_cast<std::uint32_t>(mark);
     const std::uint32_t counter = util::readU32Be(buf + 4);
-    if (m.lastRecv != 0 && counter <= m.lastRecv) { return false; }
+    if (last != 0 && counter <= last) { return false; }
 
-    plain.resize(n - kHeaderSize);
-    if (!wire::decryptPacket(m.key.data(), wire::kDirServerToClient, counter, m.tokenBe,
-                             buf + kHeaderSize, n - kHeaderSize, plain.data(), &plainLen)) {
+    if (!wire::decryptPacket(m.key.data(), wire::kDirServerToClient, counter,
+                             util::readU32Be(m.token.data()), buf + kHeaderSize, n - kHeaderSize,
+                             buf + kHeaderSize, &plainLen)) {
         return false;
     }
-    std::lock_guard<thread::TrackedMutex> lock(materialMtx_);
-    if (lastRecvCounter_ == m.lastRecv) { lastRecvCounter_ = counter; }
-    return true;
+    std::uint64_t expected = mark;
+    return recvMark_.compare_exchange_strong(expected, (std::uint64_t{generation} << 32) | counter,
+                                             std::memory_order_acq_rel, std::memory_order_acquire);
 }
 
-// exchange(), so a duplicate ack cannot double-count the same ping. push() drops a sample past the
-// loss cap, so a reclaimed ping's late ack never skews the median.
+// exchange(), so a duplicate ack cannot double-count the same ping. The window drops a sample past
+// the loss cap, so a reclaimed ping's late ack never skews the median; a full ring drops it here.
 void SatelliteClient::recordAckLatency() {
     const std::int64_t sent = pingSentUs_.exchange(0, std::memory_order_relaxed);
     if (sent == 0) { return; }
-    const double rttMs = static_cast<double>(nowSteadyUs() - sent) / 1000.0;
-    std::lock_guard<thread::TrackedMutex> lock(latencyMtx_);
-    latencyWindow_.push(rttMs);
+    latencySamples_.push(static_cast<double>(nowSteadyUs() - sent) / 1000.0);
+}
+
+void SatelliteClient::drainLatencySamplesLocked() const {
+    double rttMs = 0.0;
+    while (latencySamples_.pop(rttMs)) { latencyWindow_.push(rttMs); }
 }
 
 void SatelliteClient::onHeartbeatAck(const std::uint8_t* body, std::size_t bodyLen) {
@@ -513,7 +515,7 @@ void SatelliteClient::onHeartbeatAck(const std::uint8_t* body, std::size_t bodyL
                                  std::memory_order_relaxed);
     serverEpoch_.store(static_cast<std::int32_t>(ack->epoch), std::memory_order_relaxed);
     serverBitmap_.store(static_cast<std::int32_t>(ack->activeBitmap), std::memory_order_relaxed);
-    callHandler(ackHandlerMtx_, ackHandler_, ack);
+    callHandler(handlers_->ack, ack);
 }
 
 // Gone server-side already, so the heartbeat death window is skipped.
@@ -522,48 +524,40 @@ void SatelliteClient::onSessionClose(const std::uint8_t* body, std::size_t bodyL
     const std::uint8_t reason = body[0];
     sessionCloseReason_.store(static_cast<std::int32_t>(reason), std::memory_order_relaxed);
     connectionAlive_.store(false, std::memory_order_relaxed);
-
-    CloseHandler handler;
-    {
-        std::lock_guard<thread::TrackedMutex> lock(closeHandlerMtx_);
-        handler = closeHandler_;
-    }
-    if (handler) { handler(reason); }
+    if (handlers_->close) { handlers_->close(reason); }
 }
 
 void SatelliteClient::dispatchIncoming(std::uint16_t msgType, const std::uint8_t* body,
                                        std::size_t bodyLen) {
+    if (auto next = handlersBox_.take()) { handlers_ = std::move(next); }
+    const Handlers& h = *handlers_;
     switch (msgType) {
     case kMsgHeartbeatAck:
         onHeartbeatAck(body, bodyLen);
         return;
     case kMsgRumble:
-        callHandler(rumbleHandlerMtx_, rumbleHandler_, parseRumbleMessage(body, bodyLen));
+        callHandler(h.rumble, parseRumbleMessage(body, bodyLen));
         return;
     case kMsgLightbar:
-        callHandler(lightbarHandlerMtx_, lightbarHandler_, parseLightbarMessage(body, bodyLen));
+        callHandler(h.lightbar, parseLightbarMessage(body, bodyLen));
         return;
     case kMsgTriggerEffects:
-        callHandler(triggerEffectsHandlerMtx_, triggerEffectsHandler_,
-                    parseTriggerEffectsMessage(body, bodyLen));
+        callHandler(h.triggerEffects, parseTriggerEffectsMessage(body, bodyLen));
         return;
     case kMsgPlayerLeds:
-        callHandler(playerLedsHandlerMtx_, playerLedsHandler_,
-                    parsePlayerLedsMessage(body, bodyLen));
+        callHandler(h.playerLeds, parsePlayerLedsMessage(body, bodyLen));
         return;
     case kMsgSpeakerAudio:
         // The message borrows the receive buffer: the handler decodes or copies before returning,
         // which is the SpeakerAudioMessage contract.
-        callHandler(speakerAudioHandlerMtx_, speakerAudioHandler_,
-                    parseSpeakerAudioMessage(body, bodyLen));
+        callHandler(h.speakerAudio, parseSpeakerAudioMessage(body, bodyLen));
         return;
     case kMsgHapticAudio:
         // Same shape and the same borrowing contract as the speaker frame.
-        callHandler(hapticAudioHandlerMtx_, hapticAudioHandler_,
-                    parseSpeakerAudioMessage(body, bodyLen));
+        callHandler(h.hapticAudio, parseSpeakerAudioMessage(body, bodyLen));
         return;
     case kMsgMicLed:
-        callHandler(micLedHandlerMtx_, micLedHandler_, parseMicLedMessage(body, bodyLen));
+        callHandler(h.micLed, parseMicLedMessage(body, bodyLen));
         return;
     case kMsgSessionClose:
         onSessionClose(body, bodyLen);
@@ -574,69 +568,73 @@ void SatelliteClient::dispatchIncoming(std::uint16_t msgType, const std::uint8_t
 }
 
 void SatelliteClient::processIncoming(const std::uint8_t* buf, std::size_t n) {
+    if (n > proto::kUdpDatagramMaxBytes) { return; }
+    std::array<std::uint8_t, proto::kUdpDatagramMaxBytes> copy{};
+    std::memcpy(copy.data(), buf, n);
+    processIncomingInPlace(copy.data(), n);
+}
+
+void SatelliteClient::processIncomingInPlace(std::uint8_t* buf, std::size_t n) {
     if (n < kHeaderSize + kAuthTag) { return; }
-
-    std::vector<std::uint8_t> plain;
     unsigned long long plainLen = 0;
-    if (!decryptIncoming(buf, n, plain, plainLen)) { return; }
-    if (plainLen < 4) { return; }
+    if (!decryptIncoming(buf, n, plainLen)) { return; }
+    if (plainLen < kInnerHeaderSize) { return; }
+    const std::uint8_t* plain = buf + kHeaderSize;
+    dispatchIncoming(readU16Be(plain), plain + kInnerHeaderSize,
+                     static_cast<std::size_t>(plainLen) - kInnerHeaderSize);
+}
 
-    dispatchIncoming(readU16Be(plain.data()), plain.data() + 4,
-                     static_cast<std::size_t>(plainLen) - 4);
+template <typename Edit> void SatelliteClient::editHandlers(Edit&& edit) {
+    std::lock_guard<thread::TrackedMutex> lock(handlersMtx_);
+    edit(handlersDraft_);
+    handlersBox_.publish(std::make_unique<const Handlers>(handlersDraft_));
 }
 
 void SatelliteClient::setRumbleHandler(RumbleHandler handler) {
-    std::lock_guard<thread::TrackedMutex> lock(rumbleHandlerMtx_);
-    rumbleHandler_ = std::move(handler);
+    editHandlers([&handler](Handlers& h) { h.rumble = std::move(handler); });
 }
 
 void SatelliteClient::setLightbarHandler(LightbarHandler handler) {
-    std::lock_guard<thread::TrackedMutex> lock(lightbarHandlerMtx_);
-    lightbarHandler_ = std::move(handler);
+    editHandlers([&handler](Handlers& h) { h.lightbar = std::move(handler); });
 }
 
 void SatelliteClient::setTriggerEffectsHandler(TriggerEffectsHandler handler) {
-    std::lock_guard<thread::TrackedMutex> lock(triggerEffectsHandlerMtx_);
-    triggerEffectsHandler_ = std::move(handler);
+    editHandlers([&handler](Handlers& h) { h.triggerEffects = std::move(handler); });
 }
 
 void SatelliteClient::setPlayerLedsHandler(PlayerLedsHandler handler) {
-    std::lock_guard<thread::TrackedMutex> lock(playerLedsHandlerMtx_);
-    playerLedsHandler_ = std::move(handler);
+    editHandlers([&handler](Handlers& h) { h.playerLeds = std::move(handler); });
 }
 
 void SatelliteClient::setSpeakerAudioHandler(SpeakerAudioHandler handler) {
-    std::lock_guard<thread::TrackedMutex> lock(speakerAudioHandlerMtx_);
-    speakerAudioHandler_ = std::move(handler);
+    editHandlers([&handler](Handlers& h) { h.speakerAudio = std::move(handler); });
 }
 
 void SatelliteClient::setHapticAudioHandler(HapticAudioHandler handler) {
-    std::lock_guard<thread::TrackedMutex> lock(hapticAudioHandlerMtx_);
-    hapticAudioHandler_ = std::move(handler);
+    editHandlers([&handler](Handlers& h) { h.hapticAudio = std::move(handler); });
 }
 
 void SatelliteClient::setMicLedHandler(MicLedHandler handler) {
-    std::lock_guard<thread::TrackedMutex> lock(micLedHandlerMtx_);
-    micLedHandler_ = std::move(handler);
+    editHandlers([&handler](Handlers& h) { h.micLed = std::move(handler); });
 }
 
 void SatelliteClient::setHeartbeatAckHandler(HeartbeatAckHandler handler) {
-    std::lock_guard<thread::TrackedMutex> lock(ackHandlerMtx_);
-    ackHandler_ = std::move(handler);
+    editHandlers([&handler](Handlers& h) { h.ack = std::move(handler); });
 }
 
 void SatelliteClient::setCloseHandler(CloseHandler handler) {
-    std::lock_guard<thread::TrackedMutex> lock(closeHandlerMtx_);
-    closeHandler_ = std::move(handler);
+    editHandlers([&handler](Handlers& h) { h.close = std::move(handler); });
 }
 
 SatelliteClient::LatencySnapshot SatelliteClient::latencySnapshot() const {
     std::lock_guard<thread::TrackedMutex> lock(latencyMtx_);
+    drainLatencySamplesLocked();
     return {latencyWindow_.oneWayP50Ms(), latencyWindow_.count()};
 }
 
 reducer::LatencySummary SatelliteClient::latencySummary() const {
     std::lock_guard<thread::TrackedMutex> lock(latencyMtx_);
+    drainLatencySamplesLocked();
     return latencyWindow_.summary();
 }
 

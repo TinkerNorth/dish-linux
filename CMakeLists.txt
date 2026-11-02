@@ -276,6 +276,9 @@ set(DISH_CORE_SOURCES
     src/core/input/HidTransport.h
     src/core/input/PumpPacing.h
     src/core/input/DirtySet.h
+    src/core/thread/LatestValue.h
+    src/core/thread/Seqlock.h
+    src/core/thread/SpscRing.h
     # Byte layouts mirrored 1:1 from dish-android's usb_parsers.cpp /
     # usb_hid_descriptor.cpp; keep the two in step when either side gains a
     # model.
