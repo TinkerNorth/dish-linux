@@ -75,8 +75,9 @@ GamepadInputProcessor::Record* GamepadInputProcessor::recordAt(DeviceIndex index
     return index < records_.size() ? &records_[index] : nullptr;
 }
 
-// Two threads introducing the same id at once would both claim; the one that finds the other's
-// lower record live gives its own back, so both end on the same index.
+// Two threads introducing the same id at once would both claim; the one holding the higher record
+// waits for every lower claim to settle and gives its own back if one of them is the same id, so
+// both end on the lower index. A claim never waits on a higher one, so the waits cannot cycle.
 std::optional<GamepadInputProcessor::DeviceIndex> GamepadInputProcessor::add(const DeviceId& id) {
     if (id.size() > kMaxIdBytes) { return std::nullopt; }
     if (const auto known = find(id)) { return known; }
@@ -95,10 +96,17 @@ std::optional<GamepadInputProcessor::DeviceIndex> GamepadInputProcessor::add(con
         r.id = id;
         r.plugGen.fetch_add(1, std::memory_order_release);
         r.state.store(kLive, std::memory_order_release);
-        const auto first = find(id);
-        if (first.has_value() && *first < i) {
-            r.state.store(kFree, std::memory_order_release);
-            return first;
+        for (std::size_t j = 0; j < i; ++j) {
+            const Record& lower = records_[j];
+            std::uint32_t state = lower.state.load(std::memory_order_acquire);
+            while (state == kClaimed) {
+                std::this_thread::yield();
+                state = lower.state.load(std::memory_order_acquire);
+            }
+            if (state == kLive && idMatches(lower, id)) {
+                r.state.store(kFree, std::memory_order_release);
+                return static_cast<DeviceIndex>(j);
+            }
         }
         return static_cast<DeviceIndex>(i);
     }
