@@ -604,6 +604,7 @@ class HotPathRig {
     FeatureSettings& features() { return featureSettings_; }
     const SlotRouter& router() const { return router_; }
     net::ConnectionHub& hub() { return *hub_; }
+    net::WifiConnectionManager& manager() { return *manager_; }
     const FakeDualSenseGateway& usbGateway() const { return usbGateway_; }
 
   private:

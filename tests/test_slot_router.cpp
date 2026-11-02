@@ -16,6 +16,7 @@
 #include <QString>
 #include <QStringList>
 
+#include <algorithm>
 #include <array>
 #include <atomic>
 #include <chrono>
@@ -493,4 +494,61 @@ TEST_CASE("a mic sender's participant comes back when its last copy goes", "[slo
         CHECK(rig.router().micSenderForSlot(QStringLiteral("held-by-a-copy")) == nullptr);
     }
     CHECK(rig.router().micSenderForSlot(QStringLiteral("given-back")) != nullptr);
+}
+
+namespace {
+
+constexpr std::uint64_t kPouringRumbles = 1000;
+
+bool opened(const dish::input::SDLGamepadBridge& bridge, const QString& id) {
+    const auto devices = bridge.devices();
+    return std::any_of(
+        devices.begin(), devices.end(),
+        [&id](const dish::input::SDLGamepadBridge::Device& d) { return d.id == id; });
+}
+
+} // namespace
+
+TEST_CASE("once every session is closed, feedback still pouring in never reaches the router",
+          "[slot-router]") {
+    Seen seen;
+    hp::HotPathRig rig(2, countInto(seen));
+    REQUIRE(rig.startBridge());
+    const hp::VirtualPad pad("Router teardown pad");
+    REQUIRE(pad.ok());
+    const QString padId = pad.deviceId();
+    REQUIRE(hp::pumpUntil([&] { return opened(rig.bridge(), padId); }));
+    REQUIRE(rig.claimDualSense());
+    REQUIRE(rig.connectAll());
+    const QString usbSlot = hp::FakeDualSenseGateway::slotId();
+    REQUIRE(rig.bind(padId, 0));
+    REQUIRE(rig.bind(usbSlot, 1));
+    REQUIRE(hp::pumpUntil(
+        [&] { return rig.satellite(0).knowsDish() && rig.satellite(1).knowsDish(); }));
+    rig.router().republish({padId, usbSlot});
+
+    std::atomic<bool> stop{false};
+    std::atomic<std::uint64_t> rounds{0};
+    std::thread satellites([&] {
+        for (std::uint16_t strong = 0x4000; !stop.load(std::memory_order_relaxed); ++strong) {
+            sendRumble(rig.satellite(0), strong);
+            sendRumble(rig.satellite(1), strong);
+            rounds.fetch_add(1);
+        }
+    });
+    const bool pouring = hp::pumpUntil([&] {
+        return pad.rumbles() > 0 && rig.usbGateway().writes() > 0 &&
+               rig.router().rumblesRouted() >= kPouringRumbles;
+    });
+    rig.manager().closeSessions();
+    const std::uint64_t routed = rig.router().rumblesRouted();
+    const std::uint64_t roundsAtClose = rounds.load();
+    std::this_thread::sleep_for(std::chrono::milliseconds(kQuietMs));
+    const std::uint64_t roundsAfter = rounds.load();
+    const std::uint64_t routedAfter = rig.router().rumblesRouted();
+    stop.store(true);
+    satellites.join();
+    CHECK(pouring);
+    CHECK(roundsAfter > roundsAtClose);
+    CHECK(routedAfter == routed);
 }
