@@ -11,7 +11,10 @@ dish-windows' `tools/bench`, whose numbers are kept below under "Windows" for co
 
 ## The path
 
-| # | Stage | What it is | Locks it takes today |
+The table is the 2.5.0 path the Before record measured; the After section below says what each
+stage is now. On this branch no stage takes a lock.
+
+| # | Stage | What it was in 2.5.0 | Locks it took in 2.5.0 |
 |---|-------|------------|----------------------|
 | 0 | SDL thread | `SDL_WaitEventTimeout` (with no video subsystem, SDL pumps the pads and sleeps `SDL_Delay(1)` until an event waits), then `rebuildState` per controller event: the device maps, the twin-suppression set, 21 SDL getters. Each axis change also arrives as a raw joystick event, which the bridge looks up and drops, and the loop drains the output queue and polls batteries after both | per report, as Windows' ViGEm mode measured it: `bridge.devices` 4 times, `bridge.output` twice, `bridge.suppressed` once |
 | 0' | hidraw read thread | a Direct pad's `poll` and `read` on its `/dev/hidraw` node, the decoder, then `UsbGamepadManager`'s report sink, which publishes input, motion (at most 250 Hz) and touchpad (every report) | none of its own |
@@ -38,11 +41,10 @@ the manager's real session PUT, which the suite's own TLS listener (`tests/FakeP
 answers on 127.0.0.1, and its UDP link opens to a loopback satellite that derives the same session
 key, decrypts every datagram, acks every ping and sends feedback back. **AppModel itself is not
 built:** it owns the tray icon, the real settings, the wake inhibitor and the update checker, so the
-harness cannot instantiate it. Its glue is mirrored verbatim in the rig's `AppGlue`: the four
-processor senders (the report sender is `src/AppModel.cpp:269-282`, with its fall-through to the
-Moonlight tables, to which the rig binds no slot), `republishRouting`, and the feedback route from
-`onRumbleMessage` and `onLightbarMessage` through `feedbackInputs` to the bridge or the USB manager.
-A change to that glue in AppModel must be made to `AppGlue` as well.
+harness cannot instantiate it. Its routing is not mirrored, though: it lives in `SlotRouter`
+(`src/SlotRouter.h`), which AppModel and the rig construct over the same objects, so the bench
+measures the production routing; the rig binds no slot to a Moonlight host. (The Before record ran
+an `AppGlue` that mirrored AppModel's glue of the time.)
 
 The pads are SDL virtual game controllers that the real bridge has opened, so their dead zones,
 rumble and light bar are what the bridge decided for them, and a rumble routes to the SDL output
@@ -108,10 +110,15 @@ toggles happened, every datagram decrypted, and the results were written.
 - **One machine, loopback.** The satellite is a thread on the same CPU, so the figure includes the
   loopback stack.
 - **Synthetic mode has no SDL thread on the path**: its pump, `rebuildState`, the output drain and
-  the battery poll are not in any Linux figure.
-- **AppModel's glue is a mirror** (see above), and **a Direct pad's gateway is a fake**: the hidraw
-  read and write and their locks (`hid.claims`, `hid.write`) need hardware and are not exercised.
-  `hid.write` is held across a `write` to the hidraw node that has no timeout.
+  the battery poll are not in any scenario's figure; the pump's wait is measured on its own after the
+  scenarios ("SDL pump wait" in the output, `pumpWait` in the JSON).
+- **A Direct pad's gateway is a fake**: the hidraw read and its locks need hardware and are not
+  exercised here. The write side runs through the claim's output worker and its `HidReportWriter`,
+  whose real writer is tested against a pipe (`tests/test_output_worker.cpp`). A hidraw write has
+  no cap of Dish's own: hidraw reports every node writable, and the USB core bounds an interrupt
+  OUT transfer at 5 s, on the claim's worker and nowhere else.
+- **SDL's HIDAPI rumble has a floor of its own on Windows**: SDL2 2.32.10's HIDAPI driver thread
+  sleeps 10 ms after each OUT report it sends. The Linux builds' SDL 2.30 was not checked for it.
 - **Default scheduling policy and timer slack**, other work on the machine as it happened. Compare
   runs of one binary on one machine.
 
@@ -681,3 +688,159 @@ items 1 and 2 did not touch) and after, back to back at 0 to 8 percent load; mic
 
 Pad A's median at 1 kHz is still its cold path (see the caveats): a producer that sleeps a
 millisecond between reports meets cold caches whatever it locks.
+
+## Windows: after, this branch
+
+The same machine and settings as the Before record, Release builds, each run paired back to back
+with the Before binary: before is the bench built at `e6208be` (the 2.5.0 input path with the
+claim fix, whose synthetic and SDL paths are 2.5.0's), after is this branch. The CPU load sampled
+before, during and after each run was 0 to 17 percent, with single samples of 28 and 31 percent
+during two runs; the lead repeats both on a quiet machine before the merge. S6's finger now moves
+with the stick (a resting finger is gated to nothing after its two heals, which the bench's
+accounting would read as a lost touchpad); the before binary sends it every report either way.
+
+Every report now leaves with no lock and no allocation: the bridge reads a pad from its own record
+on the SDL thread, the processor writes the device's record and latches an unchanged report, the
+router reads the published table inside a grace bracket, and the session seals on the stack and
+sends under a compare-and-swap gate on a socket that never blocks.
+
+Paired, microseconds:
+
+| scenario | producer | p50 before | p50 after | p99 before | p99 after | p99.9 before | p99.9 after | dgrams/report before | dgrams/report after |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| S1 | A | 15.3 | 12.1 | 32.8 | 20.9 | 37.9 | 27.5 | 1.00 | 1.00 |
+| S2 | A | 13.4 | 12.2 | 24.8 | 22.1 | 35.0 | 26.6 | 1.00 | 1.00 |
+| S2 | B | 5.3 | 5.5 | 13.9 | 8.9 | 44.3 | 12.3 | 1.00 | 1.00 |
+| S3 | A | 15.3 | 12.4 | 28.8 | 22.7 | 35.9 | 28.9 | 1.00 | 1.00 |
+| S3 | B | 5.8 | 5.6 | 14.4 | 9.1 | 29.9 | 12.9 | 1.00 | 1.00 |
+| S4 | A | 15.1 | 13.2 | 28.0 | 23.7 | 32.0 | 28.5 | 1.00 | 1.00 |
+| S4 | B | 5.9 | 5.8 | 18.6 | 17.0 | 23.9 | 40.2 | 1.00 | 1.00 |
+| S5 | A | 11.5 | 12.5 | 38.4 | 24.3 | 49.9 | 37.1 | 1.00 | 1.00 |
+| S5 | B | 5.9 | 5.6 | 11.1 | 10.7 | 21.7 | 12.5 | 1.00 | 1.00 |
+| S6 | DualSense | 15.6 | 12.1 | 31.9 | 23.8 | 36.7 | 27.7 | 2.22 | 1.34 |
+| S7 | A | 13.1 | 12.1 | 25.8 | 23.3 | 37.0 | 30.9 | 1.00 | 1.00 |
+| S7 | B | 5.9 | 5.5 | 14.1 | 10.4 | 30.3 | 13.9 | 1.00 | 1.00 |
+| S5 (mic 1000 Hz) | A | 29.0 | 12.1 | 52.5 | 35.6 | 67.2 | 45.7 | 1.00 | 1.00 |
+| S5 (mic 1000 Hz) | B | 7.3 | 5.9 | 13.4 | 9.7 | 15.3 | 13.5 | 1.00 | 1.00 |
+
+The after runs in full, the same columns as Before:
+
+| mode | scenario | producer | rate Hz | frames | p50 us | p99 us | p99.9 us | max us | over 1 ms | longest gap ms | dgrams/report | drops |
+| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| synthetic | S1 | A | 1000 | 3000 | 12.1 | 20.9 | 27.5 | 30.5 | 0 | 1.021 | 1.00 | 0 |
+| synthetic | S2 | A | 1000 | 3000 | 12.2 | 22.1 | 26.6 | 35.6 | 0 | 1.020 | 1.00 | 0 |
+| synthetic | S2 | B | 250 | 750 | 5.5 | 8.9 | 12.3 | 12.3 | 0 | 4.023 | 1.00 | 0 |
+| synthetic | S3 | A | 1000 | 3000 | 12.4 | 22.7 | 28.9 | 36.8 | 0 | 1.053 | 1.00 | 0 |
+| synthetic | S3 | B | 250 | 750 | 5.6 | 9.1 | 12.9 | 12.9 | 0 | 4.054 | 1.00 | 0 |
+| synthetic | S4 | A | 1000 | 3000 | 13.2 | 23.7 | 28.5 | 43.6 | 0 | 1.032 | 1.00 | 0 |
+| synthetic | S4 | B | 250 | 750 | 5.8 | 17.0 | 40.2 | 40.2 | 0 | 4.055 | 1.00 | 0 |
+| synthetic | S5 | A | 1000 | 3000 | 12.5 | 24.3 | 37.1 | 61.7 | 0 | 1.133 | 1.00 | 0 |
+| synthetic | S5 | B | 250 | 750 | 5.6 | 10.7 | 12.5 | 12.5 | 0 | 4.041 | 1.00 | 0 |
+| synthetic | S6 | DualSense | 1000 | 3000 | 12.1 | 23.8 | 27.7 | 34.1 | 0 | 1.029 | 1.34 | 0 |
+| synthetic | S7 | A | 1000 | 3000 | 12.1 | 23.3 | 30.9 | 43.4 | 0 | 1.064 | 1.00 | 0 |
+| synthetic | S7 | B | 250 | 750 | 5.5 | 10.4 | 13.9 | 13.9 | 0 | 4.028 | 1.00 | 0 |
+| synthetic | S5 (mic 1000 Hz) | A | 1000 | 3000 | 12.1 | 35.6 | 45.7 | 356.8 | 0 | 1.484 | 1.00 | 0 |
+| synthetic | S5 (mic 1000 Hz) | B | 250 | 750 | 5.9 | 9.7 | 13.5 | 13.5 | 0 | 4.033 | 1.00 | 0 |
+| vigem | V1 | visible to recv | 1000 | 2969 | 216.8 | 900.3 | 1006.4 | 1017.3 | 4 | 2.286 | 0.99 | 15 |
+| vigem | V1 | submit to visible | 1000 | 2988 | 9.6 | 25.5 | 46.0 | 193.0 | 0 | 2.286 | 0.99 | 15 |
+| vigem | V1 | submit to recv | 1000 | 2985 | 225.9 | 911.2 | 1016.4 | 1029.7 | 7 | 2.286 | 0.99 | 15 |
+
+The side traffic is the Before record's: 300 rumbles and 30 light-bar colours delivered in S4, S5
+and S7 (all 330 now reach the pad's mailbox), 150 mic frames in S5 and 3,000 with `--mic-hz 1000`,
+two pings, 15 binding toggles in S7.
+
+ViGEm mode, paired:
+
+| build | stage | frames | p50 us | p99 us | p99.9 us | max us | over 1 ms | dgrams/report | stimulus reports never sent | effective Hz |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| before | visible to recv | 1938 | 425.7 | 1000.5 | 1052.0 | 1086.2 | 20 | 1.29 | 1058 | 647.3 |
+| before | submit to visible | 2993 | 9.9 | 29.4 | 50.3 | 63.5 | 0 | 1.29 | 1058 | 647.3 |
+| before | submit to recv | 1942 | 432.1 | 1009.5 | 1060.5 | 1095.2 | 23 | 1.29 | 1058 | 647.3 |
+| after | visible to recv | 2969 | 216.8 | 900.3 | 1006.4 | 1017.3 | 4 | 0.99 | 15 | 995.0 |
+| after | submit to visible | 2988 | 9.6 | 25.5 | 46.0 | 193.0 | 0 | 0.99 | 15 | 995.0 |
+| after | submit to recv | 2985 | 225.9 | 911.2 | 1016.4 | 1029.7 | 7 | 0.99 | 15 | 995.0 |
+
+The lock table from `bench_input_path_lockstats` at the same settings. No row belongs to the SDL
+input, USB reader or receive roles: what remains is the GUI's work and the mic thread's
+`wifi.client`, the hub's mic sender, which is outside the hot-path laws.
+
+| mode | scenario | lock | role | acquisitions | contended | try fails | max wait us | p99 wait us | max hold us |
+| --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| synthetic | S1 | satellite.latency | Gui | 12 | 0 | 0 | 0.2 | 0.3 | 0.8 |
+| synthetic | S1 | wifi.client | Gui | 24 | 0 | 0 | 0.3 | 0.5 | 0.3 |
+| synthetic | S2 | satellite.latency | Gui | 12 | 0 | 0 | 0.2 | 0.3 | 0.8 |
+| synthetic | S2 | wifi.client | Gui | 24 | 0 | 0 | 0.4 | 0.5 | 0.4 |
+| synthetic | S3 | bridge.devices | Gui | 150 | 0 | 0 | 0.1 | 0.1 | 0.2 |
+| synthetic | S3 | usb.manager | Gui | 60 | 0 | 0 | 0.2 | 0.3 | 0.6 |
+| synthetic | S3 | satellite.latency | Gui | 12 | 0 | 0 | 0.2 | 0.3 | 1.0 |
+| synthetic | S3 | wifi.client | Gui | 114 | 0 | 0 | 0.4 | 0.5 | 0.3 |
+| synthetic | S3 | hub.bindings | Gui | 30 | 0 | 0 | 0.5 | 0.5 | 0.3 |
+| synthetic | S3 | store.observable | Gui | 180 | 0 | 0 | 0.2 | 0.1 | 0.7 |
+| synthetic | S3 | app.audioRoutes | Gui | 90 | 0 | 0 | 0.2 | 0.3 | 0.2 |
+| synthetic | S3 | app.routes | Gui | 30 | 0 | 0 | 0.1 | 0.1 | 16.7 |
+| synthetic | S4 | bridge.devices | Gui | 150 | 0 | 0 | 0.1 | 0.1 | 0.2 |
+| synthetic | S4 | usb.manager | Gui | 60 | 0 | 0 | 0.2 | 0.3 | 0.7 |
+| synthetic | S4 | satellite.latency | Gui | 12 | 0 | 0 | 0.1 | 0.1 | 0.8 |
+| synthetic | S4 | wifi.client | Gui | 114 | 0 | 0 | 0.4 | 0.5 | 0.4 |
+| synthetic | S4 | hub.bindings | Gui | 30 | 0 | 0 | 0.4 | 0.5 | 0.3 |
+| synthetic | S4 | store.observable | Gui | 180 | 0 | 0 | 0.1 | 0.1 | 0.8 |
+| synthetic | S4 | app.audioRoutes | Gui | 90 | 0 | 0 | 0.2 | 0.3 | 0.3 |
+| synthetic | S4 | app.routes | Gui | 30 | 0 | 0 | 0.1 | 0.1 | 11.2 |
+| synthetic | S5 | bridge.devices | Gui | 150 | 0 | 0 | 0.2 | 0.3 | 0.2 |
+| synthetic | S5 | usb.manager | Gui | 60 | 0 | 0 | 0.2 | 0.3 | 0.9 |
+| synthetic | S5 | satellite.latency | Gui | 12 | 0 | 0 | 0.1 | 0.1 | 0.8 |
+| synthetic | S5 | wifi.client | Gui | 114 | 0 | 0 | 0.2 | 0.3 | 0.3 |
+| synthetic | S5 | wifi.client | AudioCapture | 150 | 0 | 0 | 0.6 | 1.0 | 0.3 |
+| synthetic | S5 | hub.bindings | Gui | 30 | 0 | 0 | 0.4 | 0.5 | 0.3 |
+| synthetic | S5 | store.observable | Gui | 180 | 0 | 0 | 0.2 | 0.3 | 0.8 |
+| synthetic | S5 | app.audioRoutes | Gui | 90 | 0 | 0 | 0.2 | 0.3 | 0.2 |
+| synthetic | S5 | app.routes | Gui | 30 | 0 | 0 | 0.2 | 0.3 | 12.2 |
+| synthetic | S6 | satellite.latency | Gui | 16 | 0 | 0 | 0.2 | 0.3 | 1.0 |
+| synthetic | S6 | wifi.client | Gui | 32 | 0 | 0 | 0.3 | 0.5 | 0.3 |
+| synthetic | S7 | bridge.devices | Gui | 256 | 0 | 0 | 0.2 | 0.3 | 0.2 |
+| synthetic | S7 | usb.manager | Gui | 90 | 0 | 0 | 0.2 | 0.3 | 0.6 |
+| synthetic | S7 | satellite.latency | Gui | 12 | 0 | 0 | 0.1 | 0.1 | 1.1 |
+| synthetic | S7 | wifi.client | Gui | 174 | 0 | 0 | 0.3 | 0.5 | 0.3 |
+| synthetic | S7 | hub.bindings | Gui | 60 | 0 | 0 | 0.5 | 0.5 | 2.5 |
+| synthetic | S7 | store.observable | Gui | 308 | 0 | 0 | 0.2 | 0.3 | 1.0 |
+| synthetic | S7 | app.audioRoutes | Gui | 158 | 0 | 0 | 0.2 | 0.3 | 0.2 |
+| synthetic | S7 | app.routes | Gui | 45 | 0 | 0 | 0.2 | 0.3 | 17.2 |
+| synthetic | S5 (mic 1000 Hz) | bridge.devices | Gui | 150 | 0 | 0 | 0.2 | 0.3 | 0.2 |
+| synthetic | S5 (mic 1000 Hz) | usb.manager | Gui | 60 | 0 | 0 | 0.2 | 0.3 | 0.5 |
+| synthetic | S5 (mic 1000 Hz) | satellite.latency | Gui | 12 | 0 | 0 | 0.2 | 0.3 | 0.7 |
+| synthetic | S5 (mic 1000 Hz) | wifi.client | Gui | 114 | 0 | 0 | 0.2 | 0.3 | 0.2 |
+| synthetic | S5 (mic 1000 Hz) | wifi.client | AudioCapture | 3000 | 0 | 0 | 3.3 | 0.5 | 1.8 |
+| synthetic | S5 (mic 1000 Hz) | hub.bindings | Gui | 30 | 0 | 0 | 0.3 | 0.5 | 0.3 |
+| synthetic | S5 (mic 1000 Hz) | store.observable | Gui | 180 | 0 | 0 | 0.2 | 0.3 | 0.7 |
+| synthetic | S5 (mic 1000 Hz) | app.audioRoutes | Gui | 90 | 0 | 0 | 0.2 | 0.3 | 0.2 |
+| synthetic | S5 (mic 1000 Hz) | app.routes | Gui | 30 | 0 | 0 | 0.2 | 0.3 | 12.9 |
+| vigem | V1 | satellite.latency | Gui | 3 | 0 | 0 | 0.1 | 0.1 | 0.9 |
+| vigem | V1 | wifi.client | Gui | 6 | 0 | 0 | 0.3 | 0.5 | 0.3 |
+
+### Thread priority and the timer
+
+The SDL input, USB reader and receive threads now ask MMCSS for "Games" (falling back to
+`THREAD_PRIORITY_TIME_CRITICAL`), and `main` asks for the 1 ms timer itself. ViGEm mode measures the
+SDL thread's share, built with and without the request on the SDL and receive threads, two runs
+each:
+
+| priority | p50 us | p99 us | p99.9 us | max us | over 1 ms | stimulus reports never sent | effective Hz |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| normal | 228.6 | 958.2 | 1021.8 | 1034.9 | 10 | 123 | 959.0 |
+| normal | 239.7 | 885.4 | 997.9 | 1117.6 | 2 | 2 | 999.3 |
+| raised | 167.1 | 773.8 | 998.8 | 1056.8 | 2 | 20 | 993.3 |
+| raised | 167.2 | 826.2 | 982.4 | 1031.7 | 2 | 16 | 994.7 |
+
+### Commands
+
+```
+cmake --build build-bench-rel --target bench_input_path
+cmake --build build-bench-rel-lockstats --target bench_input_path_lockstats
+
+bench_input_path --json plain.json --csv plain.csv
+bench_input_path --mic-hz 1000 --scenarios S5 --json plain-mic1000.json
+bench_input_path --mode vigem --json vigem.json
+bench_input_path_lockstats --json lockstats.json
+bench_input_path_lockstats --mic-hz 1000 --scenarios S5 --json lockstats-mic1000.json
+bench_input_path_lockstats --mode vigem --json lockstats-vigem.json
+```

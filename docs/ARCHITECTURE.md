@@ -314,38 +314,49 @@ The threads in the app:
 | Thread | Owner | What runs on it |
 |---|---|---|
 | GUI | `QGuiApplication` | Everything in `qml/`, `composer/`, the stores, `AppModel::rebuild` |
-| SDL input | [`SDLGamepadBridge`](../src/Input/SDLGamepadBridge.h) | The SDL event pump, `GamepadInputProcessor::publish`, and the `sendto` that follows it |
-| USB direct | `UsbGamepadManager` per claimed device | Raw-HID URB reads, feeding the same publish path |
+| SDL input | [`SDLGamepadBridge`](../src/Input/SDLGamepadBridge.h) | The pump cycle (every 500 us while a pad is open), every open pad's record, the publish and the `sendto` that follows it, and the pads' feedback mailboxes |
+| USB direct | `UsbGamepadManager` per claimed device | Raw-HID reads, feeding the same publish path |
+| USB output | [`OutputWorker`](../src/source/usb/OutputWorker.h) per claimed device | The claim's OUT reports, built from its mailbox and written to its hidraw node |
 | Heartbeat | [`SatelliteClient`](../src/Network/SatelliteClient.h) | Per-session keepalive sends and ping arming |
 | Receive | `SatelliteClient` | Ack decode, RTT sampling, the feedback callbacks (rumble, lightbar, trigger effects, player LEDs, mic LED), the hand-off of speaker and haptics frames to the playout thread, close-notify |
 | Playout | [`SpeakerPlayoutEngine`](../src/source/audio/SpeakerPlayoutEngine.h) | The reorder window, the Opus decode and the capped queue to the pad's own endpoint, off the receive thread |
 
+The SDL input, USB direct and receive threads ask rtkit for nice -10 as they
+start, and inside a Flatpak the realtime portal, which maps the sandbox's
+thread ids for rtkit ([`ThreadPriority`](../src/source/system/ThreadPriority.h));
+a refusal changes nothing and is logged once.
+
 **The input hot path is intentionally not routed through the kernel.** The
 input, decode, encode, `sendto` path is plain C++ with no queue, no Qt event
-hop and no cross-thread signal. It is not allocation-free: `sendEncrypted`
-still heap-allocates its inner frame per report
-([`SatelliteClient.cpp`](../src/Network/SatelliteClient.cpp)), which is worth
-removing since the payload never exceeds 17 bytes. Its
-cross-thread seams are explicit and narrow:
+hop and no cross-thread signal, and the SDL input, USB direct and receive
+threads take no lock and allocate nothing per report or message. What another
+thread changes reaches them in one of four ways, each with one owner:
 
-- `AppModel`'s `routing_` and `motionRouting_` tables (per-slot senders), guarded
-  by `routingMtx_` ([`AppModel.h`](../src/AppModel.h)).
-- The bridge's `suppressedMtx_` (which device ids USB-direct has taken over) and
-  `remapMtx_` (the per-`(vid,pid)` joystick remap), each on its own mutex so a
-  GUI-thread write never contends with the per-report read.
-- [`OutputCommandQueue`](../src/Input/OutputCommandQueue.h). Rumble and lightbar
-  arrive on the receive thread but every `SDL_GameController*` is resolved and
-  used only on the SDL thread, so the request is queued and drained by
-  `runLoop()`.
-- `UsbGamepadManager`'s `feedbackMtx_`, on its own mutex rather than the claim
-  map's, so a feedback write on the receive thread never contends with the 1 s
-  reconcile sweep. The gateway's write is overlapped, so it does not wait on
-  the pending read either.
-- `ConnectionHub`'s `bindingsMtx_`. A feedback message on the receive thread
-  finds its slot through `bindings()`, a copy taken under the lock the GUI
-  thread writes the table under, and the rumble switch it then checks is read
-  in place under its store's own lock
-  ([`ConnectionHub.h`](../src/Network/ConnectionHub.h)).
+- **A published table.** [`SlotRouter`](../src/SlotRouter.h) is the routing:
+  the GUI builds one immutable table per rebuild (by device index, the session
+  client and controller index a pad's reports go to; by session, where each
+  feedback kind lands) and swaps it in with an atomic pointer. Readers bracket
+  each use in a grace epoch ([`GraceEpoch`](../src/core/thread/GraceEpoch.h),
+  the satellite's), and the GUI frees the table it replaced once no bracket can
+  hold it.
+- **A seqlock.** A session's key and token
+  ([`SatelliteClient`](../src/Network/SatelliteClient.h)), a device's record in
+  the processor (which the inspector copies), and a pad's
+  [`OutputMailbox`](../src/core/input/OutputMailbox.h). A sender draws its
+  counter inside a compare-and-swap gate held to `sendto`'s return, so counter
+  order is wire order; the socket never blocks.
+- **A single-consumer handoff.** The bridge's device list goes to the GUI and
+  the GUI's suppressed ids and remaps go to the SDL thread through
+  [`LatestValue`](../src/core/thread/LatestValue.h); a session's handlers reach
+  its receive thread the same way.
+- **A bounded queue.** Speaker and haptic frames go to the playout thread
+  through [`MpscQueue`](../src/core/thread/MpscQueue.h), round trips to the
+  latency readers through [`SpscRing`](../src/core/thread/SpscRing.h), and a
+  worker sleeps on [`WorkerWake`](../src/core/thread/WorkerWake.h).
+
+[`tests/test_lock_laws.cpp`](../tests/test_lock_laws.cpp) runs every hot thread
+at once over the production objects and fails if one of these three takes any
+tracked lock; [`tools/bench`](../tools/bench/README.md) measures the path.
 
 ### The feedback path: one owner for "may I" and "where to"
 
@@ -357,7 +368,8 @@ an actuator the satellite will never drive.
 
 [`FeedbackRouting`](../src/core/reducer/FeedbackRouting.h) answers both
 questions from the same inputs, and both `ConnectionHub`'s capability functions
-and `AppModel::actuate*` go through it. The two paths carry different amounts:
+and [`SlotRouter`](../src/SlotRouter.h) go through it: the router resolves every
+bound session's targets when it builds its table. The two paths carry different amounts:
 
 | Path | Rumble | Lightbar | Adaptive triggers | Player LEDs | Mic-mute lamp |
 |---|---|---|---|---|---|
@@ -366,18 +378,19 @@ and `AppModel::actuate*` go through it. The two paths carry different amounts:
 
 SDL has a rumble call and an LED call, and one more: `SDL_GameControllerSendEffect`,
 a raw effect body that only SDL's own HIDAPI drivers implement (the evdev
-backend refuses it). For a DualSense that body is its OUT report 0x02 minus
-the report id, so the last three columns are reachable on Standard exactly
-when SDL's HIDAPI driver owns the pad, on USB or Bluetooth alike. The bytes
-are built by [`UsbOutputReports`](../src/core/input/UsbOutputReports.h), which
-is pure and host-tested, and serve both paths: the Direct claim writes the
-whole report and the gateway adds only the framing the platform itself demands
-(on hidraw, none: the builder's length is the transfer length); the SDL bridge
-builds the same report on the SDL thread (its `FeedbackState` shadow lives
-there) and hands SDL the body, which SDL frames for the link, including the
-Bluetooth report id and CRC. A Direct claim that has gone away carries nothing
-— there is deliberately no fallback to Standard, because a pad on the Direct
-path is not open on the SDL path at the same time.
+backend refuses it). For a DualSense that body is its OUT report
+0x02 minus the report id, so the last three columns are reachable on Standard
+exactly when SDL's HIDAPI driver owns the pad, on USB or Bluetooth alike. The
+bytes are built by [`UsbOutputReports`](../src/core/input/UsbOutputReports.h),
+which is pure and host-tested, and serve both paths: the Direct claim writes
+the whole report and the gateway adds only the framing the platform itself
+demands (on hidraw, none: the builder's length is the transfer length),
+from the claim's own output worker, which owns its `FeedbackState`
+shadow; the SDL bridge builds the same report on the SDL thread (its shadow
+lives in the pad's record there) and hands SDL the body, which SDL frames
+for the link, including the Bluetooth report id and CRC. A Direct claim that
+has gone away carries nothing — there is deliberately no fallback to Standard,
+because a pad on the Direct path is not open on the SDL path at the same time.
 
 † `SlotFeedbackInputs::standardEffects`. SDL names no driver publicly, but it
 reports a DualSense's LED only from the HIDAPI driver, so "DualSense family and
@@ -397,7 +410,7 @@ mode is buttons and sticks to SDL, with no rumble, LED, gyro, touchpad or
 effects reported.
 
 \* `MSG_MIC_LED` (0x0014) resolves through the same router into the DS5
-mute-lamp builder, whose state lives in the per-claim `FeedbackState` shadow:
+mute-lamp builder, whose state lives in the claim's `FeedbackState` shadow:
 every DS5 report starts from a fresh memset and the firmware applies whatever
 the valid flags claim, so each builder re-asserts the last lamp or an unrelated
 colour change would be a lamp-off write. The lamp is also driven locally the
@@ -560,8 +573,7 @@ CI), so each needs a device-in-the-loop test pass.
 - `AppModel` still performs work that belongs in dedicated coordinators: USB
   framework-presence driving, the catalog and Emulate flow, and the remap,
   deadzone, and rumble pushes. Extracting them would leave it a pure
-  composition root plus the hot-path seam. Keep the `routingMtx_` tables intact
-  when doing so.
+  composition root; the hot-path routing already lives in `SlotRouter`.
 
 **Product gaps.**
 

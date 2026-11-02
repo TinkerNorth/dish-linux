@@ -376,13 +376,24 @@ The full cross-repo verification recipe lives in
 
 ## Touching the hot path
 
-The SDL gamepad thread runs at controller polling rate and must never
-block on the UI thread or take a heap allocation. If you're modifying
-`SDLGamepadBridge`, `GamepadInputProcessor`, or `SatelliteClient::sendReport`:
+Three threads carry every report and every feedback message: the SDL input
+thread, a Direct pad's raw-HID read thread, and each session's receive thread.
+None of them takes a lock, allocates per report, or waits on the network, the
+GUI or a pad. If you are modifying `SDLGamepadBridge`, `GamepadInputProcessor`,
+`SlotRouter`, `UsbGamepadManager`'s publisher or its output worker, or
+`SatelliteClient`:
 
+- State another thread changes reaches these threads as an immutable snapshot
+  (`SlotRouter`'s table, read inside a grace epoch; the bridge's inputs through
+  `LatestValue`) or through a seqlock or a single-consumer queue
+  (`core/thread/`). Nothing on the path takes a `TrackedMutex`.
+- Buffers live on the stack or in fixed records; nothing on the path allocates.
 - No `QObject::connect` cross-thread signals on the send path.
-- No `std::mutex` longer than the existing routing-table lookup.
-- No allocations per packet — use the preallocated buffer.
+- Both rules are enforced, not hoped for: `tests/test_lock_laws.cpp`
+  (`DishLockLawTests`, built with `-DDISH_LOCK_STATS=ON`) fails when one of these
+  threads takes any tracked lock, and `tools/bench` measures the path and its
+  locks on every run. Run both after a change here; see
+  [`tools/bench/README.md`](tools/bench/README.md).
 - Preserve `IP_TOS = 0xB8` (DSCP EF) and `MSG_NOSIGNAL` on every send.
 
 ## Touching the wire protocol
