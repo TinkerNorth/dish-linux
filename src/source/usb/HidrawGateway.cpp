@@ -311,7 +311,7 @@ HidrawGateway::~HidrawGateway() {
     for (;;) {
         int syntheticId = 0;
         {
-            std::lock_guard<std::mutex> lock(mtx_);
+            std::lock_guard<thread::TrackedMutex> lock(mtx_);
             if (claimed_.empty()) { break; }
             syntheticId = claimed_.begin()->first;
         }
@@ -436,7 +436,7 @@ ClaimResult HidrawGateway::claim(const UsbDeviceInfo& device,
     claimed->running.store(true);
     Claimed* raw = claimed.get();
     {
-        std::lock_guard<std::mutex> lock(mtx_);
+        std::lock_guard<thread::TrackedMutex> lock(mtx_);
         claimed_.emplace(syntheticId, std::move(claimed));
     }
     raw->reader = std::thread([this, raw] { readLoop(raw); });
@@ -473,6 +473,7 @@ bool HidrawGateway::decodeOneReport(Claimed* c, const std::uint8_t* data, std::s
 // ParsedReport scratch live on this stack and are reused every iteration, and the decoders are
 // pure functions over them that mutate the device's stick auto-range state in place.
 void HidrawGateway::readLoop(Claimed* c) {
+    const thread::ScopedThreadRole role(thread::ThreadRole::UsbReader);
     std::array<std::uint8_t, 128> buf{};
     pollfd pfd{};
     pfd.fd = c->fd;
@@ -506,7 +507,7 @@ void HidrawGateway::readLoop(Claimed* c) {
 void HidrawGateway::releaseClaim(int syntheticId) {
     std::unique_ptr<Claimed> claimed;
     {
-        std::lock_guard<std::mutex> lock(mtx_);
+        std::lock_guard<thread::TrackedMutex> lock(mtx_);
         const auto it = claimed_.find(syntheticId);
         if (it == claimed_.end()) { return; }
         claimed = std::move(it->second);
@@ -528,28 +529,28 @@ void HidrawGateway::releaseClaim(int syntheticId) {
 }
 
 bool HidrawGateway::isClaimAlive(int syntheticId) const {
-    std::lock_guard<std::mutex> lock(mtx_);
+    std::lock_guard<thread::TrackedMutex> lock(mtx_);
     const auto it = claimed_.find(syntheticId);
     if (it == claimed_.end()) { return false; }
     return it->second->alive.load();
 }
 
 std::int64_t HidrawGateway::completionCount(int syntheticId) const {
-    std::lock_guard<std::mutex> lock(mtx_);
+    std::lock_guard<thread::TrackedMutex> lock(mtx_);
     const auto it = claimed_.find(syntheticId);
     if (it == claimed_.end()) { return 0; }
     return it->second->completions.load();
 }
 
 std::int64_t HidrawGateway::decodedCount(int syntheticId) const {
-    std::lock_guard<std::mutex> lock(mtx_);
+    std::lock_guard<thread::TrackedMutex> lock(mtx_);
     const auto it = claimed_.find(syntheticId);
     if (it == claimed_.end()) { return 0; }
     return it->second->decoded.load();
 }
 
 bool HidrawGateway::setPadMicMuted(int syntheticId, bool muted) {
-    std::lock_guard<std::mutex> lock(mtx_);
+    std::lock_guard<thread::TrackedMutex> lock(mtx_);
     const auto it = claimed_.find(syntheticId);
     if (it == claimed_.end()) { return false; }
     if (it->second->parser != input::usbparse::HidParser::DualSense) { return false; }
@@ -568,7 +569,7 @@ bool HidrawGateway::writeOutputReport(int syntheticId, const std::uint8_t* data,
         // Safe because releaseClaim() joins the reader and erases the entry only
         // from the owner thread, and every caller here is downstream of a live
         // binding for this device.
-        std::lock_guard<std::mutex> lock(mtx_);
+        std::lock_guard<thread::TrackedMutex> lock(mtx_);
         const auto it = claimed_.find(syntheticId);
         if (it == claimed_.end()) { return false; }
         c = it->second.get();
@@ -576,11 +577,12 @@ bool HidrawGateway::writeOutputReport(int syntheticId, const std::uint8_t* data,
     const int fd = c->fd;
     if (fd < 0) { return false; }
 
-    std::lock_guard<std::mutex> lock(c->writeMtx);
+    std::lock_guard<thread::TrackedMutex> lock(c->writeMtx);
     // hidraw takes the report exactly as built, with the id as byte 0 and no
     // padding: unlike the Windows HID stack it does not demand a fixed-length
     // buffer, so the builder's length IS the transfer length.
     for (;;) {
+        thread::blockingRegion("hid.write");
         const ssize_t written = ::write(fd, data, len);
         if (written >= 0) { return static_cast<std::size_t>(written) == len; }
         // A signal during the write is not a failure; anything else is. Retrying

@@ -21,6 +21,7 @@
 #include "core/moonlight/MoonlightTriggerRumble.h"
 #include "core/moonlight/MoonlightWire.h"
 #include "core/moonlight/MoonlightXml.h"
+#include "core/thread/TrackedMutex.h"
 #include "repository/MoonlightHostRepository.h"
 #include "source/moonlight/MoonlightControlStream.h"
 #include "source/moonlight/MoonlightHttp.h"
@@ -267,7 +268,7 @@ class MoonlightSession : public QObject {
         moonlight::MoonlightTouchDiffer lastFrame;
         bool reaches = true;
     };
-    std::mutex touchMtx_;
+    thread::TrackedMutex touchMtx_{"moonlight.touch"};
     std::array<PadTouch, moonlight::kMaxPads> touch_;
     void forgetTouchFrame(std::uint8_t controllerNumber);
 

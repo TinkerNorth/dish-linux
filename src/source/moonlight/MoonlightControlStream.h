@@ -17,6 +17,7 @@
 
 #include "core/moonlight/MoonlightControlCipher.h"
 #include "core/moonlight/MoonlightWire.h"
+#include "core/thread/TrackedMutex.h"
 
 #include <array>
 #include <atomic>
@@ -128,7 +129,7 @@ class MoonlightControlStream {
     EventHandler eventHandler_;
     LinkHandler linkHandler_;
 
-    mutable std::mutex linkMtx_; // guards everything below
+    mutable thread::TrackedMutex linkMtx_{"moonlight.send"}; // guards everything below
     std::unique_ptr<Link> link_;
     mooncrypto::ControlCipher cipher_;
     std::uint32_t seq_ = 0;

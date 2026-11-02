@@ -27,6 +27,7 @@
 
 #include "core/input/UsbHidLayout.h"
 #include "core/input/UsbReportParsers.h"
+#include "core/thread/TrackedMutex.h"
 
 #include <atomic>
 #include <charconv>
@@ -227,7 +228,7 @@ class HidrawGateway : public UsbDeviceGateway {
         // Serialises writers against each other. The reader is untouched: a
         // hidraw fd carries independent read and write paths, so an OUT report
         // never waits on the blocking read.
-        std::mutex writeMtx;
+        thread::TrackedMutex writeMtx{"hid.write"};
 
         ~Claimed();
     };
@@ -243,7 +244,7 @@ class HidrawGateway : public UsbDeviceGateway {
     // never collide with positive SDL ids.
     std::atomic<int> nextSyntheticId_{-1000};
 
-    mutable std::mutex mtx_;
+    mutable thread::TrackedMutex mtx_{"hid.claims"};
     std::map<int, std::unique_ptr<Claimed>> claimed_;
 };
 

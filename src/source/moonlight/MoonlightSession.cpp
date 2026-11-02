@@ -788,7 +788,7 @@ void MoonlightSession::sendTouchFrame(std::uint8_t controllerNumber,
     std::vector<moonlight::TouchEvent> events;
     std::optional<bool> clickEdge;
     {
-        std::lock_guard<std::mutex> lock(touchMtx_);
+        std::lock_guard<thread::TrackedMutex> lock(touchMtx_);
         PadTouch& pad = touch_[controllerNumber];
         const moonlight::TouchFinger nothing;
         events = pad.reaches ? pad.lastFrame.diff(finger0, finger1)
@@ -807,7 +807,7 @@ void MoonlightSession::sendTouchFrame(std::uint8_t controllerNumber,
 
 void MoonlightSession::setTouchReaches(std::uint8_t controllerNumber, bool reaches) {
     if (controllerNumber >= moonlight::kMaxPads) { return; }
-    std::lock_guard<std::mutex> lock(touchMtx_);
+    std::lock_guard<thread::TrackedMutex> lock(touchMtx_);
     touch_[controllerNumber].reaches = reaches;
 }
 
@@ -815,7 +815,7 @@ void MoonlightSession::setTouchReaches(std::uint8_t controllerNumber, bool reach
 void MoonlightSession::forgetTouchFrame(std::uint8_t controllerNumber) {
     if (controllerNumber >= moonlight::kMaxPads) { return; }
     flipClick(controllerNumber, false);
-    std::lock_guard<std::mutex> lock(touchMtx_);
+    std::lock_guard<thread::TrackedMutex> lock(touchMtx_);
     touch_[controllerNumber].lastFrame.reset();
 }
 
