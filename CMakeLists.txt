@@ -276,6 +276,7 @@ set(DISH_CORE_SOURCES
     src/core/input/HidTransport.h
     src/core/input/PumpPacing.h
     src/core/input/DirtySet.h
+    src/core/thread/GraceEpoch.h
     src/core/thread/LatestValue.h
     src/core/thread/Seqlock.h
     src/core/thread/SpscRing.h
@@ -500,6 +501,8 @@ set(DISH_CORE_SOURCES
     src/FeatureSettings.h
     src/FeatureSettings.cpp
     src/LightbarRouting.h
+    src/SlotRouter.h
+    src/SlotRouter.cpp
     src/AppModel.h
     src/AppModel.cpp
     # QObject/QAbstractListModel only, no Qml/Quick, so the tests link them

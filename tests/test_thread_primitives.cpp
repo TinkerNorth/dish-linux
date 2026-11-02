@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 // Copyright (C) 2026 Dish contributors.
 
+#include "core/thread/GraceEpoch.h"
 #include "core/thread/LatestValue.h"
 #include "core/thread/Seqlock.h"
 #include "core/thread/SpscRing.h"
@@ -9,6 +10,7 @@
 
 #include <array>
 #include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <memory>
 #include <thread>
@@ -177,4 +179,46 @@ TEST_CASE("a ring carries a producer thread's items to a consumer thread in orde
     }
     producer.join();
     CHECK(ordered);
+}
+
+TEST_CASE("the grace wait returns at once when no bracket is open", "[thread-primitives][grace]") {
+    dish::thread::GraceEpoch<4> grace;
+    grace.enter(1);
+    grace.exit(1);
+    const auto started = std::chrono::steady_clock::now();
+    grace.waitQuiescent();
+    CHECK(std::chrono::steady_clock::now() - started < std::chrono::milliseconds(50));
+}
+
+TEST_CASE("the grace wait outlasts a bracket that was open when it began",
+          "[thread-primitives][grace]") {
+    using namespace std::chrono_literals;
+    dish::thread::GraceEpoch<4> grace;
+    std::atomic<bool> inside{false};
+    std::atomic<bool> left{false};
+    std::thread reader([&] {
+        const dish::thread::GraceGuard bracket(grace, 2);
+        inside.store(true);
+        std::this_thread::sleep_for(100ms);
+        left.store(true);
+    });
+    while (!inside.load()) { std::this_thread::yield(); }
+    grace.waitQuiescent();
+    CHECK(left.load());
+    reader.join();
+}
+
+TEST_CASE("a reader that keeps opening brackets cannot starve the grace wait",
+          "[thread-primitives][grace]") {
+    dish::thread::GraceEpoch<2> grace;
+    std::atomic<bool> stop{false};
+    std::thread reader([&] {
+        while (!stop.load(std::memory_order_relaxed)) {
+            const dish::thread::GraceGuard bracket(grace, 0);
+        }
+    });
+    for (int i = 0; i < 1000; ++i) { grace.waitQuiescent(); }
+    stop.store(true);
+    reader.join();
+    SUCCEED("every wait returned");
 }

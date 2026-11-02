@@ -672,7 +672,7 @@ class SyntheticBench {
     const SessionTap& tap(int session) const { return taps_[static_cast<std::size_t>(session)]; }
 
     std::uint64_t routed() const {
-        return rig_.glue().rumblesRouted() + rig_.glue().lightbarsRouted();
+        return rig_.router().rumblesRouted() + rig_.router().lightbarsRouted();
     }
 
     std::thread sdlInputProducer(const Scenario& sc, std::int64_t start, std::int64_t end) {
@@ -809,7 +809,7 @@ class SyntheticBench {
         return slotIds;
     }
 
-    void republish() { rig_.glue().republishRouting(boundSlots()); }
+    void republish() { rig_.router().republish(boundSlots()); }
 
     std::vector<std::string> accountingProblems(const Scenario& sc, const ScenarioRun& run) const {
         std::vector<std::string> problems;

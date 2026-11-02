@@ -332,6 +332,8 @@ UsbGamepadManager::directTarget(int vendorId, int productId) const {
     const reducer::UsbController& controller = it->second;
     if (!controller.syntheticId.has_value()) { return std::nullopt; }
     DirectTarget t;
+    t.vendorId = vendorId;
+    t.productId = productId;
     t.syntheticId = *controller.syntheticId;
     // The family comes from the identity, not from the gateway: the manager
     // must answer the same question the capability solve asked when it built
@@ -347,26 +349,36 @@ bool UsbGamepadManager::isDirectClaimed(int vendorId, int productId) const {
 bool UsbGamepadManager::applyRumble(int vendorId, int productId, std::uint16_t strongMagnitude,
                                     std::uint16_t weakMagnitude) {
     const auto target = directTarget(vendorId, productId);
-    if (!target.has_value() || gateway_ == nullptr) { return false; }
+    return target.has_value() && applyRumble(*target, strongMagnitude, weakMagnitude);
+}
+
+bool UsbGamepadManager::applyRumble(const DirectTarget& target, std::uint16_t strongMagnitude,
+                                    std::uint16_t weakMagnitude) {
+    if (gateway_ == nullptr) { return false; }
     std::array<std::uint8_t, input::usbout::kMaxOutputReportBytes> buf{};
     std::size_t n = 0;
     {
         // The state is read for the DS5 mute-lamp re-assert, so the lookup and
         // the build are one critical section like the lightbar's.
         std::lock_guard<thread::TrackedMutex> lock(feedbackMtx_);
-        const std::uint8_t seq = nextSeqLocked(vpKey(vendorId, productId));
-        const auto& st = feedback_[vpKey(vendorId, productId)];
-        n = input::usbout::buildRumbleReport(target->parser, st, strongMagnitude, weakMagnitude,
-                                             seq, buf.data(), buf.size());
+        const std::uint8_t seq = nextSeqLocked(vpKey(target.vendorId, target.productId));
+        const auto& st = feedback_[vpKey(target.vendorId, target.productId)];
+        n = input::usbout::buildRumbleReport(target.parser, st, strongMagnitude, weakMagnitude, seq,
+                                             buf.data(), buf.size());
     }
     if (n == 0) { return false; }
-    return gateway_->writeOutputReport(target->syntheticId, buf.data(), n);
+    return gateway_->writeOutputReport(target.syntheticId, buf.data(), n);
 }
 
 bool UsbGamepadManager::applyLightbar(int vendorId, int productId, std::uint8_t r, std::uint8_t g,
                                       std::uint8_t b) {
     const auto target = directTarget(vendorId, productId);
-    if (!target.has_value() || gateway_ == nullptr) { return false; }
+    return target.has_value() && applyLightbar(*target, r, g, b);
+}
+
+bool UsbGamepadManager::applyLightbar(const DirectTarget& target, std::uint8_t r, std::uint8_t g,
+                                      std::uint8_t b) {
+    if (gateway_ == nullptr) { return false; }
     std::array<std::uint8_t, input::usbout::kMaxOutputReportBytes> buf{};
     std::size_t n = 0;
     {
@@ -374,60 +386,74 @@ bool UsbGamepadManager::applyLightbar(int vendorId, int productId, std::uint8_t 
         // lookup and the build are one critical section: two colours racing in
         // must not both decide they are the first.
         std::lock_guard<thread::TrackedMutex> lock(feedbackMtx_);
-        auto& st = feedback_[vpKey(vendorId, productId)];
-        n = input::usbout::buildLightbarReport(target->parser, st, r, g, b, buf.data(), buf.size());
+        auto& st = feedback_[vpKey(target.vendorId, target.productId)];
+        n = input::usbout::buildLightbarReport(target.parser, st, r, g, b, buf.data(), buf.size());
     }
     if (n == 0) { return false; }
-    return gateway_->writeOutputReport(target->syntheticId, buf.data(), n);
+    return gateway_->writeOutputReport(target.syntheticId, buf.data(), n);
 }
 
 bool UsbGamepadManager::applyPlayerLeds(int vendorId, int productId, std::uint8_t ledMask) {
     const auto target = directTarget(vendorId, productId);
-    if (!target.has_value() || gateway_ == nullptr) { return false; }
+    return target.has_value() && applyPlayerLeds(*target, ledMask);
+}
+
+bool UsbGamepadManager::applyPlayerLeds(const DirectTarget& target, std::uint8_t ledMask) {
+    if (gateway_ == nullptr) { return false; }
     std::array<std::uint8_t, input::usbout::kMaxOutputReportBytes> buf{};
     std::size_t n = 0;
     {
         std::lock_guard<thread::TrackedMutex> lock(feedbackMtx_);
-        const std::uint8_t seq = nextSeqLocked(vpKey(vendorId, productId));
-        const auto& st = feedback_[vpKey(vendorId, productId)];
-        n = input::usbout::buildPlayerLedsReport(target->parser, st, ledMask, seq, buf.data(),
+        const std::uint8_t seq = nextSeqLocked(vpKey(target.vendorId, target.productId));
+        const auto& st = feedback_[vpKey(target.vendorId, target.productId)];
+        n = input::usbout::buildPlayerLedsReport(target.parser, st, ledMask, seq, buf.data(),
                                                  buf.size());
     }
     if (n == 0) { return false; }
-    return gateway_->writeOutputReport(target->syntheticId, buf.data(), n);
+    return gateway_->writeOutputReport(target.syntheticId, buf.data(), n);
 }
 
 bool UsbGamepadManager::applyTriggerEffects(
     int vendorId, int productId, const std::uint8_t left[input::usbout::kTriggerEffectBlockBytes],
     const std::uint8_t right[input::usbout::kTriggerEffectBlockBytes]) {
     const auto target = directTarget(vendorId, productId);
-    if (!target.has_value() || gateway_ == nullptr) { return false; }
+    return target.has_value() && applyTriggerEffects(*target, left, right);
+}
+
+bool UsbGamepadManager::applyTriggerEffects(
+    const DirectTarget& target, const std::uint8_t left[input::usbout::kTriggerEffectBlockBytes],
+    const std::uint8_t right[input::usbout::kTriggerEffectBlockBytes]) {
+    if (gateway_ == nullptr) { return false; }
     std::array<std::uint8_t, input::usbout::kMaxOutputReportBytes> buf{};
     std::size_t n = 0;
     {
         std::lock_guard<thread::TrackedMutex> lock(feedbackMtx_);
-        const auto& st = feedback_[vpKey(vendorId, productId)];
-        n = input::usbout::buildTriggerEffectsReport(target->parser, st, left, right, buf.data(),
+        const auto& st = feedback_[vpKey(target.vendorId, target.productId)];
+        n = input::usbout::buildTriggerEffectsReport(target.parser, st, left, right, buf.data(),
                                                      buf.size());
     }
     if (n == 0) { return false; }
-    return gateway_->writeOutputReport(target->syntheticId, buf.data(), n);
+    return gateway_->writeOutputReport(target.syntheticId, buf.data(), n);
 }
 
 bool UsbGamepadManager::applyMicMuteLed(int vendorId, int productId, std::uint8_t state) {
     const auto target = directTarget(vendorId, productId);
-    if (!target.has_value() || gateway_ == nullptr) { return false; }
+    return target.has_value() && applyMicMuteLed(*target, state);
+}
+
+bool UsbGamepadManager::applyMicMuteLed(const DirectTarget& target, std::uint8_t state) {
+    if (gateway_ == nullptr) { return false; }
     std::array<std::uint8_t, input::usbout::kMaxOutputReportBytes> buf{};
     std::size_t n = 0;
     {
         // The builder writes the lamp shadow, so the lookup and the build are
         // one critical section like the lightbar handoff's.
         std::lock_guard<thread::TrackedMutex> lock(feedbackMtx_);
-        auto& st = feedback_[vpKey(vendorId, productId)];
-        n = input::usbout::buildMicMuteLedReport(target->parser, st, state, buf.data(), buf.size());
+        auto& st = feedback_[vpKey(target.vendorId, target.productId)];
+        n = input::usbout::buildMicMuteLedReport(target.parser, st, state, buf.data(), buf.size());
     }
     if (n == 0) { return false; }
-    return gateway_->writeOutputReport(target->syntheticId, buf.data(), n);
+    return gateway_->writeOutputReport(target.syntheticId, buf.data(), n);
 }
 
 bool UsbGamepadManager::setPadMicMuted(int vendorId, int productId, bool muted) {

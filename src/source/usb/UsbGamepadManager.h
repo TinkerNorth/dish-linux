@@ -163,6 +163,25 @@ class UsbGamepadManager {
     // latch.
     bool setPadMicMuted(int vendorId, int productId, bool muted);
 
+    // A claimed model's synthetic id and decoder family, resolved once so a caller that keeps it
+    // (the published route table) can write feedback with no lookup. A target whose claim has
+    // since ended writes nothing: the gateway refuses an id it no longer holds.
+    struct DirectTarget {
+        int vendorId = 0;
+        int productId = 0;
+        int syntheticId = 0;
+        input::usbparse::HidParser parser = input::usbparse::HidParser::None;
+    };
+    std::optional<DirectTarget> directTarget(int vendorId, int productId) const;
+    bool applyRumble(const DirectTarget& target, std::uint16_t strongMagnitude,
+                     std::uint16_t weakMagnitude);
+    bool applyLightbar(const DirectTarget& target, std::uint8_t r, std::uint8_t g, std::uint8_t b);
+    bool applyPlayerLeds(const DirectTarget& target, std::uint8_t ledMask);
+    bool applyTriggerEffects(const DirectTarget& target,
+                             const std::uint8_t left[input::usbout::kTriggerEffectBlockBytes],
+                             const std::uint8_t right[input::usbout::kTriggerEffectBlockBytes]);
+    bool applyMicMuteLed(const DirectTarget& target, std::uint8_t state);
+
     // Whether a Direct claim for this model is live right now. The link layer of
     // the capability solve asks this before advertising an actuator, so the
     // descriptor never promises a surface that a Standard-path pad cannot land.
@@ -198,14 +217,6 @@ class UsbGamepadManager {
     // funnels through here so events apply in order.
     void applyEvent(int key, const reducer::UsbEvent& event);
     void execute(int key, const reducer::UsbController& c, const reducer::UsbEffect& fx);
-
-    // The claimed synthetic id + decoder family for a model, or nullopt when it
-    // is not Direct-claimed. One lookup shared by every feedback entry point.
-    struct DirectTarget {
-        int syntheticId = 0;
-        input::usbparse::HidParser parser = input::usbparse::HidParser::None;
-    };
-    std::optional<DirectTarget> directTarget(int vendorId, int productId) const;
 
     // Drop a model's OUT-direction state when its claim ends, so a replugged pad
     // re-sends the DualSense lightbar handoff instead of assuming the firmware

@@ -74,6 +74,14 @@ class WifiConnection : public QObject {
     std::optional<QString> boundSlotId() const { return boundSlotId_; }
     std::shared_ptr<SatelliteClient> client() const { return clientRef_.get(); }
 
+    // Where the bound slot's reports go right now: the live client and the slot's controller
+    // index. Empty while no slot is bound and registered or no link is open. GUI thread.
+    struct SendTarget {
+        std::shared_ptr<SatelliteClient> client;
+        int controllerIndex = 0;
+    };
+    std::optional<SendTarget> sendTarget() const;
+
     // Rounded to the 0.1 ms display precision. 0 / 0 with no live session or an
     // unseeded window, and zeroed on teardown so a dead row shows no figure.
     double latencyOneWayMs() const { return latencyOneWayMs_; }

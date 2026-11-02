@@ -13,6 +13,7 @@
 #include "Network/ConnectionStore.h"
 #include "Network/WifiConnection.h"
 #include "Network/WifiConnectionManager.h"
+#include "SlotRouter.h"
 #include "core/audio/PadAudioMatcher.h"
 #include "core/input/UsbOutputReports.h"
 #include "core/input/UsbReportParsers.h"
@@ -452,11 +453,16 @@ class VirtualPad {
         SDL_JoystickSetVirtualAxis(joystick_, SDL_CONTROLLER_AXIS_RIGHTX, value);
     }
     std::uint64_t rumbles() const { return rumbles_.load(std::memory_order_relaxed); }
+    // The last rumble SDL handed the pad, low motor in the high half.
+    std::uint32_t lastRumble() const { return lastRumble_.load(std::memory_order_relaxed); }
     std::uint64_t leds() const { return leds_.load(std::memory_order_relaxed); }
 
   private:
-    static int SDLCALL onRumble(void* self, Uint16 /*low*/, Uint16 /*high*/) {
-        static_cast<VirtualPad*>(self)->rumbles_.fetch_add(1, std::memory_order_relaxed);
+    static int SDLCALL onRumble(void* self, Uint16 low, Uint16 high) {
+        auto* pad = static_cast<VirtualPad*>(self);
+        pad->lastRumble_.store((static_cast<std::uint32_t>(low) << 16) | high,
+                               std::memory_order_relaxed);
+        pad->rumbles_.fetch_add(1, std::memory_order_relaxed);
         return 0;
     }
 
@@ -469,338 +475,8 @@ class VirtualPad {
     SDL_JoystickID instanceId_ = -1;
     SDL_Joystick* joystick_ = nullptr;
     std::atomic<std::uint64_t> rumbles_{0};
+    std::atomic<std::uint32_t> lastRumble_{0};
     std::atomic<std::uint64_t> leds_{0};
-};
-
-// Mirrors AppModel's input routing and its feedback route (src/AppModel.cpp), which the harness
-// cannot build: AppModel owns the tray, the real settings and the wake inhibitor. Keep it in step.
-class AppGlue {
-  public:
-    AppGlue(const net::ConnectionHub* hub, input::SDLGamepadBridge* bridge,
-            source::usb::UsbGamepadManager* usbManager,
-            source::MotionEnabledStore* motionEnabledStore,
-            source::RumbleEnabledStore* rumbleEnabledStore, FeatureSettings* featureSettings,
-            source::audio::SpeakerPlayoutEngine* speakerEngine)
-        : hub_(hub), bridge_(bridge), usbManager_(usbManager),
-          motionEnabledStore_(*motionEnabledStore), rumbleEnabledStore_(*rumbleEnabledStore),
-          featureSettings_(featureSettings), speakerEngine_(*speakerEngine) {}
-
-    // AppModel's constructor, the four processor senders. A slot bound to a Moonlight host has no
-    // satellite sender and falls through to the Moonlight tables, under the same lock.
-    void installSenders(input::GamepadInputProcessor& processor) {
-        processor.setReportSender([this](const std::string& did, std::uint16_t buttons,
-                                         std::uint8_t lt, std::uint8_t rt, std::int16_t lx,
-                                         std::int16_t ly, std::int16_t rx, std::int16_t ry) {
-            net::ConnectionHub::ReportSender sender;
-            {
-                std::lock_guard<thread::TrackedMutex> lock(routingMtx_);
-                const QString key = QString::fromStdString(did);
-                sender = routing_.value(key);
-                if (!sender) { sender = moonlightRouting_.value(key); }
-            }
-            if (sender) { sender(buttons, lt, rt, lx, ly, rx, ry); }
-        });
-
-        processor.setMotionSender([this](const std::string& did, std::int16_t gx, std::int16_t gy,
-                                         std::int16_t gz, std::int16_t ax, std::int16_t ay,
-                                         std::int16_t az, std::uint32_t dtUs) {
-            net::ConnectionHub::MotionSender sender;
-            {
-                std::lock_guard<thread::TrackedMutex> lock(routingMtx_);
-                const QString key = QString::fromStdString(did);
-                sender = motionRouting_.value(key);
-                if (!sender) { sender = moonlightMotionRouting_.value(key); }
-            }
-            if (sender) { sender(gx, gy, gz, ax, ay, az, dtUs); }
-        });
-
-        processor.setBatterySender(
-            [this](const std::string& did, std::uint8_t level, std::uint8_t status) {
-                net::ConnectionHub::BatterySender sender;
-                {
-                    std::lock_guard<thread::TrackedMutex> lock(routingMtx_);
-                    const QString key = QString::fromStdString(did);
-                    sender = batteryRouting_.value(key);
-                    if (!sender) { sender = moonlightBatteryRouting_.value(key); }
-                }
-                if (sender) { sender(level, status); }
-            });
-
-        processor.setTouchpadSender(
-            [this](const std::string& did, const input::GamepadInputProcessor::TouchpadSample& s) {
-                net::ConnectionHub::TouchpadSender sender;
-                {
-                    std::lock_guard<thread::TrackedMutex> lock(routingMtx_);
-                    const QString key = QString::fromStdString(did);
-                    sender = touchpadRouting_.value(key);
-                    if (!sender) { sender = moonlightTouchRouting_.value(key); }
-                }
-                if (sender) {
-                    const auto nowMs = static_cast<std::uint32_t>(
-                        std::chrono::duration_cast<std::chrono::milliseconds>(
-                            std::chrono::steady_clock::now().time_since_epoch())
-                            .count());
-                    const auto fwd = reducer::assembleTouchpadForward(
-                        s.finger0Active, s.finger0Id, s.finger0X, s.finger0Y, s.finger1Active,
-                        s.finger1Id, s.finger1X, s.finger1Y, s.buttonPressed, nowMs);
-                    sender(fwd.finger0Active, fwd.finger0Id, fwd.finger0X, fwd.finger0Y,
-                           fwd.finger1Active, fwd.finger1Id, fwd.finger1X, fwd.finger1Y,
-                           fwd.buttonPressed, fwd.eventTimeMs);
-                }
-            });
-    }
-
-    // AppModel::republishRouting over the slots on screen.
-    void republishRouting(const QStringList& slotList) {
-        QHash<QString, net::ConnectionHub::ReportSender> nextRouting;
-        QHash<QString, net::ConnectionHub::MotionSender> nextMotion;
-        QHash<QString, net::ConnectionHub::BatterySender> nextBattery;
-        QHash<QString, net::ConnectionHub::TouchpadSender> nextTouchpad;
-        for (const auto& slotId : slotList) {
-            if (auto sender = hub_->reportSenderForSlot(slotId)) {
-                nextRouting.insert(slotId, sender);
-            }
-            const bool motionAllowed = motionEnabledStore_.isEnabled(slotId.toStdString());
-            if (auto sender = hub_->motionSenderForSlot(slotId); sender && motionAllowed) {
-                nextMotion.insert(slotId, sender);
-            }
-            if (auto sender = hub_->batterySenderForSlot(slotId)) {
-                nextBattery.insert(slotId, sender);
-            }
-            if (auto sender = hub_->touchpadSenderForSlot(slotId)) {
-                nextTouchpad.insert(slotId, sender);
-            }
-        }
-        {
-            std::lock_guard<thread::TrackedMutex> lock(routingMtx_);
-            routing_ = std::move(nextRouting);
-            motionRouting_ = std::move(nextMotion);
-            batteryRouting_ = std::move(nextBattery);
-            touchpadRouting_ = std::move(nextTouchpad);
-        }
-    }
-
-    // AppModel::installFeedbackHandlers, for the kinds the rig's satellites send.
-    void installFeedbackHandlers(net::WifiConnection& conn, const QString& id) {
-        conn.setRumbleHandler(
-            [this, id](const net::SatelliteClient::RumbleMessage& rm) { onRumbleMessage(id, rm); });
-        conn.setLightbarHandler([this, id](const net::SatelliteClient::LightbarMessage& lm) {
-            onLightbarMessage(id, lm);
-        });
-        conn.setSpeakerAudioHandler(
-            [this, id](const net::SatelliteClient::SpeakerAudioMessage& sm) {
-                onPlayoutMessage(id, sm, source::audio::PlayoutLane::Speaker);
-            });
-    }
-
-    std::uint64_t rumblesRouted() const { return rumblesRouted_.load(std::memory_order_relaxed); }
-    std::uint64_t lightbarsRouted() const {
-        return lightbarsRouted_.load(std::memory_order_relaxed);
-    }
-
-  private:
-    struct SlotHardware {
-        bool usbDirect = false;
-        bool hasMotion = false;
-        bool hasLightbar = false;
-        bool hasTouchpad = false;
-        bool hasRumble = false;
-        bool hasTriggerEffects = false;
-        bool hasPlayerLeds = false;
-        bool hasMicLed = false;
-        bool sdlEffects = false;
-    };
-
-    void onRumbleMessage(const QString& id, const net::SatelliteClient::RumbleMessage& rm) {
-        const QString deviceId = boundSlotForConnection(id);
-        if (deviceId.isEmpty()) { return; }
-        deliverRumble(deviceId, rm.strongMagnitude, rm.weakMagnitude, rm.durationMs);
-    }
-
-    void onLightbarMessage(const QString& id, const net::SatelliteClient::LightbarMessage& lm) {
-        const auto color =
-            lightbarColorFromLightbarMessage(lm, featureSettings_->lightbarFollowGame());
-        if (!color) { return; }
-        const QString deviceId = boundSlotForConnection(id);
-        if (deviceId.isEmpty()) { return; }
-        actuateLightbar(deviceId, color->r, color->g, color->b);
-    }
-
-    void onPlayoutMessage(const QString& id, const net::SatelliteClient::SpeakerAudioMessage& sm,
-                          source::audio::PlayoutLane lane) {
-        speakerEngine_.deliver(id.toStdString(), sm.controllerIndex, lane, sm.seq, sm.opus,
-                               sm.opusLen);
-    }
-
-    QString boundSlotForConnection(const QString& connectionId) const {
-        const auto bindings = hub_->bindings();
-        for (auto it = bindings.cbegin(); it != bindings.cend(); ++it) {
-            if (it.value() == connectionId) { return it.key(); }
-        }
-        return {};
-    }
-
-    void deliverRumble(const QString& slotId, std::uint16_t strong, std::uint16_t weak,
-                       std::uint16_t durationMs) {
-        const reducer::RumbleCommand fromHost{strong, weak, durationMs};
-        const bool userRumbleOn = rumbleEnabledStore_.isEnabled(slotId);
-        const auto command = reducer::rumbleTheUserAllows(fromHost, userRumbleOn);
-        actuateRumble(slotId, command.strong, command.weak, command.durationMs);
-    }
-
-    void actuateRumble(const QString& slotId, std::uint16_t strong, std::uint16_t weak,
-                       std::uint16_t durationMs) {
-        const auto in = feedbackInputs(slotId);
-        switch (reducer::resolveFeedbackTarget(in, reducer::FeedbackKind::Rumble)) {
-        case reducer::FeedbackTarget::Standard:
-            bridge_->applyRumble(slotId, strong, weak, durationMs);
-            rumblesRouted_.fetch_add(1, std::memory_order_relaxed);
-            return;
-        case reducer::FeedbackTarget::DirectUsb: {
-            const auto vp = reducer::parseSyntheticSlotId(slotId.toStdString());
-            if (vp.has_value() && usbManager_ != nullptr) {
-                usbManager_->applyRumble(vp->first, vp->second, strong, weak);
-                rumblesRouted_.fetch_add(1, std::memory_order_relaxed);
-            }
-            return;
-        }
-        case reducer::FeedbackTarget::None:
-            return;
-        }
-    }
-
-    void actuateLightbar(const QString& slotId, std::uint8_t r, std::uint8_t g, std::uint8_t b) {
-        const auto in = feedbackInputs(slotId);
-        switch (reducer::resolveFeedbackTarget(in, reducer::FeedbackKind::Lightbar)) {
-        case reducer::FeedbackTarget::Standard:
-            bridge_->applyLightbar(slotId, r, g, b);
-            lightbarsRouted_.fetch_add(1, std::memory_order_relaxed);
-            return;
-        case reducer::FeedbackTarget::DirectUsb: {
-            const auto vp = reducer::parseSyntheticSlotId(slotId.toStdString());
-            if (vp.has_value() && usbManager_ != nullptr) {
-                usbManager_->applyLightbar(vp->first, vp->second, r, g, b);
-                lightbarsRouted_.fetch_add(1, std::memory_order_relaxed);
-            }
-            return;
-        }
-        case reducer::FeedbackTarget::None:
-            return;
-        }
-    }
-
-    static void applyOutputActuators(SlotHardware& hw, input::usbparse::HidParser parser) {
-        hw.hasTriggerEffects = input::usbout::parserHasTriggerEffects(parser);
-        hw.hasPlayerLeds = input::usbout::parserHasPlayerLeds(parser);
-        hw.hasMicLed = input::usbout::parserHasMicMuteLed(parser);
-    }
-
-    static SlotHardware syntheticHardware(int vendorId, int productId) {
-        const auto parser = input::usbparse::parserForDevice(vendorId, productId);
-        SlotHardware hw;
-        hw.usbDirect = true;
-        hw.hasMotion = input::usbparse::parserHasImu(parser);
-        hw.hasTouchpad = input::usbparse::parserHasTouchpad(parser);
-        hw.hasRumble = input::usbparse::parserHasRumble(parser);
-        hw.hasLightbar = input::usbout::parserHasLightbar(parser);
-        applyOutputActuators(hw, parser);
-        return hw;
-    }
-
-    SlotHardware sdlHardware(const QString& slotId) const {
-        SlotHardware hw;
-        for (const auto& d : bridge_->devices()) {
-            if (d.id != slotId) { continue; }
-            hw.hasMotion = d.motionCapable;
-            hw.hasLightbar = d.hasLightbar;
-            hw.hasTouchpad = d.hasTouchpad;
-            hw.hasRumble = d.hasRumble;
-            const auto parser = input::usbparse::parserForDevice(d.vendorId, d.productId);
-            applyOutputActuators(hw, parser);
-            hw.sdlEffects = parser == input::usbparse::HidParser::DualSense && d.hasLightbar;
-            return hw;
-        }
-        return hw;
-    }
-
-    SlotHardware slotHardware(const QString& slotId) const {
-        const auto vp = reducer::parseSyntheticSlotId(slotId.toStdString());
-        if (vp.has_value() && reducer::isPadIdentity(vp)) {
-            return syntheticHardware(vp->first, vp->second);
-        }
-        return sdlHardware(slotId);
-    }
-
-    reducer::SlotFeedbackInputs feedbackInputs(const QString& slotId) const {
-        const SlotHardware hw = slotHardware(slotId);
-        reducer::SlotFeedbackInputs in;
-        in.usbDirect = hw.usbDirect;
-        in.padRumble = hw.hasRumble;
-        in.padLightbar = hw.hasLightbar;
-        in.padTriggerEffects = hw.hasTriggerEffects;
-        in.padPlayerLeds = hw.hasPlayerLeds;
-        in.padMicLed = hw.hasMicLed;
-        in.standardEffects = hw.sdlEffects;
-        if (hw.usbDirect) {
-            const auto vp = reducer::parseSyntheticSlotId(slotId.toStdString());
-            in.directClaimLive = vp.has_value() && usbManager_ != nullptr &&
-                                 usbManager_->isDirectClaimed(vp->first, vp->second);
-        }
-        const auto route = audioRouteForSlot(slotId);
-        in.padMicRoute = route.microphone;
-        in.padSpeakerRoute = route.speaker;
-        in.padHapticRoute = route.haptics;
-        return in;
-    }
-
-    audio::PadAudioRoute audioRouteForSlot(const QString& slotId) const {
-        int vendorId = 0;
-        int productId = 0;
-        if (const auto vp = reducer::parseSyntheticSlotId(slotId.toStdString()); vp.has_value()) {
-            vendorId = vp->first;
-            productId = vp->second;
-        } else {
-            bool found = false;
-            for (const auto& d : bridge_->devices()) {
-                if (d.id != slotId) { continue; }
-                if (d.bluetooth) { return {}; }
-                vendorId = d.vendorId;
-                productId = d.productId;
-                found = true;
-                break;
-            }
-            if (!found) { return {}; }
-        }
-        if (vendorId == 0 && productId == 0) { return {}; }
-        std::lock_guard<thread::TrackedMutex> lock(audioRoutesMtx_);
-        const auto it = padAudioRoutes_.find(audio::padAudioKey(vendorId, productId));
-        if (it == padAudioRoutes_.end()) { return {}; }
-        return it->second;
-    }
-
-    const net::ConnectionHub* hub_;
-    input::SDLGamepadBridge* bridge_;
-    source::usb::UsbGamepadManager* usbManager_;
-    source::MotionEnabledStore& motionEnabledStore_;
-    source::RumbleEnabledStore& rumbleEnabledStore_;
-    FeatureSettings* featureSettings_;
-    source::audio::SpeakerPlayoutEngine& speakerEngine_;
-
-    mutable thread::TrackedMutex audioRoutesMtx_{"app.audioRoutes"};
-    std::map<int, audio::PadAudioRoute> padAudioRoutes_;
-    mutable thread::TrackedMutex routingMtx_{"app.routing"};
-    QHash<QString, net::ConnectionHub::ReportSender> routing_;
-    QHash<QString, net::ConnectionHub::MotionSender> motionRouting_;
-    QHash<QString, net::ConnectionHub::BatterySender> batteryRouting_;
-    QHash<QString, net::ConnectionHub::TouchpadSender> touchpadRouting_;
-    // AppModel's Moonlight tables: the rig binds no slot to a host, so they stay empty, and a
-    // satellite slot's report never reads them.
-    QHash<QString, net::ConnectionHub::ReportSender> moonlightRouting_;
-    QHash<QString, net::ConnectionHub::MotionSender> moonlightMotionRouting_;
-    QHash<QString, net::ConnectionHub::BatterySender> moonlightBatteryRouting_;
-    QHash<QString, net::ConnectionHub::TouchpadSender> moonlightTouchRouting_;
-    std::atomic<std::uint64_t> rumblesRouted_{0};
-    std::atomic<std::uint64_t> lightbarsRouted_{0};
 };
 
 // The objects AppModel owns for the input and feedback paths, wired as AppModel wires them, over
@@ -819,8 +495,9 @@ class HotPathRig {
           store_(std::make_unique<net::ConnectionStore>(settingsFile(settings_))),
           manager_(std::make_unique<net::WifiConnectionManager>(store_.get())),
           hub_(std::make_unique<net::ConnectionHub>(manager_.get(), store_.get())),
-          glue_(hub_.get(), &bridge_, &usbManager_, &motionEnabledStore_, &rumbleEnabledStore_,
-                &featureSettings_, &speakerEngine_) {
+          router_(SlotRouter::Dependencies{hub_.get(), manager_.get(), &processor_, &bridge_,
+                                           &usbManager_, &motionEnabledStore_, &rumbleEnabledStore_,
+                                           &featureSettings_, &speakerEngine_}) {
         rest_.respond = answerRest;
         for (int i = 0; i < sessions; ++i) {
             satellites_.push_back(std::make_unique<LoopbackSatellite>(sessionKey_, handlerFor(i)));
@@ -836,14 +513,14 @@ class HotPathRig {
                 net::WifiConnection::idFor(s));
             servers_.push_back(s);
         }
-        glue_.installSenders(processor_);
+        router_.attach();
     }
 
-    // The input thread stops first and the manager next, as in ~AppModel: no SDL report reaches
-    // the glue while it goes, and the sessions' receive threads read the hub.
+    // The SDL thread stops first, so no report reaches the router as it goes; then the manager,
+    // as in AppModel: its sessions' receive threads read the hub.
     ~HotPathRig() {
         bridge_.stop();
-        glue_.republishRouting({});
+        router_.republish({});
         manager_.reset();
         hub_.reset();
     }
@@ -868,7 +545,7 @@ class HotPathRig {
         });
         if (!live) { return false; }
         for (int i = 0; i < sessionCount(); ++i) {
-            glue_.installFeedbackHandlers(*connection(i), connectionId(i));
+            router_.installFeedbackHandlers(*connection(i), connectionId(i));
         }
         return true;
     }
@@ -909,8 +586,11 @@ class HotPathRig {
 
     input::GamepadInputProcessor& processor() { return processor_; }
     input::SDLGamepadBridge& bridge() { return bridge_; }
-    AppGlue& glue() { return glue_; }
-    const AppGlue& glue() const { return glue_; }
+    SlotRouter& router() { return router_; }
+    source::MotionEnabledStore& motionSwitch() { return motionEnabledStore_; }
+    source::RumbleEnabledStore& rumbleSwitch() { return rumbleEnabledStore_; }
+    FeatureSettings& features() { return featureSettings_; }
+    const SlotRouter& router() const { return router_; }
     net::ConnectionHub& hub() { return *hub_; }
     const FakeDualSenseGateway& usbGateway() const { return usbGateway_; }
 
@@ -936,7 +616,7 @@ class HotPathRig {
     std::unique_ptr<net::ConnectionStore> store_;
     std::unique_ptr<net::WifiConnectionManager> manager_;
     std::unique_ptr<net::ConnectionHub> hub_;
-    AppGlue glue_;
+    SlotRouter router_;
     std::vector<std::unique_ptr<LoopbackSatellite>> satellites_;
     std::vector<models::DiscoveredServer> servers_;
 };

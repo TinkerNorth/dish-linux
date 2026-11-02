@@ -55,21 +55,15 @@ struct LockPair {
 // fails, and so does a listed lock that no longer appears. The hot-path work deletes entries.
 
 constexpr std::array kSdlInputMayAcquire{
-    LockName{"app.routing", Allowance::Debt},
     LockName{"bridge.output", Allowance::Debt},
-    LockName{"wifi.client", Allowance::Debt},
 };
 
-constexpr std::array kUsbReaderMayAcquire{
-    LockName{"app.routing", Allowance::Debt},
-    LockName{"wifi.client", Allowance::Debt},
-};
+constexpr std::array<LockName, 0> kUsbReaderMayAcquire{};
 
 constexpr std::array kReceiveMayAcquire{
-    LockName{"app.audioRoutes", Allowance::Debt}, LockName{"bridge.devices", Allowance::Debt},
-    LockName{"bridge.output", Allowance::Debt},   LockName{"hub.bindings", Allowance::Debt},
-    LockName{"playout.pending", Allowance::Debt}, LockName{"store.observable", Allowance::Debt},
-    LockName{"usb.feedback", Allowance::Debt},    LockName{"usb.manager", Allowance::Debt},
+    LockName{"bridge.output", Allowance::Debt},
+    LockName{"playout.pending", Allowance::Debt},
+    LockName{"usb.feedback", Allowance::Debt},
 };
 
 // The Linux sendto is MSG_DONTWAIT and carries no marker. HidrawGateway holds hid.write across a
@@ -207,7 +201,7 @@ void sendFeedback(hp::HotPathRig& rig, std::uint32_t tick) {
 // The GUI thread's share while a pad plays: the rebuild's routing republish and twin set, the
 // device list, and the inspector's and the rate sampler's reads. Answers how much it read.
 std::size_t guiTick(hp::HotPathRig& rig, const QStringList& slotIds) {
-    rig.glue().republishRouting(slotIds);
+    rig.router().republish(slotIds);
     rig.bridge().setSuppressedDeviceIds({});
     auto read = static_cast<std::size_t>(rig.bridge().devices().size());
     for (const QString& slot : slotIds) {
@@ -235,8 +229,8 @@ struct Progress {
                tallies[0].pings.load() > 0 && tallies[1].pings.load() > 0 &&
                rig.satellite(0).acksSent() > 0 && rig.satellite(1).acksSent() > 0 &&
                pad.rumbles() >= kEnoughPadRumbles && rig.usbGateway().writes() >= kEnoughWrites &&
-               rig.glue().rumblesRouted() >= kEnoughFeedback &&
-               rig.glue().lightbarsRouted() >= kEnoughLightbars;
+               rig.router().rumblesRouted() >= kEnoughFeedback &&
+               rig.router().lightbarsRouted() >= kEnoughLightbars;
     }
 };
 
@@ -278,7 +272,7 @@ LawRun runTheHotPathsTogether() {
                 return run;
             }
             const QStringList slotIds{padId, usbSlot};
-            rig.glue().republishRouting(slotIds);
+            rig.router().republish(slotIds);
             const auto mic = rig.hub().micAudioSenderForSlot(padId);
             if (!mic) {
                 run.failed = "the bound pad has no mic sender";

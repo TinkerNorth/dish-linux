@@ -164,7 +164,30 @@ class GamepadInputProcessor {
     // Process-monotonic: a device leaving does not roll it back.
     std::uint64_t actuationCount() const { return actuations_.load(std::memory_order_relaxed); }
 
-    // Set before any input thread starts; read by them without a lock afterwards.
+    // Where the app's reports leave, keyed by the device's index, which is what a published route
+    // table is indexed by. Called on the device's own thread.
+    class InputSink {
+      public:
+        virtual ~InputSink() = default;
+        virtual void report(DeviceIndex index, const DeviceId& id, const DeviceState& state) = 0;
+        virtual void motion(DeviceIndex index, const DeviceId& id, const MotionSample& sample,
+                            std::uint32_t timestampDeltaUs) = 0;
+        virtual void battery(DeviceIndex index, const DeviceId& id,
+                             const BatterySample& sample) = 0;
+        virtual void touchpad(DeviceIndex index, const DeviceId& id,
+                              const TouchpadSample& sample) = 0;
+
+      protected:
+        InputSink() = default;
+        InputSink(const InputSink&) = default;
+        InputSink& operator=(const InputSink&) = default;
+        InputSink(InputSink&&) = default;
+        InputSink& operator=(InputSink&&) = default;
+    };
+
+    // Set before any input thread starts; read by them without a lock afterwards. The senders are
+    // plain hooks (the tests' window onto what leaves); the app routes through the sink.
+    void setSink(InputSink* sink) { sink_ = sink; }
     void setReportSender(ReportSender sender);
     void setMotionSender(MotionSender sender);
     void setBatterySender(BatterySender sender);
@@ -196,8 +219,8 @@ class GamepadInputProcessor {
     void publishBattery(const DeviceId& id, const BatterySample& sample);
     void publishTouchpad(const DeviceId& id, const TouchpadSample& sample);
 
-    // Sends a neutral report for every device, whatever it last sent; each device's latch then
-    // holds the zeros, so its next report goes out unless it is neutral too.
+    // Sends a neutral report to the report sender for every device, whatever it last sent; each
+    // device's latch then holds the zeros, so its next report goes out unless it is neutral too.
     void zeroAndSendAll();
     TelemetrySnapshot drainTelemetry();
 
@@ -265,6 +288,7 @@ class GamepadInputProcessor {
     static void syncOwner(Record& r);
 
     std::array<Record, kMaxDevices> records_;
+    InputSink* sink_ = nullptr;
     ReportSender sender_;
     MotionSender motionSender_;
     BatterySender batterySender_;

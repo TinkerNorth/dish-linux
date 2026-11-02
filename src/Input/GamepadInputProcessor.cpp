@@ -170,6 +170,7 @@ void GamepadInputProcessor::publish(DeviceIndex index, const DeviceState& state)
     r->lastForwarded = filtered;
     telSends_.fetch_add(1, std::memory_order_relaxed);
     telTotalSent_.fetch_add(1, std::memory_order_relaxed);
+    if (sink_ != nullptr) { sink_->report(index, r->id, filtered); }
     if (sender_) {
         sender_(r->id, filtered.wButtons, filtered.lt, filtered.rt, filtered.lx, filtered.ly,
                 filtered.rx, filtered.ry);
@@ -203,6 +204,7 @@ bool GamepadInputProcessor::publishMotionAt(DeviceIndex index, const MotionSampl
     r->seen.store(r->seen.load(std::memory_order_relaxed) | kSeenMotion, std::memory_order_release);
     r->seq.endWrite();
     r->motionEvents.fetch_add(1, std::memory_order_relaxed);
+    if (sink_ != nullptr) { sink_->motion(index, r->id, sample, deltaUs); }
     if (motionSender_) {
         motionSender_(r->id, sample.gyroX, sample.gyroY, sample.gyroZ, sample.accelX, sample.accelY,
                       sample.accelZ, deltaUs);
@@ -219,8 +221,9 @@ bool GamepadInputProcessor::publishMotion(DeviceIndex index, const MotionSample&
 
 void GamepadInputProcessor::publishBattery(DeviceIndex index, const BatterySample& sample) {
     Record* const r = recordAt(index);
-    if (r == nullptr || !batterySender_) { return; }
-    batterySender_(r->id, sample.level, sample.status);
+    if (r == nullptr) { return; }
+    if (sink_ != nullptr) { sink_->battery(index, r->id, sample); }
+    if (batterySender_) { batterySender_(r->id, sample.level, sample.status); }
 }
 
 void GamepadInputProcessor::publishTouchpad(DeviceIndex index, const TouchpadSample& sample) {
@@ -233,6 +236,7 @@ void GamepadInputProcessor::publishTouchpad(DeviceIndex index, const TouchpadSam
     r->seq.endWrite();
     // No threshold: a touchpad sample is a finger, not a poll.
     actuations_.fetch_add(1, std::memory_order_relaxed);
+    if (sink_ != nullptr) { sink_->touchpad(index, r->id, sample); }
     if (touchpadSender_) { touchpadSender_(r->id, sample); }
 }
 

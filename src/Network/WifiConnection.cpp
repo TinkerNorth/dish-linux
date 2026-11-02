@@ -387,6 +387,15 @@ bool WifiConnection::matchesAppliedView(const models::SessionViewDto& view) cons
     return reducer::appliedMatchesDesired(desired, applied, mouseMatch);
 }
 
+std::optional<WifiConnection::SendTarget> WifiConnection::sendTarget() const {
+    if (!boundSlotId_.has_value()) { return std::nullopt; }
+    const auto it = slots_.find(*boundSlotId_);
+    if (it == slots_.end() || !it->second.registered) { return std::nullopt; }
+    auto client = clientRef_.get();
+    if (!client) { return std::nullopt; }
+    return SendTarget{std::move(client), it->second.controllerIndex};
+}
+
 void WifiConnection::sendReport(std::uint16_t buttons, std::uint8_t lt, std::uint8_t rt,
                                 std::int16_t lx, std::int16_t ly, std::int16_t rx,
                                 std::int16_t ry) {
