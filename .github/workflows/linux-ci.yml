@@ -156,6 +156,14 @@ jobs:
       - name: Run tests (Release)
         run: ctest --preset release --parallel
 
+      # measurements.yml turns the bench's JSON into a release's report; these
+      # tests also read the JSON the smoke run above really wrote.
+      - name: Measurements report tests
+        if: env.DISH_LINTS == 'true'
+        env:
+          DISH_BENCH_JSON: build-release/tools/bench/bench_input_path_smoke.json
+        run: python3 -m unittest discover -s tests -p 'test_measurements_report.py'
+
       # Ubuntu patches PIE, partial RELRO and stack protection into its gcc
       # defaults, so these pass by accident on this runner and would silently
       # stop passing anywhere else. Assert the linker actually applied them.

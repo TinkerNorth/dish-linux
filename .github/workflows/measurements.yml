@@ -1,0 +1,241 @@
+name: Measurements
+
+# Pin map (verify with `gh api repos/<owner>/<repo>/git/ref/tags/<tag>`):
+#   actions/checkout           @ v7.0.1 → 3d3c42e5aac5ba805825da76410c181273ba90b1
+#   actions/upload-artifact    @ v7.0.2 → cf430e030ddbb5b0abf93d22962f4752f3646cd9
+#   actions/download-artifact  @ v8.0.2 → 9000827ccba6bdab643e8b6fd33ac0654aef8333
+
+# Runs the input-path bench (tools/bench) and its lock-statistics twin on a
+# hosted runner and turns their JSON into measurements-<version>.md (the job
+# summary) and measurements-<version>.json through
+# scripts/measurements-report.py. release.yml calls it between the draft and
+# the publish and attaches both files to the release; the next release's run
+# compares against them.
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: "Version label for measurements-<version>.json and the job summary"
+        type: string
+        required: true
+      upload_to_release:
+        description: "Attach the two files to the release named by tag"
+        type: boolean
+        required: false
+        default: false
+      tag:
+        description: "Release tag to measure and to attach the files to"
+        type: string
+        required: false
+        default: ""
+      enforce_lock_gate:
+        description: "Fail when SdlInput, UsbReader or Receive takes a lock (off until the hot-path work takes them all off)"
+        type: boolean
+        required: false
+        default: false
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version label (default: dev-<short commit>)"
+        type: string
+        required: false
+        default: ""
+      upload_to_release:
+        description: "Attach the two files to the release named by tag"
+        type: boolean
+        required: false
+        default: false
+      tag:
+        description: "Release tag to measure and to attach the files to (default: the ref the workflow runs on)"
+        type: string
+        required: false
+        default: ""
+      enforce_lock_gate:
+        description: "Fail when SdlInput, UsbReader or Receive takes a lock (off until the hot-path work takes them all off)"
+        type: boolean
+        required: false
+        default: false
+  pull_request:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "tools/bench/**"
+      - "tests/HotPathRig.h"
+      - "tests/test_lock_laws.cpp"
+      - "tests/test_measurements_report.py"
+      - "scripts/measurements-report.py"
+      - "CMakeLists.txt"
+      - ".github/workflows/measurements.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  measure:
+    name: Measure (Release, ubuntu-24.04)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    concurrency:
+      group: measurements-${{ github.event_name }}-${{ github.ref }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+    steps:
+      - name: Check the inputs
+        env:
+          UPLOAD: ${{ inputs.upload_to_release }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          if [ "$UPLOAD" = "true" ] && [ -z "$TAG" ]; then
+            echo "::error::upload_to_release needs a tag"
+            exit 1
+          fi
+
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - name: Resolve the version label
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          version="${INPUT_VERSION#v}"
+          if [ -z "$version" ]; then version="dev-${GITHUB_SHA::7}"; fi
+          if ! [[ "$version" =~ ^[0-9A-Za-z][0-9A-Za-z._+-]*$ ]]; then
+            echo "::error::version label '$version' may only hold letters, digits, '.', '_', '+' and '-'"
+            exit 1
+          fi
+          echo "MEASURE_VERSION=$version" >> "$GITHUB_ENV"
+
+      - name: Set up build dependencies
+        uses: ./.github/actions/setup-build-deps
+        with:
+          cache-key: measurements
+
+      - name: Set up Qt
+        uses: ./.github/actions/setup-qt
+
+      # The configuration that ships (preset release: -O3, LTO), once plain for
+      # the latencies and once with lock statistics for the lock table.
+      - name: Configure
+        run: |
+          set -euo pipefail
+          for variant in plain lockstats; do
+            stats=OFF
+            if [ "$variant" = lockstats ]; then stats=ON; fi
+            cmake --preset release -B "build-measure-$variant" \
+              -DDISH_BUILD_BENCH=ON \
+              -DDISH_LOCK_STATS="$stats" \
+              -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+              -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+          done
+
+      - name: Build the benches and the lock-law test
+        run: |
+          set -euo pipefail
+          cmake --build build-measure-plain --parallel --target bench_input_path
+          cmake --build build-measure-lockstats --parallel \
+            --target bench_input_path_lockstats DishLockLawTests
+
+      - name: Lock laws
+        working-directory: build-measure-lockstats
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: ctest --output-on-failure -R "^lock law"
+
+      - name: Fetch the previous release's measurements
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          mkdir -p previous-measurements
+          if ! gh release download --pattern 'measurements-*.json' --dir previous-measurements; then
+            echo "::notice::No earlier release carries measurements; the trend comparison is skipped."
+          fi
+
+      # Each bench at its defaults, and S5 again with a 1 kHz mic. The runs go
+      # one after another: two benches at once would measure each other.
+      - name: Run the benches
+        id: bench
+        run: |
+          set -uo pipefail
+          mkdir -p measurements-raw
+          failures=()
+          for target in bench_input_path bench_input_path_lockstats; do
+            variant=plain
+            if [ "$target" = bench_input_path_lockstats ]; then variant=lockstats; fi
+            exe="build-measure-$variant/tools/bench/$target"
+            echo "::group::$target"
+            "$exe" --json "measurements-raw/$target.json" || failures+=("$target exited with $?")
+            echo "::endgroup::"
+            echo "::group::$target --mic-hz 1000 --scenarios S5"
+            "$exe" --mic-hz 1000 --scenarios S5 --json "measurements-raw/$target-mic1000.json" \
+              || failures+=("$target --mic-hz 1000 exited with $?")
+            echo "::endgroup::"
+          done
+          if [ "${#failures[@]}" -gt 0 ]; then
+            printf '::error::%s\n' "${failures[@]}"
+            exit 1
+          fi
+
+      # The report's own tests first, against what the bench just wrote.
+      - name: Test the report script
+        if: ${{ !cancelled() && steps.bench.outcome != 'skipped' }}
+        env:
+          DISH_BENCH_JSON: measurements-raw/bench_input_path.json
+        run: python3 -m unittest discover -s tests -p 'test_measurements_report.py'
+
+      # The lock law gate fails until the hot-path work takes every lock off
+      # SdlInput, UsbReader and Receive; until then it is reported, not enforced.
+      - name: Build the report and check the gates
+        id: report
+        if: ${{ !cancelled() && steps.bench.outcome != 'skipped' }}
+        env:
+          ENFORCE_LOCK_GATE: ${{ inputs.enforce_lock_gate == true }}
+        run: |
+          set -euo pipefail
+          enforce=()
+          if [ "$ENFORCE_LOCK_GATE" = "true" ]; then enforce=(--enforce-lock-gate); fi
+          python3 scripts/measurements-report.py \
+            --input-dir measurements-raw \
+            --output-dir measurements \
+            --version "$MEASURE_VERSION" \
+            --previous-dir previous-measurements \
+            --commit "$(git rev-parse HEAD)" \
+            "${enforce[@]}"
+
+      - name: Upload the measurements
+        if: ${{ !cancelled() && steps.report.outcome != 'skipped' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: measurements
+          path: |
+            measurements/measurements-*.json
+            measurements/measurements-*.md
+          retention-days: 90
+          if-no-files-found: warn
+
+  attach:
+    name: Attach to the release
+    needs: [measure]
+    if: ${{ inputs.upload_to_release }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Download the measurements
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: measurements
+          path: measurements
+
+      - name: Upload to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          gh release upload "$TAG" measurements/measurements-*.json measurements/measurements-*.md --clobber

@@ -34,7 +34,10 @@ on:
 # The release is uploaded as a DRAFT and flipped to published afterwards:
 # GitHub never points releases/latest at a draft, so the update permalink
 # (latest.json) and the AppImage's zsync pattern both keep resolving to the
-# previous release until every asset of the new one is in place.
+# previous release until every asset of the new one is in place. Between the
+# two, measurements.yml runs the input-path bench on the tagged commit and
+# attaches measurements-<version>.md and .json to the draft, so every release
+# carries the numbers the next one is compared with.
 #
 # Prerelease tags (1.2.3-rc.1) publish marked as prerelease, skip
 # latest.json, and skip the APT/DNF repos; stable clients and repos never
@@ -790,8 +793,8 @@ jobs:
       # it from source instead.
       compile-generator: true
 
-  publish:
-    name: Publish to GitHub Releases
+  draft:
+    name: Upload the draft GitHub Release
     needs: [harden, provenance]
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -827,6 +830,27 @@ jobs:
           files: release/**/*
           fail_on_unmatched_files: true
 
+  # The input-path measurements of the tagged commit, attached to the draft
+  # with `gh release upload --clobber` before anything is published.
+  measurements:
+    name: Release measurements
+    needs: [draft]
+    permissions:
+      contents: write
+    uses: ./.github/workflows/measurements.yml
+    with:
+      version: ${{ inputs.tag || github.ref_name }}
+      upload_to_release: true
+      tag: ${{ inputs.tag || github.ref_name }}
+
+  publish:
+    name: Publish to GitHub Releases
+    needs: [draft, measurements]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
       - name: Flip release from draft to published
         env:
           GH_TOKEN: ${{ github.token }}

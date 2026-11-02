@@ -162,6 +162,10 @@ cmake --preset release -DDISH_BUILD_BENCH=ON
 cmake --build --preset release --parallel
 ctest --preset release --parallel
 
+step "Measurements report tests"
+DISH_BENCH_JSON=build-release/tools/bench/bench_input_path_smoke.json \
+  python3 -m unittest discover -s tests -p 'test_measurements_report.py'
+
 step "Hardening flags reached the binary"
 readelf -lW  build-release/dish | grep -q 'GNU_RELRO'         || { echo "no RELRO" >&2; exit 1; }
 readelf -dW  build-release/dish | grep -qE 'BIND_NOW|FLAGS.*NOW' || { echo "no full RELRO" >&2; exit 1; }
