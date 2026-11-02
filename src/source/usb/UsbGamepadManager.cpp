@@ -37,22 +37,20 @@ constexpr int kDepartedScanThreshold = 2;
 // apply identically. The decoder already produced the XUSB button word, so there is no per-report
 // conversion and no allocation here.
 //
-// A class rather than a lambda for the shape rules, and because it makes one hazard impossible:
-// a by-copy lambda capture carries the captured entity's cv-qualifiers into the closure, so a
-// `const std::string` slot id became a const closure member, which forces the closure's implicit
-// move constructor to fall back to std::string's copy ctor -- a throwing move plus a heap copy of
-// the slot id on every claim. `slotId_` is a plain member, so do not make it const.
+// A class rather than a lambda for the shape rules. The slot's processor index is resolved once,
+// at the claim, so a report is published by index with no lookup.
 class ClaimedPadPublisher {
   public:
-    ClaimedPadPublisher(input::GamepadInputProcessor* processor, std::string slotId,
+    ClaimedPadPublisher(input::GamepadInputProcessor* processor, const std::string& slotId,
                         UsbDirectObserver* observer, int vendorId, int productId)
-        : processor_(processor), slotId_(std::move(slotId)), observer_(observer),
-          vendorId_(vendorId), productId_(productId) {}
+        : processor_(processor), observer_(observer), vendorId_(vendorId), productId_(productId) {
+        if (processor_ != nullptr) { index_ = processor_->add(slotId); }
+    }
 
     void operator()(const UsbReport& r) const {
         mirrorMicMute(r);
         mirrorBattery(r);
-        if (processor_ == nullptr) { return; }
+        if (processor_ == nullptr || !index_.has_value()) { return; }
         publishInput(r);
         publishMotion(r);
         publishTouchpad(r);
@@ -91,7 +89,7 @@ class ClaimedPadPublisher {
         st.ly = r.ly;
         st.rx = r.rx;
         st.ry = r.ry;
-        processor_->publish(slotId_, st);
+        processor_->publish(*index_, st);
     }
 
     // Rate-limited to <=250 Hz inside the processor.
@@ -104,7 +102,7 @@ class ClaimedPadPublisher {
         m.accelX = r.accelX;
         m.accelY = r.accelY;
         m.accelZ = r.accelZ;
-        processor_->publishMotion(slotId_, m);
+        processor_->publishMotion(*index_, m);
     }
 
     // DS4 and DualSense only; every other decoder leaves touchpadValid false.
@@ -120,11 +118,11 @@ class ClaimedPadPublisher {
         t.finger1X = r.finger1X;
         t.finger1Y = r.finger1Y;
         t.buttonPressed = r.touchpadButton;
-        processor_->publishTouchpad(slotId_, t);
+        processor_->publishTouchpad(*index_, t);
     }
 
     input::GamepadInputProcessor* processor_ = nullptr;
-    std::string slotId_;
+    std::optional<input::GamepadInputProcessor::DeviceIndex> index_;
     UsbDirectObserver* observer_ = nullptr;
     int vendorId_ = 0;
     int productId_ = 0;

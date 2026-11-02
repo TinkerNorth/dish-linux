@@ -55,14 +55,13 @@ struct LockPair {
 // fails, and so does a listed lock that no longer appears. The hot-path work deletes entries.
 
 constexpr std::array kSdlInputMayAcquire{
-    LockName{"app.routing", Allowance::Debt},     LockName{"bridge.devices", Allowance::Debt},
-    LockName{"bridge.output", Allowance::Debt},   LockName{"bridge.suppressed", Allowance::Debt},
-    LockName{"input.processor", Allowance::Debt}, LockName{"wifi.client", Allowance::Debt},
+    LockName{"app.routing", Allowance::Debt},   LockName{"bridge.devices", Allowance::Debt},
+    LockName{"bridge.output", Allowance::Debt}, LockName{"bridge.suppressed", Allowance::Debt},
+    LockName{"wifi.client", Allowance::Debt},
 };
 
 constexpr std::array kUsbReaderMayAcquire{
     LockName{"app.routing", Allowance::Debt},
-    LockName{"input.processor", Allowance::Debt},
     LockName{"wifi.client", Allowance::Debt},
 };
 

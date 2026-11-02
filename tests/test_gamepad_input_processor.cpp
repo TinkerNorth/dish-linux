@@ -5,9 +5,11 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <atomic>
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <thread>
 #include <unordered_map>
 
 using dish::input::applyDeadzones;
@@ -928,4 +930,58 @@ TEST_CASE("inspect: one device's input never reads as another's", "[input][inspe
     p.publish("pad-a", s);
     REQUIRE(p.inspect("pad-a").wire.has_value());
     REQUIRE_FALSE(p.inspect("pad-b").wire.has_value());
+}
+
+TEST_CASE("inspect never sees a report torn by the thread publishing it", "[input][records]") {
+    GamepadInputProcessor p;
+    const auto index = p.add("pad");
+    REQUIRE(index.has_value());
+    std::atomic<bool> stop{false};
+    std::thread owner([&] {
+        for (std::int16_t n = 1; !stop.load(std::memory_order_relaxed);
+             n = static_cast<std::int16_t>(n == 32000 ? 1 : n + 1)) {
+            p.publish(*index, GamepadInputProcessor::DeviceState{static_cast<std::uint16_t>(n), 0,
+                                                                 0, n, n, n, n});
+        }
+    });
+    int seen = 0;
+    bool whole = true;
+    while (seen < 20'000) {
+        const auto inspection = p.inspect("pad");
+        if (!inspection.raw.has_value()) { continue; }
+        const auto& raw = *inspection.raw;
+        whole = whole && raw.lx == raw.ly && raw.ly == raw.rx && raw.rx == raw.ry &&
+                static_cast<std::int16_t>(raw.wButtons) == raw.lx;
+        ++seen;
+    }
+    stop.store(true);
+    owner.join();
+    CHECK(whole);
+    CHECK(p.inputCounters("pad").gamepadEvents > 0);
+}
+
+TEST_CASE("two threads introducing one id end on the same index", "[input][records]") {
+    for (int round = 0; round < 200; ++round) {
+        GamepadInputProcessor p;
+        std::optional<GamepadInputProcessor::DeviceIndex> a;
+        std::optional<GamepadInputProcessor::DeviceIndex> b;
+        std::thread first([&] { a = p.add("twin"); });
+        std::thread second([&] { b = p.add("twin"); });
+        first.join();
+        second.join();
+        REQUIRE(a.has_value());
+        REQUIRE(b.has_value());
+        CHECK(*a == *b);
+    }
+}
+
+TEST_CASE("a full table refuses a new device and frees a slot on remove", "[input][records]") {
+    GamepadInputProcessor p;
+    for (std::size_t i = 0; i < GamepadInputProcessor::kMaxDevices; ++i) {
+        REQUIRE(p.add("pad-" + std::to_string(i)).has_value());
+    }
+    CHECK_FALSE(p.add("one-too-many").has_value());
+    p.remove("pad-7");
+    CHECK(p.add("one-too-many").has_value());
+    CHECK_FALSE(p.add(std::string(GamepadInputProcessor::kMaxIdBytes + 1, 'x')).has_value());
 }
