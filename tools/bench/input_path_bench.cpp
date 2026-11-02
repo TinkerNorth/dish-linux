@@ -2,6 +2,7 @@
 // Copyright (C) 2026 Dish contributors.
 
 #include "HotPathRig.h"
+#include "Input/PumpWaiter.h"
 
 #include "bench_support.h"
 #include "core/model/Protocol.h"
@@ -67,6 +68,7 @@ constexpr double kCountersHz = 1.0;
 constexpr double kToggleHz = 5.0;
 constexpr double kSmokeSecs = 0.2;
 constexpr double kWarmupMaxSecs = 1.0;
+constexpr double kPumpWaitMaxSecs = 2.0;
 constexpr std::int64_t kStartDelayNs = 50 * bench::kNanosPerMilli;
 constexpr std::int64_t kSettleNs = 100 * bench::kNanosPerMilli;
 constexpr int kSetupTimeoutMs = 15'000;
@@ -859,10 +861,41 @@ class SyntheticBench {
     bool toggleBound_ = false;
 };
 
+// How late the SDL thread's pump wakes for its deadlines, from the waiter and the schedule the SDL
+// thread uses, on this machine: no scenario puts the SDL thread on the path, so its wait is the
+// share of a real pad's latency the scenarios leave out.
+struct PumpWait {
+    bench::LatencySummary lateness;
+    bench::PacingVerdict pacing;
+};
+
+PumpWait measurePumpWait(const Options& o) {
+    namespace pump = dish::input::pump;
+    const dish::input::PumpWaiter waiter(o.pump.wait);
+    const auto length = std::chrono::duration_cast<pump::Clock::duration>(
+        std::chrono::duration<double>(std::min(o.secs, kPumpWaitMaxSecs)));
+    std::vector<std::int64_t> latenessNs;
+    latenessNs.reserve(static_cast<std::size_t>(length / o.pump.period) + 1);
+    const pump::Clock::time_point start = pump::Clock::now();
+    pump::Schedule schedule(start, o.pump.period);
+    while (pump::Clock::now() - start < length) {
+        const pump::Clock::time_point deadline = schedule.deadline();
+        waiter.waitUntil(deadline);
+        const pump::Clock::time_point woke = pump::Clock::now();
+        latenessNs.push_back(std::chrono::duration_cast<bench::Nanos>(woke - deadline).count());
+        schedule.advance(woke);
+    }
+    PumpWait result;
+    result.pacing = bench::judgePacing(latenessNs);
+    result.lateness = bench::summarize(std::move(latenessNs));
+    return result;
+}
+
 struct Report {
     std::vector<ScenarioRun> runs;
     std::vector<std::string> problems;
     std::vector<std::string> notes;
+    std::optional<PumpWait> pumpWait;
     bool skipped = false;
 };
 
@@ -904,6 +937,11 @@ Report runSynthetic(const Options& o) {
         }
     }
     for (const auto& scenarioReps : reps) { collect(report, scenarioReps); }
+    report.pumpWait = measurePumpWait(o);
+    if (o.smoke && !report.pumpWait->pacing.ok) {
+        report.problems.push_back(
+            "the SDL pump's wait woke before a deadline, or late at the median");
+    }
     return report;
 }
 
@@ -1046,6 +1084,15 @@ void printReport(std::ostream& out, const Options& o, const Report& report) {
                     "max wait us", "p99 wait us", "max hold us"},
                    locks, 4);
     }
+    if (report.pumpWait.has_value()) {
+        const PumpWait& w = *report.pumpWait;
+        out << "\nSDL pump wait (" << pumpName(o) << ", " << o.pump.period.count()
+            << " us period): " << w.lateness.frames << " cycles, late by p50 "
+            << fixed(bench::nanosToMicros(w.lateness.p50Ns), kMicroDecimals) << " us, p99 "
+            << fixed(bench::nanosToMicros(w.lateness.p99Ns), kMicroDecimals) << " us, max "
+            << fixed(bench::nanosToMicros(w.lateness.maxNs), kMicroDecimals) << " us, "
+            << w.pacing.early << " early\n";
+    }
     for (const std::string& note : report.notes) { out << "\nnote: " << note << "\n"; }
     for (const std::string& problem : report.problems) { out << "PROBLEM: " << problem << "\n"; }
 }
@@ -1115,15 +1162,27 @@ QJsonObject toJson(const Options& o, const Report& report) {
                         {"kernel", QString::fromStdString(kernelRelease())},
                         {"build", buildType()},
                         {"lockStats", lockStatsBuild()}};
-    return QJsonObject{{"bench", "input_path"},
-                       {"settings", settings},
-                       {"machine", machine},
-                       {"rows", rows},
-                       {"extras", extras},
-                       {"locks", locks},
-                       {"skipped", report.skipped},
-                       {"notes", toJsonArray(report.notes)},
-                       {"problems", toJsonArray(report.problems)}};
+    QJsonObject out{{"bench", "input_path"},
+                    {"settings", settings},
+                    {"machine", machine},
+                    {"rows", rows},
+                    {"extras", extras},
+                    {"locks", locks},
+                    {"skipped", report.skipped},
+                    {"notes", toJsonArray(report.notes)},
+                    {"problems", toJsonArray(report.problems)}};
+    if (report.pumpWait.has_value()) {
+        const PumpWait& w = *report.pumpWait;
+        out.insert("pumpWait", QJsonObject{{"wait", pumpName(o)},
+                                           {"periodUs", static_cast<int>(o.pump.period.count())},
+                                           {"cycles", static_cast<qint64>(w.lateness.frames)},
+                                           {"p50Us", bench::nanosToMicros(w.lateness.p50Ns)},
+                                           {"p99Us", bench::nanosToMicros(w.lateness.p99Ns)},
+                                           {"p999Us", bench::nanosToMicros(w.lateness.p999Ns)},
+                                           {"maxUs", bench::nanosToMicros(w.lateness.maxNs)},
+                                           {"early", static_cast<qint64>(w.pacing.early)}});
+    }
+    return out;
 }
 
 bool writeJson(const std::string& path, const QJsonObject& json) {
