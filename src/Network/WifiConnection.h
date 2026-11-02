@@ -15,6 +15,7 @@
 #include <functional>
 #include <map>
 #include <memory>
+#include <utility>
 #include <mutex>
 #include <optional>
 #include <vector>
@@ -40,9 +41,14 @@ class ClientRef {
         std::lock_guard<thread::TrackedMutex> lock(mtx_);
         return value_;
     }
+    // The client this replaces is released after the lock: its destructor joins the session's
+    // heartbeat and receive threads, and a report on another thread would wait out both joins.
     void set(std::shared_ptr<SatelliteClient> v) {
-        std::lock_guard<thread::TrackedMutex> lock(mtx_);
-        value_ = std::move(v);
+        std::shared_ptr<SatelliteClient> replaced;
+        {
+            std::lock_guard<thread::TrackedMutex> lock(mtx_);
+            replaced = std::exchange(value_, std::move(v));
+        }
     }
 
   private:
