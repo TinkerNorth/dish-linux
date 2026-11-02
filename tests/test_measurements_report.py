@@ -40,7 +40,8 @@ def bench_json(lock_stats: bool, mic_hz: int, rows: list[dict], locks: list[dict
     return {
         "bench": "input_path",
         "settings": {"mode": "synthetic", "rateHz": 1000, "secs": 3, "reps": 3, "micHz": mic_hz,
-                     "receiver": "spin", "smoke": False, "scenarios": []},
+                     "receiver": "block", "pump": "timer", "pumpUs": 500, "smoke": False,
+                     "scenarios": []},
         "machine": {"cpu": "Test CPU", "logicalCpus": 4, "os": "Test OS", "kernel": "Linux 6",
                     "build": "Release", "lockStats": lock_stats},
         "rows": rows,
@@ -54,17 +55,24 @@ def bench_json(lock_stats: bool, mic_hz: int, rows: list[dict], locks: list[dict
 MIC = "S5 (mic 1000 Hz)"
 
 
-def write_runs(directory: Path, input_locks: int = 3000, mic_p999: float = 30.0) -> None:
+# The four runs measurements.yml makes. By default the hot roles take no lock, as on this branch;
+# input_locks and mic_locks put a lock on the SdlInput and AudioCapture roles.
+def write_runs(directory: Path, input_locks: int = 0, mic_locks: int = 0,
+               mic_p999: float = 30.0) -> None:
     default_rows = [latency_row("S1", "A"), latency_row("S2", "A"), latency_row("S2", "B")]
     mic_rows = [latency_row(MIC, "A", p999=mic_p999), latency_row(MIC, "B")]
-    locks = [lock_row("S1", "input.processor", "SdlInput", input_locks),
-             lock_row("S1", "app.routing", "Gui", 10)]
+    locks = [lock_row("S1", "app.routes", "Gui", 10)]
+    if input_locks:
+        locks.append(lock_row("S1", "input.processor", "SdlInput", input_locks))
+    mic_locks_rows = [lock_row(MIC, "app.routes", "Gui", 30)]
+    if mic_locks:
+        mic_locks_rows.append(lock_row(MIC, "wifi.client", "AudioCapture", mic_locks))
     files = {
         "bench_input_path.json": bench_json(False, 50, default_rows, []),
         "bench_input_path-mic1000.json": bench_json(False, 1000, mic_rows, []),
         "bench_input_path_lockstats.json": bench_json(True, 50, default_rows, locks),
-        "bench_input_path_lockstats-mic1000.json":
-            bench_json(True, 1000, mic_rows, [lock_row(MIC, "satellite.send", "AudioCapture", 9)]),
+        "bench_input_path_lockstats-mic1000.json": bench_json(True, 1000, mic_rows,
+                                                              mic_locks_rows),
     }
     directory.mkdir(parents=True, exist_ok=True)
     for name, data in files.items():
@@ -89,12 +97,15 @@ class MeasurementsReportTest(unittest.TestCase):
     def tearDown(self) -> None:
         self.tmp.cleanup()
 
-    def report(self, version: str = "2.5.0", *extra: str) -> tuple[int, str]:
+    def report(self, version: str = "2.6.0", *extra: str) -> tuple[int, str]:
         return run("--input-dir", str(self.raw), "--output-dir", str(self.out), "--version",
                    version, "--commit", "0123456789abcdef", *extra)
 
-    def written(self, version: str = "2.5.0") -> dict:
+    def written(self, version: str = "2.6.0") -> dict:
         return json.loads((self.out / f"measurements-{version}.json").read_text(encoding="utf-8"))
+
+    def markdown(self, version: str = "2.6.0") -> str:
+        return (self.out / f"measurements-{version}.md").read_text(encoding="utf-8")
 
     def test_writes_the_json_and_the_summary_for_four_runs(self) -> None:
         write_runs(self.raw)
@@ -104,36 +115,59 @@ class MeasurementsReportTest(unittest.TestCase):
         self.assertEqual(data["schema"], report.SCHEMA)
         self.assertEqual(data["commit"], "0123456789abcdef")
         self.assertEqual(len(data["latency"]), 10)
+        self.assertEqual(data["machine"]["kernel"], "Linux 6")
         self.assertEqual({s["target"] for s in data["sources"]},
                          {"bench_input_path", "bench_input_path_lockstats"})
-        markdown = (self.out / "measurements-2.5.0.md").read_text(encoding="utf-8")
-        self.assertIn("# Measurements 2.5.0", markdown)
+        markdown = self.markdown()
+        self.assertIn("# Measurements 2.6.0", markdown)
         self.assertIn("`0123456`", markdown)
+        self.assertIn("Test CPU, 4 logical CPUs, Test OS (Linux 6), Release build.", markdown)
+        self.assertIn("receivers block", markdown)
         self.assertIn("| bench_input_path | S5 (mic 1000 Hz) | A |", markdown)
 
-    def test_the_lock_gate_fails_without_failing_the_run_until_it_is_enforced(self) -> None:
+    def test_the_files_are_written_with_lf_line_ends(self) -> None:
+        write_runs(self.raw)
+        self.report()
+        for name in ("measurements-2.6.0.json", "measurements-2.6.0.md"):
+            self.assertNotIn(b"\r\n", (self.out / name).read_bytes())
+
+    def test_the_lock_gate_fails_the_run_unless_it_is_only_reported(self) -> None:
+        write_runs(self.raw, input_locks=3000)
+        code, printed = self.report()
+        self.assertEqual(code, 1)
+        gate = self.written()["lockGate"]
+        self.assertFalse(gate["passed"])
+        self.assertTrue(gate["enforced"])
+        self.assertEqual(gate["failures"], [
+            "bench_input_path_lockstats default S1: the SdlInput role acquired "
+            "input.processor 3000 times"])
+        self.assertIn("::error title=Lock law gate::", printed)
+        self.assertIn("FAIL (enforced)", self.markdown())
+
+        code, printed = self.report("2.6.0", "--no-enforce-lock-gate")
+        self.assertEqual(code, 0)
+        self.assertFalse(self.written()["lockGate"]["enforced"])
+        self.assertIn("::notice title=Lock law gate::", printed)
+        self.assertIn("FAIL (not enforced", self.markdown())
+
+    def test_the_lock_gate_holds_the_mic_thread_to_no_lock_too(self) -> None:
+        write_runs(self.raw, mic_locks=9)
+        code, _ = self.report()
+        self.assertEqual(code, 1)
+        self.assertEqual(self.written()["lockGate"]["failures"], [
+            "bench_input_path_lockstats mic1000 S5 (mic 1000 Hz): the AudioCapture role acquired "
+            "wifi.client 9 times"])
+
+    def test_the_lock_gate_passes_when_the_four_roles_take_no_lock(self) -> None:
         write_runs(self.raw)
         code, printed = self.report()
         self.assertEqual(code, 0)
         gate = self.written()["lockGate"]
-        self.assertFalse(gate["passed"])
-        self.assertFalse(gate["enforced"])
-        self.assertEqual(gate["failures"], [
-            "bench_input_path_lockstats default S1: the SdlInput role acquired "
-            "input.processor 3000 times"])
-        self.assertIn("::notice title=Lock law gate::", printed)
-        markdown = (self.out / "measurements-2.5.0.md").read_text(encoding="utf-8")
-        self.assertIn("FAIL (not enforced", markdown)
-
-        code, printed = self.report("2.5.0", "--enforce-lock-gate")
-        self.assertEqual(code, 1)
-        self.assertIn("::error title=Lock law gate::", printed)
-
-    def test_the_lock_gate_passes_when_the_three_roles_take_no_lock(self) -> None:
-        write_runs(self.raw, input_locks=0)
-        code, _ = self.report("2.5.0", "--enforce-lock-gate")
-        self.assertEqual(code, 0)
-        self.assertTrue(self.written()["lockGate"]["passed"])
+        self.assertTrue(gate["passed"])
+        self.assertEqual(gate["roles"], ["SdlInput", "UsbReader", "Receive", "AudioCapture"])
+        self.assertIn("lock law gate: PASS", printed)
+        self.assertIn("PASS: the SdlInput, UsbReader, Receive, AudioCapture roles took no lock",
+                      self.markdown())
 
     def test_a_lockstats_run_without_locks_cannot_be_judged(self) -> None:
         write_runs(self.raw)
@@ -141,17 +175,22 @@ class MeasurementsReportTest(unittest.TestCase):
         data = json.loads(path.read_text(encoding="utf-8"))
         data["locks"] = []
         path.write_text(json.dumps(data), encoding="utf-8")
-        self.report()
+        code, _ = self.report()
+        self.assertEqual(code, 1)
         self.assertIn("bench_input_path_lockstats mic1000 recorded no lock at all, so its lock "
                       "laws cannot be judged", self.written()["lockGate"]["failures"])
 
     def test_the_headline_counts_the_input_threads_locks_per_report(self) -> None:
-        write_runs(self.raw, input_locks=15000)
+        write_runs(self.raw)
         self.report()
         top = self.written()["headline"]
         self.assertEqual(top["p50Us"], 12.0)
-        self.assertAlmostEqual(top["inputLocksPerReport"], 5.0)
+        self.assertEqual(top["inputLocksPerReport"], 0.0)
         self.assertEqual(top["noiseFloor"], {"maxUs": 50.0, "longestGapMs": 1.1})
+
+        write_runs(self.raw, input_locks=15000)
+        self.report()
+        self.assertAlmostEqual(self.written()["headline"]["inputLocksPerReport"], 5.0)
 
     def test_a_missing_run_is_an_error_unless_partial_runs_are_allowed(self) -> None:
         write_runs(self.raw)
@@ -159,7 +198,7 @@ class MeasurementsReportTest(unittest.TestCase):
         code, printed = self.report()
         self.assertEqual(code, 2)
         self.assertIn("missing runs: bench_input_path mic1000", printed)
-        code, _ = self.report("2.5.0", "--allow-partial")
+        code, _ = self.report("2.6.0", "--allow-partial")
         self.assertEqual(code, 0)
 
     def test_two_files_with_the_same_rows_are_an_error(self) -> None:
@@ -170,6 +209,17 @@ class MeasurementsReportTest(unittest.TestCase):
         self.assertEqual(code, 2)
         self.assertIn("two bench files cover the same row", printed)
 
+    def test_a_skipped_run_is_an_error(self) -> None:
+        write_runs(self.raw)
+        path = self.raw / "bench_input_path.json"
+        data = json.loads(path.read_text(encoding="utf-8"))
+        data["skipped"] = True
+        data["notes"] = ["ViGEmBus is not installed"]
+        path.write_text(json.dumps(data), encoding="utf-8")
+        code, printed = self.report()
+        self.assertEqual(code, 2)
+        self.assertIn("is a skipped run: ViGEmBus is not installed", printed)
+
     def test_a_version_label_with_a_slash_is_refused(self) -> None:
         write_runs(self.raw)
         code, printed = self.report("feature/x")
@@ -179,25 +229,25 @@ class MeasurementsReportTest(unittest.TestCase):
     def test_the_trend_warns_only_when_a_row_is_both_twice_and_100_us_slower(self) -> None:
         previous = self.root / "previous"
         write_runs(self.raw, mic_p999=30.0)
-        self.report("2.4.0")
+        self.report("2.5.0")
         previous.mkdir()
-        (self.out / "measurements-2.4.0.json").rename(previous / "measurements-2.4.0.json")
+        (self.out / "measurements-2.5.0.json").rename(previous / "measurements-2.5.0.json")
 
         write_runs(self.raw, mic_p999=59.0)
-        self.report("2.5.0", "--previous-dir", str(previous))
+        self.report("2.6.0", "--previous-dir", str(previous))
         self.assertEqual(self.written()["trend"]["warnings"], [])
 
         write_runs(self.raw, mic_p999=200.0)
-        code, printed = self.report("2.5.0", "--previous-dir", str(previous))
+        code, printed = self.report("2.6.0", "--previous-dir", str(previous))
         self.assertEqual(code, 0)
         warnings = self.written()["trend"]["warnings"]
         self.assertEqual(len(warnings), 2)
-        self.assertTrue(all("S5 (mic 1000 Hz) A p99.9 is 200.0 us, was 30.0 us in 2.4.0" in w
+        self.assertTrue(all("S5 (mic 1000 Hz) A p99.9 is 200.0 us, was 30.0 us in 2.5.0" in w
                             for w in warnings))
         self.assertIn("::warning title=Measurement trend::", printed)
-        markdown = (self.out / "measurements-2.5.0.md").read_text(encoding="utf-8")
-        self.assertIn("## Trend against 2.4.0", markdown)
-        self.assertIn("p99.9 us in 2.4.0", markdown)
+        markdown = self.markdown()
+        self.assertIn("## Trend against 2.5.0", markdown)
+        self.assertIn("p99.9 us in 2.5.0", markdown)
 
     def test_the_newest_earlier_release_is_the_one_compared_with(self) -> None:
         previous = self.root / "previous"
@@ -222,18 +272,19 @@ class MeasurementsReportTest(unittest.TestCase):
         finally:
             os.environ.pop("GITHUB_STEP_SUMMARY", None)
         text = summary.read_text(encoding="utf-8")
-        self.assertTrue(text.startswith("earlier step\n# Measurements 2.5.0"))
+        self.assertTrue(text.startswith("earlier step\n# Measurements 2.6.0"))
 
     def test_a_file_the_bench_really_wrote_is_read(self) -> None:
         path = os.environ.get("DISH_BENCH_JSON")
         if not path:
             self.skipTest("DISH_BENCH_JSON names no bench output")
-        run = report.read_bench_file(Path(path))
-        self.assertTrue(run["rows"])
-        for row in run["rows"]:
+        bench_run = report.read_bench_file(Path(path))
+        self.assertTrue(bench_run["rows"])
+        for row in bench_run["rows"]:
             for name in report.LATENCY_FIELDS:
                 self.assertIn(name, row)
-        self.assertEqual(run["problems"], [])
+        self.assertIn("kernel", bench_run["machine"])
+        self.assertEqual(bench_run["problems"], [])
 
 
 if __name__ == "__main__":

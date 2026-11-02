@@ -78,7 +78,7 @@ layer together.
 | `src/Models/` | Shared value types (`models::ControllerSlot`, `DiscoveredServer`, notifications) | `core/` | yes (QString) |
 | `src/Util/` | Leaf helpers with no domain state: endian, hex, host battery, locale install | nothing | mixed |
 | `src/UI/` | The design-token palette (`Theme`), the font-family probes (`FontStacks`), crash handling, the `SlotLiveStats` mapper, `common/ExternalLink`, `licenses/LicenseManifest` | `core/` | yes (Gui) |
-| `src/Input/` | The SDL bridge, the input processor, joystick mapping, the output command queue | `core/` | yes |
+| `src/Input/` | The SDL bridge, the input processor, joystick mapping, the controller shadow, the touchpad gate | `core/` | yes |
 | `src/Network/` | Sockets and the REST control plane: `SatelliteClient`, `ConnectionHub`, `WifiConnectionManager`, `HTTPClient`, `PairingOutcome` | `core/` | yes |
 | `src/update/` | The update checker's IO edge: the manifest gateway (a dedicated QNAM) and `UpdateChecker`. Dish never installs its own update, so there is no download, staging or apply path | `core/`, `source/` | yes |
 
@@ -320,6 +320,8 @@ The threads in the app:
 | Heartbeat | [`SatelliteClient`](../src/Network/SatelliteClient.h) | Per-session keepalive sends and ping arming |
 | Receive | `SatelliteClient` | Ack decode, RTT sampling, the feedback callbacks (rumble, lightbar, trigger effects, player LEDs, mic LED), the hand-off of speaker and haptics frames to the playout thread, close-notify |
 | Playout | [`SpeakerPlayoutEngine`](../src/source/audio/SpeakerPlayoutEngine.h) | The reorder window, the Opus decode and the capped queue to the pad's own endpoint, off the receive thread |
+| Session reaper | [`ClientReaper`](../src/Network/ClientReaper.h), one per `WifiConnectionManager` | Closing a session client the GUI let go of, which joins its heartbeat and receive threads |
+| Moonlight control | [`MoonlightControlStream`](../src/source/moonlight/MoonlightControlStream.h), one per host session | The wait for the host (holding nothing), one ENet service call per hold of `moonlight.send`, the open of each packet after it, and the host's rumble, LED and motion requests, routed through `SlotRouter` without the GUI thread |
 | Mic capture | [`SdlAudioGateway`](../src/source/audio/SdlAudioGateway.h), one per open capture | The 20 ms window, the Opus encode and the send through the slot's mic sender, which reads the published table |
 
 The SDL input, USB direct and receive threads ask rtkit for nice -10 as they
@@ -348,7 +350,10 @@ changes reaches them in one of four ways, each with one owner:
   the processor (which the inspector copies), and a pad's
   [`OutputMailbox`](../src/core/input/OutputMailbox.h). A sender draws its
   counter inside a compare-and-swap gate held to `sendto`'s return, so counter
-  order is wire order; the socket never blocks.
+  order is wire order; every `sendto` is `MSG_DONTWAIT`. The words are stored
+  with release and read with acquire, and the grace epoch is four seq_cst
+  operations, never a standalone fence: GCC refuses `atomic_thread_fence` under
+  ThreadSanitizer, which is the arbiter of every one of these structures.
 - **A single-consumer handoff.** The bridge's device list goes to the GUI and
   the GUI's suppressed ids and remaps go to the SDL thread through
   [`LatestValue`](../src/core/thread/LatestValue.h); a session's handlers reach
@@ -361,7 +366,18 @@ changes reaches them in one of four ways, each with one owner:
 [`tests/test_lock_laws.cpp`](../tests/test_lock_laws.cpp) runs every hot thread
 at once over the production objects and fails if one of these three, or the
 mic capture thread's send, takes any tracked lock;
-[`tools/bench`](../tools/bench/README.md) measures the path.
+[`tools/bench`](../tools/bench/README.md) measures the path, and
+[`measurements.yml`](../.github/workflows/measurements.yml) runs it on every
+pull request that touches the path and on every release, failing either when
+a lock-statistics run shows one of those four roles taking a lock.
+
+A Moonlight host's path keeps two locks of its own: `moonlight.routes`, which
+a report for a Moonlight-bound slot copies its sender out under (a satellite
+slot never reaches it, and with no host bound it costs one relaxed load), and
+`moonlight.send`, which every report to the host takes around ENet. The
+control thread takes `moonlight.send` only to service ENet once the socket is
+readable, an acknowledgement is owed or the keepalive is due, and opens the
+packet after it.
 
 ### The feedback path: one owner for "may I" and "where to"
 

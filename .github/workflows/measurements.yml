@@ -30,10 +30,10 @@ on:
         required: false
         default: ""
       enforce_lock_gate:
-        description: "Fail when SdlInput, UsbReader or Receive takes a lock (off until the hot-path work takes them all off)"
+        description: "Fail when SdlInput, UsbReader, Receive or AudioCapture takes a lock"
         type: boolean
         required: false
-        default: false
+        default: true
   workflow_dispatch:
     inputs:
       version:
@@ -52,10 +52,10 @@ on:
         required: false
         default: ""
       enforce_lock_gate:
-        description: "Fail when SdlInput, UsbReader or Receive takes a lock (off until the hot-path work takes them all off)"
+        description: "Fail when SdlInput, UsbReader, Receive or AudioCapture takes a lock"
         type: boolean
         required: false
-        default: false
+        default: true
   pull_request:
     branches: [main]
     paths:
@@ -186,17 +186,18 @@ jobs:
           DISH_BENCH_JSON: measurements-raw/bench_input_path.json
         run: python3 -m unittest discover -s tests -p 'test_measurements_report.py'
 
-      # The lock law gate fails until the hot-path work takes every lock off
-      # SdlInput, UsbReader and Receive; until then it is reported, not enforced.
+      # The lock law gate: SdlInput, UsbReader, Receive and AudioCapture take no
+      # lock. Enforced on every run, a pull request's included, unless a caller
+      # turns enforce_lock_gate off.
       - name: Build the report and check the gates
         id: report
         if: ${{ !cancelled() && steps.bench.outcome != 'skipped' }}
         env:
-          ENFORCE_LOCK_GATE: ${{ inputs.enforce_lock_gate == true }}
+          ENFORCE_LOCK_GATE: ${{ github.event_name == 'pull_request' || inputs.enforce_lock_gate == true }}
         run: |
           set -euo pipefail
-          enforce=()
-          if [ "$ENFORCE_LOCK_GATE" = "true" ]; then enforce=(--enforce-lock-gate); fi
+          enforce=(--enforce-lock-gate)
+          if [ "$ENFORCE_LOCK_GATE" != "true" ]; then enforce=(--no-enforce-lock-gate); fi
           python3 scripts/measurements-report.py \
             --input-dir measurements-raw \
             --output-dir measurements \

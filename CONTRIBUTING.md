@@ -393,8 +393,16 @@ you are modifying `SDLGamepadBridge`, `GamepadInputProcessor`,
 - Both rules are enforced, not hoped for: `tests/test_lock_laws.cpp`
   (`DishLockLawTests`, built with `-DDISH_LOCK_STATS=ON`) fails when one of these
   threads takes any tracked lock, and `tools/bench` measures the path and its
-  locks on every run. Run both after a change here; see
+  locks on every run. The measurements workflow runs both on a pull request
+  that touches the path and on every release, and fails when a lock-statistics
+  run shows one of these roles taking a lock. Run both after a change here; see
   [`tools/bench/README.md`](tools/bench/README.md).
+- No standalone `std::atomic_thread_fence`: GCC refuses it under
+  ThreadSanitizer, the arbiter of every lock-free structure here. Order with
+  acquire and release on the atomics themselves, or seq_cst operations.
+- A thread that waits on a pad, the network or a joining thread does it off
+  these three: a Direct pad's OUT reports go through its output worker, and a
+  session client the GUI lets go of closes on the `ClientReaper`.
 - Preserve `IP_TOS = 0xB8` (DSCP EF) and `MSG_NOSIGNAL` on every send.
 
 ## Touching the wire protocol

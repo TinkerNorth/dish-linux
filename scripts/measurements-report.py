@@ -8,15 +8,14 @@
 # scripts/measurements-report.ps1.
 #
 # Two gates. The lock law gate: in the lock-statistics runs, the SdlInput,
-# UsbReader and Receive roles take no lock in any scenario. It fails today by
-# construction (tests/test_lock_laws.cpp lists every lock they take) and is
-# reported without failing the run unless --enforce-lock-gate says otherwise;
-# the hot-path work turns it on. The trend gate warns, never fails: a row
-# whose p99.9 or max is more than --trend-ratio times the previous release's
-# and more than --trend-min-delta-us above it.
+# UsbReader, Receive and AudioCapture roles take no lock in any scenario, the
+# rule tests/test_lock_laws.cpp holds them to. It fails the run unless
+# --no-enforce-lock-gate reports it only. The trend gate warns, never fails: a
+# row whose p99.9 or max is more than --trend-ratio times the previous
+# release's and more than --trend-min-delta-us above it.
 #
 #   scripts/measurements-report.py --input-dir raw --output-dir out \
-#       --version 2.5.0 [--previous-dir prev] [--commit SHA] [--enforce-lock-gate]
+#       --version 2.5.0 [--previous-dir prev] [--commit SHA] [--no-enforce-lock-gate]
 #
 # Exit codes: 0 written (and the lock gate passed, when enforced), 1 a gate
 # that is enforced failed, 2 the input could not be read.
@@ -38,7 +37,7 @@ DEFAULT_VARIANT = "default"
 EXPECTED_TARGETS = (LATENCY_TARGET, LOCKSTATS_TARGET)
 EXPECTED_VARIANTS = (DEFAULT_VARIANT, "mic1000")
 MIC_SCENARIO = "S5"
-LOCK_FREE_ROLES = ("SdlInput", "UsbReader", "Receive")
+LOCK_FREE_ROLES = ("SdlInput", "UsbReader", "Receive", "AudioCapture")
 INPUT_ROLE = "SdlInput"
 HEADLINE_SCENARIO = "S1"
 HEADLINE_PRODUCER = "A"
@@ -334,8 +333,7 @@ def gate_markdown(gate: dict) -> list[str]:
                      f"({gate['checked']} lock rows checked).")
         return lines
     state = "enforced" if gate["enforced"] else (
-        "not enforced: the input enforce_lock_gate is off until the hot-path work takes every "
-        "lock off these roles")
+        "not enforced: this run was asked to report it only (enforce_lock_gate off)")
     lines.append(f"FAIL ({state}). The {roles} roles must take no lock:")
     lines.append("")
     lines += [f"- {failure}" for failure in gate["failures"]]
@@ -417,11 +415,12 @@ def write_report(args: argparse.Namespace) -> int:
     out_dir.mkdir(parents=True, exist_ok=True)
     json_path = out_dir / f"measurements-{args.version}.json"
     md_path = out_dir / f"measurements-{args.version}.md"
-    json_path.write_text(json.dumps(measurements, indent=2) + "\n", encoding="utf-8")
-    md_path.write_text(markdown, encoding="utf-8")
+    json_path.write_text(json.dumps(measurements, indent=2) + "\n", encoding="utf-8",
+                         newline="\n")
+    md_path.write_text(markdown, encoding="utf-8", newline="\n")
     summary = os.environ.get("GITHUB_STEP_SUMMARY")
     if summary:
-        with open(summary, "a", encoding="utf-8") as out:
+        with open(summary, "a", encoding="utf-8", newline="\n") as out:
             out.write(markdown + "\n")
     for warning in trend["warnings"]:
         print(f"::warning title=Measurement trend::{warning}")
@@ -451,7 +450,8 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--commit", default=os.environ.get("GITHUB_SHA", ""))
     parser.add_argument("--trend-ratio", type=float, default=2.0)
     parser.add_argument("--trend-min-delta-us", type=float, default=100.0)
-    parser.add_argument("--enforce-lock-gate", action="store_true")
+    parser.add_argument("--enforce-lock-gate", action=argparse.BooleanOptionalAction,
+                        default=True)
     parser.add_argument("--allow-partial", action="store_true")
     return parser.parse_args(argv)
 

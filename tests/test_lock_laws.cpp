@@ -62,8 +62,9 @@ constexpr std::array<LockName, 0> kReceiveMayAcquire{};
 
 constexpr std::array<LockName, 0> kAudioCaptureMayAcquire{};
 
-// The Linux sendto is MSG_DONTWAIT and carries no marker. HidrawGateway holds hid.write across a
-// ::write with no timeout, which the rig's fake gateway cannot reach, so no entry stands for it.
+// The Linux sendto is MSG_DONTWAIT and carries no marker. A Direct pad's hidraw write holds
+// hid.write on the claim's output worker, off every role here, and the rig's fake gateway never
+// reaches it.
 constexpr std::array<LockPair, 0> kBlockingMayHold{};
 
 constexpr std::array<LockPair, 0> kOrderMayNest{};
