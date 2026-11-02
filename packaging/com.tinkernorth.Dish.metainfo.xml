@@ -102,6 +102,12 @@
   <!-- Kept in step with project(Dish VERSION ...); version-consistency.yml
        fails the PR that moves one without the other. -->
   <releases>
+    <release version="2.6.0" date="2026-11-02" type="stable">
+      <url type="details">https://github.com/TinkerNorth/dish-linux/releases/tag/2.6.0</url>
+      <description>
+        <p>Controller input leaves on its own thread without waiting on any lock: a plugged-in pad is read every half millisecond, each change goes out once, rumble and lights never hold up the next message from Satellite, and the input, USB, network and microphone threads ask for a higher priority through rtkit or the realtime portal. Every release now carries a measurement of the input path.</p>
+      </description>
+    </release>
     <release version="2.5.0" date="2026-10-26" type="stable">
       <url type="details">https://github.com/TinkerNorth/dish-linux/releases/tag/2.5.0</url>
       <description>
