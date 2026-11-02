@@ -5,7 +5,10 @@
 
 #include <enet/enet.h>
 
+#include <poll.h>
+
 #include <chrono>
+#include <cstddef>
 #include <vector>
 
 namespace dish::source::moon {
@@ -28,18 +31,16 @@ constexpr std::int64_t kPingIntervalMs = 500;
 constexpr std::int64_t kConnectTimeoutMs = 5000;
 constexpr std::uint8_t kChannel = 0;
 constexpr std::size_t kChannelCount = 1;
+constexpr int kServicePollMs = 2;
 
-// One received packet: opened with the session's cipher and decoded into a host event. A packet
-// that will not open, or opens into an event this version does not model, is dropped: the host is
-// entitled to send events a client need not understand.
-void decodeReceived(mooncrypto::ControlCipher& cipher, const std::uint8_t* data, std::size_t len,
-                    std::vector<moonwire::HostEvent>& events) {
-    std::uint8_t plaintext[256];
-    const auto opened = cipher.open(data, len, plaintext, sizeof(plaintext));
-    if (!opened) { return; }
-    if (const auto decoded = moonwire::decodeHostEvent(plaintext, *opened)) {
-        events.push_back(*decoded);
-    }
+// ENet reads every datagram into a buffer this size, so a packet it did not fragment always fits.
+constexpr std::size_t kDatagramBytes = ENET_PROTOCOL_MAXIMUM_MTU;
+
+// ENet 1.3.18's enet_peer_has_outgoing_commands, which the 1.3.17 fork vendored here predates: a
+// reliable command queued, or sent and not yet acknowledged.
+bool hasOutgoingCommands(const ENetPeer* peer) {
+    return !enet_list_empty(&peer->outgoingCommands) ||
+           !enet_list_empty(&peer->sentReliableCommands);
 }
 
 } // namespace
@@ -65,8 +66,9 @@ bool MoonlightControlStream::start(const std::string& hostAddress, std::uint16_t
     if (enet_address_set_host(&address, hostAddress.c_str()) != 0) { return false; }
     enet_address_set_port(&address, port);
 
+    ENetSocket socket = ENET_SOCKET_NULL;
     {
-        std::lock_guard<std::mutex> lock(linkMtx_);
+        std::lock_guard<thread::TrackedMutex> lock(linkMtx_);
         if (!cipher_.setKey(rikey)) { return false; }
         seq_ = 0;
         for (auto& slot : slots_) { slot.inUse = false; }
@@ -80,14 +82,17 @@ bool MoonlightControlStream::start(const std::string& hostAddress, std::uint16_t
             link_->host = nullptr;
             return false;
         }
-        lastPingMs_ = steadyNowMs();
-        connectDeadlineMs_ = steadyNowMs() + kConnectTimeoutMs;
+        socket = link_->host->socket;
     }
+    lastPingMs_ = steadyNowMs();
+    connectDeadlineMs_ = steadyNowMs() + kConnectTimeoutMs;
 
     stopRequested_.store(false, std::memory_order_relaxed);
     connected_.store(false, std::memory_order_relaxed);
+    awaitingAck_.store(false, std::memory_order_relaxed);
     running_.store(true, std::memory_order_relaxed);
-    thread_ = std::thread([this] { serviceLoop(); });
+    // The socket stays open until stop() destroys the host, after joining this thread.
+    thread_ = std::thread([this, socket] { serviceLoop(socket); });
     return true;
 }
 
@@ -99,8 +104,9 @@ void MoonlightControlStream::stop(bool sendTermination) {
             sealAndSend(plaintext, len);
         }
         {
-            std::lock_guard<std::mutex> lock(linkMtx_);
+            std::lock_guard<thread::TrackedMutex> lock(linkMtx_);
             if (link_->peer != nullptr) {
+                thread::blockingRegion("enet.teardown");
                 enet_peer_disconnect_now(link_->peer, 0);
                 link_->peer = nullptr;
             }
@@ -109,8 +115,9 @@ void MoonlightControlStream::stop(bool sendTermination) {
         running_.store(false, std::memory_order_relaxed);
         thread_.join();
     }
-    std::lock_guard<std::mutex> lock(linkMtx_);
+    std::lock_guard<thread::TrackedMutex> lock(linkMtx_);
     if (link_->host != nullptr) {
+        thread::blockingRegion("enet.teardown");
         enet_host_destroy(link_->host);
         link_->host = nullptr;
     }
@@ -122,32 +129,36 @@ void MoonlightControlStream::notifyLink(bool connected) {
     if (linkHandler_) { linkHandler_(connected); }
 }
 
-// One bounded pass over ENet, under the link lock: what arrived, and whether the link came up or
-// went down. Bounded so the lock every hot-path send takes is never held for long; the loop resumes
-// in 2 ms anyway.
-MoonlightControlStream::ServicePass MoonlightControlStream::serviceUnderLock() {
-    ServicePass pass;
-    std::lock_guard<std::mutex> lock(linkMtx_);
+// One service call under the link lock, the lock every hot-path send takes: it never waits inside
+// it, and a packet is only copied out here, never opened.
+MoonlightControlStream::ServiceStep
+MoonlightControlStream::serviceOnce(std::vector<std::uint8_t>& payload) {
+    ServiceStep step;
+    std::lock_guard<thread::TrackedMutex> lock(linkMtx_);
     if (link_->host == nullptr) {
-        pass.hostGone = true;
-        return pass;
+        step.hostGone = true;
+        return step;
     }
 
-    ENetEvent event;
-    int guard = 32;
-    while (guard-- > 0 && enet_host_service(link_->host, &event, 0) > 0) {
+    thread::blockingRegion("enet.service");
+    ENetEvent event{};
+    step.event = enet_host_service(link_->host, &event, 0) > 0;
+    awaitingAck_.store(link_->peer != nullptr && hasOutgoingCommands(link_->peer),
+                       std::memory_order_relaxed);
+    if (step.event) {
         switch (event.type) {
         case ENET_EVENT_TYPE_CONNECT:
             connected_.store(true, std::memory_order_relaxed);
-            pass.linkUp = true;
+            step.linkUp = true;
             break;
         case ENET_EVENT_TYPE_DISCONNECT:
             connected_.store(false, std::memory_order_relaxed);
-            pass.linkDown = true;
+            step.linkDown = true;
             break;
         case ENET_EVENT_TYPE_RECEIVE:
-            decodeReceived(cipher_, event.packet->data, event.packet->dataLength, pass.events);
+            payload.assign(event.packet->data, event.packet->data + event.packet->dataLength);
             enet_packet_destroy(event.packet);
+            step.received = true;
             break;
         case ENET_EVENT_TYPE_NONE:
         default:
@@ -155,53 +166,69 @@ MoonlightControlStream::ServicePass MoonlightControlStream::serviceUnderLock() {
         }
     }
 
-    const bool connectTimedOut = !connected_.load(std::memory_order_relaxed) && !pass.linkUp &&
-                                 !pass.linkDown && steadyNowMs() > connectDeadlineMs_;
-    if (connectTimedOut) { pass.linkDown = true; }
-    return pass;
+    const bool connectTimedOut = !connected_.load(std::memory_order_relaxed) && !step.linkUp &&
+                                 !step.linkDown && steadyNowMs() > connectDeadlineMs_;
+    if (connectTimedOut) { step.linkDown = true; }
+    return step;
 }
 
-// Keep-alive, off the lock-held section: the lock is taken only to read and advance the clock.
+bool MoonlightControlStream::serviceDue(int socket) const {
+    thread::blockingRegion("enet.wait");
+    pollfd ready{};
+    ready.fd = socket;
+    ready.events = POLLIN;
+    // Readable, or an error the next service call should see.
+    if (::poll(&ready, 1, kServicePollMs) != 0) { return true; }
+    return awaitingAck_.load(std::memory_order_relaxed) ||
+           !connected_.load(std::memory_order_relaxed);
+}
+
+// Keep-alive. The clock is the service thread's own; the lock is taken only to send.
 void MoonlightControlStream::pingIfDue() {
     if (!connected_.load(std::memory_order_relaxed)) { return; }
-    bool pingDue = false;
-    {
-        std::lock_guard<std::mutex> lock(linkMtx_);
-        const std::int64_t now = steadyNowMs();
-        if (now - lastPingMs_ >= kPingIntervalMs) {
-            lastPingMs_ = now;
-            pingDue = true;
-        }
-    }
-    if (!pingDue) { return; }
+    const std::int64_t now = steadyNowMs();
+    if (now - lastPingMs_ < kPingIntervalMs) { return; }
+    lastPingMs_ = now;
     std::uint8_t plaintext[moonwire::kMaxPlaintextSize];
     const std::size_t len = moonwire::encodePeriodicPing(plaintext);
     sealAndSend(plaintext, len);
 }
 
-void MoonlightControlStream::serviceLoop() {
+// A packet that will not open, or opens into an event this version does not model, is dropped: the
+// host is entitled to send events a client need not understand.
+void MoonlightControlStream::dispatchReceived(const std::vector<std::uint8_t>& payload) {
+    std::uint8_t plaintext[256];
+    const auto opened = cipher_.open(payload.data(), payload.size(), plaintext, sizeof(plaintext));
+    if (!opened) { return; }
+    const auto decoded = moonwire::decodeHostEvent(plaintext, *opened);
+    if (decoded && eventHandler_) { eventHandler_(*decoded); }
+}
+
+void MoonlightControlStream::serviceLoop(int socket) {
+    const thread::ScopedThreadRole role(thread::ThreadRole::MoonlightRx);
+    std::vector<std::uint8_t> payload;
+    payload.reserve(kDatagramBytes);
     bool announcedConnect = false;
+    bool drained = false;
     while (running_.load(std::memory_order_relaxed)) {
-        const ServicePass pass = serviceUnderLock();
-        if (pass.hostGone) { break; }
+        pingIfDue();
+        if (drained && !serviceDue(socket)) { continue; }
+        const ServiceStep step = serviceOnce(payload);
+        if (step.hostGone) { break; }
+        drained = !step.event;
 
         // Everything below runs with the lock released, so a handler may call back into a sender
-        // without deadlocking.
-        if (pass.linkUp && !announcedConnect) {
+        // without deadlocking, and opening a packet never holds up a send.
+        if (step.linkUp && !announcedConnect) {
             announcedConnect = true;
             notifyLink(true);
         }
-        for (const auto& ev : pass.events) {
-            if (eventHandler_) { eventHandler_(ev); }
-        }
-        if (pass.linkDown) {
+        if (step.received) { dispatchReceived(payload); }
+        if (step.linkDown) {
             if (!stopRequested_.load(std::memory_order_relaxed)) { notifyLink(false); }
             running_.store(false, std::memory_order_relaxed);
             break;
         }
-
-        pingIfDue();
-        std::this_thread::sleep_for(std::chrono::milliseconds(2));
     }
 }
 
@@ -235,8 +262,10 @@ bool MoonlightControlStream::queuePacket(const std::uint8_t* sealed, std::size_t
         enet_packet_destroy(packet);
         return false;
     }
+    awaitingAck_.store(true, std::memory_order_relaxed);
     // Push the datagram out on THIS thread: input latency stays flat instead
     // of waiting for the next service tick.
+    thread::blockingRegion("enet.flush");
     enet_host_flush(link_->host);
     return true;
 }
@@ -247,7 +276,7 @@ bool MoonlightControlStream::linkUpLocked() const {
 }
 
 void MoonlightControlStream::sealAndSend(const std::uint8_t* plaintext, std::size_t len) {
-    std::lock_guard<std::mutex> lock(linkMtx_);
+    std::lock_guard<thread::TrackedMutex> lock(linkMtx_);
     if (!linkUpLocked()) { return; }
     sealAndQueueLocked(plaintext, len);
 }
@@ -310,7 +339,7 @@ void MoonlightControlStream::sendControllerReplug(std::uint8_t controllerNumber,
     std::uint8_t arrival[moonwire::kMaxPlaintextSize];
     const std::size_t arrivalLen = moonwire::encodeControllerArrival(
         arrival, controllerNumber, controllerType, capabilities, supportedButtons);
-    std::lock_guard<std::mutex> lock(linkMtx_);
+    std::lock_guard<thread::TrackedMutex> lock(linkMtx_);
     if (!linkUpLocked()) { return; }
     sealAndQueueLocked(unplug, unplugLen);
     sealAndQueueLocked(arrival, arrivalLen);

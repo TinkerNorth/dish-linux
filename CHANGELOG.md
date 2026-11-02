@@ -16,6 +16,44 @@ the repos share a version number.
 
 ---
 
+## [Unreleased]
+
+### Changed
+
+- **Pads are read every half millisecond, and each change goes out once.**
+  While a controller is plugged in, Dish reads it every 0.5 ms, waking at an
+  exact deadline, instead of on SDL's 1 ms sleep. A stick moved diagonally
+  sends one packet instead of two, and a report that changed nothing sends
+  none.
+- **Nothing on the input or feedback path waits for anything else.** Sending
+  a report takes no lock, and neither does a pad's microphone; a full send
+  buffer still drops the packet, as the network itself would. Rumble,
+  light-bar and the other feedback reach a pad through a mailbox its own
+  thread empties, so a slow pad on the direct USB path can no longer hold up
+  the session's other traffic. The threads that read pads and the network
+  ask rtkit to run ahead of the desktop, and in the Flatpak the realtime
+  portal; where neither answers, nothing changes.
+- **A DualSense or DualShock 4 on the direct USB path sends its touchpad the
+  way Android does.** A touch, a lift or a click goes at once, a move at most
+  every 8 ms, and an idle touchpad nothing, which takes such a pad from about
+  two packets a report to about one.
+- **Moonlight hosts get their input sooner and their feedback lands
+  sooner.** Sending to a host no longer waits behind the receive side, which
+  now waits for the host without the lock the senders need, and a host's
+  rumble and light bar reach the pad without a trip through the window's
+  thread.
+
+### Fixed
+
+- **Picking Direct for a pad that was being unplugged no longer hangs
+  Dish.** The claim locked the same lock twice when the pad had gone between
+  the scan and the claim.
+- **Reconnecting to a satellite that had stopped answering no longer freezes
+  the window.** The old session is closed in the background, before the new
+  one starts, instead of on the window's thread after it.
+
+---
+
 ## [2.5.0] - 2026-10-26
 
 ### Added

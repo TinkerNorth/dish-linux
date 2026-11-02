@@ -17,10 +17,12 @@
 
 #pragma once
 
+#include "source/usb/OutputWorker.h"
 #include "source/usb/UsbDeviceGateway.h"
 
 #include "core/input/UsbOutputReports.h"
 #include "core/reducer/UsbPathMachine.h"
+#include "core/thread/TrackedMutex.h"
 
 #include <array>
 #include <cstdint>
@@ -98,6 +100,13 @@ class UsbGamepadManager {
     // would assign; production uses the gateway's returned id.
     UsbGamepadManager(UsbDeviceGateway* gateway, input::GamepadInputProcessor* processor,
                       UsbPathPreferenceStore* prefs, UsbDirectObserver* observer);
+    // Stops every claim's output worker; the gateway, which closes the handles, outlives this.
+    ~UsbGamepadManager();
+
+    UsbGamepadManager(const UsbGamepadManager&) = delete;
+    UsbGamepadManager& operator=(const UsbGamepadManager&) = delete;
+    UsbGamepadManager(UsbGamepadManager&&) = delete;
+    UsbGamepadManager& operator=(UsbGamepadManager&&) = delete;
 
     // Re-scan the USB bus: (idempotently) start tracking present pads, driving
     // each toward its resolved path automatically (not user-initiated), and
@@ -162,6 +171,26 @@ class UsbGamepadManager {
     // latch.
     bool setPadMicMuted(int vendorId, int productId, bool muted);
 
+    // A claimed model's synthetic id, decoder family and output worker, resolved once so a caller
+    // that keeps it (the published route table) posts feedback with no lookup. A target whose claim
+    // has since ended posts to a stopped worker, which writes nothing.
+    struct DirectTarget {
+        int vendorId = 0;
+        int productId = 0;
+        int syntheticId = 0;
+        input::usbparse::HidParser parser = input::usbparse::HidParser::None;
+        std::shared_ptr<OutputWorker> worker;
+    };
+    std::optional<DirectTarget> directTarget(int vendorId, int productId) const;
+    bool applyRumble(const DirectTarget& target, std::uint16_t strongMagnitude,
+                     std::uint16_t weakMagnitude);
+    bool applyLightbar(const DirectTarget& target, std::uint8_t r, std::uint8_t g, std::uint8_t b);
+    bool applyPlayerLeds(const DirectTarget& target, std::uint8_t ledMask);
+    bool applyTriggerEffects(const DirectTarget& target,
+                             const std::uint8_t left[input::usbout::kTriggerEffectBlockBytes],
+                             const std::uint8_t right[input::usbout::kTriggerEffectBlockBytes]);
+    bool applyMicMuteLed(const DirectTarget& target, std::uint8_t state);
+
     // Whether a Direct claim for this model is live right now. The link layer of
     // the capability solve asks this before advertising an actuator, so the
     // descriptor never promises a surface that a Standard-path pad cannot land.
@@ -198,28 +227,15 @@ class UsbGamepadManager {
     void applyEvent(int key, const reducer::UsbEvent& event);
     void execute(int key, const reducer::UsbController& c, const reducer::UsbEffect& fx);
 
-    // The claimed synthetic id + decoder family for a model, or nullopt when it
-    // is not Direct-claimed. One lookup shared by every feedback entry point.
-    struct DirectTarget {
-        int syntheticId = 0;
-        input::usbparse::HidParser parser = input::usbparse::HidParser::None;
-    };
-    std::optional<DirectTarget> directTarget(int vendorId, int productId) const;
+    // A claim's output worker starts with the claim and stops before the claim is released, so a
+    // replugged pad starts its feedback state (the DualSense handoff, the lamp) afresh.
+    void startWorker(int syntheticId, int key);
+    void releaseClaimAndWorker(int syntheticId);
 
-    // Drop a model's OUT-direction state when its claim ends, so a replugged pad
-    // re-sends the DualSense lightbar handoff instead of assuming the firmware
-    // still remembers it. Takes feedbackMtx_.
-    void forgetFeedbackState(int key);
-
-    // The Switch Pro accepts a packet only when its low nibble advances. Caller
-    // holds feedbackMtx_.
-    std::uint8_t nextSeqLocked(int key) {
-        const auto next = static_cast<std::uint8_t>((feedbackSeq_[key] + 1) & 0x0FU);
-        feedbackSeq_[key] = next;
-        return next;
-    }
-
-    // Effectors.
+    // Effectors. Each looks the device up under mtx_ and claims and applies the outcome after
+    // releasing it, because applyEvent takes mtx_ itself.
+    std::optional<UsbDeviceInfo> trackedDevice(int key) const;
+    ClaimResult claimTracked(int key);
     void runClaim(int key);
     void runReclaim(int key, const reducer::UsbController& c);
     // Open + claim + read-loop bring-up; classify the outcome. The single place
@@ -232,7 +248,7 @@ class UsbGamepadManager {
     UsbPathPreferenceStore* prefs_;
     UsbDirectObserver* observer_;
 
-    mutable std::mutex mtx_; // guards the maps below.
+    mutable thread::TrackedMutex mtx_{"usb.manager"}; // guards the maps below.
     std::map<int, reducer::UsbController> controllers_;
     // The last-known device descriptor per tracked model (for re-claim).
     std::unordered_map<int, UsbDeviceInfo> devices_;
@@ -246,15 +262,8 @@ class UsbGamepadManager {
     // health judgement reads it and a claim that ends resets it.
     std::unordered_map<int, int> directScans_;
 
-    // Per-model OUT-direction state, guarded by its own mutex rather than mtx_:
-    // feedback arrives on the receive thread and must not contend with the 1 s
-    // reconcile sweep. Holds the DualSense's one-time lightbar handoff flag and
-    // the Switch Pro's rolling packet counter, both of which are properties of
-    // the claim rather than of any one write. Erased when the claim ends, so a
-    // replugged pad gets its handoff again.
-    mutable std::mutex feedbackMtx_;
-    std::unordered_map<int, input::usbout::FeedbackState> feedback_;
-    std::unordered_map<int, std::uint8_t> feedbackSeq_;
+    // Each live claim's output worker, by synthetic id, under mtx_.
+    std::unordered_map<int, std::shared_ptr<OutputWorker>> workers_;
 };
 
 } // namespace dish::source::usb

@@ -8,6 +8,7 @@
 #include "Network/WifiConnection.h"
 #include "core/reducer/Reconcile.h"
 #include "satellite_client_test_access.h"
+#include "wifi_connection_test_access.h"
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -21,16 +22,6 @@
 #include <array>
 #include <cstdint>
 #include <memory>
-
-namespace dish::net {
-
-// Definition of the test-only friend seam declared in WifiConnection.h.
-class WifiConnectionTestAccess {
-  public:
-    static void tick(WifiConnection& conn) { conn.onAliveTick(); }
-};
-
-} // namespace dish::net
 
 using dish::net::SatelliteClient;
 using dish::net::SatelliteClientTestAccess;

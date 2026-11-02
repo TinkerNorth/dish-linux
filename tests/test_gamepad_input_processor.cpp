@@ -5,9 +5,12 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <array>
+#include <atomic>
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <thread>
 #include <unordered_map>
 
 using dish::input::applyDeadzones;
@@ -33,7 +36,7 @@ TEST_CASE("scaleTrigger clamps and rounds to [0, 255]", "[input]") {
     REQUIRE(scaleTrigger(2.0F) == 255);
 }
 
-TEST_CASE("publish forwards every state to the report sender", "[input]") {
+TEST_CASE("publish forwards every changed state to the report sender", "[input]") {
     GamepadInputProcessor p;
     int calls = 0;
     std::uint16_t lastButtons = 0;
@@ -82,18 +85,108 @@ TEST_CASE("drainTelemetry resets per-second counters and keeps lifetime total", 
 
     GamepadInputProcessor::DeviceState s;
     p.publish("pad", s);
+    s.wButtons = GamepadInputProcessor::Buttons::kX;
     p.publish("pad", s);
     p.publish("pad", s);
 
     auto snap = p.drainTelemetry();
     REQUIRE(snap.events == 3);
-    REQUIRE(snap.sends == 3);
-    REQUIRE(snap.totalSent == 3);
+    REQUIRE(snap.sends == 2);
+    REQUIRE(snap.totalSent == 2);
 
     auto snap2 = p.drainTelemetry();
     REQUIRE(snap2.events == 0);
     REQUIRE(snap2.sends == 0);
-    REQUIRE(snap2.totalSent == 3);
+    REQUIRE(snap2.totalSent == 2);
+}
+
+namespace {
+
+struct ForwardLog {
+    int calls = 0;
+    GamepadInputProcessor::DeviceState last{};
+
+    void install(GamepadInputProcessor& p) {
+        p.setReportSender([this](const std::string&, std::uint16_t b, std::uint8_t lt,
+                                 std::uint8_t rt, std::int16_t lx, std::int16_t ly, std::int16_t rx,
+                                 std::int16_t ry) {
+            ++calls;
+            last = GamepadInputProcessor::DeviceState{b, lt, rt, lx, ly, rx, ry};
+        });
+    }
+};
+
+} // namespace
+
+TEST_CASE("an unchanged report forwards nothing", "[input][latch]") {
+    GamepadInputProcessor p;
+    ForwardLog log;
+    log.install(p);
+    GamepadInputProcessor::DeviceState s;
+    s.lx = 12000;
+    p.publish("pad", s);
+    p.publish("pad", s);
+    p.publish("pad", s);
+    CHECK(log.calls == 1);
+    CHECK(p.drainTelemetry().events == 3);
+}
+
+TEST_CASE("a one-bit change forwards once", "[input][latch]") {
+    GamepadInputProcessor p;
+    ForwardLog log;
+    log.install(p);
+    GamepadInputProcessor::DeviceState s;
+    p.publish("pad", s);
+    s.wButtons = GamepadInputProcessor::Buttons::kDpadUp;
+    p.publish("pad", s);
+    p.publish("pad", s);
+    CHECK(log.calls == 2);
+    CHECK(log.last.wButtons == GamepadInputProcessor::Buttons::kDpadUp);
+}
+
+TEST_CASE("the first report of a device forwards even when it is all zero", "[input][latch]") {
+    GamepadInputProcessor p;
+    ForwardLog log;
+    log.install(p);
+    p.publish("pad", GamepadInputProcessor::DeviceState{});
+    CHECK(log.calls == 1);
+}
+
+TEST_CASE("jitter inside the dead zone forwards nothing", "[input][latch]") {
+    GamepadInputProcessor p;
+    ForwardLog log;
+    log.install(p);
+    p.setDeadzones("pad", {3277, 13});
+    GamepadInputProcessor::DeviceState s;
+    s.lx = 1200;
+    p.publish("pad", s);
+    s.lx = -900;
+    s.lt = 5;
+    p.publish("pad", s);
+    CHECK(log.calls == 1);
+}
+
+TEST_CASE("zeroAndSendAll forwards even when the pad already rests at zero", "[input][latch]") {
+    GamepadInputProcessor p;
+    ForwardLog log;
+    log.install(p);
+    p.publish("pad", GamepadInputProcessor::DeviceState{});
+    p.zeroAndSendAll();
+    CHECK(log.calls == 2);
+    p.publish("pad", GamepadInputProcessor::DeviceState{});
+    CHECK(log.calls == 2);
+}
+
+TEST_CASE("remove clears the latch, so the next report forwards", "[input][latch]") {
+    GamepadInputProcessor p;
+    ForwardLog log;
+    log.install(p);
+    GamepadInputProcessor::DeviceState s;
+    s.ry = -20000;
+    p.publish("pad", s);
+    p.remove("pad");
+    p.publish("pad", s);
+    CHECK(log.calls == 2);
 }
 
 TEST_CASE("applyDeadzones zeroes sticks at or below threshold", "[input]") {
@@ -447,6 +540,7 @@ TEST_CASE("publishTouchpad forwards the sample to the touchpad sender", "[touchp
     sample.finger1X = -1;
     sample.finger1Y = 32767;
     sample.buttonPressed = true;
+    sample.eventTimeMs = 4321;
     p.publishTouchpad("pad-1", sample);
 
     REQUIRE(calls == 1);
@@ -459,6 +553,7 @@ TEST_CASE("publishTouchpad forwards the sample to the touchpad sender", "[touchp
     REQUIRE(observed.finger1X == -1);
     REQUIRE(observed.finger1Y == 32767);
     REQUIRE(observed.buttonPressed);
+    REQUIRE(observed.eventTimeMs == 4321);
 }
 
 TEST_CASE("publishTouchpad forwards every sample, including unchanged ones", "[touchpad]") {
@@ -703,12 +798,78 @@ TEST_CASE("actuationCount: a resting jittery axis never trips, however long it d
     REQUIRE(p.actuationCount() == 0);
 }
 
-TEST_CASE("actuationCount: publishTouchpad always counts", "[input][activity]") {
+TEST_CASE("actuationCount: a touch frame with no finger, no click and no change is not activity",
+          "[input][activity]") {
     GamepadInputProcessor p;
-    const GamepadInputProcessor::TouchpadSample sample{}; // no threshold, no sender needed
-    p.publishTouchpad("pad", sample);
-    p.publishTouchpad("pad", sample);
+    GamepadInputProcessor::TouchpadSample idle{}; // no sender needed
+    p.publishTouchpad("pad", idle);
+    p.publishTouchpad("pad", idle);
+    idle.eventTimeMs = 5; // a new stamp on the same touch is not a change
+    p.publishTouchpad("pad", idle);
+    REQUIRE(p.actuationCount() == 0);
+}
+
+TEST_CASE("actuationCount: a touch frame counts while a finger is down or the click is held",
+          "[input][activity]") {
+    struct Case {
+        const char* what;
+        GamepadInputProcessor::TouchpadSample frame;
+    };
+    const auto held = [](bool finger0, bool finger1, bool click) {
+        GamepadInputProcessor::TouchpadSample t;
+        t.finger0Active = finger0;
+        t.finger1Active = finger1;
+        t.buttonPressed = click;
+        return t;
+    };
+    const std::array<Case, 3> cases{{
+        {"first finger", held(true, false, false)},
+        {"second finger", held(false, true, false)},
+        {"click", held(false, false, true)},
+    }};
+    for (const Case& c : cases) {
+        INFO(c.what);
+        GamepadInputProcessor p;
+        p.publishTouchpad("pad", c.frame);
+        p.publishTouchpad("pad", c.frame);
+        p.publishTouchpad("pad", c.frame);
+        CHECK(p.actuationCount() == 3);
+    }
+}
+
+TEST_CASE("actuationCount: a lift counts once, and the idle frames after it do not",
+          "[input][activity]") {
+    GamepadInputProcessor p;
+    GamepadInputProcessor::TouchpadSample touch;
+    touch.finger0Active = true;
+    touch.finger0X = 900;
+    p.publishTouchpad("pad", touch);
+    REQUIRE(p.actuationCount() == 1);
+
+    touch.finger0Active = false; // the pad keeps reporting the lifted finger's coordinates
+    p.publishTouchpad("pad", touch);
     REQUIRE(p.actuationCount() == 2);
+    p.publishTouchpad("pad", touch);
+    p.publishTouchpad("pad", touch);
+    REQUIRE(p.actuationCount() == 2);
+}
+
+TEST_CASE("actuationCount: a device's first touch frame is its baseline, and remove starts it over",
+          "[input][activity]") {
+    GamepadInputProcessor p;
+    GamepadInputProcessor::TouchpadSample resting;
+    resting.finger0X = -32768; // no finger: a pad keeps reporting where the last one was
+    GamepadInputProcessor::TouchpadSample elsewhere = resting;
+    elsewhere.finger0X = 900;
+
+    p.publishTouchpad("pad", resting);
+    REQUIRE(p.actuationCount() == 0);
+    p.publishTouchpad("pad", elsewhere);
+    REQUIRE(p.actuationCount() == 1);
+
+    p.remove("pad");
+    p.publishTouchpad("pad", resting);
+    REQUIRE(p.actuationCount() == 1);
 }
 
 TEST_CASE("actuationCount: remove re-baselines the device's reference", "[input][activity]") {
@@ -838,4 +999,58 @@ TEST_CASE("inspect: one device's input never reads as another's", "[input][inspe
     p.publish("pad-a", s);
     REQUIRE(p.inspect("pad-a").wire.has_value());
     REQUIRE_FALSE(p.inspect("pad-b").wire.has_value());
+}
+
+TEST_CASE("inspect never sees a report torn by the thread publishing it", "[input][records]") {
+    GamepadInputProcessor p;
+    const auto index = p.add("pad");
+    REQUIRE(index.has_value());
+    std::atomic<bool> stop{false};
+    std::thread owner([&] {
+        for (std::int16_t n = 1; !stop.load(std::memory_order_relaxed);
+             n = static_cast<std::int16_t>(n == 32000 ? 1 : n + 1)) {
+            p.publish(*index, GamepadInputProcessor::DeviceState{static_cast<std::uint16_t>(n), 0,
+                                                                 0, n, n, n, n});
+        }
+    });
+    int seen = 0;
+    bool whole = true;
+    while (seen < 20'000) {
+        const auto inspection = p.inspect("pad");
+        if (!inspection.raw.has_value()) { continue; }
+        const auto& raw = *inspection.raw;
+        whole = whole && raw.lx == raw.ly && raw.ly == raw.rx && raw.rx == raw.ry &&
+                static_cast<std::int16_t>(raw.wButtons) == raw.lx;
+        ++seen;
+    }
+    stop.store(true);
+    owner.join();
+    CHECK(whole);
+    CHECK(p.inputCounters("pad").gamepadEvents > 0);
+}
+
+TEST_CASE("two threads introducing one id end on the same index", "[input][records]") {
+    for (int round = 0; round < 200; ++round) {
+        GamepadInputProcessor p;
+        std::optional<GamepadInputProcessor::DeviceIndex> a;
+        std::optional<GamepadInputProcessor::DeviceIndex> b;
+        std::thread first([&] { a = p.add("twin"); });
+        std::thread second([&] { b = p.add("twin"); });
+        first.join();
+        second.join();
+        REQUIRE(a.has_value());
+        REQUIRE(b.has_value());
+        CHECK(*a == *b);
+    }
+}
+
+TEST_CASE("a full table refuses a new device and frees a slot on remove", "[input][records]") {
+    GamepadInputProcessor p;
+    for (std::size_t i = 0; i < GamepadInputProcessor::kMaxDevices; ++i) {
+        REQUIRE(p.add("pad-" + std::to_string(i)).has_value());
+    }
+    CHECK_FALSE(p.add("one-too-many").has_value());
+    p.remove("pad-7");
+    CHECK(p.add("one-too-many").has_value());
+    CHECK_FALSE(p.add(std::string(GamepadInputProcessor::kMaxIdBytes + 1, 'x')).has_value());
 }

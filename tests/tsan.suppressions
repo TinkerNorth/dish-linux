@@ -19,8 +19,10 @@ called_from_lib:libQt6Network.so
 # longer match: TSan then reports "unlock of an unlocked mutex" against a
 # mutex living inside Qt-allocated memory it never saw locked (seen from
 # QNetworkAccessManager's worker startup under test_moonlight_binding_refcount).
-# Safe ONLY while no first-party code uses std::condition_variable — both of
-# those waits would be silenced too. Grep src/ before keeping this line.
+# It would hide a first-party std::condition_variable wait the same way.
+# SpeakerPlayoutEngine waited on one until its playout queue moved to
+# WorkerWake, a semaphore whose atomics TSan sees, and no first-party code waits
+# on one now: grep src/ for condition_variable before keeping this line.
 called_from_lib:libstdc++.so
 called_from_lib:libglib-2.0.so
 called_from_lib:libgobject-2.0.so

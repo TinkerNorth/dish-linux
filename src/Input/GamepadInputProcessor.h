@@ -3,19 +3,25 @@
 
 #pragma once
 
-#include <QString>
+#include "core/thread/Seqlock.h"
 
+#include <array>
 #include <atomic>
+#include <cstddef>
 #include <cstdint>
 #include <functional>
-#include <mutex>
 #include <optional>
-#include <unordered_map>
+#include <string>
 
 namespace dish::input {
 
 // Converts raw gamepad values into the XUSB report format the Satellite
 // server expects. Pure logic; no SDL dependency.
+//
+// Every device has a record in a fixed table, found by the dense index add() hands out. The thread
+// that reads a device (the SDL thread, a raw-HID read thread) publishes by that index with no lock
+// and no allocation; the GUI copies a record out through its seqlock. The senders are set before
+// any input thread starts and never change afterwards.
 class GamepadInputProcessor {
   public:
     // Wire values — do not renumber.
@@ -38,6 +44,10 @@ class GamepadInputProcessor {
     };
 
     using DeviceId = std::string;
+    using DeviceIndex = std::uint32_t;
+    static constexpr std::size_t kMaxDevices = 64;
+    // Longer ids are refused by add().
+    static constexpr std::size_t kMaxIdBytes = 63;
 
     // Runs inline on the caller's thread (normally the SDL gamepad thread);
     // the hot path deliberately never hops threads.
@@ -70,8 +80,8 @@ class GamepadInputProcessor {
     using BatterySender =
         std::function<void(const DeviceId& id, std::uint8_t level, std::uint8_t status)>;
 
-    // Genuinely event-driven (finger down/move/up), so unlike motion it is
-    // neither rate-limited nor coalesced.
+    // Forwarded as published: a raw-HID pad's publisher gates its report stream first
+    // (Input/TouchGate.h). An eventTimeMs of 0 is stamped at the forward.
     struct TouchpadSample {
         bool finger0Active = false;
         std::uint8_t finger0Id = 0;
@@ -82,8 +92,17 @@ class GamepadInputProcessor {
         std::int16_t finger1X = 0;
         std::int16_t finger1Y = 0;
         bool buttonPressed = false;
+        std::uint32_t eventTimeMs = 0;
+        bool sameTouch(const TouchpadSample& o) const {
+            return finger0Active == o.finger0Active && finger0Id == o.finger0Id &&
+                   finger0X == o.finger0X && finger0Y == o.finger0Y &&
+                   finger1Active == o.finger1Active && finger1Id == o.finger1Id &&
+                   finger1X == o.finger1X && finger1Y == o.finger1Y &&
+                   buttonPressed == o.buttonPressed;
+        }
     };
     using TouchpadSender = std::function<void(const DeviceId& id, const TouchpadSample& sample)>;
+    using NanoTime = std::function<std::int64_t()>;
 
     // Max forwarded MSG_MOTION rate per controller; faster samples are dropped.
     static constexpr std::uint32_t kMotionRateLimitHz = 250;
@@ -115,6 +134,7 @@ class GamepadInputProcessor {
         }
     };
 
+    // `events` counts every report published, `sends` the ones that went on to the sender.
     struct TelemetrySnapshot {
         int events = 0;
         int sends = 0;
@@ -130,8 +150,7 @@ class GamepadInputProcessor {
         std::uint64_t motionEvents = 0;
     };
 
-    // 0/0 if the device never emitted. Off the hot path (~1 Hz, Qt main thread)
-    // and takes the existing mtx_, so the send path gains no new lock.
+    // 0/0 if the device never emitted. Off the hot path (~1 Hz, Qt main thread).
     InputRateCounters inputCounters(const DeviceId& id) const;
 
     // What the input inspector reads for one device: its last report as it went
@@ -145,7 +164,7 @@ class GamepadInputProcessor {
         std::optional<TouchpadSample> touchpad;
     };
 
-    // Polled by the open inspector, off the hot path, under the existing mtx_.
+    // Polled by the open inspector, off the hot path; copies the record out through its seqlock.
     Inspection inspect(const DeviceId& id) const;
 
     // Reports that actually moved something, across every device. Unlike the
@@ -154,44 +173,75 @@ class GamepadInputProcessor {
     // Process-monotonic: a device leaving does not roll it back.
     std::uint64_t actuationCount() const { return actuations_.load(std::memory_order_relaxed); }
 
+    // Where the app's reports leave, keyed by the device's index, which is what a published route
+    // table is indexed by. Called on the device's own thread.
+    class InputSink {
+      public:
+        virtual ~InputSink() = default;
+        virtual void report(DeviceIndex index, const DeviceId& id, const DeviceState& state) = 0;
+        virtual void motion(DeviceIndex index, const DeviceId& id, const MotionSample& sample,
+                            std::uint32_t timestampDeltaUs) = 0;
+        virtual void battery(DeviceIndex index, const DeviceId& id,
+                             const BatterySample& sample) = 0;
+        virtual void touchpad(DeviceIndex index, const DeviceId& id,
+                              const TouchpadSample& sample) = 0;
+
+      protected:
+        InputSink() = default;
+        InputSink(const InputSink&) = default;
+        InputSink& operator=(const InputSink&) = default;
+        InputSink(InputSink&&) = default;
+        InputSink& operator=(InputSink&&) = default;
+    };
+
+    // Set before any input thread starts; read by them without a lock afterwards. The senders are
+    // plain hooks (the tests' window onto what leaves); the app routes through the sink.
+    void setSink(InputSink* sink) { sink_ = sink; }
     void setReportSender(ReportSender sender);
     void setMotionSender(MotionSender sender);
     void setBatterySender(BatterySender sender);
     void setTouchpadSender(TouchpadSender sender);
+    void setNanoTime(NanoTime nanoTime);
+    std::int64_t nanoTime() const { return nanoTime_(); }
+
+    // The device's index, the one it already has or a free one, without a lock. Empty when the
+    // table is full or the id is too long. One thread introduces a given id.
+    std::optional<DeviceIndex> add(const DeviceId& id);
+    // The device's index if it has one, without making one. Any thread, no lock.
+    std::optional<DeviceIndex> find(const DeviceId& id) const;
+    // Frees the device's record. Called once whoever publishes for the device has stopped.
+    void remove(const DeviceId& id);
     void setDeadzones(const DeviceId& id, const Deadzones& dz);
-    void publish(const DeviceId& id, const DeviceState& state);
 
-    // False when the rate limiter dropped the sample. The device threads that
-    // call this have nothing to do about a drop, so they do not look.
-    bool publishMotion(const DeviceId& id, const MotionSample& sample);
-
+    // The hot path, on the device's own thread: no lock, no allocation.
+    // publish forwards the report only when it differs, after the dead zones, from the last one
+    // forwarded for the device; the first report after the device appears, or after remove(),
+    // always goes.
+    void publish(DeviceIndex index, const DeviceState& state);
+    // False when the rate limiter dropped the sample.
+    bool publishMotion(DeviceIndex index, const MotionSample& sample);
     // Test seam taking an explicit `now` (microseconds, any monotonic basis).
-    // Returns false when the rate limiter dropped the sample.
-    bool publishMotionAt(const DeviceId& id, const MotionSample& sample, std::uint64_t nowUs);
+    bool publishMotionAt(DeviceIndex index, const MotionSample& sample, std::uint64_t nowUs);
+    void publishBattery(DeviceIndex index, const BatterySample& sample);
+    void publishTouchpad(DeviceIndex index, const TouchpadSample& sample);
 
+    // The same by id, for callers off the hot path: add() and then the index form.
+    void publish(const DeviceId& id, const DeviceState& state);
+    bool publishMotion(const DeviceId& id, const MotionSample& sample);
+    bool publishMotionAt(const DeviceId& id, const MotionSample& sample, std::uint64_t nowUs);
     void publishBattery(const DeviceId& id, const BatterySample& sample);
     void publishTouchpad(const DeviceId& id, const TouchpadSample& sample);
 
+    // Sends a neutral report to the report sender for every device, whatever it last sent; each
+    // device's latch then holds the zeros, so its next report goes out unless it is neutral too.
     void zeroAndSendAll();
-    void remove(const DeviceId& id);
     TelemetrySnapshot drainTelemetry();
 
   private:
-    mutable std::mutex mtx_;
-    std::unordered_map<DeviceId, DeviceState> states_;
-    // The same reports before the dead zones, for the inspector's stick tests:
-    // a drift the dead zone hides is still the drift the test has to measure.
-    std::unordered_map<DeviceId, DeviceState> rawStates_;
-    std::unordered_map<DeviceId, TouchpadSample> touchpads_;
-    // The baseline actuation is measured against. Distinct from states_, which
-    // follows every report: a stick drifting under the epsilon never moves this,
-    // so a slow deliberate push still accumulates against it and trips.
-    std::unordered_map<DeviceId, DeviceState> activityRef_;
-    std::unordered_map<DeviceId, Deadzones> deadzones_;
-    ReportSender sender_;
-    MotionSender motionSender_;
-    BatterySender batterySender_;
-    TouchpadSender touchpadSender_;
+    struct IdText {
+        std::array<char, kMaxIdBytes> chars{};
+        std::uint8_t length = 0;
+    };
 
     // `lastUs` and `lastSample` are the last *emitted* sample. `hasEmitted` is a
     // separate flag, not a `lastUs == 0` sentinel: a monotonic clock can
@@ -200,26 +250,69 @@ class GamepadInputProcessor {
     struct MotionGate {
         std::uint64_t lastUs = 0;
         bool hasEmitted = false;
-        MotionSample lastSample;
     };
-    std::unordered_map<DeviceId, MotionGate> lastMotionUs_;
 
-    // Bumped inside the mtx_ section publish()/publishMotionAt() already hold,
-    // so the hot path gains no new lock and no per-event allocation (the map
-    // node is made on a device's first event, then reused). std::atomic is
-    // neither copyable nor movable; unordered_map::operator[] default-
-    // constructs in place, so the nodes are never moved.
-    struct AtomicInputCounters {
-        std::atomic<std::uint64_t> gamepad{0};
-        std::atomic<std::uint64_t> motion{0};
+    static constexpr std::uint32_t kFree = 0;
+    static constexpr std::uint32_t kClaimed = 1;
+    static constexpr std::uint32_t kLive = 2;
+    static constexpr std::uint32_t kSeenReport = 1U << 0;
+    static constexpr std::uint32_t kSeenMotion = 1U << 1;
+    static constexpr std::uint32_t kSeenTouchpad = 1U << 2;
+
+    struct Record {
+        // The registry: Free, then Claimed while one thread writes the id, then Live. The id text
+        // is what lookups compare, through idSeq; `id` is what the senders get, written only while
+        // Claimed and read only by the device's own thread.
+        std::atomic<std::uint32_t> state{kFree};
+        thread::Seqlock idSeq;
+        thread::AtomicWords<IdText> idText;
+        DeviceId id;
+        // Bumped by add and remove: the device's thread starts its own state over when it sees a
+        // value other than the one it last saw. zeroGen is zeroAndSendAll's: the latch then holds
+        // the zeros it sent.
+        std::atomic<std::uint32_t> plugGen{0};
+        std::atomic<std::uint32_t> zeroGen{0};
+        std::atomic<std::uint32_t> deadzones{0};
+        // Written by the device's thread inside `seq`, copied out by inspect().
+        thread::Seqlock seq;
+        thread::AtomicWords<DeviceState> wire;
+        thread::AtomicWords<DeviceState> raw;
+        thread::AtomicWords<MotionSample> motion;
+        thread::AtomicWords<TouchpadSample> touchpad;
+        std::atomic<std::uint32_t> seen{0};
+        std::atomic<std::uint64_t> gamepadEvents{0};
+        std::atomic<std::uint64_t> motionEvents{0};
+        // The device's thread's own.
+        std::uint32_t ownGen = 0;
+        std::uint32_t ownZeroGen = 0;
+        bool forwarded = false;
+        DeviceState lastForwarded{};
+        // The baseline actuation is measured against. Distinct from the latch, which follows
+        // every forwarded report: a stick drifting under the epsilon never moves this, so a slow
+        // deliberate push still accumulates against it and trips.
+        DeviceState activityRef{};
+        MotionGate gate{};
+        std::optional<TouchpadSample> lastTouchpad;
     };
-    std::unordered_map<DeviceId, AtomicInputCounters> rateCounters_;
+
+    bool idMatches(const Record& r, const DeviceId& id) const;
+    Record* recordAt(DeviceIndex index);
+    // The device's thread, catching up with a plugGen the cold side moved.
+    static void syncOwner(Record& r);
+    static std::int64_t steadyNanoTime();
+
+    std::array<Record, kMaxDevices> records_;
+    InputSink* sink_ = nullptr;
+    ReportSender sender_;
+    MotionSender motionSender_;
+    BatterySender batterySender_;
+    TouchpadSender touchpadSender_;
+    NanoTime nanoTime_ = steadyNanoTime;
 
     std::atomic<std::uint64_t> actuations_{0};
-
-    int telEvents_ = 0;
-    int telSends_ = 0;
-    std::uint64_t telTotalSent_ = 0;
+    std::atomic<int> telEvents_{0};
+    std::atomic<int> telSends_{0};
+    std::atomic<std::uint64_t> telTotalSent_{0};
 };
 
 std::int16_t scaleAxis(float v, float maxMagnitude);

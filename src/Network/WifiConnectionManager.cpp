@@ -311,6 +311,7 @@ WifiConnection* WifiConnectionManager::ensureConnection(const models::Discovered
     const auto id = WifiConnection::idFor(server);
     if (auto* existing = connections_.value(id, nullptr)) { return existing; }
     auto* conn = new WifiConnection(id, server, this);
+    conn->setClientReaper(reaper_);
     connections_.insert(id, conn);
     QObject::connect(conn, &WifiConnection::changed, this, &WifiConnectionManager::poolChanged);
     QObject::connect(conn, &WifiConnection::telemetryChanged, this,
@@ -805,6 +806,7 @@ void WifiConnectionManager::onSessionReply(const QString& id,
         return;
     }
     auto client = std::make_shared<SatelliteClient>();
+    client->setPriorityRequester(priority_);
     const bool socketOpened = client->openSocket(server.ip.toStdString(), server.udpPort);
     if (!socketOpened) {
         onGrantUnusable(conn, server, intent, *resp.connectionId);
@@ -1284,6 +1286,16 @@ void WifiConnectionManager::resumeFromSleep() {
     // a stale remembered IP, and only discovery can relearn it.
     startDiscovery();
     autoReconnectAll();
+}
+
+void WifiConnectionManager::closeSessions() {
+    // Every connection this manager parents, including one a forget left on deleteLater. Signals
+    // are blocked as in the destructor: the owner calling this is on its way out.
+    for (auto* c : findChildren<WifiConnection*>(Qt::FindDirectChildrenOnly)) {
+        const QSignalBlocker block(c);
+        c->markDisconnected();
+    }
+    reaper_->drain();
 }
 
 void WifiConnectionManager::autoReconnectAll() {

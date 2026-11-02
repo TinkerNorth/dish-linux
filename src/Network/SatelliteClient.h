@@ -8,11 +8,14 @@
 
 #pragma once
 
-#include "Util/AtomicCounter.h"
 #include "core/model/Protocol.h"
 #include "core/reducer/LatencyWindow.h"
 #include "core/reducer/Reconcile.h"
 #include "core/reducer/TouchpadRouting.h"
+#include "core/thread/LatestValue.h"
+#include "core/thread/Seqlock.h"
+#include "core/thread/SpscRing.h"
+#include "core/thread/TrackedMutex.h"
 
 #include <arpa/inet.h>
 #include <netinet/in.h>
@@ -22,11 +25,16 @@
 #include <atomic>
 #include <cstdint>
 #include <functional>
+#include <memory>
 #include <mutex>
 #include <optional>
 #include <string>
 #include <thread>
 #include <vector>
+
+namespace dish::source {
+class PriorityRequester;
+} // namespace dish::source
 
 namespace dish::net {
 
@@ -347,10 +355,13 @@ class SatelliteClient {
 
     void startHeartbeat();
     void stopHeartbeat();
+    // Before startReceiveLoop: what the receive thread asks for its priority through as it
+    // starts. None asks for nothing.
+    void setPriorityRequester(const source::PriorityRequester* requester) { priority_ = requester; }
     void startReceiveLoop();
     void stopReceiveLoop();
 
-    bool isOpen() const { return sock_ >= 0; }
+    bool isOpen() const { return sock_.load(std::memory_order_acquire) >= 0; }
     bool isAlive() const { return connectionAlive_.load(std::memory_order_relaxed); }
     int missedAcks() const { return missedAcks_.load(std::memory_order_relaxed); }
     // Poll alternative to the ack handler. -1 until the first enriched ack.
@@ -370,7 +381,13 @@ class SatelliteClient {
     // The next counter value, for the proactive re-PUT guard. Clamped rather than
     // truncated so that past exhaustion the poll keeps reading "re-PUT needed"
     // instead of wrapping back under the threshold.
-    std::uint32_t sendCounter() const { return reducer::clampedSendCounter(sendCounter_.load()); }
+    std::uint32_t sendCounter() const {
+        return reducer::clampedSendCounter(sendCounter_.load(std::memory_order_relaxed));
+    }
+
+    // Datagrams dropped because the socket's send buffer was full: the socket never blocks, so a
+    // burst the network cannot take is dropped, as the network itself would.
+    std::uint64_t softDrops() const { return softDrops_.load(std::memory_order_relaxed); }
 
     // Half the median of the sliding heartbeat-RTT window. Zeroed by
     // setConnectionParams so the readout always answers the current session.
@@ -388,56 +405,70 @@ class SatelliteClient {
     // Test-only seam to park the send counter near exhaustion.
     friend class SatelliteClientTestAccess;
 
-    // False only on a real failure: a buffer-full drop reports success, since
-    // UDP absorbs it. Also false when nothing went on the wire at all — no
-    // socket, counter exhausted, the AEAD refused, or the payload is over the
-    // datagram ceiling (the one-time logged refusal; see the definition).
+    // False when nothing went on the wire: no socket, counter exhausted, a re-key
+    // under way, the AEAD refused, a full send buffer, or the payload is over the
+    // datagram ceiling (the one-time logged refusal — see the guard in the definition).
     bool sendEncrypted(std::uint16_t msgType, const std::uint8_t* payload, std::size_t len);
     void heartbeatLoop();
     void receiveLoop();
+    // Copies the datagram to the stack and opens it there; the receive loop opens its own buffer
+    // in place.
     void processIncoming(const std::uint8_t* buf, std::size_t n);
+    void processIncomingInPlace(std::uint8_t* buf, std::size_t n);
 
-    // processIncoming's two halves: getting a packet open, and doing something with what was in
-    // it. Seven of the nine message kinds share one dispatch, so only these three have bodies.
-    struct IncomingMaterial;
-    IncomingMaterial takeIncomingMaterial();
-    bool decryptIncoming(const std::uint8_t* buf, std::size_t n, std::vector<std::uint8_t>& plain,
-                         unsigned long long& plainLen);
+    struct Material {
+        std::array<std::uint8_t, 4> token{};
+        std::array<std::uint8_t, 32> key{};
+    };
+    // False on a torn read, a re-key being written; `generation` is the write it came from.
+    bool readMaterial(Material& out, std::uint32_t& generation) const;
+    bool decryptIncoming(std::uint8_t* buf, std::size_t n, unsigned long long& plainLen);
     void dispatchIncoming(std::uint16_t msgType, const std::uint8_t* body, std::size_t bodyLen);
     void recordAckLatency();
     void onHeartbeatAck(const std::uint8_t* body, std::size_t bodyLen);
     void onSessionClose(const std::uint8_t* body, std::size_t bodyLen);
+    void holdSendGate();
+    void releaseSendGate();
+    // Moves the receive thread's round trips into the window. Caller holds latencyMtx_.
+    void drainLatencySamplesLocked() const;
 
-    int sock_ = -1;
+    std::atomic<int> sock_{-1};
     sockaddr_in dest_{};
-    // Material and both counters share materialMtx_ because a re-key swaps them
-    // on a LIVE session: pairing an old key with a fresh counter would reuse a
-    // nonce. Senders draw (key, token, counter) in one hold and encrypt on the
-    // copies.
-    mutable std::mutex materialMtx_;
-    std::array<std::uint8_t, 4> token_{};
-    std::uint32_t tokenBe_ = 0; // the 4 raw BE bytes as a host u32, for the AAD
-    std::array<std::uint8_t, 32> key_{};
+    // Session material: written by a re-key under materialMtx_, copied out by every sender and the
+    // receive thread through the seqlock. A sender draws its counter inside the send gate and then
+    // compares the generation it copied the key under; a re-key opens its write before it resets
+    // the counter, so a counter from the new sequence never leaves under the old key.
+    thread::TrackedMutex materialMtx_{"satellite.material"};
+    thread::Seqlock materialSeq_;
+    thread::AtomicWords<Material> material_;
     // 64-bit so exhaustion parks the sender silent rather than wrapping the
-    // 32-bit wire field into nonce reuse. Atomic for the lock-free poll.
-    util::AtomicCounter sendCounter_{1};
-    // Replay guard: drop counter <= this, with the first packet exempt while it
-    // is 0. Advanced only by the receive thread, reset by a re-key.
-    std::uint32_t lastRecvCounter_ = 0;
-    std::mutex sendLock_;
+    // 32-bit wire field into nonce reuse.
+    std::atomic<std::uint64_t> sendCounter_{1};
+    // Held by one sender from its counter draw to sendto's return, so the session's datagrams leave
+    // in counter order, which the satellite's replay guard requires.
+    std::atomic<std::uint32_t> sendGate_{0};
+    std::atomic<std::uint64_t> softDrops_{0};
+    // The receive thread's replay guard: the material generation it belongs to (high word) and the
+    // last accepted counter (low word, 0 lets the first packet in). A re-key stores its own
+    // generation with counter 0; only the receive thread advances it.
+    std::atomic<std::uint64_t> recvMark_{0};
 
     std::atomic<bool> heartbeatRunning_{false};
     std::atomic<bool> ackRunning_{false};
     std::thread heartbeatThread_;
     std::thread ackThread_;
+    const source::PriorityRequester* priority_ = nullptr;
 
     // µs stamp of the in-flight heartbeat ping, 0 for none. Armed on the
     // heartbeat thread, consumed on the receive thread via exchange(0). Per
     // client, so concurrent satellites cannot cross-pair a ping with another's
     // ack.
     std::atomic<std::int64_t> pingSentUs_{0};
-    mutable std::mutex latencyMtx_;
-    reducer::LatencyWindow latencyWindow_;
+    // Round trips go from the receive thread to the readers through the ring; the window belongs
+    // to the readers, under latencyMtx_.
+    mutable thread::SpscRing<double, 16> latencySamples_;
+    mutable thread::TrackedMutex latencyMtx_{"satellite.latency"};
+    mutable reducer::LatencyWindow latencyWindow_;
 
     std::atomic<int> missedAcks_{0};
     std::atomic<bool> connectionAlive_{true};
@@ -447,20 +478,25 @@ class SatelliteClient {
     std::atomic<std::int8_t> activeControllerCount_{-1};
     std::atomic<std::int32_t> sessionCloseReason_{-1};
 
-    std::mutex rumbleHandlerMtx_;
-    RumbleHandler rumbleHandler_;
-    std::mutex lightbarHandlerMtx_;
-    LightbarHandler lightbarHandler_;
-    std::mutex triggerEffectsHandlerMtx_;
-    TriggerEffectsHandler triggerEffectsHandler_;
-    std::mutex playerLedsHandlerMtx_;
-    PlayerLedsHandler playerLedsHandler_;
-    std::mutex speakerAudioHandlerMtx_;
-    SpeakerAudioHandler speakerAudioHandler_;
-    std::mutex hapticAudioHandlerMtx_;
-    HapticAudioHandler hapticAudioHandler_;
-    std::mutex micLedHandlerMtx_;
-    MicLedHandler micLedHandler_;
+    // Every handler the receive thread calls. The setters edit their own copy under handlersMtx_
+    // and hand the receive thread a fresh immutable one, which it takes before its next message.
+    struct Handlers {
+        RumbleHandler rumble;
+        LightbarHandler lightbar;
+        TriggerEffectsHandler triggerEffects;
+        PlayerLedsHandler playerLeds;
+        SpeakerAudioHandler speakerAudio;
+        HapticAudioHandler hapticAudio;
+        MicLedHandler micLed;
+        HeartbeatAckHandler ack;
+        CloseHandler close;
+    };
+    template <typename Edit> void editHandlers(Edit&& edit);
+    thread::TrackedMutex handlersMtx_{"satellite.handlers"};
+    Handlers handlersDraft_;
+    thread::LatestValue<const Handlers> handlersBox_;
+    // The receive thread's own.
+    std::unique_ptr<const Handlers> handlers_ = std::make_unique<const Handlers>();
     // One log line per client for an oversize send, not one per frame: at 50
     // audio frames a second a misconfigured caller would otherwise turn one
     // mistake into a log flood.
@@ -472,10 +508,6 @@ class SatelliteClient {
     // across a re-key can only cost one mis-shaped packet, which the receiver
     // disambiguates by length anyway.
     std::atomic<int> settledProtocolVersion_{proto::kProtocolVersionMin};
-    std::mutex ackHandlerMtx_;
-    HeartbeatAckHandler ackHandler_;
-    std::mutex closeHandlerMtx_;
-    CloseHandler closeHandler_;
 };
 
 } // namespace dish::net

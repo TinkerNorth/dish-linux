@@ -3,6 +3,7 @@
 
 #include "AppModel.h"
 #include "UI/CrashHandler.h"
+#include "core/thread/TrackedMutex.h"
 #include "Util/Localization.h"
 #include "Util/UnixSignalWatcher.h"
 #include "qml/QmlEntryPoint.h"
@@ -67,6 +68,7 @@ void applyUiAppearance(QGuiApplication& app) {
 int main(int argc, char* argv[]) {
     // FIRST, before any other subsystem can fault, so a crash still leaves a backtrace behind.
     dish::crash::install();
+    dish::thread::setThreadRole(dish::thread::ThreadRole::Gui);
 
     if (sodium_init() < 0) {
         // Before any logger exists, so stderr is the only channel; the exit code is the report.

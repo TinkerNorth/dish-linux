@@ -11,10 +11,12 @@
 #pragma once
 
 #include "core/reducer/DirectClaimFailure.h"
+#include "source/usb/HidReportWriter.h"
 
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <memory>
 #include <optional>
 #include <string>
 #include <vector>
@@ -160,6 +162,28 @@ class UsbDeviceGateway {
     // own button stay one state. False for an unknown id or a family with no
     // latch. Default no-op so fakes that never touch audio need no override.
     virtual bool setPadMicMuted(int /*syntheticId*/, bool /*muted*/) { return false; }
+
+    // The claim's OUT reports for its output worker. The default writes through
+    // writeOutputReport; a gateway with the handle at hand returns a writer on it.
+    virtual std::unique_ptr<HidReportWriter> openReportWriter(int syntheticId);
 };
+
+// writeOutputReport, as a writer.
+class GatewayReportWriter final : public HidReportWriter {
+  public:
+    GatewayReportWriter(UsbDeviceGateway& gateway, int syntheticId)
+        : gateway_(gateway), syntheticId_(syntheticId) {}
+    bool write(const std::uint8_t* data, std::size_t len) override {
+        return gateway_.writeOutputReport(syntheticId_, data, len);
+    }
+
+  private:
+    UsbDeviceGateway& gateway_;
+    int syntheticId_;
+};
+
+inline std::unique_ptr<HidReportWriter> UsbDeviceGateway::openReportWriter(int syntheticId) {
+    return std::make_unique<GatewayReportWriter>(*this, syntheticId);
+}
 
 } // namespace dish::source::usb

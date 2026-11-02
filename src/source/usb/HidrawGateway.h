@@ -27,6 +27,7 @@
 
 #include "core/input/UsbHidLayout.h"
 #include "core/input/UsbReportParsers.h"
+#include "core/thread/TrackedMutex.h"
 
 #include <atomic>
 #include <charconv>
@@ -42,6 +43,10 @@
 #include <thread>
 #include <utility>
 #include <vector>
+
+namespace dish::source {
+class PriorityRequester;
+} // namespace dish::source
 
 namespace dish::source::usb {
 
@@ -197,7 +202,12 @@ class HidrawGateway : public UsbDeviceGateway {
     bool isClaimAlive(int syntheticId) const override;
     std::int64_t completionCount(int syntheticId) const override;
     std::int64_t decodedCount(int syntheticId) const override;
+    // Before the first claim: what each claim's read thread asks for its priority through as it
+    // starts. None asks for nothing.
+    void setPriorityRequester(const PriorityRequester* requester) { priority_ = requester; }
+
     bool writeOutputReport(int syntheticId, const std::uint8_t* data, std::size_t len) override;
+    std::unique_ptr<HidReportWriter> openReportWriter(int syntheticId) override;
     bool setPadMicMuted(int syntheticId, bool muted) override;
 
   private:
@@ -227,11 +237,13 @@ class HidrawGateway : public UsbDeviceGateway {
         // Serialises writers against each other. The reader is untouched: a
         // hidraw fd carries independent read and write paths, so an OUT report
         // never waits on the blocking read.
-        std::mutex writeMtx;
+        thread::TrackedMutex writeMtx{"hid.write"};
 
         ~Claimed();
     };
 
+    // The live claim for an id, or null. Looked up under mtx_, used after it.
+    Claimed* claimedFor(int syntheticId) const;
     void readLoop(Claimed* c);
     // readLoop's two decisions about one report: whether it was a dongle event rather than input,
     // and which decoder reads it.
@@ -242,8 +254,9 @@ class HidrawGateway : public UsbDeviceGateway {
     // Negative and decreasing, mirroring the android synthetic-id space so they
     // never collide with positive SDL ids.
     std::atomic<int> nextSyntheticId_{-1000};
+    const PriorityRequester* priority_ = nullptr;
 
-    mutable std::mutex mtx_;
+    mutable thread::TrackedMutex mtx_{"hid.claims"};
     std::map<int, std::unique_ptr<Claimed>> claimed_;
 };
 

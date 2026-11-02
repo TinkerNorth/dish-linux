@@ -16,6 +16,11 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <atomic>
+#include <chrono>
+#include <mutex>
+#include <thread>
+
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -58,14 +63,31 @@ class RecordingGateway : public UsbDeviceGateway {
   public:
     std::vector<UsbDeviceInfo> devices;
     int nextSyntheticId = -1000;
-    bool writeSucceeds = true;
-
+    // The claim's output worker writes on its own thread, so what it wrote is read through these.
+    std::atomic<bool> writeSucceeds{true};
     struct Written {
         int syntheticId = 0;
         std::vector<std::uint8_t> bytes;
     };
-    std::vector<Written> writes;
     std::vector<int> released;
+
+    std::vector<Written> writes() const {
+        const std::lock_guard<std::mutex> lock(writesMtx_);
+        return writes_;
+    }
+    void clearWrites() {
+        const std::lock_guard<std::mutex> lock(writesMtx_);
+        writes_.clear();
+    }
+    // True once at least `count` reports were written, false after two seconds of waiting.
+    bool waitForWrites(std::size_t count) const {
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+        while (std::chrono::steady_clock::now() < deadline) {
+            if (writes().size() >= count) { return true; }
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+        return false;
+    }
 
     std::vector<UsbDeviceInfo> enumerate() override { return devices; }
     ClaimResult claim(const UsbDeviceInfo& /*d*/,
@@ -80,8 +102,9 @@ class RecordingGateway : public UsbDeviceGateway {
     std::int64_t completionCount(int /*syntheticId*/) const override { return 0; }
     std::int64_t decodedCount(int /*syntheticId*/) const override { return 0; }
     bool writeOutputReport(int syntheticId, const std::uint8_t* data, std::size_t len) override {
-        writes.push_back(Written{syntheticId, std::vector<std::uint8_t>(data, data + len)});
-        return writeSucceeds;
+        const std::lock_guard<std::mutex> lock(writesMtx_);
+        writes_.push_back(Written{syntheticId, std::vector<std::uint8_t>(data, data + len)});
+        return writeSucceeds.load();
     }
     bool setPadMicMuted(int syntheticId, bool muted) override {
         muteWrites.push_back({syntheticId, muted});
@@ -90,6 +113,10 @@ class RecordingGateway : public UsbDeviceGateway {
 
     std::function<void(const UsbReport&)> lastOnReport;
     std::vector<std::pair<int, bool>> muteWrites;
+
+  private:
+    mutable std::mutex writesMtx_;
+    std::vector<Written> writes_;
 };
 
 // A manager with one claimed pad of the given identity. Claims are driven the
@@ -116,14 +143,16 @@ TEST_CASE("a claimed pad's feedback reaches the gateway with its synthetic id",
     REQUIRE(claimed->syntheticId.has_value());
 
     REQUIRE(h.manager->applyRumble(kSonyVid, kDualSensePid, 0x8000, 0x4000));
-    REQUIRE(h.gateway.writes.size() == 1U);
-    CHECK(h.gateway.writes[0].syntheticId == *claimed->syntheticId);
+    REQUIRE(h.gateway.waitForWrites(1));
+    const auto writes = h.gateway.writes();
+    REQUIRE(writes.size() == 1U);
+    CHECK(writes[0].syntheticId == *claimed->syntheticId);
     // Report 0x02 with COMPATIBLE_VIBRATION and the two motors: the DualSense
     // rumble report, aimed at the claim the FSM actually holds.
-    REQUIRE(h.gateway.writes[0].bytes.size() == 63U);
-    CHECK(h.gateway.writes[0].bytes[0] == 0x02);
-    CHECK(h.gateway.writes[0].bytes[3] == 0x40);
-    CHECK(h.gateway.writes[0].bytes[4] == 0x80);
+    REQUIRE(writes[0].bytes.size() == 63U);
+    CHECK(writes[0].bytes[0] == 0x02);
+    CHECK(writes[0].bytes[3] == 0x40);
+    CHECK(writes[0].bytes[4] == 0x80);
 }
 
 TEST_CASE("an unclaimed model writes nothing", "[usb][manager][feedback]") {
@@ -135,7 +164,7 @@ TEST_CASE("an unclaimed model writes nothing", "[usb][manager][feedback]") {
     CHECK_FALSE(h.manager->applyRumble(kSonyVid, kDualShock4Pid, 1, 1));
     CHECK_FALSE(h.manager->applyLightbar(kSonyVid, kDualShock4Pid, 1, 2, 3));
     CHECK_FALSE(h.manager->applyPlayerLeds(kSonyVid, kDualShock4Pid, 1));
-    CHECK(h.gateway.writes.empty());
+    CHECK(h.gateway.writes().empty());
 }
 
 TEST_CASE("a family without the actuator writes nothing", "[usb][manager][feedback]") {
@@ -147,11 +176,12 @@ TEST_CASE("a family without the actuator writes nothing", "[usb][manager][feedba
     const std::uint8_t block[kTriggerEffectBlockBytes] = {};
     CHECK_FALSE(h.manager->applyTriggerEffects(kSonyVid, kDualShock4Pid, block, block));
     CHECK_FALSE(h.manager->applyPlayerLeds(kSonyVid, kDualShock4Pid, 0x01));
-    CHECK(h.gateway.writes.empty());
+    CHECK(h.gateway.writes().empty());
     // ...but its lightbar does land.
     CHECK(h.manager->applyLightbar(kSonyVid, kDualShock4Pid, 9, 8, 7));
-    REQUIRE(h.gateway.writes.size() == 1U);
-    CHECK(h.gateway.writes[0].bytes[0] == 0x05);
+    REQUIRE(h.gateway.waitForWrites(1));
+    REQUIRE(h.gateway.writes().size() == 1U);
+    CHECK(h.gateway.writes()[0].bytes[0] == 0x05);
 }
 
 TEST_CASE("a claimed pad with no drivable family writes nothing", "[usb][manager][feedback]") {
@@ -161,23 +191,27 @@ TEST_CASE("a claimed pad with no drivable family writes nothing", "[usb][manager
     if (h.manager->isDirectClaimed(kGenericVid, kGenericPid)) {
         CHECK_FALSE(h.manager->applyRumble(kGenericVid, kGenericPid, 0xFFFF, 0xFFFF));
         CHECK_FALSE(h.manager->applyLightbar(kGenericVid, kGenericPid, 1, 2, 3));
-        CHECK(h.gateway.writes.empty());
+        CHECK(h.gateway.writes().empty());
     }
 }
 
 TEST_CASE("the DualSense lightbar handoff rides only the first colour",
           "[usb][manager][feedback]") {
-    // The state is the manager's, not the builder's, so this is where a
-    // per-process flag would show up as a handoff that never repeats.
+    // The state is the claim's worker's, not the builder's, so this is where a
+    // per-process flag would show up as a handoff that never repeats. The second
+    // colour waits for the first to land: the mailbox keeps only the newest.
     Harness h(kSonyVid, kDualSensePid);
     REQUIRE(h.manager->applyLightbar(kSonyVid, kDualSensePid, 1, 2, 3));
+    REQUIRE(h.gateway.waitForWrites(1));
     REQUIRE(h.manager->applyLightbar(kSonyVid, kDualSensePid, 4, 5, 6));
-    REQUIRE(h.gateway.writes.size() == 2U);
-    CHECK(h.gateway.writes[0].bytes[39] == 0x02); // setup flag on the first
-    CHECK(h.gateway.writes[0].bytes[42] == 0x02);
-    CHECK(h.gateway.writes[1].bytes[39] == 0x00); // and not on the second
-    CHECK(h.gateway.writes[1].bytes[42] == 0x00);
-    CHECK(h.gateway.writes[1].bytes[45] == 4);
+    REQUIRE(h.gateway.waitForWrites(2));
+    const auto writes = h.gateway.writes();
+    REQUIRE(writes.size() == 2U);
+    CHECK(writes[0].bytes[39] == 0x02); // setup flag on the first
+    CHECK(writes[0].bytes[42] == 0x02);
+    CHECK(writes[1].bytes[39] == 0x00); // and not on the second
+    CHECK(writes[1].bytes[42] == 0x00);
+    CHECK(writes[1].bytes[45] == 4);
 }
 
 TEST_CASE("a released claim forgets the handoff so a replug re-sends it",
@@ -186,7 +220,8 @@ TEST_CASE("a released claim forgets the handoff so a replug re-sends it",
     // its lightbar stuck on the firmware's own blue for the rest of the session.
     Harness h(kSonyVid, kDualSensePid);
     REQUIRE(h.manager->applyLightbar(kSonyVid, kDualSensePid, 1, 2, 3));
-    REQUIRE(h.gateway.writes[0].bytes[39] == 0x02);
+    REQUIRE(h.gateway.waitForWrites(1));
+    REQUIRE(h.gateway.writes()[0].bytes[39] == 0x02);
 
     // Unplug (two missed scans is the debounce), then plug back in.
     h.gateway.devices.clear();
@@ -197,11 +232,13 @@ TEST_CASE("a released claim forgets the handoff so a replug re-sends it",
     h.manager->reconcile();
     REQUIRE(h.manager->isDirectClaimed(kSonyVid, kDualSensePid));
 
-    h.gateway.writes.clear();
+    h.gateway.clearWrites();
     REQUIRE(h.manager->applyLightbar(kSonyVid, kDualSensePid, 7, 7, 7));
-    REQUIRE(h.gateway.writes.size() == 1U);
-    CHECK(h.gateway.writes[0].bytes[39] == 0x02);
-    CHECK(h.gateway.writes[0].bytes[42] == 0x02);
+    REQUIRE(h.gateway.waitForWrites(1));
+    const auto writes = h.gateway.writes();
+    REQUIRE(writes.size() == 1U);
+    CHECK(writes[0].bytes[39] == 0x02);
+    CHECK(writes[0].bytes[42] == 0x02);
 }
 
 TEST_CASE("trigger effect blocks reach the gateway in report order", "[usb][manager][feedback]") {
@@ -213,8 +250,10 @@ TEST_CASE("trigger effect blocks reach the gateway in report order", "[usb][mana
         right[i] = static_cast<std::uint8_t>(0x20 + i);
     }
     REQUIRE(h.manager->applyTriggerEffects(kSonyVid, kDualSensePid, left, right));
-    REQUIRE(h.gateway.writes.size() == 1U);
-    const auto& bytes = h.gateway.writes[0].bytes;
+    REQUIRE(h.gateway.waitForWrites(1));
+    const auto writes = h.gateway.writes();
+    REQUIRE(writes.size() == 1U);
+    const auto& bytes = writes[0].bytes;
     REQUIRE(bytes.size() == 63U);
     CHECK(bytes[1] == 0x0C);
     CHECK(bytes[11] == 0x20); // right first
@@ -227,9 +266,12 @@ TEST_CASE("the Switch Pro's packet counter advances across calls", "[usb][manage
     Harness h(kNintendoVid, kSwitchProPid);
     REQUIRE(h.manager->isDirectClaimed(kNintendoVid, kSwitchProPid));
     REQUIRE(h.manager->applyRumble(kNintendoVid, kSwitchProPid, 0x8000, 0x8000));
+    REQUIRE(h.gateway.waitForWrites(1));
     REQUIRE(h.manager->applyRumble(kNintendoVid, kSwitchProPid, 0x8000, 0x8000));
-    REQUIRE(h.gateway.writes.size() == 2U);
-    CHECK(h.gateway.writes[0].bytes[1] != h.gateway.writes[1].bytes[1]);
+    REQUIRE(h.gateway.waitForWrites(2));
+    const auto writes = h.gateway.writes();
+    REQUIRE(writes.size() == 2U);
+    CHECK(writes[0].bytes[1] != writes[1].bytes[1]);
 }
 
 TEST_CASE("the counter is shared across feedback kinds", "[usb][manager][feedback]") {
@@ -237,28 +279,41 @@ TEST_CASE("the counter is shared across feedback kinds", "[usb][manager][feedbac
     // which is what the pad expects: it sequences the CONNECTION, not a stream.
     Harness h(kNintendoVid, kSwitchProPid);
     REQUIRE(h.manager->applyRumble(kNintendoVid, kSwitchProPid, 0x8000, 0));
+    REQUIRE(h.gateway.waitForWrites(1));
     REQUIRE(h.manager->applyPlayerLeds(kNintendoVid, kSwitchProPid, 0x01));
-    REQUIRE(h.gateway.writes.size() == 2U);
-    CHECK(h.gateway.writes[0].bytes[0] == 0x10);
-    CHECK(h.gateway.writes[1].bytes[0] == 0x01);
-    CHECK(h.gateway.writes[0].bytes[1] != h.gateway.writes[1].bytes[1]);
+    REQUIRE(h.gateway.waitForWrites(2));
+    const auto writes = h.gateway.writes();
+    REQUIRE(writes.size() == 2U);
+    CHECK(writes[0].bytes[0] == 0x10);
+    CHECK(writes[1].bytes[0] == 0x01);
+    CHECK(writes[0].bytes[1] != writes[1].bytes[1]);
 }
 
-TEST_CASE("a failed write is reported, not swallowed", "[usb][manager][feedback]") {
-    // The caller uses the return to tell "no such actuator" from "the actuator
-    // was there and the write failed", which is the difference between a
-    // mis-declared capability and a pad that went away mid-flight.
+TEST_CASE("a failed write is counted, not swallowed", "[usb][manager][feedback]") {
+    // The return says whether the claim took the kind at all ("no such actuator"
+    // is false at once); a write the pad then refused is the worker's to count,
+    // which is the difference between a mis-declared capability and a pad that
+    // went away mid-flight.
     Harness h(kSonyVid, kDualSensePid);
     h.gateway.writeSucceeds = false;
-    CHECK_FALSE(h.manager->applyRumble(kSonyVid, kDualSensePid, 1, 1));
-    CHECK(h.gateway.writes.size() == 1U); // it was attempted
+    CHECK(h.manager->applyRumble(kSonyVid, kDualSensePid, 1, 1));
+    REQUIRE(h.gateway.waitForWrites(1)); // it was attempted
+    const auto target = h.manager->directTarget(kSonyVid, kDualSensePid);
+    REQUIRE(target.has_value());
+    REQUIRE(target->worker != nullptr);
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    while (target->worker->failedWrites() == 0 && std::chrono::steady_clock::now() < deadline) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    CHECK(target->worker->failedWrites() == 1U);
+    CHECK(target->worker->writes() == 0U);
 }
 
 TEST_CASE("player LEDs are masked before they reach the gateway", "[usb][manager][feedback]") {
     Harness h(kSonyVid, kDualSensePid);
     REQUIRE(h.manager->applyPlayerLeds(kSonyVid, kDualSensePid, 0xFF));
-    REQUIRE(h.gateway.writes.size() == 1U);
-    CHECK(h.gateway.writes[0].bytes[44] == 0x1F);
+    REQUIRE(h.gateway.waitForWrites(1));
+    CHECK(h.gateway.writes()[0].bytes[44] == 0x1F);
 }
 
 // ---- The mic-mute lamp and the mute latch ------------------------------------
@@ -270,21 +325,25 @@ TEST_CASE("the mute lamp reaches the claimed pad and shadows into later writes",
     REQUIRE(claimed.has_value());
 
     REQUIRE(h.manager->applyMicMuteLed(kSonyVid, kDualSensePid, 1));
-    REQUIRE(h.gateway.writes.size() == 1U);
-    CHECK(h.gateway.writes[0].syntheticId == *claimed->syntheticId);
-    REQUIRE(h.gateway.writes[0].bytes.size() == 63U);
-    CHECK(h.gateway.writes[0].bytes[0] == 0x02);
-    CHECK(h.gateway.writes[0].bytes[2] == 0x03);
-    CHECK(h.gateway.writes[0].bytes[9] == 1);
-    CHECK(h.gateway.writes[0].bytes[10] == 0x10);
+    REQUIRE(h.gateway.waitForWrites(1));
+    auto writes = h.gateway.writes();
+    REQUIRE(writes.size() == 1U);
+    CHECK(writes[0].syntheticId == *claimed->syntheticId);
+    REQUIRE(writes[0].bytes.size() == 63U);
+    CHECK(writes[0].bytes[0] == 0x02);
+    CHECK(writes[0].bytes[2] == 0x03);
+    CHECK(writes[0].bytes[9] == 1);
+    CHECK(writes[0].bytes[10] == 0x10);
 
-    // The shadow lives in the manager's per-claim FeedbackState: a colour
+    // The shadow lives in the claim's worker's FeedbackState: a colour
     // written afterwards must carry the lamp along.
     REQUIRE(h.manager->applyLightbar(kSonyVid, kDualSensePid, 0x11, 0x22, 0x33));
-    REQUIRE(h.gateway.writes.size() == 2U);
-    CHECK(h.gateway.writes[1].bytes[9] == 1);
-    CHECK(h.gateway.writes[1].bytes[10] == 0x10);
-    CHECK(h.gateway.writes[1].bytes[45] == 0x11);
+    REQUIRE(h.gateway.waitForWrites(2));
+    writes = h.gateway.writes();
+    REQUIRE(writes.size() == 2U);
+    CHECK(writes[1].bytes[9] == 1);
+    CHECK(writes[1].bytes[10] == 0x10);
+    CHECK(writes[1].bytes[45] == 0x11);
 }
 
 TEST_CASE("the lamp refuses an unclaimed model, a lamp-less family and a junk state",
@@ -292,11 +351,11 @@ TEST_CASE("the lamp refuses an unclaimed model, a lamp-less family and a junk st
     Harness ds4(kSonyVid, kDualShock4Pid);
     CHECK_FALSE(ds4.manager->applyMicMuteLed(kSonyVid, kDualShock4Pid, 1)); // no lamp
     CHECK_FALSE(ds4.manager->applyMicMuteLed(kSonyVid, kDualSensePid, 1));  // not claimed
-    CHECK(ds4.gateway.writes.empty());
+    CHECK(ds4.gateway.writes().empty());
 
     Harness ds5(kSonyVid, kDualSensePid);
     CHECK_FALSE(ds5.manager->applyMicMuteLed(kSonyVid, kDualSensePid, 3)); // junk state
-    CHECK(ds5.gateway.writes.empty());
+    CHECK(ds5.gateway.writes().empty());
 }
 
 TEST_CASE("a released claim forgets the lamp shadow", "[usb][manager][feedback]") {
@@ -304,17 +363,20 @@ TEST_CASE("a released claim forgets the lamp shadow", "[usb][manager][feedback]"
     // lightbar handoff: the FeedbackState is per claim.
     Harness h(kSonyVid, kDualSensePid);
     REQUIRE(h.manager->applyMicMuteLed(kSonyVid, kDualSensePid, 1));
+    REQUIRE(h.gateway.waitForWrites(1));
     h.manager->onUsbGone(kSonyVid, kDualSensePid);
     h.gateway.devices.clear();
     h.gateway.devices.push_back(device(kSonyVid, kDualSensePid));
     h.manager->reconcile();
     REQUIRE(h.manager->isDirectClaimed(kSonyVid, kDualSensePid));
 
-    h.gateway.writes.clear();
+    h.gateway.clearWrites();
     REQUIRE(h.manager->applyLightbar(kSonyVid, kDualSensePid, 1, 2, 3));
-    REQUIRE(h.gateway.writes.size() == 1U);
-    CHECK(h.gateway.writes[0].bytes[9] == 0); // no resurrected lamp
-    CHECK((h.gateway.writes[0].bytes[2] & 0x03) == 0);
+    REQUIRE(h.gateway.waitForWrites(1));
+    const auto writes = h.gateway.writes();
+    REQUIRE(writes.size() == 1U);
+    CHECK(writes[0].bytes[9] == 0); // no resurrected lamp
+    CHECK((writes[0].bytes[2] & 0x03) == 0);
 }
 
 TEST_CASE("setPadMicMuted plumbs to the claimed pad's latch and nowhere else",

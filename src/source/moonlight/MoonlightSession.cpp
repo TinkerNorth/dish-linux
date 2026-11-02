@@ -97,12 +97,11 @@ MoonlightSession::MoonlightSession(MoonlightHttp* http, repository::MoonlightHos
     : QObject(parent), http_(http), host_(std::move(host)),
       control_(std::make_unique<MoonlightControlStream>()),
       rtsp_(std::make_unique<MoonlightRtspClient>()) {
-    // Both handlers run on the control stream's service thread and only emit;
-    // the queued connections below are what hop onto the Qt loop.
-    qRegisterMetaType<moonwire::HostEvent>();
+    // Both handlers run on the control stream's service thread. A link change and
+    // a TERMINATION only emit, and the queued connections below are what hop
+    // onto the Qt loop; every other host event is applied there and then.
     control_->setLinkHandler([this](bool connected) { emit controlLinkChanged(connected); });
-    control_->setEventHandler(
-        [this](const moonwire::HostEvent& event) { emit hostEventReceived(event); });
+    control_->setEventHandler([this](const moonwire::HostEvent& event) { onHostEvent(event); });
     QObject::connect(
         this, &MoonlightSession::controlLinkChanged, this,
         [this](bool connected) {
@@ -111,8 +110,13 @@ MoonlightSession::MoonlightSession(MoonlightHttp* http, repository::MoonlightHos
                                : moonlight::SessionEvent{moonlight::moon_event::ControlLost{}});
         },
         Qt::QueuedConnection);
-    QObject::connect(this, &MoonlightSession::hostEventReceived, this,
-                     &MoonlightSession::onHostEvent, Qt::QueuedConnection);
+    QObject::connect(
+        this, &MoonlightSession::hostTerminated, this,
+        [this] {
+            qCInfo(lcMoon) << host_.address << "sent TERMINATION";
+            dispatch(moonlight::moon_event::HostTerminated{});
+        },
+        Qt::QueuedConnection);
 
     QObject::connect(rtsp_.get(), &MoonlightRtspClient::connected, this,
                      [this] { dispatch(moonlight::moon_event::RtspReady{}); });
@@ -788,7 +792,7 @@ void MoonlightSession::sendTouchFrame(std::uint8_t controllerNumber,
     std::vector<moonlight::TouchEvent> events;
     std::optional<bool> clickEdge;
     {
-        std::lock_guard<std::mutex> lock(touchMtx_);
+        std::lock_guard<thread::TrackedMutex> lock(touchMtx_);
         PadTouch& pad = touch_[controllerNumber];
         const moonlight::TouchFinger nothing;
         events = pad.reaches ? pad.lastFrame.diff(finger0, finger1)
@@ -807,7 +811,7 @@ void MoonlightSession::sendTouchFrame(std::uint8_t controllerNumber,
 
 void MoonlightSession::setTouchReaches(std::uint8_t controllerNumber, bool reaches) {
     if (controllerNumber >= moonlight::kMaxPads) { return; }
-    std::lock_guard<std::mutex> lock(touchMtx_);
+    std::lock_guard<thread::TrackedMutex> lock(touchMtx_);
     touch_[controllerNumber].reaches = reaches;
 }
 
@@ -815,13 +819,11 @@ void MoonlightSession::setTouchReaches(std::uint8_t controllerNumber, bool reach
 void MoonlightSession::forgetTouchFrame(std::uint8_t controllerNumber) {
     if (controllerNumber >= moonlight::kMaxPads) { return; }
     flipClick(controllerNumber, false);
-    std::lock_guard<std::mutex> lock(touchMtx_);
+    std::lock_guard<thread::TrackedMutex> lock(touchMtx_);
     touch_[controllerNumber].lastFrame.reset();
 }
 
 void MoonlightSession::onHostEvent(const moonwire::HostEvent& event) {
-    // On the Qt main thread: the handlers touch UI-thread plumbing (the SDL
-    // output queue) via the manager.
     switch (event.type) {
     case moonwire::HostEventType::Rumble:
     case moonwire::HostEventType::RumbleTriggers: {
@@ -852,8 +854,7 @@ void MoonlightSession::onHostEvent(const moonwire::HostEvent& event) {
         motionGate_.onMotionRequest(event.controllerNumber, event.motionRateHz, event.motionType);
         break;
     case moonwire::HostEventType::Termination:
-        qCInfo(lcMoon) << host_.address << "sent TERMINATION";
-        dispatch(moonlight::moon_event::HostTerminated{});
+        emit hostTerminated();
         break;
     case moonwire::HostEventType::Unknown:
         break;

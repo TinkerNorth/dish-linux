@@ -32,6 +32,11 @@ option(DISH_REQUIRE_TRANSLATIONS
     "Fail configuration when Qt Linguist tools are missing"       OFF)
 set(DISH_SANITIZER "" CACHE STRING
     "Sanitizer to build with: address+undefined, thread, or empty")
+# A measurement build, configured in its own build directory: every
+# TrackedMutex counts its use per lock and thread role. The release preset
+# never sets it, so the shipped binary has plain mutexes.
+option(DISH_LOCK_STATS "Count tracked-lock use per lock and thread role" OFF)
+option(DISH_BUILD_BENCH "Build the input-path latency bench (tools/bench)" OFF)
 
 # udev scans only /etc/udev/rules.d, /run/udev/rules.d and (/usr)/lib/udev/rules.d.
 # NOT ${CMAKE_INSTALL_SYSCONFDIR}: the relative form stays "etc" even where
@@ -159,6 +164,7 @@ set(DISH_CORE_SOURCES
     src/architecture/Controller.h
     src/architecture/Repository.h
     src/core/AsyncState.h
+    src/core/thread/TrackedMutex.h
     src/core/wire/SessionCrypto.h
     src/core/wire/SessionCrypto.cpp
     src/core/wire/HttpFraming.h
@@ -268,6 +274,16 @@ set(DISH_CORE_SOURCES
     src/core/input/PhysicalMotionSource.h
     # The hidraw bus lookup behind the Bluetooth-vs-USB question.
     src/core/input/HidTransport.h
+    src/core/input/PumpPacing.h
+    src/core/input/DirtySet.h
+    src/Input/TouchGate.h
+    src/core/thread/GraceEpoch.h
+    src/core/thread/MpscQueue.h
+    src/core/thread/WorkerWake.h
+    src/core/input/OutputMailbox.h
+    src/core/thread/LatestValue.h
+    src/core/thread/Seqlock.h
+    src/core/thread/SpscRing.h
     # Byte layouts mirrored 1:1 from dish-android's usb_parsers.cpp /
     # usb_hid_descriptor.cpp; keep the two in step when either side gains a
     # model.
@@ -293,6 +309,8 @@ set(DISH_CORE_SOURCES
     src/Network/PairingOutcome.cpp
     src/Network/HTTPClient.h
     src/Network/HTTPClient.cpp
+    src/Network/ClientReaper.h
+    src/Network/ClientReaper.cpp
     src/Network/WifiConnection.h
     src/Network/WifiConnection.cpp
     src/Network/WifiConnectionManager.h
@@ -374,6 +392,10 @@ set(DISH_CORE_SOURCES
     src/source/usb/HidrawGateway.cpp
     src/source/usb/UsbGamepadManager.h
     src/source/usb/UsbGamepadManager.cpp
+    src/source/usb/HidReportWriter.h
+    src/source/usb/HidReportWriter.cpp
+    src/source/usb/OutputWorker.h
+    src/source/usb/OutputWorker.cpp
     src/source/notification/EventChannel.h
     src/source/notification/DishNotifications.h
     src/source/notification/DishNotifications.cpp
@@ -391,6 +413,8 @@ set(DISH_CORE_SOURCES
     src/source/system/SecretServiceStore.cpp
     src/source/system/SleepMonitor.cpp
     src/source/system/WakeInhibitor.cpp
+    src/source/system/ThreadPriority.h
+    src/source/system/ThreadPriority.cpp
     src/source/tray/TrayIcon.h
     src/source/tray/SniIcon.h
     src/source/tray/SniIcon.cpp
@@ -479,12 +503,17 @@ set(DISH_CORE_SOURCES
     src/Input/SdlMotionConvert.cpp
     src/Input/JoystickMapping.h
     src/Input/JoystickMapping.cpp
-    src/Input/OutputCommandQueue.h
+    src/Input/ControllerShadow.h
+    src/Input/ControllerShadow.cpp
+    src/Input/PumpWaiter.h
+    src/Input/PumpWaiter.cpp
     src/Input/SDLGamepadBridge.h
     src/Input/SDLGamepadBridge.cpp
     src/FeatureSettings.h
     src/FeatureSettings.cpp
     src/LightbarRouting.h
+    src/SlotRouter.h
+    src/SlotRouter.cpp
     src/AppModel.h
     src/AppModel.cpp
     # QObject/QAbstractListModel only, no Qml/Quick, so the tests link them
@@ -550,6 +579,11 @@ endif()
 add_library(dish_core STATIC ${DISH_CORE_SOURCES})
 target_include_directories(dish_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_compile_definitions(dish_core PUBLIC DISH_VERSION="${PROJECT_VERSION}")
+# PUBLIC: TrackedMutex changes layout with it, so every consumer must agree.
+if(DISH_LOCK_STATS)
+    target_compile_definitions(dish_core PUBLIC DISH_LOCK_STATS)
+    message(STATUS "dish: lock statistics ON (a measurement build, never a release)")
+endif()
 # Crash-reporting identity. PRIVATE: only the backend needs these, and a
 # PUBLIC define would leak the DSN onto every consumer's command line.
 target_compile_definitions(dish_core PRIVATE
@@ -564,7 +598,7 @@ target_link_libraries(dish_core
         Qt6::Core Qt6::Network
         # For the theme palette (QColor + QStyleHints) and the role models.
         Qt6::Gui
-        # ScreenSaver inhibit, the BlueZ adapter probe and the appearance portal.
+        # ScreenSaver inhibit, the BlueZ adapter probe, the appearance portal and rtkit.
         Qt6::DBus
         # The Moonlight mDNS scan runs off the GUI thread via QtConcurrent::run.
         Qt6::Concurrent
@@ -905,6 +939,13 @@ if(DISH_BUILD_TESTS)
     if(Qt6LinguistTools_FOUND)
         cmake_language(DEFER CALL add_dependencies DishTests release_translations)
     endif()
+endif()
+
+# --------------------------------------------------------------------------
+# The input-path latency bench (tools/bench); never part of a package.
+# --------------------------------------------------------------------------
+if(DISH_BUILD_BENCH)
+    add_subdirectory(tools/bench)
 endif()
 
 # --------------------------------------------------------------------------

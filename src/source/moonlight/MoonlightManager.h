@@ -167,13 +167,17 @@ class MoonlightManager : public QObject {
     // returned pointer only for the duration of one call.
     MoonlightSession* session(const QString& uuid) const;
 
-    // Host->local actuation: wired to the same SDL output plumbing the
-    // satellite rumble/LED path uses. The slot is already resolved from the
-    // event's controller number, because one session drives up to four pads.
+    // Host->local actuation, called on the session's control stream thread
+    // with the host and the controller number the event named (one session
+    // drives up to four pads), for a router that resolves the pad without the
+    // Qt thread. Installed once, before the first session.
     using RumbleSink =
-        std::function<void(const QString& slotId, std::uint16_t low, std::uint16_t high)>;
-    using LedSink =
-        std::function<void(const QString& slotId, std::uint8_t r, std::uint8_t g, std::uint8_t b)>;
+        std::function<void(const std::string& hostUuid, std::uint8_t controllerNumber,
+                           std::uint16_t strong, std::uint16_t weak)>;
+    using LedSink = std::function<void(const std::string& hostUuid, std::uint8_t controllerNumber,
+                                       std::uint8_t r, std::uint8_t g, std::uint8_t b)>;
+    // Every session's stop, now: its control thread is joined before this returns.
+    void stopSessions();
     void setRumbleSink(RumbleSink sink) { rumbleSink_ = std::move(sink); }
     void setLedSink(LedSink sink) { ledSink_ = std::move(sink); }
 

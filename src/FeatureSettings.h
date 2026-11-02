@@ -3,6 +3,8 @@
 
 #pragma once
 
+#include "core/input/PumpPacing.h"
+
 #include <QObject>
 #include <QSettings>
 #include <QString>
@@ -46,6 +48,10 @@ class FeatureSettings : public QObject {
 
     bool lightbarFollowGame() const { return lightbarFollowGame_.load(std::memory_order_relaxed); }
 
+    // How the SDL thread paces its pump, from input/pumpSpin and input/pumpPeriodUs as they were
+    // when this object loaded. Neither key is in the GUI; both are an experiment.
+    input::pump::PumpPolicy pumpPolicy() const { return pumpPolicy_; }
+
   signals:
     void changed();
 
@@ -57,6 +63,7 @@ class FeatureSettings : public QObject {
     // Mirrors (lightbarMode_ == FollowGame) so the receive thread never reads
     // lightbarMode_ directly.
     std::atomic<bool> lightbarFollowGame_{true};
+    input::pump::PumpPolicy pumpPolicy_{};
 };
 
 } // namespace dish

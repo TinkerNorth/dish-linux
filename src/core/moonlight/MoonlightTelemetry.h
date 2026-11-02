@@ -19,6 +19,7 @@
 #pragma once
 
 #include "core/moonlight/MoonlightProtocol.h"
+#include "core/thread/TrackedMutex.h"
 
 #include <cstdint>
 #include <map>
@@ -97,7 +98,7 @@ class MoonlightMotionGate {
     // rateHz 0 (or negative) unsubscribes, which is how a host says stop.
     void onMotionRequest(int controllerNumber, int reportRateHz, int motionType) {
         const Key key{controllerNumber, motionType};
-        std::lock_guard<std::mutex> lock(mtx_);
+        std::lock_guard<thread::TrackedMutex> lock(mtx_);
         if (reportRateHz <= 0) {
             rates_.erase(key);
             lastSentUs_.erase(key);
@@ -110,7 +111,7 @@ class MoonlightMotionGate {
     // ended). A returning pad must wait to be asked again rather than resuming
     // a stream the host has forgotten about.
     void clear(int controllerNumber) {
-        std::lock_guard<std::mutex> lock(mtx_);
+        std::lock_guard<thread::TrackedMutex> lock(mtx_);
         for (auto it = rates_.begin(); it != rates_.end();) {
             it = it->first.controllerNumber == controllerNumber ? rates_.erase(it) : std::next(it);
         }
@@ -121,13 +122,13 @@ class MoonlightMotionGate {
     }
 
     void clearAll() {
-        std::lock_guard<std::mutex> lock(mtx_);
+        std::lock_guard<thread::TrackedMutex> lock(mtx_);
         rates_.clear();
         lastSentUs_.clear();
     }
 
     bool wanted(int controllerNumber, int motionType) const {
-        std::lock_guard<std::mutex> lock(mtx_);
+        std::lock_guard<thread::TrackedMutex> lock(mtx_);
         return rates_.count(Key{controllerNumber, motionType}) != 0;
     }
 
@@ -135,7 +136,7 @@ class MoonlightMotionGate {
     // requested rate. `nowUs` is any monotonic microsecond clock.
     bool shouldSend(int controllerNumber, int motionType, std::int64_t nowUs) {
         const Key key{controllerNumber, motionType};
-        std::lock_guard<std::mutex> lock(mtx_);
+        std::lock_guard<thread::TrackedMutex> lock(mtx_);
         const auto rate = rates_.find(key);
         if (rate == rates_.end()) { return false; }
         const std::int64_t intervalUs = 1000000 / rate->second;
@@ -155,7 +156,7 @@ class MoonlightMotionGate {
         }
     };
 
-    mutable std::mutex mtx_;
+    mutable thread::TrackedMutex mtx_{"moonlight.motionGate"};
     std::map<Key, int> rates_;
     std::map<Key, std::int64_t> lastSentUs_;
 };

@@ -3,6 +3,8 @@
 
 #include "source/usb/HidrawGateway.h"
 
+#include "source/system/ThreadPriority.h"
+
 #include <linux/hidraw.h>
 #include <linux/input.h>
 #include <sys/ioctl.h>
@@ -311,7 +313,7 @@ HidrawGateway::~HidrawGateway() {
     for (;;) {
         int syntheticId = 0;
         {
-            std::lock_guard<std::mutex> lock(mtx_);
+            std::lock_guard<thread::TrackedMutex> lock(mtx_);
             if (claimed_.empty()) { break; }
             syntheticId = claimed_.begin()->first;
         }
@@ -436,7 +438,7 @@ ClaimResult HidrawGateway::claim(const UsbDeviceInfo& device,
     claimed->running.store(true);
     Claimed* raw = claimed.get();
     {
-        std::lock_guard<std::mutex> lock(mtx_);
+        std::lock_guard<thread::TrackedMutex> lock(mtx_);
         claimed_.emplace(syntheticId, std::move(claimed));
     }
     raw->reader = std::thread([this, raw] { readLoop(raw); });
@@ -473,6 +475,8 @@ bool HidrawGateway::decodeOneReport(Claimed* c, const std::uint8_t* data, std::s
 // ParsedReport scratch live on this stack and are reused every iteration, and the decoders are
 // pure functions over them that mutate the device's stick auto-range state in place.
 void HidrawGateway::readLoop(Claimed* c) {
+    const thread::ScopedThreadRole role(thread::ThreadRole::UsbReader);
+    if (priority_ != nullptr) { priority_->request(thread::ThreadRole::UsbReader); }
     std::array<std::uint8_t, 128> buf{};
     pollfd pfd{};
     pfd.fd = c->fd;
@@ -506,7 +510,7 @@ void HidrawGateway::readLoop(Claimed* c) {
 void HidrawGateway::releaseClaim(int syntheticId) {
     std::unique_ptr<Claimed> claimed;
     {
-        std::lock_guard<std::mutex> lock(mtx_);
+        std::lock_guard<thread::TrackedMutex> lock(mtx_);
         const auto it = claimed_.find(syntheticId);
         if (it == claimed_.end()) { return; }
         claimed = std::move(it->second);
@@ -528,28 +532,28 @@ void HidrawGateway::releaseClaim(int syntheticId) {
 }
 
 bool HidrawGateway::isClaimAlive(int syntheticId) const {
-    std::lock_guard<std::mutex> lock(mtx_);
+    std::lock_guard<thread::TrackedMutex> lock(mtx_);
     const auto it = claimed_.find(syntheticId);
     if (it == claimed_.end()) { return false; }
     return it->second->alive.load();
 }
 
 std::int64_t HidrawGateway::completionCount(int syntheticId) const {
-    std::lock_guard<std::mutex> lock(mtx_);
+    std::lock_guard<thread::TrackedMutex> lock(mtx_);
     const auto it = claimed_.find(syntheticId);
     if (it == claimed_.end()) { return 0; }
     return it->second->completions.load();
 }
 
 std::int64_t HidrawGateway::decodedCount(int syntheticId) const {
-    std::lock_guard<std::mutex> lock(mtx_);
+    std::lock_guard<thread::TrackedMutex> lock(mtx_);
     const auto it = claimed_.find(syntheticId);
     if (it == claimed_.end()) { return 0; }
     return it->second->decoded.load();
 }
 
 bool HidrawGateway::setPadMicMuted(int syntheticId, bool muted) {
-    std::lock_guard<std::mutex> lock(mtx_);
+    std::lock_guard<thread::TrackedMutex> lock(mtx_);
     const auto it = claimed_.find(syntheticId);
     if (it == claimed_.end()) { return false; }
     if (it->second->parser != input::usbparse::HidParser::DualSense) { return false; }
@@ -559,39 +563,28 @@ bool HidrawGateway::setPadMicMuted(int syntheticId, bool muted) {
     return true;
 }
 
-bool HidrawGateway::writeOutputReport(int syntheticId, const std::uint8_t* data, std::size_t len) {
-    if (data == nullptr || len == 0) { return false; }
-    Claimed* c = nullptr;
-    {
-        // The claim map's lock is released before the write: a write can block
-        // on a sleeping pad, and holding mtx_ across it would stall reconcile().
-        // Safe because releaseClaim() joins the reader and erases the entry only
-        // from the owner thread, and every caller here is downstream of a live
-        // binding for this device.
-        std::lock_guard<std::mutex> lock(mtx_);
-        const auto it = claimed_.find(syntheticId);
-        if (it == claimed_.end()) { return false; }
-        c = it->second.get();
-    }
-    const int fd = c->fd;
-    if (fd < 0) { return false; }
+HidrawGateway::Claimed* HidrawGateway::claimedFor(int syntheticId) const {
+    // The claim map's lock is released before any write: a write can block on a sleeping pad, and
+    // holding mtx_ across it would stall reconcile(). Safe because releaseClaim() joins the reader
+    // and erases the entry only from the owner thread, after the manager stopped the claim's
+    // output worker.
+    std::lock_guard<thread::TrackedMutex> lock(mtx_);
+    const auto it = claimed_.find(syntheticId);
+    return it == claimed_.end() ? nullptr : it->second.get();
+}
 
-    std::lock_guard<std::mutex> lock(c->writeMtx);
-    // hidraw takes the report exactly as built, with the id as byte 0 and no
-    // padding: unlike the Windows HID stack it does not demand a fixed-length
-    // buffer, so the builder's length IS the transfer length.
-    for (;;) {
-        const ssize_t written = ::write(fd, data, len);
-        if (written >= 0) { return static_cast<std::size_t>(written) == len; }
-        // A signal during the write is not a failure; anything else is. Retrying
-        // EINTR here matters because the app installs handlers (crash reporting,
-        // session management) that can land on any thread.
-        if (errno == EINTR) { continue; }
-        // Silent, like every other IO path in this file: a feedback write is
-        // lossy telemetry, and a pad that has gone away is about to surface as
-        // a claim failure anyway.
-        return false;
-    }
+// The claim's own node and write lock; the manager stops the worker that holds the writer before
+// it releases the claim, which is what closes the node.
+std::unique_ptr<HidReportWriter> HidrawGateway::openReportWriter(int syntheticId) {
+    Claimed* c = claimedFor(syntheticId);
+    if (c == nullptr || c->fd < 0) { return UsbDeviceGateway::openReportWriter(syntheticId); }
+    return std::make_unique<FdReportWriter>(c->fd, &c->writeMtx);
+}
+
+bool HidrawGateway::writeOutputReport(int syntheticId, const std::uint8_t* data, std::size_t len) {
+    Claimed* c = claimedFor(syntheticId);
+    if (c == nullptr) { return false; }
+    return FdReportWriter(c->fd, &c->writeMtx).write(data, len);
 }
 
 } // namespace dish::source::usb

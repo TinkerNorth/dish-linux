@@ -148,7 +148,7 @@ src/source/       StateSources and IO gateways: discovery, HTTP, USB, stores
 src/repository/   Durable keyed storage over QSettings
 src/core/         Pure, Qt-free: reducers and FSMs, wire crypto, input math
 src/architecture/ The kernel: Observable, StateSource, Composer, Controller, Repository
-src/Input/        SDL bridge, XUSB packing, output command queue
+src/Input/        SDL bridge, XUSB packing, controller shadow, touchpad gate
 src/Network/      POSIX UDP session, REST client, pairing, connection pool
 src/UI/           Theme palettes, font probes, crash handler, license manifest
 src/update/       The update check. No download, no staging, no apply.

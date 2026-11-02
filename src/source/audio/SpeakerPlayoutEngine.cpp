@@ -58,11 +58,8 @@ SpeakerPlayoutEngine::SpeakerPlayoutEngine(AudioDeviceGateway* gateway,
 }
 
 SpeakerPlayoutEngine::~SpeakerPlayoutEngine() {
-    {
-        std::lock_guard<std::mutex> lock(pendingMtx_);
-        stopping_ = true;
-    }
-    pendingCv_.notify_all();
+    stopping_.store(true, std::memory_order_seq_cst);
+    wake_.notify();
     if (worker_.joinable()) { worker_.join(); }
     try {
         reconcile({});
@@ -120,7 +117,7 @@ void SpeakerPlayoutEngine::openMissingLocked(const std::vector<SpeakerVoiceTarge
 
 void SpeakerPlayoutEngine::reconcile(const std::vector<SpeakerVoiceTarget>& targets) {
     if (gateway_ == nullptr) { return; }
-    std::lock_guard<std::mutex> lock(mtx_);
+    std::lock_guard<thread::TrackedMutex> lock(mtx_);
     // Narrowing before widening, the same order the capture engine uses, so a voice that moved
     // endpoints is never open on two devices at once.
     closeDepartedLocked(targets);
@@ -130,7 +127,7 @@ void SpeakerPlayoutEngine::reconcile(const std::vector<SpeakerVoiceTarget>& targ
 // The platform dropped a device: every voice on it closes, so the next reconcile reopens on the
 // fresh handle rather than keeping the dead one a same-named replug would hide.
 void SpeakerPlayoutEngine::closeOnDevicesAbsent(const std::vector<std::string>& presentDevices) {
-    std::lock_guard<std::mutex> lock(mtx_);
+    std::lock_guard<thread::TrackedMutex> lock(mtx_);
     for (auto it = voices_.begin(); it != voices_.end();) {
         const bool present = std::find(presentDevices.begin(), presentDevices.end(),
                                        it->second->deviceName) != presentDevices.end();
@@ -154,37 +151,37 @@ void SpeakerPlayoutEngine::deliver(const std::string& connectionId, int controll
         decodeAndQueue(connectionId, controllerIndex, lane, seq, opus, opusLen);
         return;
     }
-    PendingFrame frame;
-    frame.connectionId = connectionId;
-    frame.controllerIndex = controllerIndex;
-    frame.lane = lane;
-    frame.seq = seq;
-    frame.opus.assign(opus, opus + opusLen);
-    {
-        std::lock_guard<std::mutex> lock(pendingMtx_);
-        while (pending_.size() >= static_cast<std::size_t>(dish::audio::kPlayoutPendingFrames)) {
-            pending_.pop_front();
-        }
-        pending_.push_back(std::move(frame));
+    if (connectionId.size() > kMaxConnectionIdBytes ||
+        opusLen > dish::proto::kAudioWireMaxOpusBytes) {
+        return;
     }
-    pendingCv_.notify_one();
+    const bool queued = pending_.push([&](PendingFrame& frame) {
+        std::copy_n(connectionId.data(), connectionId.size(), frame.connectionId.data());
+        frame.connectionIdLength = connectionId.size();
+        frame.controllerIndex = controllerIndex;
+        frame.lane = lane;
+        frame.seq = seq;
+        std::copy_n(opus, opusLen, frame.opus.data());
+        frame.opusLength = opusLen;
+    });
+    if (queued) { wake_.notify(); }
 }
 
 // The playout thread: one frame at a time, in the order the wire delivered them; it finishes
 // what it was handed before it stops, so a frame delivered is a frame played or dropped on its
 // merits, never lost to a teardown.
 void SpeakerPlayoutEngine::workerLoop() {
+    const thread::ScopedThreadRole role(thread::ThreadRole::Playout);
     for (;;) {
+        wake_.sleepUnless(
+            [this] { return stopping_.load(std::memory_order_seq_cst) || !pending_.empty(); });
         PendingFrame frame;
-        {
-            std::unique_lock<std::mutex> lock(pendingMtx_);
-            pendingCv_.wait(lock, [this] { return stopping_ || !pending_.empty(); });
-            if (pending_.empty()) { return; }
-            frame = std::move(pending_.front());
-            pending_.pop_front();
+        while (pending_.pop(frame)) {
+            decodeAndQueue(std::string(frame.connectionId.data(), frame.connectionIdLength),
+                           frame.controllerIndex, frame.lane, frame.seq, frame.opus.data(),
+                           frame.opusLength);
         }
-        decodeAndQueue(frame.connectionId, frame.controllerIndex, frame.lane, frame.seq,
-                       frame.opus.data(), frame.opus.size());
+        if (stopping_.load(std::memory_order_seq_cst) && pending_.empty()) { return; }
     }
 }
 
@@ -194,7 +191,7 @@ void SpeakerPlayoutEngine::decodeAndQueue(const std::string& connectionId, int c
                                           PlayoutLane lane, std::uint16_t seq,
                                           const std::uint8_t* opus, std::size_t opusLen) {
     using Accept = dish::audio::AudioJitterWindow::Accept;
-    std::lock_guard<std::mutex> lock(mtx_);
+    std::lock_guard<thread::TrackedMutex> lock(mtx_);
     const auto it = voices_.find(VoiceKey{connectionId, controllerIndex, lane});
     if (it == voices_.end()) { return; }
     Voice& voice = *it->second;
@@ -279,7 +276,7 @@ void SpeakerPlayoutEngine::decodeAndQueue(const std::string& connectionId, int c
 }
 
 bool SpeakerPlayoutEngine::playingFor(const std::string& slotId, PlayoutLane lane) const {
-    std::lock_guard<std::mutex> lock(mtx_);
+    std::lock_guard<thread::TrackedMutex> lock(mtx_);
     for (const auto& [key, voice] : voices_) {
         if (voice->slotId == slotId && voice->lane == lane) { return true; }
     }

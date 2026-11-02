@@ -276,6 +276,14 @@ class FakeMoonlightHost : public QObject {
     // that treats this as a host-ended session would close somebody's game.
     void dropLink() { dropRequested_.store(true, std::memory_order_relaxed); }
 
+    // A RUMBLE_DATA for the pad the session holds as `number`, sent from the service thread.
+    void sendRumble(std::uint16_t number, std::uint16_t low, std::uint16_t high) {
+        rumbleWords_.store((static_cast<std::uint64_t>(number) << 32) |
+                               (static_cast<std::uint64_t>(low) << 16) | high,
+                           std::memory_order_relaxed);
+        rumbleRequested_.store(true, std::memory_order_release);
+    }
+
   private:
     // ── HTTP, both ports ────────────────────────────────────────────────────
     void serveHttp(QTcpSocket* sock, bool tls) {
@@ -590,6 +598,7 @@ class FakeMoonlightHost : public QObject {
     void serviceControl() {
         while (running_.load(std::memory_order_relaxed)) {
             runRequestedEnding();
+            runRequestedRumble();
             ENetEvent event{};
             if (enet_host_service(enetHost_, &event, 5) <= 0) { continue; }
             switch (event.type) {
@@ -746,7 +755,6 @@ class FakeMoonlightHost : public QObject {
 
     // [0x5501][len 5][controller u16][rate u16][type u8], sealed with the rikey.
     void sendMotionEvent(std::uint16_t number, std::uint8_t motionType) {
-        if (peer_ == nullptr) { return; }
         const std::uint8_t plaintext[9] = {0x01,
                                            0x55,
                                            0x05,
@@ -756,11 +764,32 @@ class FakeMoonlightHost : public QObject {
                                            kMotionRateHz,
                                            0x00,
                                            motionType};
-        std::array<std::uint8_t, sizeof(plaintext) + 64> sealed{};
+        sendSealed(plaintext, sizeof(plaintext));
+    }
+
+    // [0x010B][len 10][unused u32][controller u16][low u16][high u16], sealed with the rikey.
+    void runRequestedRumble() {
+        if (peer_ == nullptr || !rumbleRequested_.exchange(false, std::memory_order_acquire)) {
+            return;
+        }
+        const std::uint64_t words = rumbleWords_.load(std::memory_order_relaxed);
+        const auto byte = [words](int shift) {
+            return static_cast<std::uint8_t>((words >> shift) & 0xFF);
+        };
+        const std::uint8_t plaintext[14] = {0x0B,     0x01,     0x0A,    0x00,     0x00,
+                                            0x00,     0x00,     0x00,    byte(32), byte(40),
+                                            byte(16), byte(24), byte(0), byte(8)};
+        sendSealed(plaintext, sizeof(plaintext));
+    }
+
+    // Service thread only: one host packet, sealed with the rikey and sent reliably.
+    void sendSealed(const std::uint8_t* plaintext, std::size_t len) {
+        if (peer_ == nullptr) { return; }
+        std::array<std::uint8_t, moonwire::kMaxPlaintextSize + 64> sealed{};
         std::size_t total = 0;
         {
             std::lock_guard<std::mutex> lock(cipherMtx_);
-            total = cipher_.seal(hostSeq_++, plaintext, sizeof(plaintext), sealed.data());
+            total = cipher_.seal(hostSeq_++, plaintext, len, sealed.data());
         }
         if (total == 0) { return; }
         enet_peer_send(peer_, 0,
@@ -804,6 +833,8 @@ class FakeMoonlightHost : public QObject {
     std::atomic<bool> running_{false};
     std::atomic<bool> endRequested_{false};
     std::atomic<bool> dropRequested_{false};
+    std::atomic<bool> rumbleRequested_{false};
+    std::atomic<std::uint64_t> rumbleWords_{0};
     std::atomic<bool> controlConnected_{false};
     std::atomic<int> arrivals_{0};
     std::atomic<int> lastMask_{-1};

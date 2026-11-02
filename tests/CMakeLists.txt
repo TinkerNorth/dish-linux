@@ -20,6 +20,8 @@ set(DISH_TEST_SOURCES
     main.cpp
     test_kernel.cpp
     test_async_state.cpp
+    test_tracked_mutex.cpp
+    test_bench_support.cpp
     test_session_crypto.cpp
     test_http_framing.cpp
     test_moonlight_wire.cpp
@@ -45,6 +47,7 @@ set(DISH_TEST_SOURCES
     test_moonlight_session_wire.cpp
     test_moonlight_replug.cpp
     test_moonlight_motion_switch.cpp
+    test_moonlight_host_feedback.cpp
     test_moonlight_touchpad_pick.cpp
     test_moonlight_pairing_wire.cpp
     test_moonlight_http_wire.cpp
@@ -152,7 +155,13 @@ set(DISH_TEST_SOURCES
     test_satellite_client_lightbar.cpp
     test_satellite_client_send_counter.cpp
     test_wifi_connection_rekey.cpp
-    test_output_command_queue.cpp
+    test_client_ref.cpp
+    test_client_reaper.cpp
+    test_controller_shadow.cpp
+    test_slot_router.cpp
+    test_output_mailbox.cpp
+    test_output_worker.cpp
+    test_sdl_bridge_devices.cpp
     test_lightbar_routing.cpp
     test_feature_settings.cpp
     test_host_battery.cpp
@@ -166,6 +175,13 @@ set(DISH_TEST_SOURCES
     test_usb_path_machine_edge_cases.cpp
     test_usb_poll_rate.cpp
     test_poll_rate_sampler.cpp
+    test_pump_pacing.cpp
+    test_pump_waiter.cpp
+    test_thread_priority.cpp
+    test_dirty_set.cpp
+    test_touch_gate.cpp
+    test_thread_primitives.cpp
+    test_satellite_client_send_gate.cpp
     test_path_choice.cpp
     test_transport_failure.cpp
     test_app_settings_migration.cpp
@@ -251,6 +267,9 @@ target_link_libraries(DishTests
         Catch2::Catch2
         dish_warnings)
 
+# The input-path bench's pure helpers, tested here because they decide what the bench reports.
+target_include_directories(DishTests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../tools/bench)
+
 # The manifest is a resource of the Dish exe, not of dish_core, which is what
 # DishTests links — so the test reads the source file by absolute path instead.
 target_compile_definitions(DishTests PRIVATE
@@ -281,3 +300,36 @@ target_compile_definitions(DishTests PRIVATE
 # and every headless box, so treating its skip as a failure made the whole suite
 # red anywhere without a desktop keyring.
 catch_discover_tests(DishTests PROPERTIES SKIP_RETURN_CODE 4)
+
+# The statistics half of test_tracked_mutex.cpp, so a plain build runs both
+# halves. The header is all it needs, so nothing of dish_core (whose mutexes
+# are plain here) links in.
+if(NOT DISH_LOCK_STATS)
+    add_executable(DishTrackedMutexStatsTests test_tracked_mutex.cpp)
+    target_include_directories(DishTrackedMutexStatsTests PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/../src)
+    target_compile_definitions(DishTrackedMutexStatsTests PRIVATE DISH_LOCK_STATS)
+    target_link_libraries(DishTrackedMutexStatsTests
+        PRIVATE
+            Catch2::Catch2WithMain
+            Threads::Threads
+            dish_warnings)
+    catch_discover_tests(DishTrackedMutexStatsTests TEST_PREFIX "lockstats/")
+    # ctest lists it beside DishTests, and the sanitizer lanes build DishTests
+    # alone; an unbuilt twin would read as a failing test.
+    add_dependencies(DishTests DishTrackedMutexStatsTests)
+endif()
+
+# The lock-law ratchet reads the lock statistics, so only a DISH_LOCK_STATS
+# build has it. It wires the real objects through tests/HotPathRig.h, which the
+# input-path bench shares; main.cpp is the suite's own, for its one
+# QCoreApplication.
+if(DISH_LOCK_STATS)
+    add_executable(DishLockLawTests main.cpp test_lock_laws.cpp)
+    target_link_libraries(DishLockLawTests
+        PRIVATE
+            dish_core
+            Catch2::Catch2
+            dish_warnings)
+    catch_discover_tests(DishLockLawTests)
+endif()

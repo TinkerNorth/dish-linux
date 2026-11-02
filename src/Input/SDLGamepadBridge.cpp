@@ -7,8 +7,10 @@
 #include "core/input/UsbOutputReports.h"
 #include "core/input/UsbReportParsers.h"
 #include "JoystickMapping.h"
+#include "PumpWaiter.h"
 #include "SdlMotionConvert.h"
 #include "Util/HostBattery.h"
+#include "source/system/ThreadPriority.h"
 
 #include <SDL2/SDL.h>
 
@@ -16,6 +18,7 @@
 #include <QMetaObject>
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cstdint>
 #include <utility>
@@ -68,29 +71,6 @@ BatteryReading powerLevelToWire(SDL_JoystickPowerLevel pl) {
 
 constexpr std::chrono::seconds kBatteryPollInterval{30};
 
-bool buttonDown(SDL_GameController* gc, SDL_GameControllerButton b) {
-    return SDL_GameControllerGetButton(gc, b) != 0;
-}
-
-} // namespace
-
-SDLGamepadBridge::SDLGamepadBridge(GamepadInputProcessor* processor, QObject* parent)
-    : QObject(parent), processor_(processor) {}
-
-SDLGamepadBridge::~SDLGamepadBridge() { stop(); }
-
-void SDLGamepadBridge::start() {
-    if (running_.exchange(true)) { return; }
-    thread_ = std::thread([this] { runLoop(); });
-}
-
-void SDLGamepadBridge::stop() {
-    if (!running_.exchange(false)) { return; }
-    if (thread_.joinable()) { thread_.join(); }
-}
-
-namespace {
-
 QString padIdentity(SDL_Joystick* js) {
     char guid[64] = {0};
     SDL_JoystickGetGUIDString(SDL_JoystickGetGUID(js), guid, sizeof(guid));
@@ -104,38 +84,40 @@ QString padIdentity(SDL_Joystick* js) {
 
 } // namespace
 
+SDLGamepadBridge::SDLGamepadBridge(GamepadInputProcessor* processor, QObject* parent)
+    : QObject(parent), processor_(processor) {}
+
+SDLGamepadBridge::~SDLGamepadBridge() { stop(); }
+
+void SDLGamepadBridge::start(pump::PumpPolicy policy) {
+    if (running_.exchange(true)) { return; }
+    policy_ = policy;
+    thread_ = std::thread([this] { runLoop(); });
+}
+
+void SDLGamepadBridge::stop() {
+    if (!running_.exchange(false)) { return; }
+    if (thread_.joinable()) { thread_.join(); }
+}
+
 QList<SDLGamepadBridge::Device> SDLGamepadBridge::devices() const {
-    std::lock_guard<std::mutex> lock(mtx_);
-    QList<Device> out;
-    out.reserve(static_cast<int>(deviceIds_.size()));
-    std::vector<int> iids;
-    iids.reserve(deviceIds_.size());
-    for (const auto& [iid, did] : deviceIds_) { iids.push_back(iid); }
-    std::sort(iids.begin(), iids.end());
-    for (const int iid : iids) {
-        const QString& did = deviceIds_.at(iid);
-        Device dev{did,
-                   deviceNames_.at(iid),
-                   motionCapable_.count(iid) != 0,
-                   lightbarCapable_.count(iid) != 0,
-                   0xFF,
-                   0};
-        if (auto it = lastBattery_.find(iid); it != lastBattery_.end()) {
-            dev.batteryLevel = it->second.level;
-            dev.batteryStatus = it->second.status;
-        }
-        if (auto it = usbIdentity_.find(iid); it != usbIdentity_.end()) {
-            dev.vendorId = it->second.vendorId;
-            dev.productId = it->second.productId;
-        }
-        if (auto it = identities_.find(iid); it != identities_.end()) { dev.identity = it->second; }
-        dev.isRawJoystick = openJoysticks_.count(iid) != 0;
-        dev.hasTouchpad = touchpadCapable_.count(iid) != 0;
-        dev.hasRumble = rumbleCapable_.count(iid) != 0;
-        dev.bluetooth = bluetoothIids_.count(iid) != 0;
-        out.append(dev);
+    std::lock_guard<thread::TrackedMutex> lock(devicesMtx_);
+    if (auto next = devicesBox_.take()) { devices_ = std::move(*next); }
+    return devices_;
+}
+
+void SDLGamepadBridge::publishDevices() {
+    std::vector<const Pad*> open;
+    open.reserve(kMaxPads);
+    for (const Pad& pad : pads_) {
+        if (pad.kind != PadKind::Free) { open.push_back(&pad); }
     }
-    return out;
+    std::sort(open.begin(), open.end(), [](const Pad* a, const Pad* b) { return a->iid < b->iid; });
+    auto list = std::make_unique<QList<Device>>();
+    list->reserve(static_cast<qsizetype>(open.size()));
+    for (const Pad* pad : open) { list->append(pad->device); }
+    devicesBox_.publish(std::move(list));
+    QMetaObject::invokeMethod(this, "devicesChanged", Qt::QueuedConnection);
 }
 
 void SDLGamepadBridge::applySdlHints() {
@@ -172,126 +154,130 @@ bool SDLGamepadBridge::initSdl() {
     return true;
 }
 
-// What SDL says a freshly opened pad can do. SDL's enable call returns success even for a device
-// with no such sensor, so Has and Set must both agree before a sensor is marked capable.
-struct SDLGamepadBridge::ControllerCaps {
-    bool hasGyro = false;
-    bool hasAccel = false;
-    bool hasLed = false;
-    bool hasTouchpad = false;
-    bool hasRumble = false;
-    bool bluetooth = false;
-    int vendorId = 0;
-    int productId = 0;
-};
-
-SDLGamepadBridge::ControllerCaps SDLGamepadBridge::probeControllerCaps(SDL_GameController* gc) {
-    ControllerCaps caps;
-    caps.hasGyro = SDL_GameControllerHasSensor(gc, SDL_SENSOR_GYRO) == SDL_TRUE &&
-                   SDL_GameControllerSetSensorEnabled(gc, SDL_SENSOR_GYRO, SDL_TRUE) == 0;
-    caps.hasAccel = SDL_GameControllerHasSensor(gc, SDL_SENSOR_ACCEL) == SDL_TRUE &&
-                    SDL_GameControllerSetSensorEnabled(gc, SDL_SENSOR_ACCEL, SDL_TRUE) == 0;
-    caps.hasLed = SDL_GameControllerHasLED(gc) == SDL_TRUE;
-    caps.hasTouchpad = SDL_GameControllerGetNumTouchpads(gc) > 0;
-    caps.hasRumble = SDL_GameControllerHasRumble(gc) == SDL_TRUE;
-    // SDL returns 0 when it cannot read the descriptor, which the twin-dedup pairing treats as
-    // "no identity".
-    caps.vendorId = SDL_GameControllerGetVendor(gc);
-    caps.productId = SDL_GameControllerGetProduct(gc);
-    // SDL's device path is the Win32 HID interface path for HIDAPI and RawInput pads, so the
-    // marker check spots a Bluetooth link. A null path (the XInput fallback) reads as
-    // not-Bluetooth, which fails safe to the wired presentation.
-    const char* devPath = SDL_GameControllerPath(gc);
-    caps.bluetooth = devPath != nullptr && dish::input::isBluetoothHidDevicePath(devPath);
-    return caps;
+std::optional<std::size_t> SDLGamepadBridge::slotOf(int iid) const {
+    for (std::size_t slot = 0; slot < pads_.size(); ++slot) {
+        if (pads_[slot].kind != PadKind::Free && pads_[slot].iid == iid) { return slot; }
+    }
+    return std::nullopt;
 }
 
-void SDLGamepadBridge::registerController(int iid, SDL_GameController* gc, const QString& deviceId,
-                                          const QString& deviceName, const ControllerCaps& caps) {
-    std::lock_guard<std::mutex> lock(mtx_);
-    openControllers_[iid] = gc;
-    deviceIds_[iid] = deviceId;
-    deviceNames_[iid] = deviceName;
-    if (caps.hasGyro || caps.hasAccel) { motionCapable_.insert(iid); }
-    if (caps.hasLed) { lightbarCapable_.insert(iid); }
-    if (caps.hasTouchpad) { touchpadCapable_.insert(iid); }
-    if (caps.hasRumble) { rumbleCapable_.insert(iid); }
-    if (caps.bluetooth) { bluetoothIids_.insert(iid); }
-    usbIdentity_[iid] = {caps.vendorId, caps.productId};
-    identities_[iid] = padIdentity(SDL_GameControllerGetJoystick(gc));
-    lastBatteryPoll_[iid] = std::chrono::steady_clock::time_point{};
+SDLGamepadBridge::Pad* SDLGamepadBridge::padFor(int iid) {
+    const auto slot = slotOf(iid);
+    return slot.has_value() ? &pads_[*slot] : nullptr;
 }
 
-// One-shot capability dump: type, ids and GUID together pin which mapping SDL applied, so a "my
-// pad doesn't work" report is diagnosable without a debugger.
-void SDLGamepadBridge::logControllerCaps(SDL_GameController* gc, SDL_Joystick* js,
-                                         const QString& deviceId, const QString& deviceName,
-                                         const ControllerCaps& caps) {
-    char guidBuf[64] = {0};
-    SDL_JoystickGetGUIDString(SDL_JoystickGetGUID(js), guidBuf, sizeof(guidBuf));
-    qCInfo(lcDishInput) << "DEVCAPS id=" << deviceId << "name=" << deviceName
-                        << "type=" << static_cast<int>(SDL_GameControllerGetType(gc))
-                        << "vid=" << QString::number(caps.vendorId, 16)
-                        << "pid=" << QString::number(caps.productId, 16) << "guid=" << guidBuf
-                        << "gyro=" << caps.hasGyro << "accel=" << caps.hasAccel
-                        << "led=" << caps.hasLed << "rumble=" << caps.hasRumble
-                        << "bt=" << caps.bluetooth;
+SDLGamepadBridge::Pad* SDLGamepadBridge::claimPad(int iid, PadKind kind) {
+    for (Pad& pad : pads_) {
+        if (pad.kind != PadKind::Free) { continue; }
+        pad = Pad{};
+        pad.iid = iid;
+        pad.kind = kind;
+        pad.id = "sdl:" + std::to_string(iid);
+        pad.device.id = QString::fromStdString(pad.id);
+        ++openPads_;
+        return &pad;
+    }
+    return nullptr;
+}
+
+void SDLGamepadBridge::releasePad(Pad& pad) {
+    if (!pad.id.empty()) { processor_->remove(pad.id); }
+    pad = Pad{};
+    --openPads_;
+}
+
+// Pushed from here rather than owned by the processor because the bridge is the only thing that
+// knows when a device shows up; the processor learns the id before the GUI's device list does,
+// so a user's dead zones set from that list land on the same record.
+void SDLGamepadBridge::registerPad(Pad& pad) {
+    pad.index = processor_->add(pad.id);
+    // Feedback left for a device that held this index before is not this pad's.
+    if (pad.index.has_value()) { mailboxes_[*pad.index].clear(); }
+    processor_->setDeadzones(pad.id, {kDefaultStickFlat, kDefaultTriggerFlat});
+    applyInputs(pad);
+}
+
+void SDLGamepadBridge::applyInputs(Pad& pad) const {
+    pad.suppressed = inputs_->suppressed.count(pad.id) != 0;
+    const auto it = inputs_->remaps.find({pad.device.vendorId, pad.device.productId});
+    pad.remap = it != inputs_->remaps.end() ? it->second : JoystickRemap{};
+}
+
+void SDLGamepadBridge::adoptInputs() {
+    auto next = inputsBox_.take();
+    if (!next) { return; }
+    inputs_ = std::move(next);
+    for (Pad& pad : pads_) {
+        if (pad.kind != PadKind::Free) { applyInputs(pad); }
+    }
 }
 
 void SDLGamepadBridge::onControllerAdded(const SDL_Event& ev) {
     if (isDishVirtualDevice(SDL_GameControllerNameForIndex(ev.cdevice.which))) { return; }
     SDL_GameController* gc = SDL_GameControllerOpen(ev.cdevice.which);
     if (gc == nullptr) { return; }
-
     SDL_Joystick* js = SDL_GameControllerGetJoystick(gc);
     const int iid = SDL_JoystickInstanceID(js);
+    Pad* const pad = claimPad(iid, PadKind::Controller);
+    if (pad == nullptr) {
+        qCWarning(lcDishInput) << "no room for another pad; closing" << iid;
+        SDL_GameControllerClose(gc);
+        return;
+    }
+    pad->gc = gc;
+    pad->js = js;
     const auto* name = SDL_GameControllerName(gc);
-    const QString deviceId = QStringLiteral("sdl:%1").arg(iid);
-    const QString deviceName = QString::fromUtf8(name != nullptr ? name : "Gamepad");
+    Device& d = pad->device;
+    d.name = QString::fromUtf8(name != nullptr ? name : "Gamepad");
+    // SDL's enable call returns success even for a device with no such sensor, so Has and Set
+    // must both agree before a sensor is marked capable.
+    const bool gyro = SDL_GameControllerHasSensor(gc, SDL_SENSOR_GYRO) == SDL_TRUE &&
+                      SDL_GameControllerSetSensorEnabled(gc, SDL_SENSOR_GYRO, SDL_TRUE) == 0;
+    const bool accel = SDL_GameControllerHasSensor(gc, SDL_SENSOR_ACCEL) == SDL_TRUE &&
+                       SDL_GameControllerSetSensorEnabled(gc, SDL_SENSOR_ACCEL, SDL_TRUE) == 0;
+    d.motionCapable = gyro || accel;
+    d.hasLightbar = SDL_GameControllerHasLED(gc) == SDL_TRUE;
+    d.hasTouchpad = SDL_GameControllerGetNumTouchpads(gc) > 0;
+    d.hasRumble = SDL_GameControllerHasRumble(gc) == SDL_TRUE;
+    // SDL returns 0 when it cannot read the descriptor, which the twin-dedup pairing treats as
+    // "no identity".
+    d.vendorId = SDL_GameControllerGetVendor(gc);
+    d.productId = SDL_GameControllerGetProduct(gc);
+    // SDL's device path is the Win32 HID interface path for HIDAPI and RawInput pads, so the
+    // marker check spots a Bluetooth link. A null path (the XInput fallback) reads as
+    // not-Bluetooth, which fails safe to the wired presentation.
+    const char* devPath = SDL_GameControllerPath(gc);
+    d.bluetooth = devPath != nullptr && dish::input::isBluetoothHidDevicePath(devPath);
+    d.identity = padIdentity(js);
+    pad->shadow.seed(gc);
 
-    const ControllerCaps caps = probeControllerCaps(gc);
-    registerController(iid, gc, deviceId, deviceName, caps);
-    logControllerCaps(gc, js, deviceId, deviceName, caps);
+    // One-shot capability dump: type, ids and GUID together pin which mapping SDL applied, so a
+    // "my pad doesn't work" report is diagnosable without a debugger.
+    char guidBuf[64] = {0};
+    SDL_JoystickGetGUIDString(SDL_JoystickGetGUID(js), guidBuf, sizeof(guidBuf));
+    qCInfo(lcDishInput) << "DEVCAPS id=" << d.id << "name=" << d.name
+                        << "type=" << static_cast<int>(SDL_GameControllerGetType(gc))
+                        << "vid=" << QString::number(d.vendorId, 16)
+                        << "pid=" << QString::number(d.productId, 16) << "guid=" << guidBuf
+                        << "gyro=" << gyro << "accel=" << accel << "led=" << d.hasLightbar
+                        << "rumble=" << d.hasRumble << "bt=" << d.bluetooth;
 
-    // Pushed from here rather than owned by the processor because the bridge is the only thing
-    // that knows when a device shows up.
-    processor_->setDeadzones(deviceId.toStdString(), {kDefaultStickFlat, kDefaultTriggerFlat});
-    QMetaObject::invokeMethod(this, "devicesChanged", Qt::QueuedConnection);
-    rebuildState(iid);
+    registerPad(*pad);
+    publishDevices();
+    rebuildState(*pad);
 }
 
 void SDLGamepadBridge::onControllerRemoved(const SDL_Event& ev) {
-    const int iid = ev.cdevice.which;
-    std::string deviceId;
-    {
-        std::lock_guard<std::mutex> lock(mtx_);
-        if (auto it = openControllers_.find(iid); it != openControllers_.end()) {
-            SDL_GameControllerClose(it->second);
-            openControllers_.erase(it);
-        }
-        if (auto it = deviceIds_.find(iid); it != deviceIds_.end()) {
-            deviceId = it->second.toStdString();
-            deviceIds_.erase(it);
-        }
-        deviceNames_.erase(iid);
-        identities_.erase(iid);
-        motionCapable_.erase(iid);
-        lightbarCapable_.erase(iid);
-        touchpadCapable_.erase(iid);
-        rumbleCapable_.erase(iid);
-        bluetoothIids_.erase(iid);
-        usbIdentity_.erase(iid);
-        lastBatteryPoll_.erase(iid);
-        lastBattery_.erase(iid);
-        touchState_.erase(iid);
-    }
-    effectState_.erase(iid);
-    if (!deviceId.empty()) { processor_->remove(deviceId); }
-    QMetaObject::invokeMethod(this, "devicesChanged", Qt::QueuedConnection);
+    Pad* const pad = padFor(ev.cdevice.which);
+    if (pad == nullptr || pad->kind != PadKind::Controller) { return; }
+    thread::blockingRegion("sdl.close");
+    SDL_GameControllerClose(pad->gc);
+    releasePad(*pad);
+    publishDevices();
 }
 
 // One pass over what SDL knows about a raw joystick, in the order the tables need it; a split
-// would put the lock and the DEVCAPS line on different pages from the reads they cover.
+// would put the DEVCAPS line on a different page from the reads it covers.
 void SDLGamepadBridge::onJoystickAdded(const SDL_Event& ev) {
     // Unlike every other event here, this `which` is a device INDEX, not
     // an instance id — it matches SDL_JoystickOpen's argument.
@@ -303,66 +289,65 @@ void SDLGamepadBridge::onJoystickAdded(const SDL_Event& ev) {
     SDL_Joystick* js = SDL_JoystickOpen(which);
     if (js == nullptr) { return; }
     const int iid = SDL_JoystickInstanceID(js);
+    Pad* const pad = claimPad(iid, PadKind::Joystick);
+    if (pad == nullptr) {
+        qCWarning(lcDishInput) << "no room for another pad; closing" << iid;
+        SDL_JoystickClose(js);
+        return;
+    }
+    pad->js = js;
     const auto* name = SDL_JoystickName(js);
-    const QString deviceId = QStringLiteral("sdl:%1").arg(iid);
-    const QString deviceName = QString::fromUtf8(name != nullptr ? name : "Joystick");
+    Device& d = pad->device;
+    d.name = QString::fromUtf8(name != nullptr ? name : "Joystick");
     // SDL's joystick API exposes no IMU, LED or controller type, so a raw
     // joystick surfaces as a plain Xbox-kind pad with neither.
-    const int vendorId = SDL_JoystickGetVendor(js);
-    const int productId = SDL_JoystickGetProduct(js);
+    d.vendorId = SDL_JoystickGetVendor(js);
+    d.productId = SDL_JoystickGetProduct(js);
     const char* devPath = SDL_JoystickPath(js);
-    const bool bluetooth = devPath != nullptr && dish::input::isBluetoothHidDevicePath(devPath);
-    const bool hasRumble = SDL_JoystickHasRumble(js) == SDL_TRUE;
-    {
-        std::lock_guard<std::mutex> lock(mtx_);
-        openJoysticks_[iid] = js;
-        deviceIds_[iid] = deviceId;
-        deviceNames_[iid] = deviceName;
-        if (hasRumble) { rumbleCapable_.insert(iid); }
-        if (bluetooth) { bluetoothIids_.insert(iid); }
-        usbIdentity_[iid] = {vendorId, productId};
-        identities_[iid] = padIdentity(js);
-        lastBatteryPoll_[iid] = std::chrono::steady_clock::time_point{};
-    }
+    d.bluetooth = devPath != nullptr && dish::input::isBluetoothHidDevicePath(devPath);
+    d.hasRumble = SDL_JoystickHasRumble(js) == SDL_TRUE;
+    d.isRawJoystick = true;
+    d.identity = padIdentity(js);
     char guidBuf[64] = {0};
     SDL_JoystickGetGUIDString(SDL_JoystickGetGUID(js), guidBuf, sizeof(guidBuf));
-    qCInfo(lcDishInput) << "DEVCAPS(joystick) id=" << deviceId << "name=" << deviceName
+    qCInfo(lcDishInput) << "DEVCAPS(joystick) id=" << d.id << "name=" << d.name
                         << "axes=" << SDL_JoystickNumAxes(js)
                         << "buttons=" << SDL_JoystickNumButtons(js)
                         << "hats=" << SDL_JoystickNumHats(js)
-                        << "vid=" << QString::number(vendorId, 16)
-                        << "pid=" << QString::number(productId, 16) << "guid=" << guidBuf
-                        << "bt=" << bluetooth;
-    processor_->setDeadzones(deviceId.toStdString(), {kDefaultStickFlat, kDefaultTriggerFlat});
-    QMetaObject::invokeMethod(this, "devicesChanged", Qt::QueuedConnection);
-    rebuildJoystickState(iid);
+                        << "vid=" << QString::number(d.vendorId, 16)
+                        << "pid=" << QString::number(d.productId, 16) << "guid=" << guidBuf
+                        << "bt=" << d.bluetooth;
+    registerPad(*pad);
+    publishDevices();
+    rebuildJoystickState(*pad);
 }
 
 void SDLGamepadBridge::onJoystickRemoved(const SDL_Event& ev) {
-    const int iid = ev.jdevice.which;
-    std::string deviceId;
-    {
-        std::lock_guard<std::mutex> lock(mtx_);
-        // Absent for a controller-path device, so this only acts on raw
-        // joysticks we actually opened.
-        auto jit = openJoysticks_.find(iid);
-        if (jit == openJoysticks_.end()) { return; }
-        SDL_JoystickClose(jit->second);
-        openJoysticks_.erase(jit);
-        if (auto it = deviceIds_.find(iid); it != deviceIds_.end()) {
-            deviceId = it->second.toStdString();
-            deviceIds_.erase(it);
-        }
-        deviceNames_.erase(iid);
-        identities_.erase(iid);
-        rumbleCapable_.erase(iid);
-        bluetoothIids_.erase(iid);
-        usbIdentity_.erase(iid);
-        lastBatteryPoll_.erase(iid);
-        lastBattery_.erase(iid);
-    }
-    if (!deviceId.empty()) { processor_->remove(deviceId); }
-    QMetaObject::invokeMethod(this, "devicesChanged", Qt::QueuedConnection);
+    // Absent for a controller-path device, so this only acts on raw joysticks we actually opened.
+    Pad* const pad = padFor(ev.jdevice.which);
+    if (pad == nullptr || pad->kind != PadKind::Joystick) { return; }
+    thread::blockingRegion("sdl.close");
+    SDL_JoystickClose(pad->js);
+    releasePad(*pad);
+    publishDevices();
+}
+
+bool SDLGamepadBridge::isRawJoystick(int iid) const {
+    const auto slot = slotOf(iid);
+    return slot.has_value() && pads_[*slot].kind == PadKind::Joystick;
+}
+
+void SDLGamepadBridge::markDirty(int iid) {
+    if (const auto slot = slotOf(iid); slot.has_value()) { dirty_.mark(*slot); }
+}
+
+// One report per moved pad per cycle, however many of its axes and buttons SDL reported.
+void SDLGamepadBridge::rebuildDirty() {
+    dirty_.drain([this](std::size_t slot) {
+        Pad& pad = pads_[slot];
+        if (pad.kind == PadKind::Controller) { rebuildState(pad); }
+        if (pad.kind == PadKind::Joystick) { rebuildJoystickState(pad); }
+    });
 }
 
 // One raw-joystick event. The tracked state always rebuilds; the capture page is offered the event
@@ -371,7 +356,8 @@ void SDLGamepadBridge::onJoystickRemoved(const SDL_Event& ev) {
 // what "deliberate" means for their kind.
 void SDLGamepadBridge::onRawJoystickInput(int iid, CaptureKind kind, int index, int value,
                                           bool deliberate) {
-    rebuildJoystickState(iid);
+    // A game controller's own joystick events land here too; its controller events carry the input.
+    if (isRawJoystick(iid)) { markDirty(iid); }
     if (!deliberate) { return; }
     // Checked second: the flag keeps capture free when off, and it is read per event rather than
     // held, because the page can be left at any point in this loop.
@@ -389,6 +375,12 @@ void SDLGamepadBridge::dispatchSdlEvent(const SDL_Event& ev) {
     case SDL_CONTROLLERDEVICEREMOVED:
         onControllerRemoved(ev);
         break;
+    case SDL_CONTROLLERDEVICEREMAPPED:
+        if (Pad* pad = padFor(ev.cdevice.which); pad != nullptr && pad->gc != nullptr) {
+            pad->shadow.seed(pad->gc);
+            markDirty(pad->iid);
+        }
+        break;
     case SDL_JOYDEVICEADDED:
         onJoystickAdded(ev);
         break;
@@ -398,7 +390,9 @@ void SDLGamepadBridge::dispatchSdlEvent(const SDL_Event& ev) {
     case SDL_CONTROLLERAXISMOTION:
     case SDL_CONTROLLERBUTTONDOWN:
     case SDL_CONTROLLERBUTTONUP:
-        rebuildState(ev.cdevice.which);
+        if (Pad* pad = padFor(ev.cdevice.which); pad != nullptr && pad->shadow.apply(ev)) {
+            markDirty(pad->iid);
+        }
         break;
     case SDL_AUDIODEVICEADDED:
     case SDL_AUDIODEVICEREMOVED:
@@ -408,8 +402,6 @@ void SDLGamepadBridge::dispatchSdlEvent(const SDL_Event& ev) {
         QMetaObject::invokeMethod(this, "audioDevicesChanged", Qt::QueuedConnection);
         break;
     case SDL_JOYAXISMOTION:
-        // A game controller's joystick events also land here, but its iid is in openControllers_
-        // and never openJoysticks_, so this no-ops for it.
         onRawJoystickInput(ev.jaxis.which, CaptureKind::Axis, ev.jaxis.axis, ev.jaxis.value,
                            captureAxisPasses(ev.jaxis.value));
         break;
@@ -442,62 +434,97 @@ void SDLGamepadBridge::dispatchSdlEvent(const SDL_Event& ev) {
 // On the SDL thread, where every handle was opened: SDL's own documentation is explicit that a
 // device must be closed from the thread that pumps its events.
 void SDLGamepadBridge::closeAllDevices() {
-    std::lock_guard<std::mutex> lock(mtx_);
-    for (auto& [iid, gc] : openControllers_) { SDL_GameControllerClose(gc); }
-    openControllers_.clear();
-    for (auto& [iid, js] : openJoysticks_) { SDL_JoystickClose(js); }
-    openJoysticks_.clear();
-    deviceIds_.clear();
-    deviceNames_.clear();
+    for (Pad& pad : pads_) {
+        if (pad.kind == PadKind::Free) { continue; }
+        thread::blockingRegion("sdl.close");
+        if (pad.gc != nullptr) {
+            SDL_GameControllerClose(pad.gc);
+        } else if (pad.js != nullptr) {
+            SDL_JoystickClose(pad.js);
+        }
+        releasePad(pad);
+    }
+    dirty_ = {};
+    publishDevices();
 }
 
 void SDLGamepadBridge::runLoop() {
+    const thread::ScopedThreadRole role(thread::ThreadRole::SdlInput);
+    if (priority_ != nullptr) { priority_->request(thread::ThreadRole::SdlInput); }
     applySdlHints();
     if (!initSdl()) {
         running_.store(false);
+        SDL_TLSCleanup();
         return;
     }
 
+    // SDL_WaitEventTimeout with no window is a pump and a 1 ms sleep, which samples a pad every 1.5
+    // to 2 ms; an open pad is pumped on the policy's period instead, from absolute deadlines.
+    const PumpWaiter waiter(policy_.wait);
+    pump::Schedule schedule(pump::Clock::now(), policy_.period);
     while (running_.load(std::memory_order_relaxed)) {
-        SDL_Event ev;
-        if (SDL_WaitEventTimeout(&ev, kSdlWaitMs) == 0) { continue; }
-        dispatchSdlEvent(ev);
-
-        // Here, so every SDL_GameController* is resolved and used only on the SDL thread.
-        drainOutputCommands();
-
-        // Cheap despite running every iteration: the per-device gate inside collapses it to a 30 s
-        // cadence.
-        pollBatteries();
+        if (openPads_ == 0) {
+            adoptInputs();
+            if (SDL_Event ev; SDL_WaitEventTimeout(&ev, kSdlWaitMs) != 0) { dispatchSdlEvent(ev); }
+            schedule = pump::Schedule(pump::Clock::now(), policy_.period);
+        } else {
+            waiter.waitUntil(schedule.deadline());
+        }
+        pumpOnce(pump::Clock::now());
+        schedule.advance(pump::Clock::now());
     }
 
     closeAllDevices();
     SDL_QuitSubSystem(SDL_INIT_GAMECONTROLLER | SDL_INIT_JOYSTICK);
+    // SDL frees a thread's own storage (its error buffer) only on threads it started; this one is
+    // a std::thread, so it hands that back itself.
+    SDL_TLSCleanup();
 }
 
-void SDLGamepadBridge::applyRumble(const QString& deviceId, std::uint16_t strongMagnitude,
-                                   std::uint16_t weakMagnitude, std::uint16_t durationMs) {
-    outputQueue_.push(OutputCommand::rumble(deviceId, strongMagnitude, weakMagnitude, durationMs));
+void SDLGamepadBridge::pumpOnce(TimePoint now) {
+    adoptInputs();
+    SDL_PumpEvents();
+    std::array<SDL_Event, kPeepBatch> events{};
+    int got = 0;
+    while ((got = SDL_PeepEvents(events.data(), kPeepBatch, SDL_GETEVENT, SDL_FIRSTEVENT,
+                                 SDL_LASTEVENT)) > 0) {
+        for (int i = 0; i < got; ++i) { dispatchSdlEvent(events[static_cast<std::size_t>(i)]); }
+    }
+    rebuildDirty();
+
+    // Here, so every SDL_GameController* is resolved and used only on the SDL thread.
+    drainMailboxes();
+
+    if (now - lastBatterySweep_ >= kBatterySweepInterval) {
+        lastBatterySweep_ = now;
+        pollBatteries(now);
+    }
+}
+
+void SDLGamepadBridge::postRumble(GamepadInputProcessor::DeviceIndex device,
+                                  std::uint16_t strongMagnitude, std::uint16_t weakMagnitude,
+                                  std::uint16_t durationMs) {
+    if (device < mailboxes_.size()) {
+        mailboxes_[device].postRumble(strongMagnitude, weakMagnitude, durationMs);
+    }
 }
 
 void SDLGamepadBridge::setSuppressedDeviceIds(const std::unordered_set<std::string>& ids) {
-    std::lock_guard<std::mutex> lock(suppressedMtx_);
-    suppressedIds_ = ids;
-}
-
-bool SDLGamepadBridge::isSuppressed(const std::string& deviceId) const {
-    std::lock_guard<std::mutex> lock(suppressedMtx_);
-    return suppressedIds_.count(deviceId) != 0;
+    std::lock_guard<thread::TrackedMutex> lock(inputsMtx_);
+    inputsDraft_.suppressed = ids;
+    inputsBox_.publish(std::make_unique<const Inputs>(inputsDraft_));
 }
 
 void SDLGamepadBridge::setJoystickRemap(int vendorId, int productId, const JoystickRemap& remap) {
-    std::lock_guard<std::mutex> lock(remapMtx_);
-    joystickRemaps_[{vendorId, productId}] = remap;
+    std::lock_guard<thread::TrackedMutex> lock(inputsMtx_);
+    inputsDraft_.remaps[{vendorId, productId}] = remap;
+    inputsBox_.publish(std::make_unique<const Inputs>(inputsDraft_));
 }
 
 void SDLGamepadBridge::clearJoystickRemap(int vendorId, int productId) {
-    std::lock_guard<std::mutex> lock(remapMtx_);
-    joystickRemaps_.erase({vendorId, productId});
+    std::lock_guard<thread::TrackedMutex> lock(inputsMtx_);
+    inputsDraft_.remaps.erase({vendorId, productId});
+    inputsBox_.publish(std::make_unique<const Inputs>(inputsDraft_));
 }
 
 void SDLGamepadBridge::setJoystickCaptureEnabled(bool enabled) {
@@ -508,71 +535,45 @@ void SDLGamepadBridge::maybeEmitCapture(int iid, int kind, int index, int value)
     // Re-checked despite the callers' guard, so this is a safe no-op if ever
     // called unguarded.
     if (!captureEnabled_.load(std::memory_order_relaxed)) { return; }
-    QString deviceId;
-    {
-        std::lock_guard<std::mutex> lock(mtx_);
-        if (auto it = deviceIds_.find(iid); it != deviceIds_.end()) { deviceId = it->second; }
-    }
-    if (deviceId.isEmpty()) { return; }
+    const Pad* const pad = padFor(iid);
+    if (pad == nullptr) { return; }
     // QueuedConnection hops SDL thread to GUI thread; the args are value types,
     // so the cross-thread copy is safe.
     QMetaObject::invokeMethod(this, "rawJoystickInput", Qt::QueuedConnection,
-                              Q_ARG(QString, deviceId), Q_ARG(int, kind), Q_ARG(int, index),
+                              Q_ARG(QString, pad->device.id), Q_ARG(int, kind), Q_ARG(int, index),
                               Q_ARG(int, value));
 }
 
-// Null unless this event is a GYRO sample from a motion-capable pad that already has an accel to
-// pair with. Accel piggy-backs on the next gyro event so the rate limiter sees one stream, not two;
-// a gyro-less pad therefore never drives MSG_MOTION, which is fine since it cannot do gyro aim
-// anyway.
+// Accel piggy-backs on the next gyro event so the rate limiter sees one stream, not two; a
+// gyro-less pad therefore never drives MSG_MOTION, which is fine since it cannot do gyro aim
+// anyway. No gyro sample goes out before an accel exists: publishing accel{0,0,0} would ship a
+// spurious zero-gravity triple.
 //
 // Deliberately no rotation here: SDL applies the per-model matrix internally for HIDAPI
 // controllers, so samples already arrive in the satellite's right-handed frame and only the units
 // need converting.
-std::optional<SDLGamepadBridge::MotionUpdate>
-SDLGamepadBridge::applySensorEvent(const SDL_ControllerSensorEvent& ev) {
+void SDLGamepadBridge::handleSensorEvent(const SDL_ControllerSensorEvent& ev) {
     const bool isGyro = ev.sensor == SDL_SENSOR_GYRO;
     const bool isAccel = ev.sensor == SDL_SENSOR_ACCEL;
-    if (!isGyro && !isAccel) { return std::nullopt; }
-
-    std::lock_guard<std::mutex> lock(mtx_);
-    const int iid = ev.which;
-    if (motionCapable_.count(iid) == 0) { return std::nullopt; }
-
-    MotionUpdate update;
-    if (auto it = deviceIds_.find(iid); it != deviceIds_.end()) {
-        update.deviceId = it->second.toStdString();
-    }
-    if (update.deviceId.empty()) { return std::nullopt; }
-
+    if (!isGyro && !isAccel) { return; }
+    Pad* const pad = padFor(ev.which);
+    if (pad == nullptr || !pad->device.motionCapable) { return; }
     if (isAccel) {
-        lastAccel_[iid] = AccelCache{ev.data[0], ev.data[1], ev.data[2]};
-        return std::nullopt;
+        pad->accel = AccelCache{ev.data[0], ev.data[1], ev.data[2]};
+        return;
     }
-    // Skip until an accel sample exists: publishing accel{0,0,0} would ship a spurious
-    // zero-gravity triple.
-    const auto accelIt = lastAccel_.find(iid);
-    if (accelIt == lastAccel_.end()) { return std::nullopt; }
-    update.accel = accelIt->second;
-    return update;
-}
-
-void SDLGamepadBridge::handleSensorEvent(const SDL_ControllerSensorEvent& ev) {
-    const auto update = applySensorEvent(ev);
-    if (!update.has_value()) { return; }
     // Twin-dedup: suppress motion too while USB-direct owns this pad. The accel above is still
     // cached, so the stream resumes on the first gyro sample after the claim is released.
-    if (isSuppressed(update->deviceId)) { return; }
+    if (!pad->accel.has_value() || pad->suppressed || !pad->index.has_value()) { return; }
 
     GamepadInputProcessor::MotionSample sample{};
     sample.gyroX = gyroRadPerSecToInt16(ev.data[0]);
     sample.gyroY = gyroRadPerSecToInt16(ev.data[1]);
     sample.gyroZ = gyroRadPerSecToInt16(ev.data[2]);
-    sample.accelX = accelMps2ToInt16(update->accel.ax);
-    sample.accelY = accelMps2ToInt16(update->accel.ay);
-    sample.accelZ = accelMps2ToInt16(update->accel.az);
-
-    processor_->publishMotion(update->deviceId, sample);
+    sample.accelX = accelMps2ToInt16(pad->accel->ax);
+    sample.accelY = accelMps2ToInt16(pad->accel->ay);
+    sample.accelZ = accelMps2ToInt16(pad->accel->az);
+    processor_->publishMotion(*pad->index, sample);
 }
 
 // `finger` is the 0-based slot; the wire carries only two, so anything higher is dropped.
@@ -582,7 +583,7 @@ void SDLGamepadBridge::handleSensorEvent(const SDL_ControllerSensorEvent& ev) {
 // not to be globally unique.
 void SDLGamepadBridge::applyTouchFinger(TouchState& ts, const SDL_ControllerTouchpadEvent& ev) {
     if (ev.finger < 0 || ev.finger >= 2) { return; }
-    TouchFinger& f = ts.fingers[ev.finger];
+    TouchFinger& f = ts.fingers[static_cast<std::size_t>(ev.finger)];
     if (ev.type == SDL_CONTROLLERTOUCHPADUP) {
         f.active = false;
         return;
@@ -593,312 +594,143 @@ void SDLGamepadBridge::applyTouchFinger(TouchState& ts, const SDL_ControllerTouc
     f.y = touchpadCoordToInt16(ev.y);
 }
 
-// Null when the event is for a device this bridge does not hold. The controller handle comes back
-// with the state so the click can be read live outside the lock.
-std::optional<SDLGamepadBridge::TouchUpdate>
-SDLGamepadBridge::applyTouchpadEvent(const SDL_ControllerTouchpadEvent& ev) {
-    std::lock_guard<std::mutex> lock(mtx_);
-    const int iid = ev.which;
-    TouchUpdate update;
-    if (auto it = deviceIds_.find(iid); it != deviceIds_.end()) {
-        update.deviceId = it->second.toStdString();
-    }
-    if (update.deviceId.empty()) { return std::nullopt; }
-    if (auto it = openControllers_.find(iid); it != openControllers_.end()) {
-        update.controller = it->second;
-    }
-    TouchState& ts = touchState_[iid];
-    applyTouchFinger(ts, ev);
-    update.state = ts;
-    return update;
-}
-
 void SDLGamepadBridge::handleTouchpadEvent(const SDL_ControllerTouchpadEvent& ev) {
-    const auto update = applyTouchpadEvent(ev);
-    if (!update.has_value()) { return; }
+    Pad* const pad = padFor(ev.which);
+    if (pad == nullptr) { return; }
+    applyTouchFinger(pad->touch, ev);
     // Twin-dedup: the touchpad surface is suppressed too while USB-direct owns the pad. The state
     // above is still tracked, so the surface resumes mid-gesture without a stale finger.
-    if (isSuppressed(update->deviceId)) { return; }
+    if (pad->suppressed || !pad->index.has_value()) { return; }
 
     GamepadInputProcessor::TouchpadSample sample{};
-    sample.finger0Active = update->state.fingers[0].active;
-    sample.finger0Id = update->state.fingers[0].id;
-    sample.finger0X = update->state.fingers[0].x;
-    sample.finger0Y = update->state.fingers[0].y;
-    sample.finger1Active = update->state.fingers[1].active;
-    sample.finger1Id = update->state.fingers[1].id;
-    sample.finger1X = update->state.fingers[1].x;
-    sample.finger1Y = update->state.fingers[1].y;
-    // The clickable-pad switch is an ordinary SDL button, so it is read live rather than tracked.
-    sample.buttonPressed =
-        update->controller != nullptr &&
-        SDL_GameControllerGetButton(update->controller, SDL_CONTROLLER_BUTTON_TOUCHPAD) == 1;
-    processor_->publishTouchpad(update->deviceId, sample);
-}
-
-// Snapshotted under the lock and iterated outside it: holding mtx_ across the publish would block
-// applyRumble for no reason. Resolving the joystick handle here is what lets the controller and
-// raw-joystick paths share one poll.
-std::vector<SDLGamepadBridge::PollEntry> SDLGamepadBridge::batteriesDue(TimePoint now) {
-    std::vector<PollEntry> due;
-    std::lock_guard<std::mutex> lock(mtx_);
-    due.reserve(openControllers_.size() + openJoysticks_.size());
-    for (const auto& [iid, gc] : openControllers_) {
-        considerForPoll(iid, SDL_GameControllerGetJoystick(gc), now, due);
-    }
-    for (const auto& [iid, js] : openJoysticks_) { considerForPoll(iid, js, now, due); }
-    return due;
-}
-
-// Caller holds mtx_. A device polled for the first time is always due, so a pad that has just
-// attached shows a charge without waiting out the interval.
-void SDLGamepadBridge::considerForPoll(int iid, SDL_Joystick* js, TimePoint now,
-                                       std::vector<PollEntry>& due) {
-    if (js == nullptr) { return; }
-    const auto last = lastBatteryPoll_[iid];
-    const bool first = last == TimePoint{};
-    if (!first && (now - last) < kBatteryPollInterval) { return; }
-    lastBatteryPoll_[iid] = now;
-
-    std::string did;
-    if (auto it = deviceIds_.find(iid); it != deviceIds_.end()) { did = it->second.toStdString(); }
-    if (did.empty()) { return; }
-    due.push_back({iid, std::move(did), js});
+    sample.finger0Active = pad->touch.fingers[0].active;
+    sample.finger0Id = pad->touch.fingers[0].id;
+    sample.finger0X = pad->touch.fingers[0].x;
+    sample.finger0Y = pad->touch.fingers[0].y;
+    sample.finger1Active = pad->touch.fingers[1].active;
+    sample.finger1Id = pad->touch.fingers[1].id;
+    sample.finger1X = pad->touch.fingers[1].x;
+    sample.finger1Y = pad->touch.fingers[1].y;
+    // The clickable-pad switch is an ordinary SDL button, which the shadow already holds.
+    sample.buttonPressed = pad->shadow.pressed(SDL_CONTROLLER_BUTTON_TOUCHPAD);
+    processor_->publishTouchpad(*pad->index, sample);
 }
 
 // Forwarded unconditionally: MSG_BATTERY is a 30 s heartbeat, so the receiver expects a packet
-// each interval even when the value is unchanged, and a lost one self-heals on the next tick.
-// True when the value moved, which is the only thing the UI needs telling about.
-bool SDLGamepadBridge::publishBattery(const PollEntry& e) {
-    const auto wire = powerLevelToWire(SDL_JoystickCurrentPowerLevel(e.js));
-    processor_->publishBattery(e.deviceId,
-                               GamepadInputProcessor::BatterySample{wire.level, wire.status});
-
-    std::lock_guard<std::mutex> lock(mtx_);
-    BatterySnapshot& snap = lastBattery_[e.iid];
-    if (snap.level == wire.level && snap.status == wire.status) { return false; }
-    snap.level = wire.level;
-    snap.status = wire.status;
-    return true;
-}
-
-void SDLGamepadBridge::pollBatteries() {
+// each interval even when the value is unchanged, and a lost one self-heals on the next tick. A
+// device polled for the first time is always due, so a pad that has just attached shows a charge
+// without waiting out the interval. Only a moved value hands the GUI a new device list.
+void SDLGamepadBridge::pollBatteries(TimePoint now) {
     bool anyChange = false;
-    for (const auto& e : batteriesDue(std::chrono::steady_clock::now())) {
-        if (e.js == nullptr) { continue; }
-        anyChange = publishBattery(e) || anyChange;
+    for (Pad& pad : pads_) {
+        if (pad.kind == PadKind::Free || pad.js == nullptr) { continue; }
+        const bool first = pad.lastBatteryPoll == TimePoint{};
+        if (!first && (now - pad.lastBatteryPoll) < kBatteryPollInterval) { continue; }
+        pad.lastBatteryPoll = now;
+        const auto wire = powerLevelToWire(SDL_JoystickCurrentPowerLevel(pad.js));
+        if (pad.index.has_value()) {
+            processor_->publishBattery(
+                *pad.index, GamepadInputProcessor::BatterySample{wire.level, wire.status});
+        }
+        if (pad.device.batteryLevel == wire.level && pad.device.batteryStatus == wire.status) {
+            continue;
+        }
+        pad.device.batteryLevel = wire.level;
+        pad.device.batteryStatus = wire.status;
+        anyChange = true;
     }
-    // One signal per batch, not per device, so the UI rebuilds once.
-    if (anyChange) { QMetaObject::invokeMethod(this, "devicesChanged", Qt::QueuedConnection); }
+    // One list per sweep, not per device, so the UI rebuilds once.
+    if (anyChange) { publishDevices(); }
 }
 
-void SDLGamepadBridge::applyLightbar(const QString& deviceId, std::uint8_t r, std::uint8_t g,
-                                     std::uint8_t b) {
-    outputQueue_.push(OutputCommand::lightbar(deviceId, r, g, b));
+void SDLGamepadBridge::postLightbar(GamepadInputProcessor::DeviceIndex device, std::uint8_t r,
+                                    std::uint8_t g, std::uint8_t b) {
+    if (device < mailboxes_.size()) { mailboxes_[device].postLightbar(r, g, b); }
 }
 
-void SDLGamepadBridge::applyTriggerEffects(
-    const QString& deviceId, const std::array<std::uint8_t, usbout::kTriggerEffectBlockBytes>& left,
+void SDLGamepadBridge::postTriggerEffects(
+    GamepadInputProcessor::DeviceIndex device,
+    const std::array<std::uint8_t, usbout::kTriggerEffectBlockBytes>& left,
     const std::array<std::uint8_t, usbout::kTriggerEffectBlockBytes>& right) {
-    outputQueue_.push(OutputCommand::triggerEffects(deviceId, left, right));
+    if (device < mailboxes_.size()) { mailboxes_[device].postTriggerEffects(left, right); }
 }
 
-void SDLGamepadBridge::applyPlayerLeds(const QString& deviceId, std::uint8_t ledMask) {
-    outputQueue_.push(OutputCommand::playerLeds(deviceId, ledMask));
+void SDLGamepadBridge::postPlayerLeds(GamepadInputProcessor::DeviceIndex device,
+                                      std::uint8_t ledMask) {
+    if (device < mailboxes_.size()) { mailboxes_[device].postPlayerLeds(ledMask); }
 }
 
-void SDLGamepadBridge::applyMicLed(const QString& deviceId, std::uint8_t state) {
-    outputQueue_.push(OutputCommand::micLed(deviceId, state));
+void SDLGamepadBridge::postMicLed(GamepadInputProcessor::DeviceIndex device, std::uint8_t state) {
+    if (device < mailboxes_.size()) { mailboxes_[device].postMicLed(state); }
 }
 
-void SDLGamepadBridge::drainOutputCommands() {
-    // drain() takes the batch atomically so the receive thread can keep
-    // enqueueing while this executes.
-    for (const auto& cmd : outputQueue_.drain()) {
-        // Resolved here, on the SDL thread. A controller removed since the
-        // command was enqueued is absent from openControllers_, so gc stays null
-        // and the command is dropped rather than used after close.
-        SDL_GameController* gc = nullptr;
-        int iid = -1;
-        {
-            std::lock_guard<std::mutex> lock(mtx_);
-            for (const auto& [candidate, did] : deviceIds_) {
-                if (did == cmd.deviceId) {
-                    if (auto it = openControllers_.find(candidate); it != openControllers_.end()) {
-                        gc = it->second;
-                        iid = candidate;
-                    }
-                    break;
-                }
-            }
-        }
-        if (gc == nullptr) { continue; }
-        switch (cmd.kind) {
-        case OutputKind::Rumble:
-            // Return value ignored: -1 just means the pad has no rumble, and
-            // neither the caller nor the satellite-side game has any recourse.
-            SDL_GameControllerRumble(gc, cmd.strongMagnitude, cmd.weakMagnitude, cmd.durationMs);
-            break;
-        case OutputKind::Lightbar:
-            SDL_GameControllerSetLED(gc, cmd.r, cmd.g, cmd.b);
-            break;
-        case OutputKind::TriggerEffects:
-        case OutputKind::PlayerLeds:
-        case OutputKind::MicLed:
-            sendEffect(gc, iid, cmd);
-            break;
-        }
+void SDLGamepadBridge::drainMailboxes() {
+    for (Pad& pad : pads_) {
+        if (pad.kind != PadKind::Controller || !pad.index.has_value()) { continue; }
+        if (const auto taken = mailboxes_[*pad.index].take()) { applyOutput(pad, *taken); }
     }
 }
 
-// One arm per effect kind the DualSense takes over SDL, each a builder call. Long because the
-// kinds are this many; the switch is what the compiler checks when OutputKind gains one.
-void SDLGamepadBridge::sendEffect(SDL_GameController* gc, int iid, const OutputCommand& cmd) {
-    // The family from the pad's USB identity, which a Bluetooth pad reports
-    // too. The builders answer 0 for any family without the surface, and the
-    // router upstream only sends a DualSense here, so a 0 is a pad that
-    // changed identity under us rather than a wrong report on the wire.
-    usbparse::HidParser parser = usbparse::HidParser::None;
-    {
-        std::lock_guard<std::mutex> lock(mtx_);
-        if (auto it = usbIdentity_.find(iid); it != usbIdentity_.end()) {
-            parser = usbparse::parserForDevice(it->second.vendorId, it->second.productId);
-        }
+// Return values ignored: -1 means the pad has no such actuator or its driver changed under us, and
+// neither the caller nor the satellite-side game has any recourse.
+void SDLGamepadBridge::applyOutput(Pad& pad, const OutputMailbox::Taken& taken) {
+    const OutputState& s = taken.state;
+    if ((taken.kinds & output::kRumble) != 0) {
+        SDL_GameControllerRumble(pad.gc, s.strong, s.weak, s.durationMs);
     }
-    usbout::FeedbackState& st = effectState_[iid];
+    if ((taken.kinds & output::kLightbar) != 0) { SDL_GameControllerSetLED(pad.gc, s.r, s.g, s.b); }
+    // The family from the pad's USB identity, which a Bluetooth pad reports too. The builders
+    // answer 0 for any family without the surface, and the router only sends a DualSense here.
+    const usbparse::HidParser parser =
+        usbparse::parserForDevice(pad.device.vendorId, pad.device.productId);
     std::array<std::uint8_t, usbout::kMaxOutputReportBytes> report{};
-    std::size_t n = 0;
-    switch (cmd.kind) {
-    case OutputKind::TriggerEffects:
-        n = usbout::buildTriggerEffectsReport(parser, st, cmd.leftTrigger.data(),
-                                              cmd.rightTrigger.data(), report.data(),
-                                              report.size());
-        break;
-    case OutputKind::PlayerLeds:
-        // The Switch Pro's counter is unused: only the DualSense reaches here.
-        n = usbout::buildPlayerLedsReport(parser, st, cmd.ledMask, /*seq=*/0, report.data(),
-                                          report.size());
-        break;
-    case OutputKind::MicLed:
-        n = usbout::buildMicMuteLedReport(parser, st, cmd.micLedState, report.data(),
-                                          report.size());
-        break;
-    case OutputKind::Rumble:
-    case OutputKind::Lightbar:
-        break;
+    if ((taken.kinds & output::kTriggerEffects) != 0) {
+        sendEffect(pad,
+                   usbout::buildTriggerEffectsReport(parser, pad.effectState, s.leftTrigger.data(),
+                                                     s.rightTrigger.data(), report.data(),
+                                                     report.size()),
+                   report);
     }
-    if (n < usbout::kDs5EffectBodyOffset + usbout::kDs5EffectBodyBytes) { return; }
-    // The body without its report id: SDL's driver frames it for the link
-    // (see kDs5EffectBodyBytes). Return value ignored for the same reason as
-    // rumble's: a refusal is a pad whose driver changed under us, and nothing
-    // downstream has a recourse.
-    SDL_GameControllerSendEffect(gc, report.data() + usbout::kDs5EffectBodyOffset,
+    if ((taken.kinds & output::kPlayerLeds) != 0) {
+        // The Switch Pro's counter is unused: only the DualSense reaches here.
+        sendEffect(pad,
+                   usbout::buildPlayerLedsReport(parser, pad.effectState, s.ledMask, /*seq=*/0,
+                                                 report.data(), report.size()),
+                   report);
+    }
+    if ((taken.kinds & output::kMicLed) != 0) {
+        sendEffect(pad,
+                   usbout::buildMicMuteLedReport(parser, pad.effectState, s.micLedState,
+                                                 report.data(), report.size()),
+                   report);
+    }
+}
+
+// The body without its report id: SDL's driver frames it for the link (see kDs5EffectBodyBytes).
+void SDLGamepadBridge::sendEffect(
+    Pad& pad, std::size_t reportBytes,
+    const std::array<std::uint8_t, usbout::kMaxOutputReportBytes>& report) {
+    if (reportBytes < usbout::kDs5EffectBodyOffset + usbout::kDs5EffectBodyBytes) { return; }
+    SDL_GameControllerSendEffect(pad.gc, report.data() + usbout::kDs5EffectBodyOffset,
                                  static_cast<int>(usbout::kDs5EffectBodyBytes));
 }
 
-namespace {
-
-// SDL button to XUSB bit, one row each, so the two cannot drift apart.
-constexpr std::pair<SDL_GameControllerButton, std::uint16_t> kButtonBits[] = {
-    {SDL_CONTROLLER_BUTTON_DPAD_UP, GamepadInputProcessor::Buttons::kDpadUp},
-    {SDL_CONTROLLER_BUTTON_DPAD_DOWN, GamepadInputProcessor::Buttons::kDpadDown},
-    {SDL_CONTROLLER_BUTTON_DPAD_LEFT, GamepadInputProcessor::Buttons::kDpadLeft},
-    {SDL_CONTROLLER_BUTTON_DPAD_RIGHT, GamepadInputProcessor::Buttons::kDpadRight},
-    {SDL_CONTROLLER_BUTTON_START, GamepadInputProcessor::Buttons::kStart},
-    {SDL_CONTROLLER_BUTTON_BACK, GamepadInputProcessor::Buttons::kBack},
-    {SDL_CONTROLLER_BUTTON_LEFTSTICK, GamepadInputProcessor::Buttons::kLeftThumb},
-    {SDL_CONTROLLER_BUTTON_RIGHTSTICK, GamepadInputProcessor::Buttons::kRightThumb},
-    {SDL_CONTROLLER_BUTTON_LEFTSHOULDER, GamepadInputProcessor::Buttons::kLeftShoulder},
-    {SDL_CONTROLLER_BUTTON_RIGHTSHOULDER, GamepadInputProcessor::Buttons::kRightShoulder},
-    {SDL_CONTROLLER_BUTTON_GUIDE, GamepadInputProcessor::Buttons::kGuide},
-    {SDL_CONTROLLER_BUTTON_A, GamepadInputProcessor::Buttons::kA},
-    {SDL_CONTROLLER_BUTTON_B, GamepadInputProcessor::Buttons::kB},
-    {SDL_CONTROLLER_BUTTON_X, GamepadInputProcessor::Buttons::kX},
-    {SDL_CONTROLLER_BUTTON_Y, GamepadInputProcessor::Buttons::kY},
-};
-
-GamepadSnapshot readGamepad(SDL_GameController* gc) {
-    std::uint16_t buttons = 0;
-    for (const auto& [button, bit] : kButtonBits) {
-        if (buttonDown(gc, button)) { buttons |= bit; }
-    }
-    return {.wButtons = buttons,
-            .leftX = SDL_GameControllerGetAxis(gc, SDL_CONTROLLER_AXIS_LEFTX),
-            .leftY = SDL_GameControllerGetAxis(gc, SDL_CONTROLLER_AXIS_LEFTY),
-            .rightX = SDL_GameControllerGetAxis(gc, SDL_CONTROLLER_AXIS_RIGHTX),
-            .rightY = SDL_GameControllerGetAxis(gc, SDL_CONTROLLER_AXIS_RIGHTY),
-            .leftTrigger = SDL_GameControllerGetAxis(gc, SDL_CONTROLLER_AXIS_TRIGGERLEFT),
-            .rightTrigger = SDL_GameControllerGetAxis(gc, SDL_CONTROLLER_AXIS_TRIGGERRIGHT)};
+// A pad claimed by USB-direct streams over raw-HID only, so dropping here is what stops the
+// satellite seeing it twice.
+void SDLGamepadBridge::rebuildState(Pad& pad) {
+    if (pad.suppressed || !pad.index.has_value()) { return; }
+    processor_->publish(*pad.index, mapGamepad(pad.shadow.snapshot()));
 }
 
-} // namespace
-
-void SDLGamepadBridge::rebuildState(int iid) {
-    SDL_GameController* gc = nullptr;
-    std::string deviceId;
-    {
-        std::lock_guard<std::mutex> lock(mtx_);
-        if (auto it = openControllers_.find(iid); it != openControllers_.end()) { gc = it->second; }
-        if (auto it = deviceIds_.find(iid); it != deviceIds_.end()) {
-            deviceId = it->second.toStdString();
-        }
-    }
-    if (gc == nullptr || deviceId.empty()) { return; }
-    // A pad claimed by USB-direct streams over raw-HID only, so dropping here is
-    // what stops the satellite seeing it twice.
-    if (isSuppressed(deviceId)) { return; }
-
-    processor_->publish(deviceId, mapGamepad(readGamepad(gc)));
-}
-
-// What one raw joystick needs before it can be read at all. js is null for a device SDL opened as
-// a game controller instead, which this path does not handle.
-struct SDLGamepadBridge::JoystickHandle {
-    SDL_Joystick* js = nullptr;
-    std::string deviceId;
-    int vendorId = 0;
-    int productId = 0;
-};
-
-SDLGamepadBridge::JoystickHandle SDLGamepadBridge::joystickHandleFor(int iid) {
-    JoystickHandle h;
-    std::lock_guard<std::mutex> lock(mtx_);
-    if (auto it = openJoysticks_.find(iid); it != openJoysticks_.end()) { h.js = it->second; }
-    if (auto it = deviceIds_.find(iid); it != deviceIds_.end()) {
-        h.deviceId = it->second.toStdString();
-    }
-    if (auto it = usbIdentity_.find(iid); it != usbIdentity_.end()) {
-        h.vendorId = it->second.vendorId;
-        h.productId = it->second.productId;
-    }
-    return h;
-}
-
-// Copied under remapMtx_ so a main-thread push never stalls the hot path; the mapping itself runs
-// outside the lock. A model with no entry maps under the default layout.
-JoystickRemap SDLGamepadBridge::remapFor(int vendorId, int productId) {
-    std::lock_guard<std::mutex> lock(remapMtx_);
-    if (auto it = joystickRemaps_.find({vendorId, productId}); it != joystickRemaps_.end()) {
-        return it->second;
-    }
-    return JoystickRemap{};
-}
-
-void SDLGamepadBridge::rebuildJoystickState(int iid) {
-    const JoystickHandle h = joystickHandleFor(iid);
-    // A game controller is absent from openJoysticks_, so this no-ops for it.
-    if (h.js == nullptr || h.deviceId.empty()) { return; }
-    if (isSuppressed(h.deviceId)) { return; }
-
+void SDLGamepadBridge::rebuildJoystickState(Pad& pad) {
+    if (pad.suppressed || !pad.index.has_value() || pad.js == nullptr) { return; }
     // Fixed caps keep the hot path allocation-free, and the buffers live on this frame so the
-    // snapshot can borrow rather than own them. A pad with more inputs than a cap is truncated,
-    // which loses nothing because the layouts reference only low indices.
+    // snapshot can borrow rather than own them.
     std::int16_t axes[kMaxJoystickAxes] = {0};
     bool buttons[kMaxJoystickButtons] = {false};
     std::uint8_t hats[kMaxJoystickHats] = {0};
-    const JoystickSnapshot snap = readJoystick(h.js, axes, buttons, hats);
-
-    processor_->publish(h.deviceId, mapJoystick(snap, remapFor(h.vendorId, h.productId)));
+    const JoystickSnapshot snap = readJoystick(pad.js, axes, buttons, hats);
+    processor_->publish(*pad.index, mapJoystick(snap, pad.remap));
 }
 
 // Sized to the device's real counts, so the mapper's bounds checks see the true extent.

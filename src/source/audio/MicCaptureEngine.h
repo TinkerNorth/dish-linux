@@ -45,8 +45,8 @@
 namespace dish::source::audio {
 
 // One eligible slot: where to capture from and how to send. The sender runs on
-// the gateway's audio thread and must be thread-safe (WifiConnection's send
-// path is, by the same contract as the SDL input thread's).
+// the gateway's audio thread, one capture at a time per sender (SlotRouter's
+// mic sender reads the published route table, as the SDL input thread does).
 struct MicCaptureTarget {
     std::string slotId;
     std::string captureDeviceName;

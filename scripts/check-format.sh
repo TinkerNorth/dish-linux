@@ -11,6 +11,6 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-find src tests -type f \( -name '*.cpp' -o -name '*.h' \) \
+find src tests tools -type f \( -name '*.cpp' -o -name '*.h' \) \
   -print0 | xargs -0 clang-format --dry-run --Werror
 echo "clang-format: OK"

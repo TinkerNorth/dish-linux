@@ -3,9 +3,9 @@
 //
 // The 0x000C forward payload for a real controller's two-finger pad, in both
 // protocol generations: MSG_TOUCHPAD (v1, 16B) and the reshaped POINTER frame
-// (v2, 19B). Touchpad input is event-driven and neither rate-limited nor
-// coalesced, so there is no forwarding gate beyond "a sample arrived"; what
-// matters here is that eventTimeMs is carried end to end.
+// (v2, 19B). The only gate is upstream, on a raw-HID pad's report stream
+// (Input/TouchGate.h); what matters here is that eventTimeMs is carried
+// end to end.
 //
 // v2 moved the click out of the finger flags into a buttons byte and appended a
 // signed wheel. This client's ONLY producer is a physical pad's touchpad, which
@@ -42,8 +42,8 @@ struct TouchpadForward {
     std::int16_t finger1Y = 0;
     bool buttonPressed = false;
     // Protocol-1 trailing field, u32 LE at offset 11 of the payload. The server
-    // drops the whole packet if it is missing. Stamp it with monotonic uptime ms
-    // per publish: mouse-mode timing scales by the delta between samples.
+    // drops the whole packet if it is missing. Monotonic uptime ms, new for each
+    // new frame (a heal repeats it): mouse-mode timing scales by the delta.
     std::uint32_t eventTimeMs = 0;
 
     // v2 only, and never set by a physical pad's touchpad (see the file header).

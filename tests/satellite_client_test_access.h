@@ -16,7 +16,12 @@ class SatelliteClientTestAccess {
     // Parks the send counter so nonce exhaustion is reachable without 2^64 sends.
     // `next` is the value sendEncrypted draws next.
     static void seedSendCounter(SatelliteClient& client, std::uint64_t next) {
-        client.sendCounter_.reset(next);
+        client.sendCounter_.store(next, std::memory_order_relaxed);
+    }
+
+    // Parks the missed-ack count where heartbeats the satellite never answered would leave it.
+    static void seedMissedAcks(SatelliteClient& client, int missed) {
+        client.missedAcks_.store(missed, std::memory_order_relaxed);
     }
 
     // Drives the receive dispatch with a fully framed datagram, so the wire
