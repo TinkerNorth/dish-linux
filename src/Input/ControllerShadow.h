@@ -5,11 +5,7 @@
 
 #include "JoystickMapping.h"
 
-// Clang has _m_prefetch as a builtin, and SDL_endian.h defines it unless an intrinsics header
-// came first.
-#include <intrin.h>
-
-#include <SDL_events.h>
+#include <SDL2/SDL_events.h>
 
 #include <array>
 #include <cstdint>
