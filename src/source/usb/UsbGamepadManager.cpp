@@ -51,9 +51,10 @@ class ClaimedPadPublisher {
         mirrorMicMute(r);
         mirrorBattery(r);
         if (processor_ == nullptr || !index_.has_value()) { return; }
-        publishInput(r);
-        publishMotion(r);
-        publishTouchpad(r);
+        const input::GamepadInputProcessor::DeviceIndex index = *index_;
+        publishInput(index, r);
+        publishMotion(index, r);
+        publishTouchpad(index, r);
     }
 
   private:
@@ -80,7 +81,7 @@ class ClaimedPadPublisher {
         }
     }
 
-    void publishInput(const UsbReport& r) const {
+    void publishInput(input::GamepadInputProcessor::DeviceIndex index, const UsbReport& r) const {
         input::GamepadInputProcessor::DeviceState st;
         st.wButtons = r.wButtons;
         st.lt = r.lt;
@@ -89,11 +90,11 @@ class ClaimedPadPublisher {
         st.ly = r.ly;
         st.rx = r.rx;
         st.ry = r.ry;
-        processor_->publish(*index_, st);
+        processor_->publish(index, st);
     }
 
     // Rate-limited to <=250 Hz inside the processor.
-    void publishMotion(const UsbReport& r) const {
+    void publishMotion(input::GamepadInputProcessor::DeviceIndex index, const UsbReport& r) const {
         if (!r.motionValid) { return; }
         input::GamepadInputProcessor::MotionSample m;
         m.gyroX = r.gyroX;
@@ -102,11 +103,12 @@ class ClaimedPadPublisher {
         m.accelX = r.accelX;
         m.accelY = r.accelY;
         m.accelZ = r.accelZ;
-        processor_->publishMotion(*index_, m);
+        processor_->publishMotion(index, m);
     }
 
     // DS4 and DualSense only; every other decoder leaves touchpadValid false.
-    void publishTouchpad(const UsbReport& r) const {
+    void publishTouchpad(input::GamepadInputProcessor::DeviceIndex index,
+                         const UsbReport& r) const {
         if (!r.touchpadValid) { return; }
         input::GamepadInputProcessor::TouchpadSample t;
         t.finger0Active = r.finger0Active;
@@ -118,7 +120,7 @@ class ClaimedPadPublisher {
         t.finger1X = r.finger1X;
         t.finger1Y = r.finger1Y;
         t.buttonPressed = r.touchpadButton;
-        processor_->publishTouchpad(*index_, t);
+        processor_->publishTouchpad(index, t);
     }
 
     input::GamepadInputProcessor* processor_ = nullptr;
