@@ -1,7 +1,5 @@
 name: Flatpak CI
 
-# Pin map (verify with `gh api repos/<owner>/<repo>/git/ref/tags/<tag>`):
-#   actions/checkout         @ v7.0.1 → 3d3c42e5aac5ba805825da76410c181273ba90b1
 #
 # The sandboxed build, run only when something that feeds it changes: the
 # manifests, the build definition, the udev rule it carries, or this file.
