@@ -23,9 +23,13 @@ ATTRS{idVendor}=="057e", MODE="0660", GROUP="input", TAG+="uaccess"
 # 8BitDo
 ATTRS{idVendor}=="2dc8", MODE="0660", GROUP="input", TAG+="uaccess"
 
-# Valve — Steam Controller (wired and dongle)
+# Valve — Steam Controller (wired and dongle), and the 2026 Steam Controller
+# (wired and both dongles)
 ATTRS{idVendor}=="28de", ATTRS{idProduct}=="1102", MODE="0660", GROUP="input", TAG+="uaccess"
 ATTRS{idVendor}=="28de", ATTRS{idProduct}=="1142", MODE="0660", GROUP="input", TAG+="uaccess"
+ATTRS{idVendor}=="28de", ATTRS{idProduct}=="1302", MODE="0660", GROUP="input", TAG+="uaccess"
+ATTRS{idVendor}=="28de", ATTRS{idProduct}=="1304", MODE="0660", GROUP="input", TAG+="uaccess"
+ATTRS{idVendor}=="28de", ATTRS{idProduct}=="1305", MODE="0660", GROUP="input", TAG+="uaccess"
 
 # PDP — wired Switch pads
 ATTRS{idVendor}=="0e6f", ATTRS{idProduct}=="0180", MODE="0660", GROUP="input", TAG+="uaccess"

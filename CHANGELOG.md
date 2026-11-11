@@ -18,6 +18,21 @@ the repos share a version number.
 
 ## [Unreleased]
 
+### Added
+
+- **The 2026 Steam Controller over USB direct, not yet tried on a real one.**
+  The wired controller (`28DE:1302`) and its two wireless dongles (`28DE:1304`,
+  `28DE:1305`) can be taken over on the direct path, ported from SDL's driver
+  for the pad: Dish switches off its keyboard-and-mouse mode and turns on its
+  motion sensors, sends that again every 3 seconds because the controller's
+  firmware turns the mode back on otherwise, and reads the sticks, triggers,
+  buttons, motion and battery. Rumble from the host drives the controller's
+  haptics, repeated while it runs because the controller stops it on its own.
+  Letting go of the controller turns its keyboard-and-mouse mode back on. Like
+  the 2015 Steam Controller it is never taken over automatically, only when you
+  pick direct on its card. The trackpads, the back paddles and the
+  quick-access button are not forwarded yet.
+
 ### Changed
 
 - **A host is sent the lower of the controller's battery and the PC's.** When

@@ -169,9 +169,13 @@ inline std::vector<std::pair<std::uint16_t, std::uint16_t>> topLevelUsages(const
     return found;
 }
 
+// The 2015 Steam Controller's game interface is on page 0xFF00. The 2026 pad's
+// is taken to be anywhere on the vendor-defined pages (0xFF00 to 0xFFFF), which
+// no pad has confirmed yet: SDL reads it without looking at the page.
 inline bool collectionMatchesParser(std::uint16_t page, std::uint16_t usage,
                                     input::usbparse::HidParser parser) {
     if (parser == input::usbparse::HidParser::SteamController) { return page == kUsagePageVendor; }
+    if (parser == input::usbparse::HidParser::SteamTriton) { return page >= kUsagePageVendor; }
     return page == kUsagePageGenericDesktop && (usage == kUsageGamepad || usage == kUsageJoystick);
 }
 

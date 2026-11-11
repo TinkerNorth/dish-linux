@@ -28,6 +28,19 @@ class WorkerWake {
         sleeping_.store(false, std::memory_order_seq_cst);
     }
 
+    // sleepUnless, but no later than `deadline`. A producer that saw this sleep owes it exactly
+    // one release, and one that wins the race past the deadline still pays: the sleep takes that
+    // release before it returns, so the semaphore is back at zero and the next sleep waits as long
+    // as it should.
+    template <typename HasWork, typename TimePoint>
+    void sleepUnlessUntil(HasWork&& hasWork, const TimePoint& deadline) {
+        sleeping_.store(true, std::memory_order_seq_cst);
+        const bool tookRelease = !hasWork() && wake_.try_acquire_until(deadline);
+        const bool producerFlippedIt = !sleeping_.exchange(false, std::memory_order_seq_cst);
+        const bool releaseOwed = producerFlippedIt && !tookRelease;
+        if (releaseOwed) { wake_.acquire(); }
+    }
+
   private:
     std::counting_semaphore<> wake_{0};
     std::atomic<bool> sleeping_{false};

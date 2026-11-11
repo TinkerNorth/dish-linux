@@ -50,6 +50,7 @@ bool firstTopLevelUsage(const std::uint8_t* desc, std::size_t len, std::uint16_t
 constexpr std::uint16_t kGenericDesktop = 0x01;
 constexpr std::uint16_t kConsumer = 0x0C;
 constexpr std::uint16_t kVendorPage = 0xFF00;
+constexpr std::uint16_t kLastVendorPage = 0xFFFF;
 constexpr std::uint16_t kPointer = 0x01;
 constexpr std::uint16_t kMouse = 0x02;
 constexpr std::uint16_t kJoystick = 0x04;
@@ -229,7 +230,7 @@ const Fixture kGamepadFixtures[] = {
     {"PDP Faceoff switch-order gamepad", kSwitchOrderDescriptor, sizeof(kSwitchOrderDescriptor)},
 };
 
-// Every parser but the Steam Controller's shares one admission rule.
+// Every parser but the Steam Controllers' shares one admission rule.
 struct ParserCase {
     const char* what;
     HidParser parser;
@@ -305,6 +306,20 @@ TEST_CASE("hidraw admission admits the Steam Controller only on its vendor page"
     CHECK_FALSE(collectionMatchesParser(kGenericDesktop, kKeyboard, HidParser::SteamController));
     CHECK_FALSE(collectionMatchesParser(kGenericDesktop, kMouse, HidParser::SteamController));
     CHECK_FALSE(collectionMatchesParser(kGenericDesktop, kGamepad, HidParser::SteamController));
+}
+
+TEST_CASE("hidraw admission admits the 2026 Steam Controller on any vendor-defined page",
+          "[hidraw-admission]") {
+    // Its game interface's page is not pinned by a pad yet; SDL reads it without
+    // looking, so every vendor-defined page qualifies and nothing else does.
+    CHECK(collectionMatchesParser(kVendorPage, kVendorUsage, HidParser::SteamTriton));
+    CHECK(collectionMatchesParser(kLastVendorPage, kVendorUsage, HidParser::SteamTriton));
+    CHECK_FALSE(collectionMatchesParser(kGenericDesktop, kKeyboard, HidParser::SteamTriton));
+    CHECK_FALSE(collectionMatchesParser(kGenericDesktop, kMouse, HidParser::SteamTriton));
+    CHECK_FALSE(collectionMatchesParser(kGenericDesktop, kGamepad, HidParser::SteamTriton));
+    CHECK_FALSE(collectionMatchesParser(kConsumer, kVendorUsage, HidParser::SteamTriton));
+    // The 2015 pad stays on its own page.
+    CHECK_FALSE(collectionMatchesParser(kLastVendorPage, kVendorUsage, HidParser::SteamController));
 }
 
 TEST_CASE("hidraw admission requires a gamepad or joystick collection of every other parser",

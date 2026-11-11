@@ -38,10 +38,15 @@ struct SlowPad {
     std::chrono::milliseconds delay{0};
     mutable std::mutex mtx;
     std::vector<std::vector<std::uint8_t>> reports;
+    std::vector<std::vector<std::uint8_t>> features;
 
     std::vector<std::vector<std::uint8_t>> got() const {
         const std::lock_guard<std::mutex> lock(mtx);
         return reports;
+    }
+    std::vector<std::vector<std::uint8_t>> gotFeatures() const {
+        const std::lock_guard<std::mutex> lock(mtx);
+        return features;
     }
 };
 
@@ -54,6 +59,11 @@ class SlowWriter final : public HidReportWriter {
         pad_.reports.emplace_back(data, data + len);
         return true;
     }
+    bool writeFeature(const std::uint8_t* data, std::size_t len) override {
+        const std::lock_guard<std::mutex> lock(pad_.mtx);
+        pad_.features.emplace_back(data, data + len);
+        return true;
+    }
 
   private:
     SlowPad& pad_;
@@ -63,6 +73,32 @@ bool waitFor(const SlowPad& pad, std::size_t count) {
     const auto deadline = std::chrono::steady_clock::now() + 3s;
     while (std::chrono::steady_clock::now() < deadline) {
         if (pad.got().size() >= count) { return true; }
+        std::this_thread::sleep_for(1ms);
+    }
+    return false;
+}
+
+bool waitForFeatures(const SlowPad& pad, std::size_t count) {
+    const auto deadline = std::chrono::steady_clock::now() + 3s;
+    while (std::chrono::steady_clock::now() < deadline) {
+        if (pad.gotFeatures().size() >= count) { return true; }
+        std::this_thread::sleep_for(1ms);
+    }
+    return false;
+}
+
+// The 2026 Steam Controller's haptic rumble report: id 0x80, the left (strong) speed at 4..5 and
+// the right (weak) one at 7..8, little-endian.
+bool isTritonRumbleStop(const std::vector<std::uint8_t>& report) {
+    return report.size() == 10 && report[0] == 0x80 && report[4] == 0 && report[5] == 0 &&
+           report[7] == 0 && report[8] == 0;
+}
+
+bool waitForRumbleStop(const SlowPad& pad) {
+    const auto deadline = std::chrono::steady_clock::now() + 3s;
+    while (std::chrono::steady_clock::now() < deadline) {
+        const auto reports = pad.got();
+        if (!reports.empty() && isTritonRumbleStop(reports.back())) { return true; }
         std::this_thread::sleep_for(1ms);
     }
     return false;
@@ -135,6 +171,56 @@ TEST_CASE("a stopped worker writes nothing more", "[output-worker]") {
     worker.stop();
 }
 
+TEST_CASE("a 2026 Steam Controller's worker sends its quiet settings at once",
+          "[output-worker][triton]") {
+    // The claim sends none itself; the worker owns them, at once and every 3 s.
+    SlowPad pad;
+    OutputWorker worker(std::make_unique<SlowWriter>(pad), HidParser::SteamTriton);
+    REQUIRE(waitForFeatures(pad, 2));
+    const auto features = pad.gotFeatures();
+    REQUIRE(features[0].size() == 64U);
+    CHECK(features[0][0] == 0x01); // feature report 1
+    CHECK(features[0][3] == 9);    // SETTING_LIZARD_MODE
+    CHECK(features[0][4] == 0);    // LIZARD_MODE_OFF
+    REQUIRE(features[1].size() == 64U);
+    CHECK(features[1][3] == 48);   // SETTING_IMU_MODE
+    CHECK(features[1][4] == 0x18); // raw accel | raw gyro
+    CHECK(pad.got().empty());
+    worker.stop();
+}
+
+TEST_CASE("a running 2026 rumble is sent again until a stop", "[output-worker][triton]") {
+    // The pad's haptics stop on their own about 50 ms after a write, so the
+    // worker repeats a running rumble every 40 ms and a stop once.
+    SlowPad pad;
+    OutputWorker worker(std::make_unique<SlowWriter>(pad), HidParser::SteamTriton);
+    worker.postRumble(0x8000, 0x4000);
+    REQUIRE(waitFor(pad, 4));
+    for (const auto& report : pad.got()) {
+        REQUIRE(report.size() == 10U);
+        CHECK(report[0] == 0x80);
+        CHECK(report[5] == 0x80); // strong, high byte
+        CHECK(report[8] == 0x40); // weak, high byte
+    }
+    worker.postRumble(0, 0);
+    REQUIRE(waitForRumbleStop(pad));
+    const std::size_t afterStop = pad.got().size();
+    std::this_thread::sleep_for(200ms);
+    CHECK(pad.got().size() == afterStop);
+    worker.stop();
+}
+
+TEST_CASE("a family with nothing on a clock writes only what it is asked", "[output-worker]") {
+    SlowPad pad;
+    OutputWorker worker(std::make_unique<SlowWriter>(pad), HidParser::DualSense);
+    worker.postRumble(0x8000, 0);
+    REQUIRE(waitFor(pad, 1));
+    std::this_thread::sleep_for(150ms);
+    CHECK(pad.got().size() == 1U);
+    CHECK(pad.gotFeatures().empty());
+    worker.stop();
+}
+
 TEST_CASE("a family without the surface writes nothing and counts the refusal", "[output-worker]") {
     SlowPad pad;
     OutputWorker worker(std::make_unique<SlowWriter>(pad), HidParser::DualShock4);
@@ -166,4 +252,17 @@ TEST_CASE("the fd writer refuses a node that is not open", "[output-worker][hid]
     FdReportWriter writer(-1, &writeMtx);
     const std::array<std::uint8_t, 3> report{0x05, 0x11, 0x22};
     CHECK_FALSE(writer.write(report.data(), report.size()));
+}
+
+TEST_CASE("the fd writer reports a feature write the node refuses", "[output-worker][hid]") {
+    // A pipe takes no HIDIOCSFEATURE, the way a node that is no hidraw would not.
+    PipePad pipe;
+    dish::thread::TrackedMutex writeMtx{"hid.write"};
+    FdReportWriter writer(pipe.node(), &writeMtx);
+    const std::array<std::uint8_t, 3> report{0x01, 0x87, 0x03};
+    CHECK_FALSE(writer.writeFeature(report.data(), report.size()));
+    CHECK_FALSE(writer.writeFeature(report.data(), 0));
+    CHECK_FALSE(writer.writeFeature(nullptr, report.size()));
+    FdReportWriter closed(-1, &writeMtx);
+    CHECK_FALSE(closed.writeFeature(report.data(), report.size()));
 }

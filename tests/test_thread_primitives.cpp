@@ -299,3 +299,61 @@ TEST_CASE("a worker asleep on its wake is woken by the next notify, and none is 
     worker.join();
     CHECK(handled.load() == 2000);
 }
+
+TEST_CASE("a timed sleep with nothing to do ends at its deadline", "[thread-primitives][wake]") {
+    dish::thread::WorkerWake wake;
+    const auto started = std::chrono::steady_clock::now();
+    wake.sleepUnlessUntil([] { return false; }, started + std::chrono::milliseconds(50));
+    const auto slept = std::chrono::steady_clock::now() - started;
+    // A windows-2022 runner's timed waits end a little early by the steady clock
+    // (test_output_worker.cpp met 39.5 ms for 50), so half the deadline still
+    // tells a wait from none.
+    CHECK(slept >= std::chrono::milliseconds(25));
+    CHECK(slept < std::chrono::seconds(5));
+}
+
+TEST_CASE("a timed sleep that finds work waiting returns at once", "[thread-primitives][wake]") {
+    dish::thread::WorkerWake wake;
+    const auto started = std::chrono::steady_clock::now();
+    wake.sleepUnlessUntil([] { return true; }, started + std::chrono::seconds(30));
+    CHECK(std::chrono::steady_clock::now() - started < std::chrono::seconds(5));
+}
+
+TEST_CASE("a notify ends a timed sleep before its deadline", "[thread-primitives][wake]") {
+    dish::thread::WorkerWake wake;
+    std::atomic<bool> posted{false};
+    const auto started = std::chrono::steady_clock::now();
+    std::thread worker([&] {
+        wake.sleepUnlessUntil([&] { return posted.load(); }, started + std::chrono::seconds(30));
+    });
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    posted.store(true);
+    wake.notify();
+    worker.join();
+    CHECK(std::chrono::steady_clock::now() - started < std::chrono::seconds(10));
+}
+
+namespace {
+
+// A producer that lands while a sleep is still checking for work: it sees the sleep, flips it and
+// owes it a release, the narrowest window a producer can hit.
+struct ProducerInsideTheCheck {
+    dish::thread::WorkerWake& wake;
+    bool operator()() const {
+        wake.notify();
+        return true;
+    }
+};
+
+} // namespace
+
+TEST_CASE("a timed sleep takes the release a racing producer owed it",
+          "[thread-primitives][wake]") {
+    // Left behind, that release would end the next sleep at once instead of at its deadline.
+    dish::thread::WorkerWake wake;
+    wake.sleepUnlessUntil(ProducerInsideTheCheck{wake},
+                          std::chrono::steady_clock::now() + std::chrono::seconds(30));
+    const auto started = std::chrono::steady_clock::now();
+    wake.sleepUnlessUntil([] { return false; }, started + std::chrono::milliseconds(50));
+    CHECK(std::chrono::steady_clock::now() - started >= std::chrono::milliseconds(25));
+}

@@ -51,6 +51,9 @@
     <modalias>usb:v2DC8p*d*</modalias>
     <modalias>usb:v28DEp1102d*</modalias>
     <modalias>usb:v28DEp1142d*</modalias>
+    <modalias>usb:v28DEp1302d*</modalias>
+    <modalias>usb:v28DEp1304d*</modalias>
+    <modalias>usb:v28DEp1305d*</modalias>
     <modalias>usb:v0E6Fp0180d*</modalias>
     <modalias>usb:v0E6Fp0181d*</modalias>
     <modalias>usb:v0E6Fp0184d*</modalias>

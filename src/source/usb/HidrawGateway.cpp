@@ -121,6 +121,21 @@ std::string usbInterfaceDir(const std::string& hidrawName) {
     return base;
 }
 
+// The USB interface a hidraw node belongs to, or -1 when it has none to read.
+int interfaceNumberOf(const std::string& hidrawName) {
+    const std::string ifaceDir = usbInterfaceDir(hidrawName);
+    if (ifaceDir.empty()) { return -1; }
+    return parseHex(readSysfsLine(ifaceDir + "/bInterfaceNumber")).value_or(-1);
+}
+
+// Whether the node carries a pad: every node does but a 2026 Steam Controller
+// dongle's, whose pads ride interfaces 2 to 5 only.
+bool nodeCarriesPad(const std::string& hidrawName, int productId,
+                    input::usbparse::HidParser parser) {
+    if (parser != input::usbparse::HidParser::SteamTriton) { return true; }
+    return input::usbparse::tritonInterfaceCarriesPad(productId, interfaceNumberOf(hidrawName));
+}
+
 // bInterval and wMaxPacketSize off the interrupt-IN endpoint, plus whether an
 // OUT endpoint exists (which is what gates rumble). Defaults stay when the node
 // has no USB parent to read.
@@ -181,6 +196,21 @@ bool runSteamConfig(int fd, int featureLen, input::usbparse::SteamConfig stage) 
 // hidraw has no feature-length query, so the descriptor's largest feature
 // report is the ceiling. The Steam Controller's is 65 (id byte + 64 payload).
 constexpr int kSteamFeatureLen = 65;
+
+// The 2026 Steam Controller's settings undone at release, IMU off and then
+// lizard mode on, each a whole feature report through the claim's own writer.
+// One try each, as SDL sends them: a pad that refused the first is gone, and
+// the pad's firmware turns lizard mode back on by itself once the claim stops
+// re-sending the quiet settings.
+void restoreTriton(int fd, thread::TrackedMutex* writeMtx) {
+    FdReportWriter writer(fd, writeMtx);
+    std::array<std::uint8_t, input::usbparse::kTritonFeatureReportBytes> report{};
+    for (int i = 0;; i++) {
+        const std::size_t n = input::usbparse::buildTritonConfigReport(
+            input::usbparse::SteamConfig::Restore, i, report.data(), report.size());
+        if (n == 0 || !writer.writeFeature(report.data(), n)) { return; }
+    }
+}
 
 // The DualSense's firmware-info feature report, which picks its rumble mode. HIDIOCGFEATURE answers
 // with the length it read, report id included, which the parse checks; an unanswered read keeps
@@ -348,6 +378,7 @@ std::vector<UsbDeviceInfo> HidrawGateway::enumerate() {
         if (!detail::admitsParser(probed->descriptor.data(), probed->descriptor.size(), parser)) {
             continue;
         }
+        if (!nodeCarriesPad(hidrawName, probed->productId, parser)) { continue; }
 
         UsbDeviceInfo info;
         info.vendorId = probed->vendorId;
@@ -392,6 +423,7 @@ ClaimResult HidrawGateway::claim(const UsbDeviceInfo& device,
         if (!detail::admitsParser(probed->descriptor.data(), probed->descriptor.size(), parser)) {
             continue;
         }
+        if (!nodeCarriesPad(hidrawName, device.productId, parser)) { continue; }
         const int opened = ::open(probed->node.c_str(), O_RDWR | O_CLOEXEC);
         if (opened < 0) {
             if (errno == EACCES || errno == EPERM) { sawPermissionDenied = true; }
@@ -417,6 +449,8 @@ ClaimResult HidrawGateway::claim(const UsbDeviceInfo& device,
     // switches that off and enables the IMU. This is the one family whose init
     // persistently reconfigures the device, so a failure restores the defaults
     // before giving up — a partly-applied init must never strand the pad mute.
+    // The 2026 pad's quiet settings are its output worker's to send, at once and
+    // every 3 s after, because its firmware undoes them unless they keep coming.
     int featureReportLen = 0;
     if (parser == input::usbparse::HidParser::SteamController) {
         featureReportLen = kSteamFeatureLen;
@@ -469,7 +503,11 @@ bool HidrawGateway::handleSteamWirelessEvent(Claimed* c, const std::uint8_t* dat
     const auto ev = input::usbparse::checkWirelessEvent(c->parser, data, len);
     if (ev == input::usbparse::WirelessEvent::Connect) {
         // A returning pad has rebooted, so its settings are gone and quiet mode is re-applied.
-        runSteamConfig(c->fd, c->featureReportLen, input::usbparse::SteamConfig::Quiet);
+        // The 2026 pad's come back with its output worker's next settings write, within 3 s, so
+        // this thread never writes to it.
+        if (c->parser == input::usbparse::HidParser::SteamController) {
+            runSteamConfig(c->fd, c->featureReportLen, input::usbparse::SteamConfig::Quiet);
+        }
         return true;
     }
     if (ev == input::usbparse::WirelessEvent::Disconnect) {
@@ -507,7 +545,7 @@ void HidrawGateway::readLoop(Claimed* c) {
         c->completions.fetch_add(1);
 
         const std::uint8_t* data = buf.data();
-        if (c->parser == input::usbparse::HidParser::SteamController &&
+        if (input::usbparse::parserHasWirelessEvents(c->parser) &&
             handleSteamWirelessEvent(c, data, len)) {
             continue;
         }
@@ -542,6 +580,9 @@ void HidrawGateway::releaseClaim(int syntheticId) {
         if (claimed->parser == input::usbparse::HidParser::SteamController) {
             runSteamConfig(claimed->fd, claimed->featureReportLen,
                            input::usbparse::SteamConfig::Restore);
+        }
+        if (claimed->parser == input::usbparse::HidParser::SteamTriton) {
+            restoreTriton(claimed->fd, &claimed->writeMtx);
         }
         ::close(claimed->fd);
         claimed->fd = -1;

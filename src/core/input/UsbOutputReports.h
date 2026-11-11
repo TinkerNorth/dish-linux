@@ -231,6 +231,25 @@ inline void selectDs5ClassicRumble(const FeedbackState& st, std::uint8_t* out) {
 
 } // namespace detail
 
+// The 2026 Steam Controller's haptic rumble OUT report, SDL's OutputReportMsg
+// with MsgHapticRumble: id 0x80, type and intensity zero, then the left
+// actuator's speed (u16 LE) and gain at 4..6 and the right's at 7..9. SDL drives
+// the left from the low-frequency (strong) motor and the right from the
+// high-frequency (weak) one, both at full 16-bit resolution and 0 dB of gain.
+inline constexpr std::uint8_t kTritonRumbleReportId = 0x80;
+inline constexpr std::size_t kTritonRumbleBytes = 10;
+inline constexpr std::size_t kTritonLeftSpeedByte = 4;
+inline constexpr std::size_t kTritonRightSpeedByte = 7;
+
+namespace detail {
+
+inline void putLe16(std::uint8_t* out, std::uint16_t v) {
+    out[0] = static_cast<std::uint8_t>(v & 0xFFU);
+    out[1] = static_cast<std::uint8_t>(v >> 8);
+}
+
+} // namespace detail
+
 // Rumble. `seq` is a rolling counter the Switch Pro requires in the low nibble
 // of every packet it accepts; the PlayStation families ignore it. `st` is read
 // for the DS5 rumble mode and lamp re-assert only.
@@ -263,6 +282,13 @@ inline std::size_t buildRumbleReport(HidParser p, const FeedbackState& st, std::
         detail::switchEncodeMotor(&out[2], strong);
         detail::switchEncodeMotor(&out[6], weak);
         return 10;
+    case HidParser::SteamTriton:
+        if (outCap < kTritonRumbleBytes) { return 0; }
+        detail::zero(out, kTritonRumbleBytes);
+        out[0] = kTritonRumbleReportId;
+        detail::putLe16(&out[kTritonLeftSpeedByte], strong);
+        detail::putLe16(&out[kTritonRightSpeedByte], weak);
+        return kTritonRumbleBytes;
     case HidParser::SteamController:
     case HidParser::GenericHid:
     case HidParser::None:
@@ -307,6 +333,7 @@ inline std::size_t buildLightbarReport(HidParser p, FeedbackState& st, std::uint
         return 63;
     case HidParser::SwitchProUsb:
     case HidParser::SteamController:
+    case HidParser::SteamTriton:
     case HidParser::GenericHid:
     case HidParser::None:
         return 0;
@@ -342,6 +369,7 @@ inline std::size_t buildPlayerLedsReport(HidParser p, const FeedbackState& st, s
         return 12;
     case HidParser::DualShock4:
     case HidParser::SteamController:
+    case HidParser::SteamTriton:
     case HidParser::GenericHid:
     case HidParser::None:
         return 0;
