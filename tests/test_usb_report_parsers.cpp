@@ -13,6 +13,7 @@
 
 #include <array>
 #include <cstdint>
+#include <utility>
 #include <vector>
 
 using namespace dish::input::usbparse;
@@ -69,6 +70,36 @@ TEST_CASE("only Steam models settle without a framework gamepad", "[usb-parsers]
     CHECK(modelExpectsFrameworkGamepad(0x054C, 0x05C4));
     CHECK(modelExpectsFrameworkGamepad(0x0E6F, 0x0180));
     CHECK(modelExpectsFrameworkGamepad(0x1234, 0x5678));
+}
+
+TEST_CASE("the 2015 receiver's pads ride interfaces 1 to 4, its keyboard none",
+          "[usb-parsers][steam][receiver]") {
+    // SDL's HIDAPI_DriverSteam_IsSupportedDevice takes 1 to 4 on 28DE:1142, and
+    // hid-steam's steam_is_valve_interface names 0 the emulated keyboard.
+    CHECK(isReceiver(0x28DE, 0x1142));
+    CHECK_FALSE(interfaceCarriesPad(0x28DE, 0x1142, 0));
+    for (int iface = 1; iface <= 4; ++iface) { CHECK(interfaceCarriesPad(0x28DE, 0x1142, iface)); }
+    CHECK_FALSE(interfaceCarriesPad(0x28DE, 0x1142, 5));
+}
+
+TEST_CASE("a model whose pad is the device is no receiver, on any interface",
+          "[usb-parsers][receiver]") {
+    for (const auto& [vid, pid] : {std::pair{0x28DE, 0x1102}, std::pair{0x054C, 0x0CE6},
+                                   std::pair{0x2DC8, 0x3100}, std::pair{0x1234, 0x5678}}) {
+        CHECK_FALSE(isReceiver(vid, pid));
+        CHECK(interfaceCarriesPad(vid, pid, 0));
+        CHECK(interfaceCarriesPad(vid, pid, 3));
+    }
+}
+
+TEST_CASE("a 2015 receiver's slot is asked what it holds with ID_DONGLE_GET_WIRELESS_STATE",
+          "[usb-parsers][steam][receiver]") {
+    // SDL's HIDAPI_DriverSteam_InitDevice: buf[1] = 0xB4, no payload.
+    std::array<std::uint8_t, 8> out{};
+    REQUIRE(buildSteamReceiverStateRequest(out.data(), out.size()) == 2U);
+    CHECK(out[0] == 0xB4);
+    CHECK(out[1] == 0x00);
+    CHECK(buildSteamReceiverStateRequest(out.data(), 1) == 0U);
 }
 
 TEST_CASE("parser capability predicates agree with the families", "[usb-parsers]") {

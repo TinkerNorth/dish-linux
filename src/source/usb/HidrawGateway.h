@@ -204,6 +204,7 @@ class HidrawGateway : public UsbDeviceGateway {
     void releaseClaim(int syntheticId) override;
     bool isKnownFastLaneModel(int vendorId, int productId) const override;
     bool isClaimAlive(int syntheticId) const override;
+    bool isPadLinked(int syntheticId) const override;
     std::int64_t completionCount(int syntheticId) const override;
     std::int64_t decodedCount(int syntheticId) const override;
     // Before the first claim: what each claim's read thread asks for its priority through as it
@@ -222,6 +223,10 @@ class HidrawGateway : public UsbDeviceGateway {
         std::atomic<bool> running{false};
         // Cleared by the reader as it exits, whatever ended it.
         std::atomic<bool> alive{true};
+        // Whether a controller is there: from the claim for a model's own pad, and for a
+        // receiver's slot from its controller's connect event or first report until its
+        // disconnect event. Written by the reader, read by isPadLinked.
+        std::atomic<bool> linked{true};
         std::atomic<std::int64_t> completions{0};
         std::atomic<std::int64_t> decoded{0};
         std::function<void(const UsbReport&)> onReport;
@@ -233,6 +238,9 @@ class HidrawGateway : public UsbDeviceGateway {
         input::usbparse::StickAutoRangeState sticks;
         input::usbhid::HidLayout layout;
         int featureReportLen = 0;
+        // The 2015 pad holds the quiet settings, so its release owes it the restore. The reader's
+        // once started; releaseClaim reads it after the join.
+        bool quieted = false;
         // The DualSense mic-mute latch. Atomics, because it is the one piece
         // of decode state a second thread touches: the read loop flips it on
         // the button edge, setPadMicMuted overwrites it when the user toggles
@@ -252,6 +260,8 @@ class HidrawGateway : public UsbDeviceGateway {
     // readLoop's two decisions about one report: whether it was a dongle event rather than input,
     // and which decoder reads it.
     bool handleSteamWirelessEvent(Claimed* c, const std::uint8_t* data, std::size_t len);
+    void controllerArrived(Claimed* c);
+    void controllerLeft(Claimed* c);
     static bool decodeOneReport(Claimed* c, const std::uint8_t* data, std::size_t len,
                                 input::usbparse::ParsedReport& parsed);
 

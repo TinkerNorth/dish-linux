@@ -29,6 +29,7 @@
 #include "core/reducer/CatalogFeatureGate.h"
 #include "core/reducer/CarriedPads.h"
 #include "core/reducer/ConnectionRows.h"
+#include "core/reducer/DirectPadKey.h"
 #include "core/reducer/FoundVisibility.h"
 #include "core/reducer/HostBuiltInPad.h"
 #include "core/reducer/PathChoice.h"
@@ -651,11 +652,14 @@ void AppViewModel::unbindSlot(const QString& slotId) {
 }
 
 namespace {
-// A synthetic slot's id IS the packed vpKey string, so it parses. An SDL slot's
-// id ("sdl:<iid>") does not, and falls back to the bridge device list. nullopt
-// means neither yields an identity.
+// A synthetic slot's id packs its pad's model, so it parses; a receiver slot's
+// pick is its model's, shared by the receiver's other slots. An SDL slot's id
+// ("sdl:<iid>") does not parse, and falls back to the bridge device list.
+// nullopt means neither yields an identity.
 std::optional<std::pair<int, int>> resolveSlotVidPid(dish::AppModel* model, const QString& slotId) {
-    if (const auto parsed = reducer::parseSyntheticSlotId(slotId.toStdString())) { return parsed; }
+    if (const auto pad = reducer::parseDirectSlotId(slotId.toStdString())) {
+        return std::make_pair(pad->vendorId, pad->productId);
+    }
     for (const auto& d : model->bridge()->devices()) {
         if (d.id == slotId) {
             if (d.vendorId == 0 || d.productId == 0) { return std::nullopt; }
@@ -1535,11 +1539,12 @@ QString AppViewModel::displacedSlotName(const QString& connectionId) const {
 QString AppViewModel::resolveSlotIdForBind(const QString& slotId) const {
     const auto& st = model_->state();
     const auto vidPid = resolveSlotVidPid(model_, slotId);
-    if (!vidPid.has_value()) {
-        // With no (vid, pid) to re-resolve through, the id is all there is, and
-        // it is valid exactly as long as the slot is still listed.
-        return slotById(slotId) != nullptr ? slotId : QString();
-    }
+    // With no (vid, pid) to re-resolve through, the id is all there is, and it
+    // is valid exactly as long as the slot is still listed. A receiver's pad is
+    // the same: its model's other pads are other controllers.
+    const bool standsForItself =
+        !vidPid.has_value() || reducer::isReceiverSlotId(slotId.toStdString());
+    if (standsForItself) { return slotById(slotId) != nullptr ? slotId : QString(); }
     // A Direct claim retires the framework slot for a synthetic twin under a
     // different id, so the synthetic wins when both are present.
     QString framework;
@@ -1775,9 +1780,9 @@ void AppViewModel::checkPathSettled() {
     if (liveId != applySlotId_ && !liveId.isEmpty()) { applySlotId_ = liveId; }
     const auto* live = slotById(applySlotId_);
     if (live == nullptr) { return; }
-    const bool switching =
-        reducer::slotPathSwitching(live->pathPhase, live->desiredPath, live->usbDirect,
-                                   live->liveRates.directPollHz, live->directFailure.has_value());
+    const bool switching = reducer::slotPathSwitching(
+        live->pathPhase, live->desiredPath, live->usbDirect, live->liveRates.directPollHz,
+        live->directFailure.has_value(), live->waitingForController);
     if (switching) { return; }
     dispatchApply(reducer::apply_event::PathSettled{live->pathPhase == reducer::UsbPhase::Direct});
 }

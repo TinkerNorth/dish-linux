@@ -31,7 +31,7 @@ struct UsbDeviceInfo {
     int vendorId = 0;
     int productId = 0;
     std::string name;             // friendly/product name (or the device path).
-    int interfaceNumber = 0;      // the claimed interface's number.
+    int interfaceNumber = 0;      // the claimed interface's number; a receiver's slot.
     int endpointInMaxPacket = 64; // interrupt-IN wMaxPacketSize.
     int endpointInInterval = 1;   // interrupt-IN bInterval.
     bool hasOutEndpoint = false;  // an interrupt-OUT endpoint exists (for rumble).
@@ -143,6 +143,12 @@ class UsbDeviceGateway {
     // left the bus, which a re-enumerating pad does without ever leaving
     // enumerate(), and false for an unknown id.
     virtual bool isClaimAlive(int syntheticId) const = 0;
+
+    // Whether a controller is there to read on the claim: a wireless receiver's
+    // slot (usbparse::isReceiver) from its controller's connect event, or its
+    // first report, until its disconnect event. The default is right for every
+    // other pad, which is there for as long as its claim is.
+    virtual bool isPadLinked(int /*syntheticId*/) const { return true; }
 
     // The model's current measured completion count (URB/transfer count) for the
     // poll-rate sampler. 0 if unknown / not claimed.

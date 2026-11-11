@@ -21,6 +21,7 @@
 #include "source/usb/UsbDeviceGateway.h"
 
 #include "core/input/UsbOutputReports.h"
+#include "core/reducer/DirectPadKey.h"
 #include "core/reducer/UsbPathMachine.h"
 #include "core/thread/TrackedMutex.h"
 
@@ -33,6 +34,9 @@
 #include <optional>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
+#include <utility>
+#include <vector>
 
 namespace dish::input {
 class GamepadInputProcessor;
@@ -65,7 +69,8 @@ class UsbDirectObserver {
     virtual void endHold(int /*vendorId*/, int /*productId*/) {}
     // Bind the carried connection to a device id (framework or synthetic).
     virtual void bind(int /*deviceId*/, const std::string& /*connId*/, int /*type*/) {}
-    // A synthetic device was registered / removed (the UI shows it as a slot).
+    // A synthetic pad came onto the slot list / left it: a model's own pad with
+    // its claim, a receiver's slot while its controller is connected.
     virtual void syntheticAdded(int /*syntheticId*/, const std::string& /*name*/, bool /*hasGyro*/,
                                 int /*pollRateHz*/, int /*vendorId*/, int /*productId*/) {}
     virtual void syntheticRemoved(int /*syntheticId*/) {}
@@ -74,11 +79,11 @@ class UsbDirectObserver {
     // fires on the GATEWAY READ THREAD — the edge is seen where the reports
     // are — so an observer must marshal to its own thread before touching
     // state (AppModel queues it).
-    virtual void padMicMuteChanged(int /*vendorId*/, int /*productId*/, bool /*muted*/) {}
+    virtual void padMicMuteChanged(const reducer::DirectPadKey& /*pad*/, bool /*muted*/) {}
     // The claimed pad's own charge moved (usbparse::kPadBattery* values). Same
     // thread and same edge rule as padMicMuteChanged: once per change, on the
     // gateway read thread, never once per report.
-    virtual void padBatteryChanged(int /*vendorId*/, int /*productId*/, std::uint8_t /*level*/,
+    virtual void padBatteryChanged(const reducer::DirectPadKey& /*pad*/, std::uint8_t /*level*/,
                                    std::uint8_t /*status*/) {}
     // Fired once after EVERY state-changing applyEvent. This is the single
     // unidirectional "the FSM state moved, rebuild the slot list from the fresh
@@ -115,11 +120,14 @@ class UsbGamepadManager {
     // The sweep is debounced: a pad must miss kDepartedScanThreshold consecutive
     // scans before it reads as unplugged, so a single-pass enumeration hiccup
     // (Bluetooth link parking, a momentary open elsewhere) can never tear down a
-    // live claim. Safe to call repeatedly (the 1 s poll).
+    // live claim. A receiver's slot whose controller connected or disconnected
+    // since the last scan joins or leaves directPads() here. Safe to call
+    // repeatedly (the 1 s poll).
     void reconcile();
 
     // The user explicitly picks Direct for a model (the Settings toggle / card
     // action). Persists the pick and drives a user-initiated Choose(Direct).
+    // Every pick is the model's: a receiver's slots share it.
     void tryDirectMode(int vendorId, int productId);
 
     // The user explicitly picks `choice` for a model. Persists + drives a
@@ -171,9 +179,10 @@ class UsbGamepadManager {
     // latch.
     bool setPadMicMuted(int vendorId, int productId, bool muted);
 
-    // A claimed model's synthetic id, decoder family and output worker, resolved once so a caller
+    // A claimed pad's synthetic id, decoder family and output worker, resolved once so a caller
     // that keeps it (the published route table) posts feedback with no lookup. A target whose claim
-    // has since ended posts to a stopped worker, which writes nothing.
+    // has since ended posts to a stopped worker, which writes nothing. By model, the model's own
+    // pad; a receiver's slots go by their pad key.
     struct DirectTarget {
         int vendorId = 0;
         int productId = 0;
@@ -181,6 +190,7 @@ class UsbGamepadManager {
         input::usbparse::HidParser parser = input::usbparse::HidParser::None;
         std::shared_ptr<OutputWorker> worker;
     };
+    std::optional<DirectTarget> directTarget(const reducer::DirectPadKey& pad) const;
     std::optional<DirectTarget> directTarget(int vendorId, int productId) const;
     bool applyRumble(const DirectTarget& target, std::uint16_t strongMagnitude,
                      std::uint16_t weakMagnitude);
@@ -191,27 +201,54 @@ class UsbGamepadManager {
                              const std::uint8_t right[input::usbout::kTriggerEffectBlockBytes]);
     bool applyMicMuteLed(const DirectTarget& target, std::uint8_t state);
 
-    // Whether a Direct claim for this model is live right now. The link layer of
+    // Whether a Direct claim for this pad is live right now. The link layer of
     // the capability solve asks this before advertising an actuator, so the
     // descriptor never promises a surface that a Standard-path pad cannot land.
+    bool isDirectClaimed(const reducer::DirectPadKey& pad) const;
     bool isDirectClaimed(int vendorId, int productId) const;
+    bool setPadMicMuted(const reducer::DirectPadKey& pad, bool muted);
 
     // The live FSM state per model (vpKey -> controller). Read-only snapshot.
     std::map<int, reducer::UsbController> controllers() const;
     std::optional<reducer::UsbController> controllerFor(int vendorId, int productId) const;
+
+    // One pad on the slot list: a Direct model's own pad, or a slot of a Direct
+    // receiver whose controller is connected. A receiver's other slots stay
+    // claimed, listening for their controllers, and are no pad.
+    struct DirectPad {
+        reducer::DirectPadKey key;
+        int syntheticId = 0;
+    };
+    // Read-only snapshot, in key order.
+    std::vector<DirectPad> directPads() const;
 
   private:
     static int vpKey(int vendorId, int productId) {
         return (vendorId << 16) | (productId & 0xFFFF);
     }
 
+    // One pad a claim reads: a model's own pad, or one slot of a receiver. `lead` is the
+    // synthetic id the FSM holds for the claim the pad belongs to, which takes every pad of the
+    // claim with it. Kept through a Release as the held placeholder, until RemoveSynthetic.
+    struct PadClaim {
+        UsbDeviceInfo device;
+        int lead = 0;
+        std::shared_ptr<OutputWorker> worker;
+        // Whether a controller is there, as the last scan saw it (UsbDeviceGateway::isPadLinked).
+        bool linked = false;
+    };
+
     // Resolve a model's desired path from the stored pick + fast-lane + prior
     // failure (the pure resolvePathChoice policy).
     reducer::PathChoice resolvePath(int vendorId, int productId) const;
 
-    // Ensure a controller entry exists for a present device, then drive it toward
-    // its resolved path (not user-initiated). Idempotent.
-    void ensureTracked(const UsbDeviceInfo& device);
+    // Ensure a controller entry exists for a present model and record its pads
+    // (the model's one, or each slot of a receiver), then drive a new entry toward
+    // its resolved path (not user-initiated). Idempotent. `pads` is one model's
+    // devices from one scan, never empty.
+    void ensureTracked(const std::vector<UsbDeviceInfo>& pads);
+    // A pick made before the first scan tracks the model first.
+    void trackPresent(int vendorId, int productId);
 
     // A Direct controller whose read loop has ended while its model still
     // enumerates: the pad re-enumerated under the same VID:PID, which the
@@ -221,22 +258,40 @@ class UsbGamepadManager {
     // Judge a Direct claim's read and decode counts once per scan and release
     // one that reads nothing it can use.
     void judgeClaim(int key);
+    bool padReadsNothing(int syntheticId, const PadClaim& claim);
+
+    // Forget tracked models that missed kDepartedScanThreshold scans in a row.
+    void sweepDeparted(const std::unordered_set<int>& presentKeys);
+    // Put the receivers' slots whose controllers came or went on the slot list or off it.
+    void followPadLinks();
+    void announcePad(int syntheticId, const PadClaim& claim);
+    void listPad(int syntheticId, const UsbDeviceInfo& device);
+    void unlistPad(int syntheticId);
 
     // Run the reducer for one event and execute its effects. All FSM mutation
     // funnels through here so events apply in order.
     void applyEvent(int key, const reducer::UsbEvent& event);
     void execute(int key, const reducer::UsbController& c, const reducer::UsbEffect& fx);
 
-    // A claim's output worker starts with the claim and stops before the claim is released, so a
+    // A pad's output worker starts with its claim and stops before the claim is released, so a
     // replugged pad starts its feedback state (the DualSense handoff, the lamp) afresh, in the
     // rumble mode the claim's firmware read picked.
-    void startWorker(int syntheticId, int key, const input::usbout::Ds5FirmwareInfo& ds5Firmware);
-    void releaseClaimAndWorker(int syntheticId);
+    std::shared_ptr<OutputWorker> startWorker(int syntheticId, const UsbDeviceInfo& device,
+                                              const input::usbout::Ds5FirmwareInfo& ds5Firmware);
+    void recordPad(int lead, const UsbDeviceInfo& device, const ClaimResult& outcome);
+    void releasePad(int syntheticId);
+    bool forgetPad(int syntheticId);
+    // Every pad of the claim `lead` leads: released and kept as the held placeholder, or dropped.
+    void releasePads(int lead);
+    void dropPads(int lead);
+    std::vector<int> padsOfClaim(int lead) const;
+    bool leadsDirectClaim(const PadClaim& claim) const;
 
     // Effectors. Each looks the device up under mtx_ and claims and applies the outcome after
     // releasing it, because applyEvent takes mtx_ itself.
-    std::optional<UsbDeviceInfo> trackedDevice(int key) const;
-    ClaimResult claimTracked(int key);
+    std::vector<UsbDeviceInfo> trackedPads(int key) const;
+    ClaimResult claimPads(int key);
+    void letGo(const std::vector<std::pair<UsbDeviceInfo, ClaimResult>>& opened);
     void runClaim(int key);
     void runReclaim(int key, const reducer::UsbController& c);
     // Open + claim + read-loop bring-up; classify the outcome. The single place
@@ -251,20 +306,21 @@ class UsbGamepadManager {
 
     mutable thread::TrackedMutex mtx_{"usb.manager"}; // guards the maps below.
     std::map<int, reducer::UsbController> controllers_;
-    // The last-known device descriptor per tracked model (for re-claim).
-    std::unordered_map<int, UsbDeviceInfo> devices_;
+    // The last-known device descriptor per tracked pad (for re-claim): a model's own, or each
+    // slot of a receiver.
+    std::map<reducer::DirectPadKey, UsbDeviceInfo> devices_;
     // In-memory prior-failure tracking (android keeps this on the registry; we
     // fold it in so the manager is self-contained). Cleared on a fresh plug-in.
     std::unordered_map<int, reducer::DirectClaimFailure> priorFailures_;
     // Consecutive reconcile() scans a tracked model has been missing from
     // enumerate(). Reset on sighting; the sweep fires at the threshold.
     std::unordered_map<int, int> missedScans_;
-    // Scans a model has been seen Direct on, the claiming scan included; the
-    // health judgement reads it and a claim that ends resets it.
-    std::unordered_map<int, int> directScans_;
+    // Scans a pad has been seen Direct with its controller there on, the claiming
+    // scan included; the health judgement reads it and a claim that ends resets it.
+    std::map<reducer::DirectPadKey, int> directScans_;
 
-    // Each live claim's output worker, by synthetic id, under mtx_.
-    std::unordered_map<int, std::shared_ptr<OutputWorker>> workers_;
+    // Every claimed pad, by its own synthetic id, under mtx_.
+    std::map<int, PadClaim> claims_;
 };
 
 } // namespace dish::source::usb

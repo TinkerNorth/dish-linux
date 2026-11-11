@@ -354,8 +354,9 @@ class AppModel : public QObject {
     // rebuild's passes, in the order it runs them. The three append* build the slot list, the
     // cross-reference fills in what a binding adds, and the two republish* push the result to the
     // input threads and the power inhibitor.
+    using DirectPads = std::vector<source::usb::UsbGamepadManager::DirectPad>;
     std::set<std::string>
-    hideSdlTwinsOfClaimedPads(const std::map<int, reducer::UsbController>& controllers,
+    hideSdlTwinsOfClaimedPads(const DirectPads& pads,
                               const QList<input::SDLGamepadBridge::Device>& sdlDevices);
     void appendSdlSlots(const QList<input::SDLGamepadBridge::Device>& sdlDevices,
                         const std::set<std::string>& hidden,
@@ -363,10 +364,10 @@ class AppModel : public QObject {
                         QList<models::ControllerSlot>& next,
                         std::vector<reducer::PresentSlot>& presentPads);
     void appendDirectSlots(const std::map<int, reducer::UsbController>& controllers,
-                           QList<models::ControllerSlot>& next,
+                           const DirectPads& pads, QList<models::ControllerSlot>& next,
                            std::vector<reducer::PresentSlot>& presentPads);
     void appendAwaitingClaimSlots(const std::map<int, reducer::UsbController>& controllers,
-                                  QList<models::ControllerSlot>& next,
+                                  const DirectPads& pads, QList<models::ControllerSlot>& next,
                                   std::vector<reducer::PresentSlot>& presentPads);
     void crossReferenceBindings(QList<models::ControllerSlot>& next);
     void republishRouting();
@@ -387,10 +388,11 @@ class AppModel : public QObject {
 
     // The poll-rate half of pollUsbDirect: sample, translate to slot keys, prune. True when the
     // slot list has something new to render.
-    bool applyUsbPollRates(const std::map<int, reducer::UsbController>& controllers);
+    bool applyUsbPollRates(const DirectPads& pads);
     void onUsbDirectChanged();
     // The read thread's battery edge, marshalled to the main thread.
-    void onPadBatteryChanged(int vendorId, int productId, std::uint8_t level, std::uint8_t status);
+    void onPadBatteryChanged(const reducer::DirectPadKey& pad, std::uint8_t level,
+                             std::uint8_t status);
     // MSG_BATTERY for the Direct slots, on the SDL bridge's 30 s cadence: the
     // lower of the pad's own charge and the host battery, the host's alone
     // until the pad reports one (reducer::resolveBattery); the pad's reading
@@ -516,7 +518,7 @@ class AppModel : public QObject {
 
     // The pad's own mute button moved (queued to the main thread by the
     // observer; the edge itself is seen on the gateway read thread).
-    void onPadMicMuteChanged(int vendorId, int productId, bool muted);
+    void onPadMicMuteChanged(const reducer::DirectPadKey& pad, bool muted);
 
     // A Moonlight host as the flat ConnectionSummary the slot list carries, so
     // one binding vocabulary covers both destination kinds. The link is the
@@ -684,24 +686,19 @@ class AppModel : public QObject {
         // Fires on the GATEWAY READ THREAD (as does padBatteryChanged); queued
         // across so the store, the lamp and the engines are touched only on
         // the main thread.
-        void padMicMuteChanged(int vendorId, int productId, bool muted) override {
+        void padMicMuteChanged(const reducer::DirectPadKey& pad, bool muted) override {
             AppModel* owner = owner_;
             QMetaObject::invokeMethod(
-                owner,
-                [owner, vendorId, productId, muted] {
-                    owner->onPadMicMuteChanged(vendorId, productId, muted);
-                },
+                owner, [owner, pad, muted] { owner->onPadMicMuteChanged(pad, muted); },
                 Qt::QueuedConnection);
         }
 
-        void padBatteryChanged(int vendorId, int productId, std::uint8_t level,
+        void padBatteryChanged(const reducer::DirectPadKey& pad, std::uint8_t level,
                                std::uint8_t status) override {
             AppModel* owner = owner_;
             QMetaObject::invokeMethod(
                 owner,
-                [owner, vendorId, productId, level, status] {
-                    owner->onPadBatteryChanged(vendorId, productId, level, status);
-                },
+                [owner, pad, level, status] { owner->onPadBatteryChanged(pad, level, status); },
                 Qt::QueuedConnection);
         }
 
@@ -722,14 +719,14 @@ class AppModel : public QObject {
     std::unique_ptr<source::usb::UsbGamepadManager> usbManager_;
     QTimer* usbScanTimer_;
     reducer::PollRateSampler usbPollSampler_;
-    // Keyed by controllers() map key, the same int the synthetic slot id is
-    // built from. Main-thread-only. A synthetic that leaves Direct is pruned so
-    // a reused key can't show a stale rate.
-    QHash<int, int> usbPollRateHz_;
+    // Keyed by the Direct pad's slot id (reducer::directSlotId). Main-thread-only.
+    // A pad that leaves the slot list is pruned so a reused id can't show a
+    // stale rate.
+    QHash<QString, int> usbPollRateHz_;
     // A Direct-claimed pad's own charge, decoded from its IN report and
     // mirrored up on change; the synthetic slot's card reads it. Same key,
     // same thread, same pruning as usbPollRateHz_.
-    QHash<int, reducer::BatterySample> usbPadBattery_;
+    QHash<QString, reducer::BatterySample> usbPadBattery_;
     // When each Direct slot's MSG_BATTERY heartbeat last went out (the SDL
     // bridge keeps its own clock for its devices). Main-thread-only.
     QHash<QString, std::chrono::steady_clock::time_point> usbBatterySentAt_;

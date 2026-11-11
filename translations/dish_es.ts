@@ -1135,6 +1135,10 @@
         <translation>Batería %1 %</translation>
     </message>
     <message>
+        <source>Dish is reading this receiver directly. Turn on a controller paired with it.</source>
+        <translation>Dish está leyendo este receptor directamente. Enciende un mando emparejado con él.</translation>
+    </message>
+    <message>
         <source>Unplug and replug the controller to finish switching.</source>
         <translation>Desconecta y vuelve a conectar el mando para terminar el cambio.</translation>
     </message>

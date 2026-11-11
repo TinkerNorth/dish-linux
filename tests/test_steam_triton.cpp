@@ -173,15 +173,17 @@ TEST_CASE("only the two Steam families interleave wireless events with input",
 
 TEST_CASE("a dongle's pads ride interfaces 2 to 5, the wired pad any", "[usb-parsers][triton]") {
     for (const int dongle : {kProteusDongle, kNereidDongle}) {
-        CHECK_FALSE(tritonInterfaceCarriesPad(dongle, 0));
-        CHECK_FALSE(tritonInterfaceCarriesPad(dongle, 1));
+        CHECK(isReceiver(kValve, dongle));
+        CHECK_FALSE(interfaceCarriesPad(kValve, dongle, 0));
+        CHECK_FALSE(interfaceCarriesPad(kValve, dongle, 1));
         for (int iface = 2; iface <= 5; ++iface) {
-            CHECK(tritonInterfaceCarriesPad(dongle, iface));
+            CHECK(interfaceCarriesPad(kValve, dongle, iface));
         }
-        CHECK_FALSE(tritonInterfaceCarriesPad(dongle, 6));
+        CHECK_FALSE(interfaceCarriesPad(kValve, dongle, 6));
     }
-    CHECK(tritonInterfaceCarriesPad(kTritonWired, 0));
-    CHECK(tritonInterfaceCarriesPad(kTritonWired, 2));
+    CHECK_FALSE(isReceiver(kValve, kTritonWired));
+    CHECK(interfaceCarriesPad(kValve, kTritonWired, 0));
+    CHECK(interfaceCarriesPad(kValve, kTritonWired, 2));
 }
 
 // ── State reports ───────────────────────────────────────────────────────────

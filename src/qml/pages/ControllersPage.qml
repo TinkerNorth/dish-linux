@@ -111,11 +111,13 @@ Kit.Page {
                 required property bool pathSupported
                 required property bool claimInProgress
                 required property string directFailure
+                required property bool waitingForController
                 required property bool micArmed
                 required property bool micMuted
 
                 readonly property string pathNote:
-                    pathSupported ? page.pathNoteText(pathPhase, directFailure) : ""
+                    pathSupported ? page.pathNoteText(pathPhase, directFailure,
+                                                      waitingForController) : ""
 
                 Accessible.role: Accessible.ListItem
                 Accessible.name: card.bound
@@ -422,7 +424,10 @@ Kit.Page {
     }
     // The inline note for the non-happy path states; empty for the steady
     // routed / direct / claiming ones.
-    function pathNoteText(phase, failure) {
+    function pathNoteText(phase, failure, waitingForController) {
+        if (waitingForController) {
+            return qsTr("Dish is reading this receiver directly. Turn on a controller paired with it.");
+        }
         if (phase === "needsReplug") {
             return qsTr("Unplug and replug the controller to finish switching.");
         }

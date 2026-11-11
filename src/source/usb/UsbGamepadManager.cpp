@@ -36,6 +36,38 @@ constexpr int kControllerTypeXbox = 0;
 // as LinkState::Unstable's missed-ack rule.
 constexpr int kDepartedScanThreshold = 2;
 
+// The pad a device carries: a receiver's slot by its interface, any other model's own pad.
+reducer::DirectPadKey padKeyOf(const UsbDeviceInfo& device) {
+    const bool ridesASlot = input::usbparse::isReceiver(device.vendorId, device.productId);
+    const int slot = ridesASlot ? device.interfaceNumber : reducer::kNoReceiverSlot;
+    return reducer::DirectPadKey{device.vendorId, device.productId, slot};
+}
+
+int modelKeyOf(const reducer::DirectPadKey& pad) {
+    return reducer::slotPathVpKey(pad.vendorId, pad.productId);
+}
+
+template <typename Value>
+void eraseModelPads(std::map<reducer::DirectPadKey, Value>& byPad, int key) {
+    std::erase_if(byPad, [key](const auto& entry) { return modelKeyOf(entry.first) == key; });
+}
+
+// The scan's devices, one group per model, in the order the scan first listed each model.
+std::vector<std::vector<UsbDeviceInfo>> padsByModel(const std::vector<UsbDeviceInfo>& scan) {
+    std::vector<std::vector<UsbDeviceInfo>> models;
+    for (const UsbDeviceInfo& device : scan) {
+        const auto model = std::find_if(models.begin(), models.end(), [&device](const auto& pads) {
+            return pads.front().vpKey() == device.vpKey();
+        });
+        if (model == models.end()) {
+            models.push_back({device});
+            continue;
+        }
+        model->push_back(device);
+    }
+    return models;
+}
+
 // The publish path a claimed pad's read loop runs, once per report, on the gateway thread. It is
 // the SAME path the SDL bridge uses, so the routing table, deadzones and motion rate-limit all
 // apply identically. The decoder already produced the XUSB button word, so there is no per-report
@@ -45,10 +77,10 @@ constexpr int kDepartedScanThreshold = 2;
 // at the claim, so a report is published by index with no lookup.
 class ClaimedPadPublisher {
   public:
-    ClaimedPadPublisher(input::GamepadInputProcessor* processor, const std::string& slotId,
-                        UsbDirectObserver* observer, int vendorId, int productId)
-        : processor_(processor), observer_(observer), vendorId_(vendorId), productId_(productId) {
-        if (processor_ != nullptr) { index_ = processor_->add(slotId); }
+    ClaimedPadPublisher(input::GamepadInputProcessor* processor, UsbDirectObserver* observer,
+                        const reducer::DirectPadKey& pad)
+        : processor_(processor), observer_(observer), pad_(pad) {
+        if (processor_ != nullptr) { index_ = processor_->add(reducer::directSlotId(pad_)); }
     }
 
     void operator()(const UsbReport& r) const {
@@ -68,9 +100,7 @@ class ClaimedPadPublisher {
     void mirrorMicMute(const UsbReport& r) const {
         if (r.micMuted == lastMicMuted_->load(std::memory_order_relaxed)) { return; }
         lastMicMuted_->store(r.micMuted, std::memory_order_relaxed);
-        if (observer_ != nullptr) {
-            observer_->padMicMuteChanged(vendorId_, productId_, r.micMuted);
-        }
+        if (observer_ != nullptr) { observer_->padMicMuteChanged(pad_, r.micMuted); }
     }
 
     // The charge the same way: the card shows it, AppModel's heartbeat puts the lower of it and
@@ -81,7 +111,7 @@ class ClaimedPadPublisher {
         if (packed == lastBattery_->load(std::memory_order_relaxed)) { return; }
         lastBattery_->store(packed, std::memory_order_relaxed);
         if (observer_ != nullptr) {
-            observer_->padBatteryChanged(vendorId_, productId_, r.batteryLevel, r.batteryStatus);
+            observer_->padBatteryChanged(pad_, r.batteryLevel, r.batteryStatus);
         }
     }
 
@@ -133,8 +163,7 @@ class ClaimedPadPublisher {
     input::GamepadInputProcessor* processor_ = nullptr;
     std::optional<input::GamepadInputProcessor::DeviceIndex> index_;
     UsbDirectObserver* observer_ = nullptr;
-    int vendorId_ = 0;
-    int productId_ = 0;
+    reducer::DirectPadKey pad_;
 
     // Per claim, and shared across the copies std::function makes so the edge is tracked in one
     // place. Mic mute starts unmuted, which is what a freshly claimed pad's latch says too, so the
@@ -158,34 +187,98 @@ UsbGamepadManager::UsbGamepadManager(UsbDeviceGateway* gateway,
 // Nothing else touches the manager while it is destroyed: a route table that still holds a worker
 // holds it stopped.
 UsbGamepadManager::~UsbGamepadManager() {
-    for (auto& [syntheticId, worker] : workers_) { worker->stop(); }
+    for (auto& [syntheticId, claim] : claims_) {
+        if (claim.worker != nullptr) { claim.worker->stop(); }
+    }
 }
 
-void UsbGamepadManager::startWorker(int syntheticId, int key,
-                                    const input::usbout::Ds5FirmwareInfo& ds5Firmware) {
-    if (gateway_ == nullptr) { return; }
-    const int productId = key & 0xFFFF;
-    const auto parser = input::usbparse::parserForDevice(key >> 16, productId);
+std::shared_ptr<OutputWorker>
+UsbGamepadManager::startWorker(int syntheticId, const UsbDeviceInfo& device,
+                               const input::usbout::Ds5FirmwareInfo& ds5Firmware) {
+    const auto parser = input::usbparse::parserForDevice(device.vendorId, device.productId);
     const bool isDualSense = parser == input::usbparse::HidParser::DualSense;
     const bool vibrationV2 =
-        isDualSense && input::usbout::ds5UsesVibrationV2(productId, ds5Firmware);
-    auto worker = std::make_shared<OutputWorker>(gateway_->openReportWriter(syntheticId), parser,
-                                                 vibrationV2);
-    std::lock_guard<thread::TrackedMutex> lock(mtx_);
-    workers_[syntheticId] = std::move(worker);
+        isDualSense && input::usbout::ds5UsesVibrationV2(device.productId, ds5Firmware);
+    return std::make_shared<OutputWorker>(gateway_->openReportWriter(syntheticId), parser,
+                                          vibrationV2);
 }
 
-void UsbGamepadManager::releaseClaimAndWorker(int syntheticId) {
+// A model's own pad is on the slot list from its claim; a receiver's slot only once the gateway
+// sees its controller (followPadLinks).
+void UsbGamepadManager::recordPad(int lead, const UsbDeviceInfo& device,
+                                  const ClaimResult& outcome) {
+    const bool listed = !reducer::isReceiverSlot(padKeyOf(device));
+    const PadClaim claim{device, lead,
+                         startWorker(outcome.syntheticId, device, outcome.ds5Firmware), listed};
+    {
+        std::lock_guard<thread::TrackedMutex> lock(mtx_);
+        claims_[outcome.syntheticId] = claim;
+    }
+    if (listed) { listPad(outcome.syntheticId, device); }
+}
+
+void UsbGamepadManager::releasePad(int syntheticId) {
     std::shared_ptr<OutputWorker> worker;
     {
         std::lock_guard<thread::TrackedMutex> lock(mtx_);
-        if (const auto it = workers_.find(syntheticId); it != workers_.end()) {
-            worker = std::move(it->second);
-            workers_.erase(it);
+        if (const auto it = claims_.find(syntheticId); it != claims_.end()) {
+            worker = std::move(it->second.worker);
         }
     }
     if (worker != nullptr) { worker->stop(); }
     if (gateway_ != nullptr) { gateway_->releaseClaim(syntheticId); }
+}
+
+std::vector<int> UsbGamepadManager::padsOfClaim(int lead) const {
+    std::lock_guard<thread::TrackedMutex> lock(mtx_);
+    std::vector<int> pads;
+    for (const auto& [syntheticId, claim] : claims_) {
+        if (claim.lead == lead) { pads.push_back(syntheticId); }
+    }
+    return pads;
+}
+
+void UsbGamepadManager::releasePads(int lead) {
+    for (const int syntheticId : padsOfClaim(lead)) { releasePad(syntheticId); }
+}
+
+// The held placeholder goes with the claim, and every pad of it that was on the slot list leaves.
+void UsbGamepadManager::dropPads(int lead) {
+    for (const int syntheticId : padsOfClaim(lead)) {
+        releasePad(syntheticId);
+        if (forgetPad(syntheticId)) { unlistPad(syntheticId); }
+    }
+}
+
+// True when the pad was on the slot list.
+bool UsbGamepadManager::forgetPad(int syntheticId) {
+    std::lock_guard<thread::TrackedMutex> lock(mtx_);
+    const auto it = claims_.find(syntheticId);
+    if (it == claims_.end()) { return false; }
+    const bool listed = it->second.linked;
+    claims_.erase(it);
+    return listed;
+}
+
+void UsbGamepadManager::listPad(int syntheticId, const UsbDeviceInfo& device) {
+    if (observer_ == nullptr) { return; }
+    observer_->syntheticAdded(
+        syntheticId, device.name, device.hasImu,
+        reducer::computeUsbPollRateHz(device.endpointInInterval, device.endpointInMaxPacket),
+        device.vendorId, device.productId);
+}
+
+void UsbGamepadManager::unlistPad(int syntheticId) {
+    if (observer_ != nullptr) { observer_->syntheticRemoved(syntheticId); }
+}
+
+// A receiver slot's pad joins the slot list with its controller and leaves with it.
+void UsbGamepadManager::announcePad(int syntheticId, const PadClaim& claim) {
+    if (claim.linked) {
+        listPad(syntheticId, claim.device);
+    } else {
+        unlistPad(syntheticId);
+    }
 }
 
 reducer::PathChoice UsbGamepadManager::resolvePath(int vendorId, int productId) const {
@@ -202,12 +295,18 @@ reducer::PathChoice UsbGamepadManager::resolvePath(int vendorId, int productId) 
 void UsbGamepadManager::reconcile() {
     if (gateway_ == nullptr) { return; }
     std::unordered_set<int> presentKeys;
-    for (const auto& device : gateway_->enumerate()) {
+    for (const auto& pads : padsByModel(gateway_->enumerate())) {
+        const UsbDeviceInfo& device = pads.front();
         presentKeys.insert(device.vpKey());
         if (claimEnded(device.vpKey())) { onUsbGone(device.vendorId, device.productId); }
-        ensureTracked(device);
+        ensureTracked(pads);
         judgeClaim(device.vpKey());
     }
+    sweepDeparted(presentKeys);
+    followPadLinks();
+}
+
+void UsbGamepadManager::sweepDeparted(const std::unordered_set<int>& presentKeys) {
     // Departed-device sweep: a tracked model that stops enumerating has been
     // physically unplugged. This presence diff IS the unplug signal — the read
     // loop just breaks when its fd dies and this polled path has no detach
@@ -230,12 +329,35 @@ void UsbGamepadManager::reconcile() {
     for (const auto& [vendorId, productId] : departed) { onUsbGone(vendorId, productId); }
 }
 
-void UsbGamepadManager::ensureTracked(const UsbDeviceInfo& device) {
+// A receiver's slot whose controller connected or disconnected since the last scan: the gateway
+// saw it on the slot's wireless status event (or its first report), and the pad joins the slot list
+// or leaves it here, on the thread that owns the list. The claim stays either way, so a controller
+// that comes back reads again on its own slot.
+void UsbGamepadManager::followPadLinks() {
+    std::vector<std::pair<int, PadClaim>> moved;
+    {
+        std::lock_guard<thread::TrackedMutex> lock(mtx_);
+        for (auto& [syntheticId, claim] : claims_) {
+            const bool follows =
+                reducer::isReceiverSlot(padKeyOf(claim.device)) && claim.worker != nullptr;
+            if (!follows) { continue; }
+            const bool linked = gateway_->isPadLinked(syntheticId);
+            if (linked == claim.linked) { continue; }
+            claim.linked = linked;
+            moved.emplace_back(syntheticId, claim);
+        }
+    }
+    for (const auto& [syntheticId, claim] : moved) { announcePad(syntheticId, claim); }
+    if (!moved.empty() && observer_ != nullptr) { observer_->controllersChanged(); }
+}
+
+void UsbGamepadManager::ensureTracked(const std::vector<UsbDeviceInfo>& pads) {
+    const UsbDeviceInfo& device = pads.front();
     const int key = device.vpKey();
     bool isNew = false;
     {
         std::lock_guard<thread::TrackedMutex> lock(mtx_);
-        devices_[key] = device;
+        for (const UsbDeviceInfo& pad : pads) { devices_[padKeyOf(pad)] = pad; }
         if (controllers_.find(key) == controllers_.end()) {
             reducer::UsbController c;
             c.vendorId = device.vendorId;
@@ -268,33 +390,49 @@ bool UsbGamepadManager::claimEnded(int key) const {
     if (it == controllers_.end()) { return false; }
     const reducer::UsbController& c = it->second;
     if (c.phase != reducer::UsbPhase::Direct || !c.syntheticId.has_value()) { return false; }
-    return !gateway_->isClaimAlive(*c.syntheticId);
+    const int lead = *c.syntheticId;
+    return std::any_of(claims_.begin(), claims_.end(), [this, lead](const auto& entry) {
+        return entry.second.lead == lead && !gateway_->isClaimAlive(entry.first);
+    });
 }
 
 void UsbGamepadManager::judgeClaim(int key) {
-    reducer::ClaimActivity activity;
+    bool unreadable = false;
     {
         std::lock_guard<thread::TrackedMutex> lock(mtx_);
         const auto it = controllers_.find(key);
         if (it == controllers_.end()) {
-            directScans_.erase(key);
+            eraseModelPads(directScans_, key);
             return;
         }
         const reducer::UsbController& c = it->second;
         if (c.phase != reducer::UsbPhase::Direct || !c.syntheticId.has_value()) {
-            directScans_.erase(key);
+            eraseModelPads(directScans_, key);
             return;
         }
-        const int syntheticId = *c.syntheticId;
-        activity.reads = gateway_->completionCount(syntheticId);
-        activity.decoded = gateway_->decodedCount(syntheticId);
-        activity.scans = ++directScans_[key];
-        activity.streamsUnprompted = input::usbparse::parserStreamsUnprompted(
-            input::usbparse::parserForDevice(c.vendorId, c.productId));
+        const int lead = *c.syntheticId;
+        for (const auto& [syntheticId, claim] : claims_) {
+            if (claim.lead == lead && padReadsNothing(syntheticId, claim)) { unreadable = true; }
+        }
     }
-    if (reducer::judgeClaimHealth(activity) == reducer::ClaimHealth::Unreadable) {
-        applyEvent(key, reducer::event::ClaimUnreadable{});
+    if (unreadable) { applyEvent(key, reducer::event::ClaimUnreadable{}); }
+}
+
+// One pad's counts, under mtx_. A receiver's slot with no controller is not judged: its silence is
+// the controller's absence, not a claim that reads nothing.
+bool UsbGamepadManager::padReadsNothing(int syntheticId, const PadClaim& claim) {
+    const reducer::DirectPadKey pad = padKeyOf(claim.device);
+    if (!claim.linked) {
+        directScans_.erase(pad);
+        return false;
     }
+    reducer::ClaimActivity activity;
+    activity.reads = gateway_->completionCount(syntheticId);
+    activity.decoded = gateway_->decodedCount(syntheticId);
+    activity.scans = ++directScans_[pad];
+    activity.streamsUnprompted = input::usbparse::parserStreamsUnprompted(
+        input::usbparse::parserForDevice(pad.vendorId, pad.productId));
+    return reducer::judgeClaimHealth(activity) == reducer::ClaimHealth::Unreadable;
 }
 
 void UsbGamepadManager::tryDirectMode(int vendorId, int productId) {
@@ -305,14 +443,7 @@ void UsbGamepadManager::setPathChoice(int vendorId, int productId, reducer::Path
     if (prefs_ != nullptr) { prefs_->setChoice(vendorId, productId, choice); }
     // If the device is present but untracked (chosen before the first scan),
     // bring it in first so the Choose lands on a tracked controller.
-    if (gateway_ != nullptr) {
-        for (const auto& d : gateway_->enumerate()) {
-            if (d.vendorId == vendorId && d.productId == productId) {
-                ensureTracked(d);
-                break;
-            }
-        }
-    }
+    trackPresent(vendorId, productId);
     applyEvent(vpKey(vendorId, productId), reducer::event::Choose{choice, /*userInitiated=*/true});
 }
 
@@ -320,16 +451,17 @@ void UsbGamepadManager::clearChoice(int vendorId, int productId) {
     if (prefs_ != nullptr) { prefs_->clearChoice(vendorId, productId); }
     // Bring a present-but-untracked device in first (chosen before the first
     // scan), then re-resolve the path with the override now gone and drive it.
-    if (gateway_ != nullptr) {
-        for (const auto& d : gateway_->enumerate()) {
-            if (d.vendorId == vendorId && d.productId == productId) {
-                ensureTracked(d);
-                break;
-            }
-        }
-    }
+    trackPresent(vendorId, productId);
     applyEvent(vpKey(vendorId, productId),
                reducer::event::Choose{resolvePath(vendorId, productId), /*userInitiated=*/true});
+}
+
+void UsbGamepadManager::trackPresent(int vendorId, int productId) {
+    if (gateway_ == nullptr) { return; }
+    const int key = vpKey(vendorId, productId);
+    for (const auto& pads : padsByModel(gateway_->enumerate())) {
+        if (pads.front().vpKey() == key) { ensureTracked(pads); }
+    }
 }
 
 void UsbGamepadManager::onFrameworkUp(int vendorId, int productId, int frameworkId) {
@@ -344,9 +476,9 @@ void UsbGamepadManager::onUsbGone(int vendorId, int productId) {
     const int key = vpKey(vendorId, productId);
     applyEvent(key, reducer::event::UsbUnplugged{});
     std::lock_guard<thread::TrackedMutex> lock(mtx_);
-    devices_.erase(key);
+    eraseModelPads(devices_, key);
     missedScans_.erase(key);
-    directScans_.erase(key);
+    eraseModelPads(directScans_, key);
     // A fresh plug-in of this model should re-evaluate Direct rather than inherit
     // a stale failure (android clears the registry's directFailed here).
     priorFailures_.erase(key);
@@ -357,9 +489,9 @@ void UsbGamepadManager::fireTimeout(int vendorId, int productId) {
 }
 
 std::optional<UsbGamepadManager::DirectTarget>
-UsbGamepadManager::directTarget(int vendorId, int productId) const {
+UsbGamepadManager::directTarget(const reducer::DirectPadKey& pad) const {
     std::lock_guard<thread::TrackedMutex> lock(mtx_);
-    const auto it = controllers_.find(vpKey(vendorId, productId));
+    const auto it = controllers_.find(modelKeyOf(pad));
     if (it == controllers_.end()) { return std::nullopt; }
     // Split from the lookup rather than folded into one `||`: a controller
     // being tracked and a controller holding a live claim are two different
@@ -367,20 +499,35 @@ UsbGamepadManager::directTarget(int vendorId, int productId) const {
     // see that the dereference below is guarded.
     const reducer::UsbController& controller = it->second;
     if (!controller.syntheticId.has_value()) { return std::nullopt; }
+    const int lead = *controller.syntheticId;
+    const auto claim =
+        std::find_if(claims_.begin(), claims_.end(), [lead, &pad](const auto& entry) {
+            return entry.second.lead == lead && padKeyOf(entry.second.device) == pad;
+        });
+    if (claim == claims_.end()) { return std::nullopt; }
     DirectTarget t;
-    t.vendorId = vendorId;
-    t.productId = productId;
-    t.syntheticId = *controller.syntheticId;
-    if (const auto w = workers_.find(t.syntheticId); w != workers_.end()) { t.worker = w->second; }
+    t.vendorId = pad.vendorId;
+    t.productId = pad.productId;
+    t.syntheticId = claim->first;
+    t.worker = claim->second.worker;
     // The family comes from the identity, not from the gateway: the manager
     // must answer the same question the capability solve asked when it built
     // the descriptor, and that one only ever had (vid, pid).
-    t.parser = input::usbparse::parserForDevice(vendorId, productId);
+    t.parser = input::usbparse::parserForDevice(pad.vendorId, pad.productId);
     return t;
 }
 
+std::optional<UsbGamepadManager::DirectTarget>
+UsbGamepadManager::directTarget(int vendorId, int productId) const {
+    return directTarget(reducer::DirectPadKey{vendorId, productId});
+}
+
+bool UsbGamepadManager::isDirectClaimed(const reducer::DirectPadKey& pad) const {
+    return directTarget(pad).has_value();
+}
+
 bool UsbGamepadManager::isDirectClaimed(int vendorId, int productId) const {
-    return directTarget(vendorId, productId).has_value();
+    return isDirectClaimed(reducer::DirectPadKey{vendorId, productId});
 }
 
 bool UsbGamepadManager::applyRumble(int vendorId, int productId, std::uint16_t strongMagnitude,
@@ -462,10 +609,14 @@ bool UsbGamepadManager::applyMicMuteLed(const DirectTarget& target, std::uint8_t
     return true;
 }
 
-bool UsbGamepadManager::setPadMicMuted(int vendorId, int productId, bool muted) {
-    const auto target = directTarget(vendorId, productId);
+bool UsbGamepadManager::setPadMicMuted(const reducer::DirectPadKey& pad, bool muted) {
+    const auto target = directTarget(pad);
     if (!target.has_value() || gateway_ == nullptr) { return false; }
     return gateway_->setPadMicMuted(target->syntheticId, muted);
+}
+
+bool UsbGamepadManager::setPadMicMuted(int vendorId, int productId, bool muted) {
+    return setPadMicMuted(reducer::DirectPadKey{vendorId, productId}, muted);
 }
 
 std::map<int, reducer::UsbController> UsbGamepadManager::controllers() const {
@@ -479,6 +630,27 @@ std::optional<reducer::UsbController> UsbGamepadManager::controllerFor(int vendo
     const auto it = controllers_.find(vpKey(vendorId, productId));
     if (it == controllers_.end()) { return std::nullopt; }
     return it->second;
+}
+
+std::vector<UsbGamepadManager::DirectPad> UsbGamepadManager::directPads() const {
+    std::lock_guard<thread::TrackedMutex> lock(mtx_);
+    std::vector<DirectPad> pads;
+    for (const auto& [syntheticId, claim] : claims_) {
+        if (claim.linked && leadsDirectClaim(claim)) {
+            pads.push_back(DirectPad{padKeyOf(claim.device), syntheticId});
+        }
+    }
+    std::sort(pads.begin(), pads.end(),
+              [](const DirectPad& a, const DirectPad& b) { return a.key < b.key; });
+    return pads;
+}
+
+// Under mtx_: the claim is the one its model holds on Direct, not a placeholder or a stale one.
+bool UsbGamepadManager::leadsDirectClaim(const PadClaim& claim) const {
+    const auto it = controllers_.find(claim.device.vpKey());
+    if (it == controllers_.end()) { return false; }
+    const reducer::UsbController& c = it->second;
+    return c.phase == reducer::UsbPhase::Direct && c.syntheticId == claim.lead;
 }
 
 void UsbGamepadManager::applyEvent(int key, const reducer::UsbEvent& event) {
@@ -519,7 +691,7 @@ void UsbGamepadManager::execute(int key, const reducer::UsbController& c,
             } else if constexpr (std::is_same_v<T, reducer::effect::Reclaim>) {
                 runReclaim(key, c);
             } else if constexpr (std::is_same_v<T, reducer::effect::Release>) {
-                if (c.syntheticId.has_value()) { releaseClaimAndWorker(*c.syntheticId); }
+                if (c.syntheticId.has_value()) { releasePads(*c.syntheticId); }
             } else if constexpr (std::is_same_v<T, reducer::effect::RequestPermission>) {
                 // There is no runtime grant to request on hidraw — the open is
                 // the only gate. Treat the request as immediately satisfied so a
@@ -530,8 +702,7 @@ void UsbGamepadManager::execute(int key, const reducer::UsbController& c,
                     observer_->bind(e.frameworkId, *c.connId, c.type.value_or(kControllerTypeXbox));
                 }
             } else if constexpr (std::is_same_v<T, reducer::effect::RemoveSynthetic>) {
-                releaseClaimAndWorker(e.syntheticId);
-                if (observer_ != nullptr) { observer_->syntheticRemoved(e.syntheticId); }
+                dropPads(e.syntheticId);
             } else if constexpr (std::is_same_v<T, reducer::effect::BeginHold>) {
                 if (observer_ != nullptr) { observer_->beginHold(c.vendorId, c.productId); }
             } else if constexpr (std::is_same_v<T, reducer::effect::EndHold>) {
@@ -563,25 +734,43 @@ void UsbGamepadManager::execute(int key, const reducer::UsbController& c,
         fx);
 }
 
-std::optional<UsbDeviceInfo> UsbGamepadManager::trackedDevice(int key) const {
+// In key order: a model's own pad, or each slot of a receiver.
+std::vector<UsbDeviceInfo> UsbGamepadManager::trackedPads(int key) const {
     std::lock_guard<thread::TrackedMutex> lock(mtx_);
-    const auto it = devices_.find(key);
-    if (it == devices_.end()) { return std::nullopt; }
-    return it->second;
+    std::vector<UsbDeviceInfo> pads;
+    for (const auto& [pad, device] : devices_) {
+        if (modelKeyOf(pad) == key) { pads.push_back(device); }
+    }
+    return pads;
 }
 
-// A device gone between Choose and Claim is Busy with the framework not stolen, android's
-// `null -> Busy` arm.
-ClaimResult UsbGamepadManager::claimTracked(int key) {
-    const std::optional<UsbDeviceInfo> device = trackedDevice(key);
-    return device.has_value() ? doClaim(*device)
-                              : ClaimResult::fail(reducer::DirectClaimFailure::Busy, false);
+// Every pad of the model, or none: a receiver's slots share its one Direct pick, so a slot that
+// will not open takes the claim with it, and the slots already open are let go. A device gone
+// between Choose and Claim is Busy with the framework not stolen, android's `null -> Busy` arm.
+ClaimResult UsbGamepadManager::claimPads(int key) {
+    const std::vector<UsbDeviceInfo> pads = trackedPads(key);
+    if (pads.empty()) { return ClaimResult::fail(reducer::DirectClaimFailure::Busy, false); }
+    std::vector<std::pair<UsbDeviceInfo, ClaimResult>> opened;
+    for (const UsbDeviceInfo& pad : pads) {
+        const ClaimResult outcome = doClaim(pad);
+        if (!outcome.ok) {
+            letGo(opened);
+            return outcome;
+        }
+        opened.emplace_back(pad, outcome);
+    }
+    const ClaimResult lead = opened.front().second;
+    for (const auto& [pad, outcome] : opened) { recordPad(lead.syntheticId, pad, outcome); }
+    return lead;
+}
+
+void UsbGamepadManager::letGo(const std::vector<std::pair<UsbDeviceInfo, ClaimResult>>& opened) {
+    for (const auto& [pad, outcome] : opened) { gateway_->releaseClaim(outcome.syntheticId); }
 }
 
 void UsbGamepadManager::runClaim(int key) {
-    const ClaimResult outcome = claimTracked(key);
+    const ClaimResult outcome = claimPads(key);
     if (outcome.ok) {
-        startWorker(outcome.syntheticId, key, outcome.ds5Firmware);
         applyEvent(key, reducer::event::ClaimSucceeded{outcome.syntheticId});
     } else {
         applyEvent(key, reducer::event::ClaimFailed{outcome.reason, outcome.frameworkStolen});
@@ -590,15 +779,11 @@ void UsbGamepadManager::runClaim(int key) {
 
 void UsbGamepadManager::runReclaim(int key, const reducer::UsbController& c) {
     const std::optional<int> oldPlaceholder = c.syntheticId;
-    const ClaimResult outcome = claimTracked(key);
+    const ClaimResult outcome = claimPads(key);
     // The old placeholder synthetic is dropped on a reclaim (android removes it
     // before feeding the outcome back).
-    if (oldPlaceholder.has_value()) {
-        releaseClaimAndWorker(*oldPlaceholder);
-        if (observer_ != nullptr) { observer_->syntheticRemoved(*oldPlaceholder); }
-    }
+    if (oldPlaceholder.has_value()) { dropPads(*oldPlaceholder); }
     if (outcome.ok) {
-        startWorker(outcome.syntheticId, key, outcome.ds5Firmware);
         if (observer_ != nullptr && c.connId.has_value()) {
             observer_->bind(outcome.syntheticId, *c.connId, c.type.value_or(kControllerTypeXbox));
         }
@@ -612,18 +797,8 @@ ClaimResult UsbGamepadManager::doClaim(const UsbDeviceInfo& device) {
     if (gateway_ == nullptr) {
         return ClaimResult::fail(reducer::DirectClaimFailure::Busy, /*frameworkStolen=*/false);
     }
-    // The synthetic device id for the input pipeline is the model key as a string; one claimed pad
-    // per model on this path.
-    const ClaimResult outcome =
-        gateway_->claim(device, ClaimedPadPublisher{processor_, std::to_string(device.vpKey()),
-                                                    observer_, device.vendorId, device.productId});
-    if (outcome.ok && observer_ != nullptr) {
-        observer_->syntheticAdded(
-            outcome.syntheticId, device.name, device.hasImu,
-            reducer::computeUsbPollRateHz(device.endpointInInterval, device.endpointInMaxPacket),
-            device.vendorId, device.productId);
-    }
-    return outcome;
+    // The input pipeline's device id is the pad's slot id (reducer::directSlotId).
+    return gateway_->claim(device, ClaimedPadPublisher{processor_, observer_, padKeyOf(device)});
 }
 
 } // namespace dish::source::usb

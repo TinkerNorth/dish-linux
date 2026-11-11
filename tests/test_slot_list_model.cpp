@@ -89,7 +89,7 @@ TEST_CASE("SlotListModel: roleNames covers every Roles enumerator", "[slotmodel]
     SlotListModel model;
     const auto names = model.roleNames();
     // One entry per declared role: a role added without a name drifts this count.
-    REQUIRE(names.size() == 43);
+    REQUIRE(names.size() == 44);
     REQUIRE(names.value(SlotListModel::HasRumbleRole) == QByteArray("hasRumble"));
     REQUIRE(names.value(SlotListModel::UsbIdRole) == QByteArray("usbId"));
     REQUIRE(names.value(SlotListModel::MicArmedRole) == QByteArray("micArmed"));
@@ -108,6 +108,8 @@ TEST_CASE("SlotListModel: roleNames covers every Roles enumerator", "[slotmodel]
     REQUIRE(names.value(SlotListModel::PathSupportedRole) == QByteArray("pathSupported"));
     REQUIRE(names.value(SlotListModel::ClaimInProgressRole) == QByteArray("claimInProgress"));
     REQUIRE(names.value(SlotListModel::DirectFailureRole) == QByteArray("directFailure"));
+    REQUIRE(names.value(SlotListModel::WaitingForControllerRole) ==
+            QByteArray("waitingForController"));
     REQUIRE(names.value(SlotListModel::SatIpRole) == QByteArray("satIp"));
     REQUIRE(names.value(SlotListModel::SatLinkStateRole) == QByteArray("satLinkState"));
     REQUIRE(names.value(SlotListModel::SatChipRole) == QByteArray("satChip"));
@@ -366,6 +368,20 @@ TEST_CASE("SlotListModel: a supported Direct slot exposes the path roles as toke
     REQUIRE(roleOf(model, 0, SlotListModel::PathSupportedRole).toBool());
     REQUIRE(roleOf(model, 0, SlotListModel::PathPhaseRole).toString() == "direct");
     REQUIRE(roleOf(model, 0, SlotListModel::DesiredPathRole).toString() == "direct");
+    REQUIRE_FALSE(roleOf(model, 0, SlotListModel::ClaimInProgressRole).toBool());
+}
+
+TEST_CASE("SlotListModel: a receiver waiting for a controller is Direct and not claiming",
+          "[slotmodel][path][receiver]") {
+    SlotListModel model;
+    auto s = plainSlot();
+    s.pathSupported = true;
+    s.pathPhase = r::UsbPhase::Direct;
+    s.desiredPath = r::PathChoice::Direct;
+    s.waitingForController = true;
+    model.setState({s});
+    REQUIRE(roleOf(model, 0, SlotListModel::WaitingForControllerRole).toBool());
+    REQUIRE(roleOf(model, 0, SlotListModel::PathPhaseRole).toString() == "direct");
     REQUIRE_FALSE(roleOf(model, 0, SlotListModel::ClaimInProgressRole).toBool());
 }
 

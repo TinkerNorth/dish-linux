@@ -62,14 +62,30 @@ inline SlotPathFields slotPathFields(int vendorId, int productId, bool bluetooth
 // the slot is stable on the desired path. Direct additionally waits for a
 // measured poll rate, because the claim is near-instant but the completion-rate
 // sampler needs a window. A terminal failure, RestoreStuck or NeedsReplug is not
-// switching: those surface an error note rather than a perpetual spinner.
+// switching: those surface an error note rather than a perpetual spinner. Nor is
+// a receiver read directly with no controller connected (modelCardFor): it has
+// settled on Direct and waits for a controller, which its card says.
 inline bool slotPathSwitching(UsbPhase phase, PathChoice desired, bool usbDirect, int directPollHz,
-                              bool hasFailure) {
+                              bool hasFailure, bool waitingForController) {
     if (phase == UsbPhase::RestoreStuck || phase == UsbPhase::NeedsReplug) { return false; }
-    if (hasFailure) { return false; }
+    if (hasFailure || waitingForController) { return false; }
     if (phase == UsbPhase::Claiming || phase == UsbPhase::AwaitingFramework) { return true; }
     if (desired == PathChoice::Direct) { return !usbDirect || directPollHz <= 0; }
     return usbDirect; // desired Standard: still switching while on the synthetic.
+}
+
+// The card a model whose stand-alone identity is no gamepad (the Steam
+// Controllers emulate a keyboard and mouse) shows in place of its pads, so there
+// is a place to pick Direct from: none while a pad of it is on the slot list.
+// Direct with no pad listed is a receiver whose controllers are all off, and its
+// card waits for one.
+struct ModelCard {
+    bool waitingForController = false;
+};
+
+inline std::optional<ModelCard> modelCardFor(const UsbController& c, bool padListed) {
+    if (c.frameworkExpected || padListed) { return std::nullopt; }
+    return ModelCard{c.phase == UsbPhase::Direct};
 }
 
 // The inverse of slotPathVpKey over the decimal slot id AppModel gives a

@@ -128,12 +128,18 @@ int interfaceNumberOf(const std::string& hidrawName) {
     return parseHex(readSysfsLine(ifaceDir + "/bInterfaceNumber")).value_or(-1);
 }
 
-// Whether the node carries a pad: every node does but a 2026 Steam Controller
-// dongle's, whose pads ride interfaces 2 to 5 only.
-bool nodeCarriesPad(const std::string& hidrawName, int productId,
-                    input::usbparse::HidParser parser) {
-    if (parser != input::usbparse::HidParser::SteamTriton) { return true; }
-    return input::usbparse::tritonInterfaceCarriesPad(productId, interfaceNumberOf(hidrawName));
+// Whether the node carries a pad: every node does but a Steam Controller receiver's keyboard,
+// comms and pogo-pin interfaces, whose pads ride its slots only.
+bool nodeCarriesPad(const std::string& hidrawName, int vendorId, int productId) {
+    if (!input::usbparse::isReceiver(vendorId, productId)) { return true; }
+    return input::usbparse::interfaceCarriesPad(vendorId, productId, interfaceNumberOf(hidrawName));
+}
+
+// A receiver's claim opens the slot it was asked for, because each slot is a pad of its own; any
+// other model's opens the first node that carries its pad.
+bool nodeIsTheClaimedPad(const std::string& hidrawName, const UsbDeviceInfo& device) {
+    if (!input::usbparse::isReceiver(device.vendorId, device.productId)) { return true; }
+    return interfaceNumberOf(hidrawName) == device.interfaceNumber;
 }
 
 // bInterval and wMaxPacketSize off the interrupt-IN endpoint, plus whether an
@@ -196,6 +202,20 @@ bool runSteamConfig(int fd, int featureLen, input::usbparse::SteamConfig stage) 
 // hidraw has no feature-length query, so the descriptor's largest feature
 // report is the ceiling. The Steam Controller's is 65 (id byte + 64 payload).
 constexpr int kSteamFeatureLen = 65;
+
+// A quiet that does not take is undone at once, so a pad is never left part-way. True while the
+// pad still holds settings of ours, which its release must restore.
+bool quietSteamPad(int fd, int featureLen) {
+    if (runSteamConfig(fd, featureLen, input::usbparse::SteamConfig::Quiet)) { return true; }
+    return !runSteamConfig(fd, featureLen, input::usbparse::SteamConfig::Restore);
+}
+
+// A 2015 receiver's slot answers with the connect or disconnect event for its controller.
+bool askSteamReceiverSlot(int fd) {
+    std::array<std::uint8_t, 16> pkt{};
+    const std::size_t n = input::usbparse::buildSteamReceiverStateRequest(pkt.data(), pkt.size());
+    return sendSteamFeature(fd, kSteamFeatureLen, pkt.data(), n);
+}
 
 // The 2026 Steam Controller's settings undone at release, IMU off and then
 // lizard mode on, each a whole feature report through the claim's own writer.
@@ -378,7 +398,7 @@ std::vector<UsbDeviceInfo> HidrawGateway::enumerate() {
         if (!detail::admitsParser(probed->descriptor.data(), probed->descriptor.size(), parser)) {
             continue;
         }
-        if (!nodeCarriesPad(hidrawName, probed->productId, parser)) { continue; }
+        if (!nodeCarriesPad(hidrawName, probed->vendorId, probed->productId)) { continue; }
 
         UsbDeviceInfo info;
         info.vendorId = probed->vendorId;
@@ -423,7 +443,7 @@ ClaimResult HidrawGateway::claim(const UsbDeviceInfo& device,
         if (!detail::admitsParser(probed->descriptor.data(), probed->descriptor.size(), parser)) {
             continue;
         }
-        if (!nodeCarriesPad(hidrawName, device.productId, parser)) { continue; }
+        if (!nodeIsTheClaimedPad(hidrawName, device)) { continue; }
         const int opened = ::open(probed->node.c_str(), O_RDWR | O_CLOEXEC);
         if (opened < 0) {
             if (errno == EACCES || errno == EPERM) { sawPermissionDenied = true; }
@@ -449,11 +469,20 @@ ClaimResult HidrawGateway::claim(const UsbDeviceInfo& device,
     // switches that off and enables the IMU. This is the one family whose init
     // persistently reconfigures the device, so a failure restores the defaults
     // before giving up — a partly-applied init must never strand the pad mute.
+    // A receiver's slot is asked what it holds instead, and its controller is
+    // quieted when it arrives (controllerArrived), the way SDL's InitDevice and
+    // hid-steam's probe start a receiver.
     // The 2026 pad's quiet settings are its output worker's to send, at once and
     // every 3 s after, because its firmware undoes them unless they keep coming.
-    int featureReportLen = 0;
-    if (parser == input::usbparse::HidParser::SteamController) {
-        featureReportLen = kSteamFeatureLen;
+    const bool isSteam2015 = parser == input::usbparse::HidParser::SteamController;
+    const bool receiverSlot = input::usbparse::isReceiver(device.vendorId, device.productId);
+    const int featureReportLen = isSteam2015 ? kSteamFeatureLen : 0;
+    if (isSteam2015 && receiverSlot && !askSteamReceiverSlot(fd)) {
+        ::close(fd);
+        return ClaimResult::fail(reducer::DirectClaimFailure::InitFailed,
+                                 /*frameworkStolen=*/false);
+    }
+    if (isSteam2015 && !receiverSlot) {
         if (!runSteamConfig(fd, featureReportLen, input::usbparse::SteamConfig::Quiet)) {
             runSteamConfig(fd, featureReportLen, input::usbparse::SteamConfig::Restore);
             ::close(fd);
@@ -476,6 +505,8 @@ ClaimResult HidrawGateway::claim(const UsbDeviceInfo& device,
     claimed->productId = device.productId;
     claimed->parser = parser;
     claimed->featureReportLen = featureReportLen;
+    claimed->quieted = isSteam2015 && !receiverSlot;
+    claimed->linked.store(!receiverSlot);
     if (parser == input::usbparse::HidParser::GenericHid) {
         // The descriptor-derived field map replaces the fixed-offset guess
         // wherever the collection declares real usages; the guess stays as the
@@ -500,22 +531,35 @@ ClaimResult HidrawGateway::claim(const UsbDeviceInfo& device,
 // report. Connect and disconnect interleave with input on the Steam dongle.
 bool HidrawGateway::handleSteamWirelessEvent(Claimed* c, const std::uint8_t* data,
                                              std::size_t len) {
-    const auto ev = input::usbparse::checkWirelessEvent(c->parser, data, len);
-    if (ev == input::usbparse::WirelessEvent::Connect) {
-        // A returning pad has rebooted, so its settings are gone and quiet mode is re-applied.
-        // The 2026 pad's come back with its output worker's next settings write, within 3 s, so
-        // this thread never writes to it.
-        if (c->parser == input::usbparse::HidParser::SteamController) {
-            runSteamConfig(c->fd, c->featureReportLen, input::usbparse::SteamConfig::Quiet);
-        }
+    switch (input::usbparse::checkWirelessEvent(c->parser, data, len)) {
+    case input::usbparse::WirelessEvent::Connect:
+        controllerArrived(c);
         return true;
-    }
-    if (ev == input::usbparse::WirelessEvent::Disconnect) {
-        // A departing pad's last input must not stay latched.
-        if (c->onReport) { c->onReport(UsbReport{}); }
+    case input::usbparse::WirelessEvent::Disconnect:
+        controllerLeft(c);
         return true;
+    case input::usbparse::WirelessEvent::None:
+        return false;
     }
     return false;
+}
+
+// A returning pad has rebooted, so its settings are gone and the 2015 pad is quieted again. The
+// 2026 pad's come back with its output worker's next settings write, within 3 s, so this thread
+// never writes to it.
+void HidrawGateway::controllerArrived(Claimed* c) {
+    if (c->parser == input::usbparse::HidParser::SteamController) {
+        c->quieted = quietSteamPad(c->fd, c->featureReportLen);
+    }
+    c->linked.store(true, std::memory_order_release);
+}
+
+// A departing pad's last input must not stay latched, and a pad that left keeps none of the
+// settings a release would restore.
+void HidrawGateway::controllerLeft(Claimed* c) {
+    c->quieted = false;
+    c->linked.store(false, std::memory_order_release);
+    if (c->onReport) { c->onReport(UsbReport{}); }
 }
 
 // A descriptor-driven layout wins where the device published one; everything else goes through the
@@ -555,6 +599,8 @@ void HidrawGateway::readLoop(Claimed* c) {
         input::usbparse::ParsedReport parsed{};
         if (!decodeOneReport(c, data, len, parsed)) { continue; }
         c->decoded.fetch_add(1);
+        // A report means a controller is there, its connect event missed or not.
+        if (!c->linked.load(std::memory_order_relaxed)) { controllerArrived(c); }
         if (c->onReport) {
             c->onReport(toUsbReport(parsed, c->micMute.muted.load(std::memory_order_relaxed)));
         }
@@ -577,7 +623,9 @@ void HidrawGateway::releaseClaim(int syntheticId) {
         // Quiet mode persists on the device, so every release path restores the
         // stand-alone keyboard/mouse identity before the fd closes; skipping it
         // would hand back a controller that no longer works as a desktop mouse.
-        if (claimed->parser == input::usbparse::HidParser::SteamController) {
+        // A receiver's slot whose controller left, or never came, has nothing to
+        // restore.
+        if (claimed->quieted) {
             runSteamConfig(claimed->fd, claimed->featureReportLen,
                            input::usbparse::SteamConfig::Restore);
         }
@@ -594,6 +642,13 @@ bool HidrawGateway::isClaimAlive(int syntheticId) const {
     const auto it = claimed_.find(syntheticId);
     if (it == claimed_.end()) { return false; }
     return it->second->alive.load();
+}
+
+bool HidrawGateway::isPadLinked(int syntheticId) const {
+    std::lock_guard<thread::TrackedMutex> lock(mtx_);
+    const auto it = claimed_.find(syntheticId);
+    if (it == claimed_.end()) { return false; }
+    return it->second->linked.load(std::memory_order_acquire);
 }
 
 std::int64_t HidrawGateway::completionCount(int syntheticId) const {
