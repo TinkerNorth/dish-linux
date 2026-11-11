@@ -860,6 +860,10 @@ inline const KnownHidModel* lookupKnownModel(int vendorId, int productId) {
     return nullptr;
 }
 
+// The DualSense Edge decodes as a DualSense. Its OUT reports differ in one respect, the rumble
+// mode it shipped with (usbout::ds5UsesVibrationV2), which is why it is named out here.
+inline constexpr int kPidDualSenseEdge = 0x0DF2;
+
 // The Sony families are named by product: the DualShock 4 (v1, v2 and its USB wireless
 // adaptor) and the DualSense (and Edge). Any other Sony product is generic HID, since a layout
 // guessed from the vendor never decodes.
@@ -870,7 +874,6 @@ inline HidParser parserForDevice(int vendorId, int productId) {
     constexpr int kPidDualShock4V2 = 0x09CC;
     constexpr int kPidDualShock4Adaptor = 0x0BA0;
     constexpr int kPidDualSense = 0x0CE6;
-    constexpr int kPidDualSenseEdge = 0x0DF2;
     if (const KnownHidModel* m = lookupKnownModel(vendorId, productId)) { return m->parser; }
     if (vendorId == kVidSony) {
         if (productId == kPidDualSense || productId == kPidDualSenseEdge) {

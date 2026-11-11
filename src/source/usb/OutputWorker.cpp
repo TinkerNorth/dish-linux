@@ -9,9 +9,21 @@
 
 namespace dish::source::usb {
 
+namespace {
+
+// A fresh claim's shadow: every handoff still owed, nothing driven yet.
+input::usbout::FeedbackState claimFeedbackState(bool ds5VibrationV2) {
+    input::usbout::FeedbackState st;
+    st.ds5VibrationV2 = ds5VibrationV2;
+    return st;
+}
+
+} // namespace
+
 OutputWorker::OutputWorker(std::unique_ptr<HidReportWriter> writer,
-                           input::usbparse::HidParser parser)
-    : writer_(std::move(writer)), parser_(parser), thread_([this] { run(); }) {}
+                           input::usbparse::HidParser parser, bool ds5VibrationV2)
+    : writer_(std::move(writer)), parser_(parser), state_(claimFeedbackState(ds5VibrationV2)),
+      thread_([this] { run(); }) {}
 
 OutputWorker::~OutputWorker() { stop(); }
 

@@ -24,7 +24,10 @@ namespace dish::source::usb {
 // and stopped before the claim is released.
 class OutputWorker {
   public:
-    OutputWorker(std::unique_ptr<HidReportWriter> writer, input::usbparse::HidParser parser);
+    // `ds5VibrationV2` is the DualSense's rumble mode, fixed at the claim
+    // (usbout::ds5UsesVibrationV2); every other family ignores it.
+    OutputWorker(std::unique_ptr<HidReportWriter> writer, input::usbparse::HidParser parser,
+                 bool ds5VibrationV2 = false);
     ~OutputWorker();
 
     OutputWorker(const OutputWorker&) = delete;
@@ -59,8 +62,9 @@ class OutputWorker {
     input::OutputMailbox mailbox_;
     thread::WorkerWake wake_;
     std::atomic<bool> stopping_{false};
-    // The worker thread's own: the DualSense lamp and light-bar handoff shadow, and the Switch
-    // Pro's rolling packet counter, which belong to the claim rather than to any one write.
+    // The worker thread's own: the DualSense rumble mode, lamp and light-bar handoff shadow, and
+    // the Switch Pro's rolling packet counter, which belong to the claim rather than to any one
+    // write.
     input::usbout::FeedbackState state_{};
     std::uint8_t seq_ = 0;
     std::atomic<std::uint64_t> writes_{0};

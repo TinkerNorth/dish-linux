@@ -3,6 +3,7 @@
 
 #include "source/usb/HidrawGateway.h"
 
+#include "core/input/UsbOutputReports.h"
 #include "source/system/ThreadPriority.h"
 
 #include <linux/hidraw.h>
@@ -180,6 +181,17 @@ bool runSteamConfig(int fd, int featureLen, input::usbparse::SteamConfig stage) 
 // hidraw has no feature-length query, so the descriptor's largest feature
 // report is the ceiling. The Steam Controller's is 65 (id byte + 64 payload).
 constexpr int kSteamFeatureLen = 65;
+
+// The DualSense's firmware-info feature report, which picks its rumble mode. HIDIOCGFEATURE answers
+// with the length it read, report id included, which the parse checks; an unanswered read keeps
+// the pad on the original mode.
+input::usbout::Ds5FirmwareInfo readDs5FirmwareInfo(int fd) {
+    std::array<std::uint8_t, input::usbout::kDs5FirmwareInfoReportBytes> buf{};
+    buf[0] = input::usbout::kDs5FirmwareInfoReportId;
+    const int got = ::ioctl(fd, HIDIOCGFEATURE(static_cast<unsigned>(buf.size())), buf.data());
+    if (got < 0) { return input::usbout::Ds5FirmwareInfo{}; }
+    return input::usbout::parseDs5FirmwareInfo(buf.data(), static_cast<std::size_t>(got));
+}
 
 std::vector<std::string> hidrawNodes() {
     std::vector<std::string> out;
@@ -416,6 +428,11 @@ ClaimResult HidrawGateway::claim(const UsbDeviceInfo& device,
         }
     }
 
+    // Read once at the claim, the way hid-playstation reads it at probe.
+    const input::usbout::Ds5FirmwareInfo ds5Firmware =
+        parser == input::usbparse::HidParser::DualSense ? readDs5FirmwareInfo(fd)
+                                                        : input::usbout::Ds5FirmwareInfo{};
+
     const int syntheticId = nextSyntheticId_.fetch_sub(1);
     auto claimed = std::make_unique<Claimed>();
     claimed->node = device.name;
@@ -442,7 +459,7 @@ ClaimResult HidrawGateway::claim(const UsbDeviceInfo& device,
         claimed_.emplace(syntheticId, std::move(claimed));
     }
     raw->reader = std::thread([this, raw] { readLoop(raw); });
-    return ClaimResult::success(syntheticId);
+    return ClaimResult::success(syntheticId, ds5Firmware);
 }
 
 // True when the packet was a dongle event rather than input, and the loop should take the next

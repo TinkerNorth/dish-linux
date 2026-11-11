@@ -29,6 +29,17 @@ the repos share a version number.
   controller with no charge reading of its own still sends the PC's battery.
   The controller card keeps showing the controller's own charge.
 
+### Fixed
+
+- **Rumble on a DualSense in USB direct mode asks the pad the way its own
+  driver does.** Dish set only the "compatible vibration" flag. The Linux
+  driver and SDL also switch the pad from audio haptics to classic rumble in
+  the same report and, from firmware feature version 2.21 and on every
+  DualSense Edge, use the revised rumble mode instead. Dish now reads the
+  pad's firmware version once when it takes the pad over and sets the flags
+  the kernel does; a pad whose version cannot be read keeps the original mode,
+  the one every firmware has.
+
 ## [2.6.0] - 2026-11-02
 
 ### Changed

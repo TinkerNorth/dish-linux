@@ -96,6 +96,9 @@ inline constexpr std::uint8_t kMicMuteLedPulse = 2;
 // it; Windows XInput hides it from raw HID).
 struct FeedbackState {
     bool ds5LightbarSetupSent = false;
+    // hid-playstation's use_vibration_v2, fixed at the claim from the pad's firmware-info report
+    // (ds5UsesVibrationV2): which classic-rumble flag every DualSense motor write carries.
+    bool ds5VibrationV2 = false;
     // Last lamp state asked for, and whether anything ever asked. Every DS5
     // report we build starts from a fresh memset, and the firmware applies
     // whatever the valid flags claim, so the lamp is re-asserted from here on
@@ -106,6 +109,38 @@ struct FeedbackState {
     std::uint8_t ds5MicMuteLed = kMicMuteLedOff;
     bool ds5MicMuteLedSet = false;
 };
+
+// -- The DualSense's rumble mode ---------------------------------------------
+// hid-playstation reads the firmware-info feature report once at probe and picks
+// the classic-rumble flag from its feature ("update") version: COMPATIBLE_VIBRATION
+// below 2.21, COMPATIBLE_VIBRATION2 from 2.21 on, and COMPATIBLE_VIBRATION2 on
+// every DualSense Edge, which shipped with it. The Direct claim is the probe here.
+// The report is 64 bytes: the id at 0, the version little-endian at 44..45.
+inline constexpr std::uint8_t kDs5FirmwareInfoReportId = 0x20;
+inline constexpr std::size_t kDs5FirmwareInfoReportBytes = 64;
+inline constexpr int kDs5FeatureVersionOffset = 44;
+inline constexpr std::uint16_t kDs5FeatureVersionVibrationV2 = 0x0215;
+
+struct Ds5FirmwareInfo {
+    bool valid = false;
+    std::uint16_t featureVersion = 0;
+};
+
+// An invalid info for a report of another length or id, which keeps the pad on the
+// original mode every firmware has.
+inline Ds5FirmwareInfo parseDs5FirmwareInfo(const std::uint8_t* buf, std::size_t len) {
+    const bool isFirmwareInfo =
+        len == kDs5FirmwareInfoReportBytes && buf[0] == kDs5FirmwareInfoReportId;
+    if (!isFirmwareInfo) { return Ds5FirmwareInfo{}; }
+    const auto featureVersion =
+        static_cast<std::uint16_t>(usbparse::rdLe16(buf, kDs5FeatureVersionOffset));
+    return Ds5FirmwareInfo{true, featureVersion};
+}
+
+inline bool ds5UsesVibrationV2(int productId, const Ds5FirmwareInfo& info) {
+    if (productId == usbparse::kPidDualSenseEdge) { return true; }
+    return info.valid && info.featureVersion >= kDs5FeatureVersionVibrationV2;
+}
 
 namespace detail {
 
@@ -147,10 +182,15 @@ inline void zero(std::uint8_t* out, std::size_t n) { std::memset(out, 0, n); }
 // The high byte of a 16-bit magnitude: DS4 and DualSense motors are 8-bit.
 inline std::uint8_t hi8(std::uint16_t v) { return static_cast<std::uint8_t>(v >> 8); }
 
-// DualSense output report 0x02 mic-mute fields, in this file's convention: the
-// report id lives at out[0], so these are hid-playstation's RID-stripped 8 and
-// 9 plus one — the same shift the player-LED byte carries (out[44] against
-// stripped 43). Byte-for-byte with dish-android's usb_parsers.cpp.
+// DualSense output report 0x02 valid flags and mic-mute fields, in this file's
+// convention: the report id lives at out[0], so these are hid-playstation's
+// RID-stripped offsets plus one — the same shift the player-LED byte carries
+// (out[44] against stripped 43). Byte-for-byte with dish-android's usb_parsers.cpp.
+inline constexpr std::size_t kDs5ValidFlag0Byte = 1;
+inline constexpr std::uint8_t kDs5ValidFlag0CompatibleVibration = 0x01;
+inline constexpr std::uint8_t kDs5ValidFlag0HapticsSelect = 0x02;
+inline constexpr std::size_t kDs5ValidFlag2Byte = 39;
+inline constexpr std::uint8_t kDs5ValidFlag2CompatibleVibration2 = 0x04;
 inline constexpr std::size_t kDs5MicMuteLedByte = 9;
 inline constexpr std::size_t kDs5PowerSaveByte = 10;
 inline constexpr std::uint8_t kDs5ValidFlag1MicMuteLed = 0x01;
@@ -176,11 +216,24 @@ inline void reassertDs5MicMuteLed(const FeedbackState& st, std::uint8_t* out) {
     out[kDs5PowerSaveByte] = st.ds5MicMuteLed == kMicMuteLedOff ? 0x00 : kDs5PowerSaveMicMute;
 }
 
+// hid-playstation's motor write: HAPTICS_SELECT moves the actuators from audio
+// haptics to classic rumble, and the mode flag the pad's firmware takes turns the
+// motor bytes on. SDL needs two packets for the switch; the kernel sends one, as
+// this does.
+inline void selectDs5ClassicRumble(const FeedbackState& st, std::uint8_t* out) {
+    out[kDs5ValidFlag0Byte] = kDs5ValidFlag0HapticsSelect;
+    if (st.ds5VibrationV2) {
+        out[kDs5ValidFlag2Byte] = kDs5ValidFlag2CompatibleVibration2;
+    } else {
+        out[kDs5ValidFlag0Byte] |= kDs5ValidFlag0CompatibleVibration;
+    }
+}
+
 } // namespace detail
 
 // Rumble. `seq` is a rolling counter the Switch Pro requires in the low nibble
 // of every packet it accepts; the PlayStation families ignore it. `st` is read
-// for the DS5 lamp re-assert only.
+// for the DS5 rumble mode and lamp re-assert only.
 inline std::size_t buildRumbleReport(HidParser p, const FeedbackState& st, std::uint16_t strong,
                                      std::uint16_t weak, std::uint8_t seq, std::uint8_t* out,
                                      std::size_t outCap) {
@@ -197,7 +250,7 @@ inline std::size_t buildRumbleReport(HidParser p, const FeedbackState& st, std::
         if (outCap < 63) { return 0; }
         detail::zero(out, 63);
         out[0] = 0x02;
-        out[1] = 0x01; // valid_flag0 COMPATIBLE_VIBRATION
+        detail::selectDs5ClassicRumble(st, out);
         out[3] = detail::hi8(weak);
         out[4] = detail::hi8(strong);
         detail::reassertDs5MicMuteLed(st, out);
