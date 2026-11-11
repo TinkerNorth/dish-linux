@@ -392,8 +392,9 @@ class AppModel : public QObject {
     // The read thread's battery edge, marshalled to the main thread.
     void onPadBatteryChanged(int vendorId, int productId, std::uint8_t level, std::uint8_t status);
     // MSG_BATTERY for the Direct slots, on the SDL bridge's 30 s cadence: the
-    // host battery, because a wired pad has no charge of its own to report
-    // (reducer::resolveBattery); the pad's reading stays on the card.
+    // lower of the pad's own charge and the host battery, the host's alone
+    // until the pad reports one (reducer::resolveBattery); the pad's reading
+    // stays on the card.
     void heartbeatDirectBatteries();
     // Diff the SDL device list against the last-seen set and feed framework
     // up/down per VID:PID into the USB FSM, so a claim-failure or Standard pick

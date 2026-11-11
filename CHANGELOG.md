@@ -16,6 +16,19 @@ the repos share a version number.
 
 ---
 
+## [Unreleased]
+
+### Changed
+
+- **A host is sent the lower of the controller's battery and the PC's.** When
+  two batteries compete, the controller's own and the PC's, the lower one is
+  what the host sees, on every path and on a Moonlight host too. A controller
+  on a cable that reports its own charge (a DualSense or DualShock 4 over USB,
+  a Switch Pro) used to send only the PC's battery, and a controller read
+  through SDL sent its own level even when the laptop's was lower. A
+  controller with no charge reading of its own still sends the PC's battery.
+  The controller card keeps showing the controller's own charge.
+
 ## [2.6.0] - 2026-11-02
 
 ### Changed

@@ -10,8 +10,9 @@
 
 namespace dish::util {
 
-// Host-machine battery fallback for MSG_BATTERY, used when the pad is wired or
-// SDL cannot read its level (the controller's own reading is meaningless then).
+// This machine's own battery for MSG_BATTERY. It competes with the pad's: the
+// lower of the two goes on the wire (reducer::resolveBattery), and it goes
+// alone when the pad reports no charge of its own.
 //
 // Wire shape: `level` is 0..100 percent or kBatteryLevelUnknown (0xFF),
 // `status` one of the kBatteryStatus* constants. Both must match

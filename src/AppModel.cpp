@@ -823,8 +823,8 @@ void AppModel::heartbeatDirectBatteries() {
         if (const auto it = usbPadBattery_.constFind(key); it != usbPadBattery_.constEnd()) {
             pad = *it;
         }
-        const auto routed = reducer::resolveBattery(
-            /*padWired=*/true, pad, reducer::BatterySample{host.level, host.status});
+        const auto routed =
+            reducer::resolveBattery(pad, reducer::BatterySample{host.level, host.status});
         router_->sendBattery(slotId, routed.wire.level, routed.wire.status);
     }
     // A slot that left Direct sends again from its first tick if it comes back.
@@ -991,8 +991,8 @@ void AppModel::appendDirectSlots(const std::map<int, reducer::UsbController>& co
         s.usbDirect = true;
         s.liveRates.directPollHz = usbPollRateHz_.value(key, 0);
         // The pad's own charge from its IN report; unknown until the first
-        // report with the status byte lands. The wire carries the host
-        // battery for this slot (heartbeatDirectBatteries), not this.
+        // report with the status byte lands. The wire carries the lower of
+        // this and the host battery (heartbeatDirectBatteries).
         const auto battery = usbPadBattery_.value(key, reducer::kUnknownBatterySample);
         s.capabilities.batteryLevel = battery.level;
         s.capabilities.batteryStatus = battery.status;

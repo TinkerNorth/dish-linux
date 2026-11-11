@@ -6,6 +6,7 @@
 #include "core/input/HidTransport.h"
 #include "core/input/UsbOutputReports.h"
 #include "core/input/UsbReportParsers.h"
+#include "core/reducer/BatteryRouting.h"
 #include "JoystickMapping.h"
 #include "PumpWaiter.h"
 #include "SdlMotionConvert.h"
@@ -21,6 +22,7 @@
 #include <array>
 #include <chrono>
 #include <cstdint>
+#include <optional>
 #include <utility>
 #include <vector>
 
@@ -47,26 +49,27 @@ bool isDishVirtualDevice(const char* name) {
 // EMPTY/LOW/MEDIUM/FULL, and HID DualSense and some 8BitDo pads report UNKNOWN
 // because their charging info rides separate hidraw paths. The four real
 // readings become a coarse percent; WIRED and UNKNOWN carry no controller charge
-// at all, so the host machine's battery is substituted rather than shipping a
-// fake number.
-using dish::util::BatteryReading;
-using dish::util::kBatteryStatusDischarging;
-
-BatteryReading powerLevelToWire(SDL_JoystickPowerLevel pl) {
+// at all, so the pad has no reading of its own rather than a fake number.
+std::optional<reducer::BatterySample> padBatteryFromPowerLevel(SDL_JoystickPowerLevel pl) {
     switch (pl) {
     case SDL_JOYSTICK_POWER_EMPTY:
-        return {5, kBatteryStatusDischarging};
+        return reducer::BatterySample{5, reducer::kBatteryStatusDischarging};
     case SDL_JOYSTICK_POWER_LOW:
-        return {25, kBatteryStatusDischarging};
+        return reducer::BatterySample{25, reducer::kBatteryStatusDischarging};
     case SDL_JOYSTICK_POWER_MEDIUM:
-        return {60, kBatteryStatusDischarging};
+        return reducer::BatterySample{60, reducer::kBatteryStatusDischarging};
     case SDL_JOYSTICK_POWER_FULL:
-        return {100, kBatteryStatusDischarging};
+        return reducer::BatterySample{100, reducer::kBatteryStatusDischarging};
     case SDL_JOYSTICK_POWER_WIRED:
     case SDL_JOYSTICK_POWER_UNKNOWN:
     default:
-        return dish::util::readHostBattery();
+        return std::nullopt;
     }
+}
+
+reducer::BatterySample hostBatterySample() {
+    const util::BatteryReading reading = util::readHostBattery();
+    return reducer::BatterySample{reading.level, reading.status};
 }
 
 constexpr std::chrono::seconds kBatteryPollInterval{30};
@@ -620,23 +623,31 @@ void SDLGamepadBridge::handleTouchpadEvent(const SDL_ControllerTouchpadEvent& ev
 // each interval even when the value is unchanged, and a lost one self-heals on the next tick. A
 // device polled for the first time is always due, so a pad that has just attached shows a charge
 // without waiting out the interval. Only a moved value hands the GUI a new device list.
+//
+// The wire takes the lower of the pad's level and this machine's battery (reducer::resolveBattery);
+// the device list keeps the pad's own level, or this machine's where SDL has none. This machine's
+// battery is read once per sweep, and only when a pad is due.
 void SDLGamepadBridge::pollBatteries(TimePoint now) {
     bool anyChange = false;
+    std::optional<reducer::BatterySample> host;
     for (Pad& pad : pads_) {
         if (pad.kind == PadKind::Free || pad.js == nullptr) { continue; }
         const bool first = pad.lastBatteryPoll == TimePoint{};
         if (!first && (now - pad.lastBatteryPoll) < kBatteryPollInterval) { continue; }
         pad.lastBatteryPoll = now;
-        const auto wire = powerLevelToWire(SDL_JoystickCurrentPowerLevel(pad.js));
+        if (!host.has_value()) { host = hostBatterySample(); }
+        const auto own = padBatteryFromPowerLevel(SDL_JoystickCurrentPowerLevel(pad.js));
+        const reducer::RoutedBattery routed = reducer::resolveBattery(own, host);
         if (pad.index.has_value()) {
-            processor_->publishBattery(
-                *pad.index, GamepadInputProcessor::BatterySample{wire.level, wire.status});
+            const GamepadInputProcessor::BatterySample wire{routed.wire.level, routed.wire.status};
+            processor_->publishBattery(*pad.index, wire);
         }
-        if (pad.device.batteryLevel == wire.level && pad.device.batteryStatus == wire.status) {
+        const reducer::BatterySample shown = routed.display.value_or(*host);
+        if (pad.device.batteryLevel == shown.level && pad.device.batteryStatus == shown.status) {
             continue;
         }
-        pad.device.batteryLevel = wire.level;
-        pad.device.batteryStatus = wire.status;
+        pad.device.batteryLevel = shown.level;
+        pad.device.batteryStatus = shown.status;
         anyChange = true;
     }
     // One list per sweep, not per device, so the UI rebuilds once.

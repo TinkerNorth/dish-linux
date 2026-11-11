@@ -49,11 +49,14 @@
 | Battery | ⚠️ · ✅ · ✅ | ⚠️ · ✅ · ⚠️ | ⚠️ · ✅ · ⚠️ |
 | Controller mic | ✅ · ✅ · ❌ | ✅ · ⚠️ · ❌ | ✅ · ⚠️ · ❌ |
 
-The Battery row is what the host is sent. Over USB that is the phone's or PC's
-own battery, which a wired pad draws on; the desktops' Standard path sends
-SDL's coarse pad level instead whenever SDL reports one. Over Bluetooth the
-desktops send SDL's coarse pad level (the PC's battery when SDL has none), and
-Android the lower of the pad's and the phone's.
+The Battery row is what the host is sent: the lower of the pad's own reading
+and the PC's battery, on every path and to a Moonlight host too, and the PC's
+alone when the pad reports none. A wired pad that reports its own charge
+competes like any other, a tie goes to the pad, and an unknown level loses to
+a known one. Direct reads the pad's charge from its own report; Standard and
+Bluetooth read SDL's coarse level, which SDL leaves unknown for a pad it sees
+as wired. The controller card keeps showing the pad's own reading. Android
+applies the same rule with the phone's battery.
 
 ## 3. Receiving, host → pad, by path (cell = USB Direct · USB Standard · Bluetooth)
 

@@ -2,9 +2,10 @@
 // Copyright (C) 2026 Dish contributors.
 //
 // Battery routing and validation for the MSG_BATTERY (0x000B) telemetry path:
-// which (level, status) pair goes on the wire. When the pad has no usable battery
-// the host/laptop battery stands in. The live host query and the SDL power-level
-// read stay in SDLGamepadBridge::pollBatteries.
+// which (level, status) pair goes on the wire. Two batteries compete, the pad's
+// own and this machine's, and the lower one goes; this machine's alone when the
+// pad reports none. The live host query and the SDL power-level read stay in
+// SDLGamepadBridge::pollBatteries and AppModel's Direct heartbeat.
 //
 // Wire constants, mirroring satellite/src/core/types.h:
 //   level  in [0,100] or 0xFF for unknown
@@ -115,18 +116,14 @@ inline BatterySample lowestBattery(const BatterySample& pad,
     return comparableBatteryLevel(*host) < comparableBatteryLevel(pad) ? *host : pad;
 }
 
-// A wired pad has no charge of its own to report, so the host battery always goes
-// on the wire while the pad's reading is still displayed. A wireless pad puts the
-// lower of (pad, host) on the wire.
-inline RoutedBattery resolveBattery(bool padWired, const std::optional<BatterySample>& pad,
+// The lower of the pad's own reading and this machine's battery goes on the wire,
+// however the pad is linked: a pad on a cable that reports its own charge (a
+// DualSense charging over USB) competes like any other. This machine's battery
+// alone when the pad reports none. The card keeps the pad's own reading.
+inline RoutedBattery resolveBattery(const std::optional<BatterySample>& pad,
                                     const std::optional<BatterySample>& host) {
-    BatterySample wire;
-    if (!pad.has_value() || padWired) {
-        wire = host.value_or(kUnknownBatterySample);
-    } else {
-        wire = lowestBattery(*pad, host);
-    }
-    return RoutedBattery{pad, wire};
+    if (!pad.has_value()) { return RoutedBattery{pad, host.value_or(kUnknownBatterySample)}; }
+    return RoutedBattery{pad, lowestBattery(*pad, host)};
 }
 
 } // namespace dish::reducer

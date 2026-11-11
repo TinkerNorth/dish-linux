@@ -73,8 +73,8 @@ class ClaimedPadPublisher {
         }
     }
 
-    // The charge the same way: the card shows it, the wire does not (a wired pad puts the host
-    // battery on the wire, see AppModel's heartbeat), and a level in tenths moves minutes apart.
+    // The charge the same way: the card shows it, AppModel's heartbeat puts the lower of it and
+    // the host battery on the wire, and a level in tenths moves minutes apart.
     void mirrorBattery(const UsbReport& r) const {
         if (!r.batteryValid) { return; }
         const auto packed = static_cast<std::uint16_t>((r.batteryLevel << 8) | r.batteryStatus);
