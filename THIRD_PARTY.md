@@ -378,12 +378,14 @@ project in any case.
 
 The per-model input-report byte layouts in the same header, for DualShock 4,
 DualSense and Switch Pro, follow the layouts documented in the upstream Linux
-kernel HID drivers `drivers/hid/hid-playstation.c` and `drivers/hid/hid-nintendo.c`.
-Only offsets and field meanings were used. The Linux kernel is licensed
-`GPL-2.0-only`; upstream is <https://github.com/torvalds/linux>. No kernel code
-is compiled into this project, and none of the kernel's rumble output sequences
-are used here, because the hidraw path is input-only apart from the Steam
-Controller's documented configuration feature reports.
+kernel HID drivers `drivers/hid/hid-playstation.c` and `drivers/hid/hid-nintendo.c`,
+and so do the OUT report layouts in
+[`src/core/input/UsbOutputReports.h`](src/core/input/UsbOutputReports.h), the
+DualSense's rule for its rumble mode among them (feature version 2.21 read from
+report 0x20, and every DualSense Edge). Only offsets, flag values and field
+meanings were used. The Linux kernel is licensed `GPL-2.0-only`; upstream is
+<https://github.com/torvalds/linux>. No kernel code is compiled into this
+project.
 
 The dish-android repository carries the same attribution for the parsers these
 were mirrored from.
