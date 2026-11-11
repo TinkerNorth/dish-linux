@@ -73,8 +73,8 @@ class ClaimedPadPublisher {
         }
     }
 
-    // The charge the same way: the card shows it, the wire does not (a wired pad puts the host
-    // battery on the wire, see AppModel's heartbeat), and a level in tenths moves minutes apart.
+    // The charge the same way: the card shows it, AppModel's heartbeat puts the lower of it and
+    // the host battery on the wire, and a level in tenths moves minutes apart.
     void mirrorBattery(const UsbReport& r) const {
         if (!r.batteryValid) { return; }
         const auto packed = static_cast<std::uint16_t>((r.batteryLevel << 8) | r.batteryStatus);
@@ -161,11 +161,16 @@ UsbGamepadManager::~UsbGamepadManager() {
     for (auto& [syntheticId, worker] : workers_) { worker->stop(); }
 }
 
-void UsbGamepadManager::startWorker(int syntheticId, int key) {
+void UsbGamepadManager::startWorker(int syntheticId, int key,
+                                    const input::usbout::Ds5FirmwareInfo& ds5Firmware) {
     if (gateway_ == nullptr) { return; }
-    auto worker =
-        std::make_shared<OutputWorker>(gateway_->openReportWriter(syntheticId),
-                                       input::usbparse::parserForDevice(key >> 16, key & 0xFFFF));
+    const int productId = key & 0xFFFF;
+    const auto parser = input::usbparse::parserForDevice(key >> 16, productId);
+    const bool isDualSense = parser == input::usbparse::HidParser::DualSense;
+    const bool vibrationV2 =
+        isDualSense && input::usbout::ds5UsesVibrationV2(productId, ds5Firmware);
+    auto worker = std::make_shared<OutputWorker>(gateway_->openReportWriter(syntheticId), parser,
+                                                 vibrationV2);
     std::lock_guard<thread::TrackedMutex> lock(mtx_);
     workers_[syntheticId] = std::move(worker);
 }
@@ -576,7 +581,7 @@ ClaimResult UsbGamepadManager::claimTracked(int key) {
 void UsbGamepadManager::runClaim(int key) {
     const ClaimResult outcome = claimTracked(key);
     if (outcome.ok) {
-        startWorker(outcome.syntheticId, key);
+        startWorker(outcome.syntheticId, key, outcome.ds5Firmware);
         applyEvent(key, reducer::event::ClaimSucceeded{outcome.syntheticId});
     } else {
         applyEvent(key, reducer::event::ClaimFailed{outcome.reason, outcome.frameworkStolen});
@@ -593,7 +598,7 @@ void UsbGamepadManager::runReclaim(int key, const reducer::UsbController& c) {
         if (observer_ != nullptr) { observer_->syntheticRemoved(*oldPlaceholder); }
     }
     if (outcome.ok) {
-        startWorker(outcome.syntheticId, key);
+        startWorker(outcome.syntheticId, key, outcome.ds5Firmware);
         if (observer_ != nullptr && c.connId.has_value()) {
             observer_->bind(outcome.syntheticId, *c.connId, c.type.value_or(kControllerTypeXbox));
         }

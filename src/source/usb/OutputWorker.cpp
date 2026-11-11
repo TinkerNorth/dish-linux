@@ -5,13 +5,26 @@
 
 #include "core/thread/TrackedMutex.h"
 
+#include <optional>
 #include <utility>
 
 namespace dish::source::usb {
 
+namespace {
+
+// A fresh claim's shadow: every handoff still owed, nothing driven yet.
+input::usbout::FeedbackState claimFeedbackState(bool ds5VibrationV2) {
+    input::usbout::FeedbackState st;
+    st.ds5VibrationV2 = ds5VibrationV2;
+    return st;
+}
+
+} // namespace
+
 OutputWorker::OutputWorker(std::unique_ptr<HidReportWriter> writer,
-                           input::usbparse::HidParser parser)
-    : writer_(std::move(writer)), parser_(parser), thread_([this] { run(); }) {}
+                           input::usbparse::HidParser parser, bool ds5VibrationV2)
+    : writer_(std::move(writer)), parser_(parser), state_(claimFeedbackState(ds5VibrationV2)),
+      cadence_(parser, Clock::now()), thread_([this] { run(); }) {}
 
 OutputWorker::~OutputWorker() { stop(); }
 
@@ -54,10 +67,26 @@ void OutputWorker::postMicLed(std::uint8_t state) {
 void OutputWorker::run() {
     const thread::ScopedThreadRole role(thread::ThreadRole::Other);
     while (!stopping_.load(std::memory_order_seq_cst)) {
-        wake_.sleepUnless(
-            [this] { return stopping_.load(std::memory_order_seq_cst) || mailbox_.pending(); });
-        if (const auto taken = mailbox_.take()) { writeTaken(*taken); }
+        sleepUntilWorkOrDue();
+        const Clock::time_point now = Clock::now();
+        if (const auto taken = mailbox_.take()) { writeTaken(*taken, now); }
+        writeDueCadence(now);
     }
+}
+
+bool OutputWorker::hasWork() const {
+    return stopping_.load(std::memory_order_seq_cst) || mailbox_.pending();
+}
+
+// A family with nothing on a clock sleeps until it has work, as it always has; one that owes its
+// pad a write sleeps no later than that write is due.
+void OutputWorker::sleepUntilWorkOrDue() {
+    const std::optional<Clock::time_point> due = cadence_.nextDue();
+    if (!due.has_value()) {
+        wake_.sleepUnless([this] { return hasWork(); });
+        return;
+    }
+    wake_.sleepUnlessUntil([this] { return hasWork(); }, *due);
 }
 
 // The Switch Pro takes a packet only when its low nibble advances.
@@ -66,25 +95,58 @@ std::uint8_t OutputWorker::nextSeq() {
     return seq_;
 }
 
-void OutputWorker::writeReport(const std::uint8_t* report, std::size_t n) {
-    if (n != 0 && writer_->write(report, n)) {
+void OutputWorker::countWrite(bool wrote) {
+    if (wrote) {
         writes_.fetch_add(1, std::memory_order_release);
         return;
     }
     failedWrites_.fetch_add(1, std::memory_order_release);
 }
 
+void OutputWorker::writeReport(const std::uint8_t* report, std::size_t n) {
+    countWrite(n != 0 && writer_->write(report, n));
+}
+
+void OutputWorker::writeFeatureReport(const std::uint8_t* report, std::size_t n) {
+    countWrite(n != 0 && writer_->writeFeature(report, n));
+}
+
+// A rumble write, the host's or the cadence's repeat of it, starts the pad's repeat clock over.
+void OutputWorker::writeRumble(std::uint16_t strong, std::uint16_t weak, Clock::time_point now) {
+    std::array<std::uint8_t, input::usbout::kMaxOutputReportBytes> report{};
+    writeReport(report.data(),
+                input::usbout::buildRumbleReport(parser_, state_, strong, weak, nextSeq(),
+                                                 report.data(), report.size()));
+    rumbleStrong_ = strong;
+    rumbleWeak_ = weak;
+    const bool running = strong != 0 || weak != 0;
+    cadence_.rumbleSent(now, running);
+}
+
+// The settings the pad must keep receiving, each a whole feature report.
+void OutputWorker::writeKeepalive(Clock::time_point now) {
+    std::array<std::uint8_t, input::usbparse::kMaxKeepaliveReportBytes> report{};
+    for (int i = 0;; ++i) {
+        const std::size_t n =
+            input::usbparse::buildKeepaliveReport(parser_, i, report.data(), report.size());
+        if (n == 0) { break; }
+        writeFeatureReport(report.data(), n);
+    }
+    cadence_.settingsSent(now);
+}
+
+void OutputWorker::writeDueCadence(Clock::time_point now) {
+    if (cadence_.settingsDue(now)) { writeKeepalive(now); }
+    if (cadence_.rumbleDue(now)) { writeRumble(rumbleStrong_, rumbleWeak_, now); }
+}
+
 // One report per pending kind, in a fixed order, each from the newest state the mailbox held.
-void OutputWorker::writeTaken(const input::OutputMailbox::Taken& taken) {
+void OutputWorker::writeTaken(const input::OutputMailbox::Taken& taken, Clock::time_point now) {
     namespace output = input::output;
     namespace usbout = input::usbout;
     const input::OutputState& s = taken.state;
     std::array<std::uint8_t, usbout::kMaxOutputReportBytes> report{};
-    if ((taken.kinds & output::kRumble) != 0) {
-        writeReport(report.data(),
-                    usbout::buildRumbleReport(parser_, state_, s.strong, s.weak, nextSeq(),
-                                              report.data(), report.size()));
-    }
+    if ((taken.kinds & output::kRumble) != 0) { writeRumble(s.strong, s.weak, now); }
     if ((taken.kinds & output::kLightbar) != 0) {
         writeReport(report.data(), usbout::buildLightbarReport(parser_, state_, s.r, s.g, s.b,
                                                                report.data(), report.size()));

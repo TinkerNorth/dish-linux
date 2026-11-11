@@ -281,6 +281,7 @@ set(DISH_CORE_SOURCES
     src/core/thread/MpscQueue.h
     src/core/thread/WorkerWake.h
     src/core/input/OutputMailbox.h
+    src/core/input/OutputCadence.h
     src/core/thread/LatestValue.h
     src/core/thread/Seqlock.h
     src/core/thread/SpscRing.h

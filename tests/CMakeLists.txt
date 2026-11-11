@@ -195,6 +195,8 @@ set(DISH_TEST_SOURCES
     test_usb_gamepad_manager_feedback.cpp
     test_usb_report_parsers.cpp
     test_usb_output_reports.cpp
+    test_steam_triton.cpp
+    test_output_cadence.cpp
     test_usb_hid_layout.cpp
     test_usb_hid_layout_orders.cpp
     test_usb_twin_dedup.cpp

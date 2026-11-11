@@ -49,11 +49,14 @@
 | Battery | ⚠️ · ✅ · ✅ | ⚠️ · ✅ · ⚠️ | ⚠️ · ✅ · ⚠️ |
 | Controller mic | ✅ · ✅ · ❌ | ✅ · ⚠️ · ❌ | ✅ · ⚠️ · ❌ |
 
-The Battery row is what the host is sent. Over USB that is the phone's or PC's
-own battery, which a wired pad draws on; the desktops' Standard path sends
-SDL's coarse pad level instead whenever SDL reports one. Over Bluetooth the
-desktops send SDL's coarse pad level (the PC's battery when SDL has none), and
-Android the lower of the pad's and the phone's.
+The Battery row is what the host is sent: the lower of the pad's own reading
+and the PC's battery, on every path and to a Moonlight host too, and the PC's
+alone when the pad reports none. A wired pad that reports its own charge
+competes like any other, a tie goes to the pad, and an unknown level loses to
+a known one. Direct reads the pad's charge from its own report; Standard and
+Bluetooth read SDL's coarse level, which SDL leaves unknown for a pad it sees
+as wired. The controller card keeps showing the pad's own reading. Android
+applies the same rule with the phone's battery.
 
 ## 3. Receiving, host → pad, by path (cell = USB Direct · USB Standard · Bluetooth)
 
@@ -85,7 +88,22 @@ paired one against it yet.
 | 8BitDo | ✅ known XInput models | ✅ in HID mode (generic HID parser); Standard only in XInput mode (XUSB owns it) | ✅ in HID mode (generic HID parser); Standard only in XInput mode (xpad owns it) |
 | Xbox 360 / One / Series wired | ✅ | ❌ Standard only (XUSB owns it) | ❌ Standard only (xpad owns it) |
 | Stadia | ✅ | ⚠️ generic HID parser, manual pick | ⚠️ generic HID parser, manual pick |
-| Steam Controller | ✅ | ⚠️ never verified | ⚠️ never verified; the mainline hid-steam driver exposes an evdev twin and manages lizard mode itself |
+| Steam Controller (2015) | ✅ | ⚠️ never verified | ⚠️ never verified; the mainline hid-steam driver exposes an evdev twin and manages lizard mode itself |
+| Steam Controller (2026) | ❌ | ⚠️ never verified, ported from SDL | ⚠️ never verified, ported from SDL (see below) |
+
+The 2026 Steam Controller (wired `28DE:1302`, dongles `28DE:1304` and
+`28DE:1305`) is ported from SDL's driver (`SDL_hidapi_steam_triton.c`) and no
+pad has been on hand. Like the 2015 pad it is never claimed on its own, only
+through a Direct pick on its card. Its output worker sends the quiet settings
+(lizard mode off, raw accelerometer and gyro on) at the claim and every 3 s,
+because the pad's firmware turns lizard mode back on otherwise, and repeats a
+running rumble every 40 ms, because the pad stops one on its own. Open
+follow-ups: the two trackpads, the four back paddles, the quick-access button,
+the trigger and trackpad clicks and the capacitive touches have no wire field
+and are not forwarded; a dongle is claimed on the first of its pad interfaces
+(2 to 5) the system lists, because Direct keys a pad by model as it does for the
+2015 dongle, so a pad paired to a later slot reads nothing on Direct; and the
+Bluetooth identity (`28DE:1303`) is never Direct, like every Bluetooth pad.
 
 ## 5. Decisions, not gaps
 

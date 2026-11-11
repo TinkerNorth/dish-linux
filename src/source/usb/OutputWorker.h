@@ -5,6 +5,7 @@
 
 #include "source/usb/HidReportWriter.h"
 
+#include "core/input/OutputCadence.h"
 #include "core/input/OutputMailbox.h"
 #include "core/input/UsbOutputReports.h"
 #include "core/input/UsbReportParsers.h"
@@ -20,11 +21,15 @@ namespace dish::source::usb {
 
 // One claimed pad's feedback. A producer posts the newest state of a kind to the mailbox and
 // returns at once; the worker's own thread builds each pending kind's OUT report and writes it,
-// however long the pad takes, so a slow pad never holds the receive thread. Started at the claim
-// and stopped before the claim is released.
+// however long the pad takes, so a slow pad never holds the receive thread. It also writes what
+// the pad is owed on a clock (input::OutputCadence): the 2026 Steam Controller's settings and its
+// running rumble. Started at the claim and stopped before the claim is released.
 class OutputWorker {
   public:
-    OutputWorker(std::unique_ptr<HidReportWriter> writer, input::usbparse::HidParser parser);
+    // `ds5VibrationV2` is the DualSense's rumble mode, fixed at the claim
+    // (usbout::ds5UsesVibrationV2); every other family ignores it.
+    OutputWorker(std::unique_ptr<HidReportWriter> writer, input::usbparse::HidParser parser,
+                 bool ds5VibrationV2 = false);
     ~OutputWorker();
 
     OutputWorker(const OutputWorker&) = delete;
@@ -49,9 +54,18 @@ class OutputWorker {
     std::uint64_t failedWrites() const { return failedWrites_.load(std::memory_order_acquire); }
 
   private:
+    using Clock = input::OutputCadence::Clock;
+
     void run();
-    void writeTaken(const input::OutputMailbox::Taken& taken);
+    bool hasWork() const;
+    void sleepUntilWorkOrDue();
+    void writeTaken(const input::OutputMailbox::Taken& taken, Clock::time_point now);
+    void writeDueCadence(Clock::time_point now);
+    void writeRumble(std::uint16_t strong, std::uint16_t weak, Clock::time_point now);
+    void writeKeepalive(Clock::time_point now);
     void writeReport(const std::uint8_t* report, std::size_t n);
+    void writeFeatureReport(const std::uint8_t* report, std::size_t n);
+    void countWrite(bool wrote);
     std::uint8_t nextSeq();
 
     const std::unique_ptr<HidReportWriter> writer_;
@@ -59,10 +73,15 @@ class OutputWorker {
     input::OutputMailbox mailbox_;
     thread::WorkerWake wake_;
     std::atomic<bool> stopping_{false};
-    // The worker thread's own: the DualSense lamp and light-bar handoff shadow, and the Switch
-    // Pro's rolling packet counter, which belong to the claim rather than to any one write.
+    // The worker thread's own: the DualSense rumble mode, lamp and light-bar handoff shadow, and
+    // the Switch Pro's rolling packet counter, which belong to the claim rather than to any one
+    // write.
     input::usbout::FeedbackState state_{};
     std::uint8_t seq_ = 0;
+    // What the pad is owed on a clock, and the rumble a running repeat writes again.
+    input::OutputCadence cadence_;
+    std::uint16_t rumbleStrong_ = 0;
+    std::uint16_t rumbleWeak_ = 0;
     std::atomic<std::uint64_t> writes_{0};
     std::atomic<std::uint64_t> failedWrites_{0};
     std::thread thread_;

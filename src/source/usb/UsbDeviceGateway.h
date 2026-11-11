@@ -10,6 +10,7 @@
 
 #pragma once
 
+#include "core/input/UsbOutputReports.h"
 #include "core/reducer/DirectClaimFailure.h"
 #include "source/usb/HidReportWriter.h"
 
@@ -48,12 +49,16 @@ struct ClaimResult {
     int syntheticId = 0;                                                    // valid iff ok.
     reducer::DirectClaimFailure reason = reducer::DirectClaimFailure::Busy; // valid iff !ok.
     bool frameworkStolen = false;                                           // valid iff !ok.
+    // Valid iff ok: the DualSense firmware-info report the claim read, which picks the pad's
+    // rumble mode. Unread for every other family, and for a pad that did not answer, which keeps
+    // the original mode.
+    input::usbout::Ds5FirmwareInfo ds5Firmware{};
 
-    static ClaimResult success(int syntheticId) {
-        return ClaimResult{true, syntheticId, {}, false};
+    static ClaimResult success(int syntheticId, input::usbout::Ds5FirmwareInfo ds5Firmware = {}) {
+        return ClaimResult{true, syntheticId, {}, false, ds5Firmware};
     }
     static ClaimResult fail(reducer::DirectClaimFailure reason, bool frameworkStolen) {
-        return ClaimResult{false, 0, reason, frameworkStolen};
+        return ClaimResult{false, 0, reason, frameworkStolen, {}};
     }
 };
 

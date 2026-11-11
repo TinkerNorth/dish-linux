@@ -7,7 +7,8 @@
 // The builders' bytes are pinned in test_usb_output_reports.cpp. What this file
 // pins is the part only the manager can get wrong: aiming a report at the right
 // synthetic id, refusing to build one for a pad that is not claimed, keeping the
-// DualSense's one-time lightbar handoff per claim rather than per process, and
+// DualSense's one-time lightbar handoff per claim rather than per process,
+// rumbling a DualSense in the mode its claim read off the firmware, and
 // advancing the Switch Pro's packet counter across calls.
 
 #include "source/usb/UsbGamepadManager.h"
@@ -30,6 +31,7 @@
 #include <vector>
 
 using namespace dish::source::usb;
+using dish::input::usbout::Ds5FirmwareInfo;
 using dish::input::usbout::kTriggerEffectBlockBytes;
 
 namespace {
@@ -63,6 +65,8 @@ class RecordingGateway : public UsbDeviceGateway {
   public:
     std::vector<UsbDeviceInfo> devices;
     int nextSyntheticId = -1000;
+    // What the claim reads off a DualSense's firmware-info report.
+    Ds5FirmwareInfo ds5Firmware;
     // The claim's output worker writes on its own thread, so what it wrote is read through these.
     std::atomic<bool> writeSucceeds{true};
     struct Written {
@@ -94,7 +98,7 @@ class RecordingGateway : public UsbDeviceGateway {
                       std::function<void(const UsbReport&)> onReport) override {
         // Kept so a test can play the read thread and feed reports back in.
         lastOnReport = std::move(onReport);
-        return ClaimResult::success(nextSyntheticId--);
+        return ClaimResult::success(nextSyntheticId--, ds5Firmware);
     }
     void releaseClaim(int syntheticId) override { released.push_back(syntheticId); }
     bool isKnownFastLaneModel(int /*v*/, int /*p*/) const override { return true; }
@@ -125,8 +129,9 @@ struct Harness {
     RecordingGateway gateway;
     std::unique_ptr<UsbGamepadManager> manager;
 
-    explicit Harness(int vid, int pid) {
+    explicit Harness(int vid, int pid, Ds5FirmwareInfo ds5Firmware = {}) {
         gateway.devices.push_back(device(vid, pid));
+        gateway.ds5Firmware = ds5Firmware;
         manager = std::make_unique<UsbGamepadManager>(&gateway, nullptr, nullptr, nullptr);
         manager->reconcile();
     }
@@ -147,12 +152,34 @@ TEST_CASE("a claimed pad's feedback reaches the gateway with its synthetic id",
     const auto writes = h.gateway.writes();
     REQUIRE(writes.size() == 1U);
     CHECK(writes[0].syntheticId == *claimed->syntheticId);
-    // Report 0x02 with COMPATIBLE_VIBRATION and the two motors: the DualSense
-    // rumble report, aimed at the claim the FSM actually holds.
+    // Report 0x02 with HAPTICS_SELECT, COMPATIBLE_VIBRATION and the two motors:
+    // the DualSense rumble report, aimed at the claim the FSM actually holds.
     REQUIRE(writes[0].bytes.size() == 63U);
     CHECK(writes[0].bytes[0] == 0x02);
     CHECK(writes[0].bytes[3] == 0x40);
     CHECK(writes[0].bytes[4] == 0x80);
+}
+
+TEST_CASE("a DualSense whose claim read feature version 2.21 rumbles in the second mode",
+          "[usb][manager][feedback]") {
+    Harness h(kSonyVid, kDualSensePid, Ds5FirmwareInfo{true, 0x0215});
+    REQUIRE(h.manager->applyRumble(kSonyVid, kDualSensePid, 0x8000, 0x4000));
+    REQUIRE(h.gateway.waitForWrites(1));
+    const auto bytes = h.gateway.writes()[0].bytes;
+    REQUIRE(bytes.size() == 63U);
+    CHECK(bytes[1] == 0x02);  // HAPTICS_SELECT alone in valid_flag0
+    CHECK(bytes[39] == 0x04); // COMPATIBLE_VIBRATION2
+}
+
+TEST_CASE("a DualSense whose firmware did not answer keeps the original rumble mode",
+          "[usb][manager][feedback]") {
+    Harness h(kSonyVid, kDualSensePid);
+    REQUIRE(h.manager->applyRumble(kSonyVid, kDualSensePid, 0x8000, 0x4000));
+    REQUIRE(h.gateway.waitForWrites(1));
+    const auto bytes = h.gateway.writes()[0].bytes;
+    REQUIRE(bytes.size() == 63U);
+    CHECK(bytes[1] == (0x02 | 0x01)); // HAPTICS_SELECT | COMPATIBLE_VIBRATION
+    CHECK(bytes[39] == 0x00);
 }
 
 TEST_CASE("an unclaimed model writes nothing", "[usb][manager][feedback]") {

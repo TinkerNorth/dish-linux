@@ -24,14 +24,19 @@ using dish::input::usbout::buildMicMuteLedReport;
 using dish::input::usbout::buildPlayerLedsReport;
 using dish::input::usbout::buildRumbleReport;
 using dish::input::usbout::buildTriggerEffectsReport;
+using dish::input::usbout::Ds5FirmwareInfo;
+using dish::input::usbout::ds5UsesVibrationV2;
 using dish::input::usbout::FeedbackState;
 using dish::input::usbout::kDs5EffectBodyBytes;
 using dish::input::usbout::kDs5EffectBodyOffset;
+using dish::input::usbout::kDs5FirmwareInfoReportBytes;
+using dish::input::usbout::kDs5FirmwareInfoReportId;
 using dish::input::usbout::kMaxOutputReportBytes;
 using dish::input::usbout::kMicMuteLedOff;
 using dish::input::usbout::kMicMuteLedOn;
 using dish::input::usbout::kMicMuteLedPulse;
 using dish::input::usbout::kTriggerEffectBlockBytes;
+using dish::input::usbout::parseDs5FirmwareInfo;
 using dish::input::usbout::parserHasLightbar;
 using dish::input::usbout::parserHasMicMuteLed;
 using dish::input::usbout::parserHasPlayerLeds;
@@ -103,16 +108,78 @@ TEST_CASE("DualShock 4 rumble is report 0x05 with the motors flagged valid", "[u
     checkZeroExcept(buf, n, {0, 1, 4, 5});
 }
 
-TEST_CASE("DualSense rumble is report 0x02 with COMPATIBLE_VIBRATION", "[usb][output]") {
+TEST_CASE("DualSense rumble selects classic haptics before driving the motors", "[usb][output]") {
+    // hid-playstation sets HAPTICS_SELECT with every motor write, beside the
+    // classic-rumble flag the firmware takes: COMPATIBLE_VIBRATION on the
+    // original firmware.
     Buf buf{};
     const std::size_t n = buildRumbleReport(HidParser::DualSense, FeedbackState{}, 0x1200, 0x3400,
                                             /*seq=*/0, buf.data(), buf.size());
     REQUIRE(n == 63);
     CHECK(buf[0] == 0x02);
-    CHECK(buf[1] == 0x01); // valid_flag0
-    CHECK(buf[3] == 0x34); // weak
-    CHECK(buf[4] == 0x12); // strong
+    CHECK(buf[1] == (0x02 | 0x01)); // valid_flag0 HAPTICS_SELECT | COMPATIBLE_VIBRATION
+    CHECK(buf[3] == 0x34);          // weak
+    CHECK(buf[4] == 0x12);          // strong
+    CHECK(buf[39] == 0x00);         // no COMPATIBLE_VIBRATION2 on the original firmware
     checkZeroExcept(buf, n, {0, 1, 3, 4});
+}
+
+TEST_CASE("a DualSense on the revised firmware takes the second vibration mode", "[usb][output]") {
+    FeedbackState st;
+    st.ds5VibrationV2 = true;
+    Buf buf{};
+    const std::size_t n = buildRumbleReport(HidParser::DualSense, st, 0x1200, 0x3400,
+                                            /*seq=*/0, buf.data(), buf.size());
+    REQUIRE(n == 63);
+    CHECK(buf[1] == 0x02);  // HAPTICS_SELECT alone in valid_flag0
+    CHECK(buf[39] == 0x04); // COMPATIBLE_VIBRATION2 in valid_flag2
+    CHECK(buf[3] == 0x34);
+    CHECK(buf[4] == 0x12);
+    checkZeroExcept(buf, n, {0, 1, 3, 4, 39});
+}
+
+// ---- The DualSense's rumble mode (hid-playstation's rule) --------------------
+
+namespace {
+constexpr int kDualSensePid = 0x0CE6;
+constexpr int kDualSenseEdgePid = 0x0DF2;
+
+std::array<std::uint8_t, kDs5FirmwareInfoReportBytes> firmwareInfo(std::uint8_t lo,
+                                                                   std::uint8_t hi) {
+    std::array<std::uint8_t, kDs5FirmwareInfoReportBytes> report{};
+    report[0] = kDs5FirmwareInfoReportId;
+    report[44] = lo;
+    report[45] = hi;
+    return report;
+}
+} // namespace
+
+TEST_CASE("the DualSense feature version is read from report 0x20 bytes 44 and 45",
+          "[usb][output][firmware]") {
+    const auto report = firmwareInfo(0x15, 0x02);
+    const Ds5FirmwareInfo info = parseDs5FirmwareInfo(report.data(), report.size());
+    CHECK(info.valid);
+    CHECK(info.featureVersion == 0x0215);
+}
+
+TEST_CASE("a firmware-info report of another length or id is not read", "[usb][output][firmware]") {
+    auto report = firmwareInfo(0x24, 0x02);
+    CHECK_FALSE(parseDs5FirmwareInfo(report.data(), report.size() - 1).valid);
+    report[0] = 0x05;
+    CHECK_FALSE(parseDs5FirmwareInfo(report.data(), report.size()).valid);
+}
+
+TEST_CASE("the second vibration mode follows hid-playstation", "[usb][output][firmware]") {
+    // Feature version 2.21 brought the revised classic-rumble mode; the
+    // DualSense Edge shipped with it, so it takes it whatever its report says.
+    const Ds5FirmwareInfo unread;
+    const Ds5FirmwareInfo revised{true, 0x0215};
+    const Ds5FirmwareInfo original{true, 0x0214};
+    CHECK(ds5UsesVibrationV2(kDualSensePid, revised));
+    CHECK_FALSE(ds5UsesVibrationV2(kDualSensePid, original));
+    CHECK_FALSE(ds5UsesVibrationV2(kDualSensePid, unread));
+    CHECK(ds5UsesVibrationV2(kDualSenseEdgePid, unread));
+    CHECK(ds5UsesVibrationV2(kDualSenseEdgePid, original));
 }
 
 TEST_CASE("only the top byte of a magnitude reaches an 8-bit motor", "[usb][output]") {

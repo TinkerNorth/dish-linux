@@ -34,11 +34,13 @@ enum class HidParser : std::uint8_t {
     SwitchProUsb,
     GenericHid,
     SteamController,
+    SteamTriton,
 };
 
 // Which direction a Steam Controller config sequence runs. Quiet is sent at
-// attach; Restore must run on every exit path or the pad stays mute as a
-// desktop mouse after we hand it back.
+// attach (the 2026 pad's by its output worker, on a cadence); Restore must run
+// on every exit path or the pad stays mute as a desktop mouse after we hand it
+// back.
 enum class SteamConfig : std::uint8_t {
     Quiet = 0,
     Restore = 1,
@@ -64,6 +66,31 @@ struct KnownHidModel {
     ButtonOrder order = ButtonOrder::Western;
 };
 
+// The pad's own battery, for the families whose reports carry it (the two
+// Sony pads and the Switch Pro in every IN report, the 2026 Steam Controller in
+// a battery report of its own). The level is a percent or the unknown
+// sentinel; the status is MSG_BATTERY's own value, restated here (like the
+// trigger block length in UsbOutputReports.h) so this header stays free of the
+// wire protocol: 0 unknown, 1 discharging, 2 charging, 3 full. The Sony and
+// Switch readings are hid-playstation's and hid-nintendo's, byte for byte, so
+// a pad shows the same number here it shows on a Linux desktop; the Steam
+// Controller's is SDL's.
+inline constexpr std::uint8_t kPadBatteryLevelUnknown = 0xFF;
+inline constexpr std::uint8_t kPadBatteryStatusUnknown = 0;
+inline constexpr std::uint8_t kPadBatteryStatusDischarging = 1;
+inline constexpr std::uint8_t kPadBatteryStatusCharging = 2;
+inline constexpr std::uint8_t kPadBatteryStatusFull = 3;
+
+// The 2026 Steam Controller's decode state that spans reports: the tick of the
+// last IMU sample it published, and the charge from its own battery report,
+// which then rides every state report.
+struct TritonCarry {
+    std::uint32_t imuTick = 0;
+    bool batteryValid = false;
+    std::uint8_t batteryLevel = kPadBatteryLevelUnknown;
+    std::uint8_t batteryStatus = kPadBatteryStatusUnknown;
+};
+
 // Expand-only stick auto-range for the Switch Pro: raw 12-bit ADC, asymmetric
 // throw, and no factory calibration is read. One instance per claimed device,
 // mutated in place each report so the decode stays allocation-free.
@@ -81,6 +108,7 @@ struct StickAutoRangeState {
     // carry pad data.
     std::int16_t steamStickX = 0;
     std::int16_t steamStickY = 0;
+    TritonCarry triton;
 };
 
 // The DualSense mic-mute button is momentary, but the wire's kXusbMicMute
@@ -96,19 +124,6 @@ struct MicMuteLatch {
     std::atomic<bool> held{false};
     std::atomic<bool> muted{false};
 };
-
-// The pad's own battery, for the families whose IN report carries it (the two
-// Sony pads and the Switch Pro). The level is a percent or the unknown
-// sentinel; the status is MSG_BATTERY's own value, restated here (like the
-// trigger block length in UsbOutputReports.h) so this header stays free of the
-// wire protocol: 0 unknown, 1 discharging, 2 charging, 3 full. The readings
-// are hid-playstation's and hid-nintendo's, byte for byte, so a pad shows the
-// same number here it shows on a Linux desktop.
-inline constexpr std::uint8_t kPadBatteryLevelUnknown = 0xFF;
-inline constexpr std::uint8_t kPadBatteryStatusUnknown = 0;
-inline constexpr std::uint8_t kPadBatteryStatusDischarging = 1;
-inline constexpr std::uint8_t kPadBatteryStatusCharging = 2;
-inline constexpr std::uint8_t kPadBatteryStatusFull = 3;
 
 // Normalised to the XUSB axis/trigger scale.
 struct ParsedReport {
@@ -782,12 +797,12 @@ inline std::size_t buildSteamConfigPacket(SteamConfig stage, int index, std::uin
     return len;
 }
 
-// Pure: classifies a report as a wireless connect/disconnect event for families
-// that interleave them with input (the Steam Controller dongle). None for every
-// other parser and packet. Event framing and the one-byte payload values follow
-// the Linux hid-steam driver (steam_raw_event, ID_CONTROLLER_WIRELESS).
-inline WirelessEvent checkWirelessEvent(HidParser p, const std::uint8_t* buf, std::size_t len) {
-    if (p != HidParser::SteamController) { return WirelessEvent::None; }
+namespace detail {
+
+// The 2015 dongle's connect/disconnect event. Event framing and the one-byte
+// payload values follow the Linux hid-steam driver (steam_raw_event,
+// ID_CONTROLLER_WIRELESS).
+inline WirelessEvent steamWirelessEvent(const std::uint8_t* buf, std::size_t len) {
     if (len < 5) { return WirelessEvent::None; }
     if (buf[0] != 0x01 || buf[1] != 0x00) { return WirelessEvent::None; }
     if (buf[2] != kSteamWirelessType || buf[3] != 0x01) { return WirelessEvent::None; }
@@ -799,6 +814,343 @@ inline WirelessEvent checkWirelessEvent(HidParser p, const std::uint8_t* buf, st
     default:
         return WirelessEvent::None;
     }
+}
+
+} // namespace detail
+
+// ── Steam Controller (2026, "Triton") ───────────────────────────────────────
+// Ported from SDL's HIDAPI driver (src/joystick/hidapi/SDL_hidapi_steam_triton.c)
+// and the Valve report structs it reads (steam/controller_structs.h,
+// steam/controller_constants.h), zlib-licensed. Unlike the 2015 pad's packets,
+// every report here leads with its report id and is one packed struct. Not yet
+// checked against a pad.
+
+inline constexpr int kPidSteamTritonWired = 0x1302;
+inline constexpr int kPidSteamProteusDongle = 0x1304;
+inline constexpr int kPidSteamNereidDongle = 0x1305;
+
+// ETritonReportIDTypes.
+inline constexpr std::uint8_t kTritonStateId = 0x42;
+inline constexpr std::uint8_t kTritonBatteryId = 0x43;
+inline constexpr std::uint8_t kTritonStateBleId = 0x45;
+inline constexpr std::uint8_t kTritonWirelessXId = 0x46;
+inline constexpr std::uint8_t kTritonStateTimestampId = 0x47;
+inline constexpr std::uint8_t kTritonWirelessId = 0x79;
+
+// TritonButtons, the ones with an XUSB bit.
+inline constexpr std::uint32_t kTritonA = 0x00000001;
+inline constexpr std::uint32_t kTritonB = 0x00000002;
+inline constexpr std::uint32_t kTritonX = 0x00000004;
+inline constexpr std::uint32_t kTritonY = 0x00000008;
+inline constexpr std::uint32_t kTritonR3 = 0x00000020;
+inline constexpr std::uint32_t kTritonView = 0x00000040;
+inline constexpr std::uint32_t kTritonR = 0x00000200;
+inline constexpr std::uint32_t kTritonDpadDown = 0x00000400;
+inline constexpr std::uint32_t kTritonDpadRight = 0x00000800;
+inline constexpr std::uint32_t kTritonDpadLeft = 0x00001000;
+inline constexpr std::uint32_t kTritonDpadUp = 0x00002000;
+inline constexpr std::uint32_t kTritonMenu = 0x00004000;
+inline constexpr std::uint32_t kTritonL3 = 0x00008000;
+inline constexpr std::uint32_t kTritonSteam = 0x00010000;
+inline constexpr std::uint32_t kTritonL = 0x00080000;
+
+struct TritonButton {
+    std::uint32_t triton;
+    std::uint16_t xusb;
+};
+
+// SDL's gamepad mapping (HIDAPI_DriverSteamTriton_HandleGenericState) on the
+// XUSB word, Menu as Back and View as Start the way SDL has them. The
+// quick-access button, the four back paddles, the trackpad and trigger clicks
+// and the capacitive touches have no XUSB bit and are not carried.
+inline constexpr TritonButton kTritonButtonMap[] = {
+    {kTritonA, layout::kXusbA},
+    {kTritonB, layout::kXusbB},
+    {kTritonX, layout::kXusbX},
+    {kTritonY, layout::kXusbY},
+    {kTritonL, layout::kXusbLeftShoulder},
+    {kTritonR, layout::kXusbRightShoulder},
+    {kTritonMenu, layout::kXusbBack},
+    {kTritonView, layout::kXusbStart},
+    {kTritonSteam, layout::kXusbGuide},
+    {kTritonL3, layout::kXusbLeftThumb},
+    {kTritonR3, layout::kXusbRightThumb},
+    {kTritonDpadUp, layout::kXusbDpadUp},
+    {kTritonDpadDown, layout::kXusbDpadDown},
+    {kTritonDpadLeft, layout::kXusbDpadLeft},
+    {kTritonDpadRight, layout::kXusbDpadRight},
+};
+
+// Both state layouts are 46 bytes with the id (SDL's 1 +
+// sizeof(TritonMTUNoQuat_t)) and agree on the buttons, the triggers and the
+// sticks. The timestamp layout (0x47) adds a 16-bit trackpad timestamp after
+// the sticks and narrows the IMU tick to 16 bits, which is how its
+// accelerometer and gyro still land on the other layout's offsets.
+inline constexpr std::size_t kTritonStateLen = 46;
+inline constexpr int kTritonButtonsOffset = 2;
+inline constexpr int kTritonLeftTriggerOffset = 6;
+inline constexpr int kTritonRightTriggerOffset = 8;
+inline constexpr int kTritonLeftStickXOffset = 10;
+inline constexpr int kTritonLeftStickYOffset = 12;
+inline constexpr int kTritonRightStickXOffset = 14;
+inline constexpr int kTritonRightStickYOffset = 16;
+inline constexpr int kTritonImuTickOffset = 30;
+inline constexpr int kTritonImuTick16Offset = 32;
+inline constexpr int kTritonAccelOffset = 34;
+inline constexpr int kTritonGyroOffset = 40;
+
+// TritonBatteryStatus_t leads with the charge state (EChargeState) and the
+// level; 15 bytes with the id.
+inline constexpr std::size_t kTritonBatteryLen = 15;
+inline constexpr std::uint8_t kTritonChargeDischarging = 1;
+inline constexpr std::uint8_t kTritonChargeCharging = 2;
+inline constexpr std::uint8_t kTritonChargeDone = 4;
+
+// TritonWirelessStatus_t: one state byte, 1 for a pad that left and 2 for one
+// that arrived (ETritonWirelessState).
+inline constexpr std::size_t kTritonWirelessLen = 2;
+inline constexpr std::uint8_t kTritonWirelessDisconnect = 1;
+inline constexpr std::uint8_t kTritonWirelessConnect = 2;
+
+inline std::uint16_t rdLeU16(const std::uint8_t* b, int off) {
+    return static_cast<std::uint16_t>(static_cast<std::uint16_t>(b[off]) |
+                                      (static_cast<std::uint16_t>(b[off + 1]) << 8));
+}
+
+inline std::uint32_t rdLeU32(const std::uint8_t* b, int off) {
+    return static_cast<std::uint32_t>(b[off]) | (static_cast<std::uint32_t>(b[off + 1]) << 8) |
+           (static_cast<std::uint32_t>(b[off + 2]) << 16) |
+           (static_cast<std::uint32_t>(b[off + 3]) << 24);
+}
+
+inline std::uint16_t tritonButtonsToXusb(std::uint32_t buttons) {
+    std::uint16_t b = 0;
+    for (const TritonButton& bit : kTritonButtonMap) {
+        if ((buttons & bit.triton) != 0) { b = static_cast<std::uint16_t>(b | bit.xusb); }
+    }
+    return b;
+}
+
+// SDL sends a trigger as raw * 2 - 32768, so the throw is the positive half.
+inline std::uint8_t tritonTriggerToWire(std::int16_t raw) {
+    if (raw <= 0) { return 0; }
+    return static_cast<std::uint8_t>(static_cast<std::int32_t>(raw) * 255 / 32767);
+}
+
+// The tick that says whether a report carries an IMU sample not yet published.
+inline std::uint32_t tritonImuTick(const std::uint8_t* buf) {
+    if (buf[0] == kTritonStateTimestampId) { return rdLeU16(buf, kTritonImuTick16Offset); }
+    return rdLeU32(buf, kTritonImuTickOffset);
+}
+
+// SDL's sensor frame (HIDAPI_DriverSteamTriton_HandleState): x as it is, y from
+// the pad's z, z from the pad's negated y, for the gyro and the accelerometer
+// alike. The full scales are the 2015 pad's, +-2000 deg/s and +-2 g, so its
+// wire conversions serve.
+inline void decodeTritonImu(const std::uint8_t* buf, ParsedReport& s) {
+    const std::int16_t ax = rdLe16(buf, kTritonAccelOffset);
+    const std::int16_t ay = rdLe16(buf, kTritonAccelOffset + 2);
+    const std::int16_t az = rdLe16(buf, kTritonAccelOffset + 4);
+    const std::int16_t gx = rdLe16(buf, kTritonGyroOffset);
+    const std::int16_t gy = rdLe16(buf, kTritonGyroOffset + 2);
+    const std::int16_t gz = rdLe16(buf, kTritonGyroOffset + 4);
+    s.gyroX = steamGyroToWire(gx);
+    s.gyroY = steamGyroToWire(gz);
+    s.gyroZ = steamGyroToWire(-static_cast<std::int32_t>(gy));
+    s.accelX = steamAccelToWire(ax);
+    s.accelY = steamAccelToWire(az);
+    s.accelZ = steamAccelToWire(-static_cast<std::int32_t>(ay));
+    s.motionValid = true;
+}
+
+// SDL publishes motion only for a tick it has not seen, so a report that
+// repeats an IMU sample is input and not motion.
+inline void decodeTritonState(const std::uint8_t* buf, ParsedReport& s, TritonCarry& carry) {
+    s.wButtons = tritonButtonsToXusb(rdLeU32(buf, kTritonButtonsOffset));
+    s.lt = tritonTriggerToWire(rdLe16(buf, kTritonLeftTriggerOffset));
+    s.rt = tritonTriggerToWire(rdLe16(buf, kTritonRightTriggerOffset));
+    // Up-positive already, as XUSB wants: SDL negates Y to make it down-positive.
+    s.lx = rdLe16(buf, kTritonLeftStickXOffset);
+    s.ly = rdLe16(buf, kTritonLeftStickYOffset);
+    s.rx = rdLe16(buf, kTritonRightStickXOffset);
+    s.ry = rdLe16(buf, kTritonRightStickYOffset);
+    const std::uint32_t tick = tritonImuTick(buf);
+    if (tick != carry.imuTick) {
+        decodeTritonImu(buf, s);
+        carry.imuTick = tick;
+    }
+    s.batteryValid = carry.batteryValid;
+    s.batteryLevel = carry.batteryLevel;
+    s.batteryStatus = carry.batteryStatus;
+}
+
+// SDL's power state for each charge state: discharging, charging and done map,
+// and reset, source validation and anything newer are unknown.
+inline std::uint8_t tritonBatteryStatus(std::uint8_t chargeState) {
+    switch (chargeState) {
+    case kTritonChargeDischarging:
+        return kPadBatteryStatusDischarging;
+    case kTritonChargeCharging:
+        return kPadBatteryStatusCharging;
+    case kTritonChargeDone:
+        return kPadBatteryStatusFull;
+    default:
+        return kPadBatteryStatusUnknown;
+    }
+}
+
+// The level is kept whatever the state, as SDL keeps it; one the wire cannot
+// carry reads as unknown.
+inline void decodeTritonBattery(const std::uint8_t* buf, TritonCarry& carry) {
+    const std::uint8_t level = buf[2];
+    carry.batteryValid = true;
+    carry.batteryLevel = level <= 100 ? level : kPadBatteryLevelUnknown;
+    carry.batteryStatus = tritonBatteryStatus(buf[1]);
+}
+
+// A state report is input. The battery report is not: its charge is kept and
+// rides every state report after it, the way the Sony pads carry theirs in
+// every report. Anything else (a dongle event, a report SDL does not read) is
+// not input either.
+inline bool decodeSteamTriton(const std::uint8_t* buf, std::size_t len, ParsedReport& s,
+                              StickAutoRangeState& st) {
+    if (len == 0) { return false; }
+    switch (buf[0]) {
+    case kTritonStateId:
+    case kTritonStateBleId:
+    case kTritonStateTimestampId:
+        if (len < kTritonStateLen) { return false; }
+        decodeTritonState(buf, s, st.triton);
+        return true;
+    case kTritonBatteryId:
+        if (len >= kTritonBatteryLen) { decodeTritonBattery(buf, st.triton); }
+        return false;
+    default:
+        return false;
+    }
+}
+
+namespace detail {
+
+// The 2026 dongle's connect/disconnect event, behind either of its two ids.
+inline WirelessEvent tritonWirelessEvent(const std::uint8_t* buf, std::size_t len) {
+    if (len < kTritonWirelessLen) { return WirelessEvent::None; }
+    const bool isWirelessStatus = buf[0] == kTritonWirelessId || buf[0] == kTritonWirelessXId;
+    if (!isWirelessStatus) { return WirelessEvent::None; }
+    switch (buf[1]) {
+    case kTritonWirelessDisconnect:
+        return WirelessEvent::Disconnect;
+    case kTritonWirelessConnect:
+        return WirelessEvent::Connect;
+    default:
+        return WirelessEvent::None;
+    }
+}
+
+} // namespace detail
+
+// ID_SET_SETTINGS_VALUES with one setting, behind feature report 1 and
+// zero-padded to the 64 bytes SDL sends: {id, 0x87, payload length 3, setting
+// number, value u16 LE}. The settings are ControllerSettings' and their values
+// LizardModeState_t's and SettingGyroMode's.
+inline constexpr std::uint8_t kTritonFeatureReportId = 0x01;
+inline constexpr std::size_t kTritonFeatureReportBytes = 64;
+inline constexpr std::uint8_t kSteamSetSettingsValues = 0x87;
+inline constexpr std::uint8_t kSteamOneSettingLength = 3;
+inline constexpr std::uint8_t kSteamSettingLizardMode = 9;
+inline constexpr std::uint8_t kSteamSettingImuMode = 48;
+inline constexpr std::uint16_t kSteamLizardModeOff = 0;
+inline constexpr std::uint16_t kSteamLizardModeOn = 1;
+inline constexpr std::uint16_t kSteamImuOff = 0x0000;
+inline constexpr std::uint16_t kSteamImuRawAccelAndGyro = 0x0018;
+
+// Pure: writes the index-th whole feature report of a config direction for the
+// 2026 pad into out, returns its length, or 0 when there are no more or it does
+// not fit. Quiet turns lizard mode off and the raw IMU on; Restore undoes both,
+// IMU first. One setting per report, as SDL sends them.
+inline std::size_t buildTritonConfigReport(SteamConfig stage, int index, std::uint8_t* out,
+                                           std::size_t outCap) {
+    struct Setting {
+        std::uint8_t number;
+        std::uint16_t value;
+    };
+    static constexpr Setting kQuietSeq[] = {{kSteamSettingLizardMode, kSteamLizardModeOff},
+                                            {kSteamSettingImuMode, kSteamImuRawAccelAndGyro}};
+    static constexpr Setting kRestoreSeq[] = {{kSteamSettingImuMode, kSteamImuOff},
+                                              {kSteamSettingLizardMode, kSteamLizardModeOn}};
+
+    const bool quiet = stage == SteamConfig::Quiet;
+    const Setting* seqArr = quiet ? kQuietSeq : kRestoreSeq;
+    const int seqLen = quiet ? static_cast<int>(sizeof(kQuietSeq) / sizeof(kQuietSeq[0]))
+                             : static_cast<int>(sizeof(kRestoreSeq) / sizeof(kRestoreSeq[0]));
+    if (index < 0 || index >= seqLen) { return 0; }
+    if (outCap < kTritonFeatureReportBytes) { return 0; }
+    const Setting& setting = seqArr[index];
+    for (std::size_t i = 0; i < kTritonFeatureReportBytes; i++) { out[i] = 0; }
+    out[0] = kTritonFeatureReportId;
+    out[1] = kSteamSetSettingsValues;
+    out[2] = kSteamOneSettingLength;
+    out[3] = setting.number;
+    out[4] = static_cast<std::uint8_t>(setting.value & 0xFFU);
+    out[5] = static_cast<std::uint8_t>(setting.value >> 8);
+    return kTritonFeatureReportBytes;
+}
+
+// The settings a claimed pad must keep receiving, as whole feature reports for
+// its output worker's cadence (core/input/OutputCadence.h): the 2026 pad's
+// quiet sequence, which its firmware's watchdog undoes unless it is re-sent. No
+// other family owes its pad anything on a clock. Callers size their scratch
+// buffer with kMaxKeepaliveReportBytes.
+inline constexpr std::size_t kMaxKeepaliveReportBytes = kTritonFeatureReportBytes;
+
+inline std::size_t buildKeepaliveReport(HidParser p, int index, std::uint8_t* out,
+                                        std::size_t outCap) {
+    switch (p) {
+    case HidParser::SteamTriton:
+        return buildTritonConfigReport(SteamConfig::Quiet, index, out, outCap);
+    case HidParser::DualShock4:
+    case HidParser::DualSense:
+    case HidParser::SwitchProUsb:
+    case HidParser::GenericHid:
+    case HidParser::SteamController:
+    case HidParser::None:
+        return 0;
+    }
+    return 0;
+}
+
+// A dongle carries one paired pad per HID interface, 2 to 5, and its other
+// interfaces are no pad (SDL's HIDAPI_DriverSteamTriton_IsSupportedDevice). The
+// wired pad's game interface is told apart by its collection alone.
+inline bool tritonInterfaceCarriesPad(int productId, int interfaceNumber) {
+    const bool isDongle = productId == kPidSteamProteusDongle || productId == kPidSteamNereidDongle;
+    if (!isDongle) { return true; }
+    return interfaceNumber >= 2 && interfaceNumber <= 5;
+}
+
+// Pure: classifies a report as a wireless connect/disconnect event for the
+// families that interleave them with input (both Steam Controllers' dongles).
+// None for every other parser and packet.
+inline WirelessEvent checkWirelessEvent(HidParser p, const std::uint8_t* buf, std::size_t len) {
+    switch (p) {
+    case HidParser::SteamController:
+        return detail::steamWirelessEvent(buf, len);
+    case HidParser::SteamTriton:
+        return detail::tritonWirelessEvent(buf, len);
+    case HidParser::DualShock4:
+    case HidParser::DualSense:
+    case HidParser::SwitchProUsb:
+    case HidParser::GenericHid:
+    case HidParser::None:
+        return WirelessEvent::None;
+    }
+    return WirelessEvent::None;
+}
+
+// Whether the family's dongle interleaves connect and disconnect events with
+// input (checkWirelessEvent), which the read loop routes before it decodes.
+inline bool parserHasWirelessEvents(HidParser parser) {
+    return parser == HidParser::SteamController || parser == HidParser::SteamTriton;
 }
 
 // False leaves `out` untouched: the family is None, or the report was too short
@@ -818,6 +1170,8 @@ inline bool decodeReport(HidParser parser, const std::uint8_t* buf, std::size_t 
         return decodeGenericHid(buf, len, out, sticks);
     case HidParser::SteamController:
         return decodeSteamController(buf, len, out, sticks);
+    case HidParser::SteamTriton:
+        return decodeSteamTriton(buf, len, out, sticks);
     case HidParser::None:
         return false;
     }
@@ -851,6 +1205,11 @@ inline constexpr KnownHidModel kKnownModels[] = {
      ButtonOrder::Switch},
     {0x28DE, 0x1102, "Valve Steam Controller", HidParser::SteamController},
     {0x28DE, 0x1142, "Valve Steam Controller (dongle)", HidParser::SteamController},
+    {0x28DE, kPidSteamTritonWired, "Valve Steam Controller (2026)", HidParser::SteamTriton},
+    {0x28DE, kPidSteamProteusDongle, "Valve Steam Controller (2026, dongle)",
+     HidParser::SteamTriton},
+    {0x28DE, kPidSteamNereidDongle, "Valve Steam Controller (2026, dongle)",
+     HidParser::SteamTriton},
 };
 
 inline const KnownHidModel* lookupKnownModel(int vendorId, int productId) {
@@ -859,6 +1218,10 @@ inline const KnownHidModel* lookupKnownModel(int vendorId, int productId) {
     }
     return nullptr;
 }
+
+// The DualSense Edge decodes as a DualSense. Its OUT reports differ in one respect, the rumble
+// mode it shipped with (usbout::ds5UsesVibrationV2), which is why it is named out here.
+inline constexpr int kPidDualSenseEdge = 0x0DF2;
 
 // The Sony families are named by product: the DualShock 4 (v1, v2 and its USB wireless
 // adaptor) and the DualSense (and Edge). Any other Sony product is generic HID, since a layout
@@ -870,7 +1233,6 @@ inline HidParser parserForDevice(int vendorId, int productId) {
     constexpr int kPidDualShock4V2 = 0x09CC;
     constexpr int kPidDualShock4Adaptor = 0x0BA0;
     constexpr int kPidDualSense = 0x0CE6;
-    constexpr int kPidDualSenseEdge = 0x0DF2;
     if (const KnownHidModel* m = lookupKnownModel(vendorId, productId)) { return m->parser; }
     if (vendorId == kVidSony) {
         if (productId == kPidDualSense || productId == kPidDualSenseEdge) {
@@ -892,17 +1254,21 @@ inline ButtonOrder buttonOrderForDevice(int vendorId, int productId) {
 }
 
 // Whether releasing this model back to Standard produces an SDL device.
-// False for the Steam Controller, whose stand-alone identity is a keyboard and
+// False for both Steam Controllers, whose stand-alone identity is a keyboard and
 // mouse: a release that waited for a framework gamepad would always time out
 // into a false "restore stuck".
 inline bool modelExpectsFrameworkGamepad(int vendorId, int productId) {
     const KnownHidModel* m = lookupKnownModel(vendorId, productId);
-    return m == nullptr || m->parser != HidParser::SteamController;
+    if (m == nullptr) { return true; }
+    const bool isSteamPad =
+        m->parser == HidParser::SteamController || m->parser == HidParser::SteamTriton;
+    return !isSteamPad;
 }
 
 inline bool parserHasImu(HidParser parser) {
     return parser == HidParser::DualShock4 || parser == HidParser::DualSense ||
-           parser == HidParser::SwitchProUsb || parser == HidParser::SteamController;
+           parser == HidParser::SwitchProUsb || parser == HidParser::SteamController ||
+           parser == HidParser::SteamTriton;
 }
 
 inline bool parserHasTouchpad(HidParser parser) {
@@ -911,18 +1277,20 @@ inline bool parserHasTouchpad(HidParser parser) {
 
 // Whether the pad reports whether or not anything moved: the Sony pads and the
 // Switch Pro stream at a fixed rate, a generic HID pad reports on change, and
-// the Steam Controller's cadence is not pinned here, so it counts as on-change.
+// neither Steam Controller's cadence is pinned here, so both count as on-change.
 inline bool parserStreamsUnprompted(HidParser parser) {
     return parser == HidParser::DualShock4 || parser == HidParser::DualSense ||
            parser == HidParser::SwitchProUsb;
 }
 
 // Whether the pad itself carries rumble motors this path could ever drive. The
-// Steam Controller has no rumble motors, only trackpad voice coils driven by
-// pulse trains; its simple-rumble command is Steam Deck firmware only.
+// 2015 Steam Controller has no rumble motors, only trackpad voice coils driven
+// by pulse trains; its simple-rumble command is Steam Deck firmware only. The
+// 2026 one takes a haptic rumble report that drives its two actuators as a low-
+// and a high-frequency motor.
 inline bool parserHasRumble(HidParser parser) {
     return parser == HidParser::DualShock4 || parser == HidParser::DualSense ||
-           parser == HidParser::SwitchProUsb;
+           parser == HidParser::SwitchProUsb || parser == HidParser::SteamTriton;
 }
 
 // Whether the FAMILY is a composite whose USB device carries a USB Audio Class

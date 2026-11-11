@@ -16,6 +16,45 @@ the repos share a version number.
 
 ---
 
+## [Unreleased]
+
+### Added
+
+- **The 2026 Steam Controller over USB direct, not yet tried on a real one.**
+  The wired controller (`28DE:1302`) and its two wireless dongles (`28DE:1304`,
+  `28DE:1305`) can be taken over on the direct path, ported from SDL's driver
+  for the pad: Dish switches off its keyboard-and-mouse mode and turns on its
+  motion sensors, sends that again every 3 seconds because the controller's
+  firmware turns the mode back on otherwise, and reads the sticks, triggers,
+  buttons, motion and battery. Rumble from the host drives the controller's
+  haptics, repeated while it runs because the controller stops it on its own.
+  Letting go of the controller turns its keyboard-and-mouse mode back on. Like
+  the 2015 Steam Controller it is never taken over automatically, only when you
+  pick direct on its card. The trackpads, the back paddles and the
+  quick-access button are not forwarded yet.
+
+### Changed
+
+- **A host is sent the lower of the controller's battery and the PC's.** When
+  two batteries compete, the controller's own and the PC's, the lower one is
+  what the host sees, on every path and on a Moonlight host too. A controller
+  on a cable that reports its own charge (a DualSense or DualShock 4 over USB,
+  a Switch Pro) used to send only the PC's battery, and a controller read
+  through SDL sent its own level even when the laptop's was lower. A
+  controller with no charge reading of its own still sends the PC's battery.
+  The controller card keeps showing the controller's own charge.
+
+### Fixed
+
+- **Rumble on a DualSense in USB direct mode asks the pad the way its own
+  driver does.** Dish set only the "compatible vibration" flag. The Linux
+  driver and SDL also switch the pad from audio haptics to classic rumble in
+  the same report and, from firmware feature version 2.21 and on every
+  DualSense Edge, use the revised rumble mode instead. Dish now reads the
+  pad's firmware version once when it takes the pad over and sets the flags
+  the kernel does; a pad whose version cannot be read keeps the original mode,
+  the one every firmware has.
+
 ## [2.6.0] - 2026-11-02
 
 ### Changed

@@ -26,7 +26,8 @@ Physical controllers only. There is no on-screen touch gamepad; that belongs to
 - ChaCha20-Poly1305 input streaming over UDP, sent straight off the input
   thread
 - SDL2 for every pad, plus an opt-in USB-direct hidraw path for DualSense,
-  DualShock 4, Switch Pro, 8BitDo and Steam Controller class pads
+  DualShock 4, Switch Pro, 8BitDo and Steam Controller (2015, and the 2026 one,
+  ported from SDL and not yet tried on a pad) class pads
 - Motion, battery and touchpad forwarded up; rumble and light bar driven back
   down by the host
 - Several satellites side by side, with per-slot controller binding

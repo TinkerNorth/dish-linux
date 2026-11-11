@@ -3,9 +3,13 @@
 
 #include "source/usb/HidReportWriter.h"
 
+#include <linux/hidraw.h>
+#include <sys/ioctl.h>
 #include <unistd.h>
 
+#include <array>
 #include <cerrno>
+#include <cstring>
 #include <mutex>
 
 namespace dish::source::usb {
@@ -26,6 +30,23 @@ bool FdReportWriter::write(const std::uint8_t* data, std::size_t len) {
         if (errno == EINTR) { continue; }
         // Silent: a feedback write is lossy telemetry, and a pad that has gone away is about to
         // surface as a claim failure anyway.
+        return false;
+    }
+}
+
+// The ioctl takes a writable buffer, so the report is copied rather than cast; its length is the
+// transfer length, as a write's is. A signal is retried like the write's.
+bool FdReportWriter::writeFeature(const std::uint8_t* data, std::size_t len) {
+    std::array<std::uint8_t, 256> buf{};
+    if (data == nullptr || len == 0 || len > buf.size() || fd_ < 0) { return false; }
+    std::memcpy(buf.data(), data, len);
+    std::lock_guard<thread::TrackedMutex> lock(*writeMtx_);
+    for (;;) {
+        thread::blockingRegion("hid.write");
+        if (::ioctl(fd_, HIDIOCSFEATURE(static_cast<unsigned>(len)), buf.data()) >= 0) {
+            return true;
+        }
+        if (errno == EINTR) { continue; }
         return false;
     }
 }

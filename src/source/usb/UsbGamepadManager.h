@@ -228,8 +228,9 @@ class UsbGamepadManager {
     void execute(int key, const reducer::UsbController& c, const reducer::UsbEffect& fx);
 
     // A claim's output worker starts with the claim and stops before the claim is released, so a
-    // replugged pad starts its feedback state (the DualSense handoff, the lamp) afresh.
-    void startWorker(int syntheticId, int key);
+    // replugged pad starts its feedback state (the DualSense handoff, the lamp) afresh, in the
+    // rumble mode the claim's firmware read picked.
+    void startWorker(int syntheticId, int key, const input::usbout::Ds5FirmwareInfo& ds5Firmware);
     void releaseClaimAndWorker(int syntheticId);
 
     // Effectors. Each looks the device up under mtx_ and claims and applies the outcome after

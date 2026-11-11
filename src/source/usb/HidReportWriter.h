@@ -16,6 +16,9 @@ class HidReportWriter {
   public:
     virtual ~HidReportWriter() = default;
     virtual bool write(const std::uint8_t* data, std::size_t len) = 0;
+    // One feature report, `data[0]` its id, the whole report as built. False for a writer with no
+    // feature path, which is every writer but a claimed pad's own.
+    virtual bool writeFeature(const std::uint8_t* /*data*/, std::size_t /*len*/) { return false; }
 
   protected:
     HidReportWriter() = default;
@@ -25,14 +28,16 @@ class HidReportWriter {
     HidReportWriter& operator=(HidReportWriter&&) = default;
 };
 
-// The real one: a write to the claim's hidraw node, the report exactly as built. `writeMtx` is the
-// claim's own (hid.write), shared with the gateway's other writes to the node; the node stays open
-// until the worker that owns this writer has stopped.
+// The real one: a write to the claim's hidraw node, the report exactly as built, and a feature
+// report through HIDIOCSFEATURE the same way. `writeMtx` is the claim's own (hid.write), shared
+// with the gateway's other writes to the node; the node stays open until the worker that owns
+// this writer has stopped.
 class FdReportWriter final : public HidReportWriter {
   public:
     FdReportWriter(int fd, thread::TrackedMutex* writeMtx) : fd_(fd), writeMtx_(writeMtx) {}
 
     bool write(const std::uint8_t* data, std::size_t len) override;
+    bool writeFeature(const std::uint8_t* data, std::size_t len) override;
 
   private:
     const int fd_;

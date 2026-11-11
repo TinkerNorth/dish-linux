@@ -159,7 +159,7 @@ class SlotRouter final : public input::GamepadInputProcessor::InputSink {
     void actuatePlayerLeds(const QString& slotId, std::uint8_t ledMask);
     void actuateMicLed(const QString& slotId, std::uint8_t state);
     // GUI thread: a battery heartbeat for a slot whose reports another thread publishes (a Direct
-    // pad's host battery), sent from the published table under the publishers' lock.
+    // pad's routed battery), sent from the published table under the publishers' lock.
     void sendBattery(const QString& slotId, std::uint8_t level, std::uint8_t status);
 
     // Feedback the receive threads routed to a pad, for the harness.
