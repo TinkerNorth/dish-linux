@@ -513,6 +513,7 @@ formatting for the whole app.
 | `pathSupported` | `bool` | The device is raw-HID claimable. Show the path control only when true. An Xbox pad has no such path (xpad publishes no hidraw node), and a Bluetooth-connected pad never does, because the claim is USB-only. |
 | `claimInProgress` | `bool` | `pathPhase === "claiming"`. Disable the toggle and show a spinner. |
 | `directFailure` | `string` | Last Direct-claim failure token: `"permissionDenied"` / `"busy"` / `"initFailed"` / `"dropped"`, or `""`. Drives the inline note together with the `needsReplug` and `restoreStuck` phases. |
+| `waitingForController` | `bool` | A Steam Controller receiver read directly while none of its controllers is connected. Show the waiting note; `claimInProgress` is `false` meanwhile. Each connected controller has a card of its own, and this one leaves while any is. |
 
 ### The bound-satellite join
 

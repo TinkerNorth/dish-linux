@@ -404,7 +404,13 @@ headers it reads, `src/joystick/hidapi/steam/controller_structs.h` and
 `controller_constants.h`. Only offsets, values and their meanings were used,
 restated in this project's own decoders and builders; no SDL source is compiled
 in. The driver carries SDL's zlib notice, reproduced in [section 3](#sdl2). The
-two Valve headers carry the same zlib text under Valve's copyright:
+2015 receiver's slot interfaces (1 to 4) and the request that asks a slot what it
+holds (`ID_DONGLE_GET_WIRELESS_STATE`) follow SDL's 2015 driver,
+`src/joystick/hidapi/SDL_hidapi_steam.c` (`HIDAPI_DriverSteam_IsSupportedDevice`,
+`HIDAPI_DriverSteam_InitDevice`), and the Linux kernel's
+`drivers/hid/hid-steam.c` (`steam_is_valve_interface`, `steam_get_conn_status`,
+`GPL-2.0-or-later`), in the same way: interface numbers and a message id, no
+code. The two Valve headers carry the same zlib text under Valve's copyright:
 
 ```
 Copyright (C) 2020 Valve Corporation   (controller_structs.h)

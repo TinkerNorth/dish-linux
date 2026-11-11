@@ -27,7 +27,8 @@ Physical controllers only. There is no on-screen touch gamepad; that belongs to
   thread
 - SDL2 for every pad, plus an opt-in USB-direct hidraw path for DualSense,
   DualShock 4, Switch Pro, 8BitDo and Steam Controller (2015, and the 2026 one,
-  ported from SDL and not yet tried on a pad) class pads
+  ported from SDL and not yet tried on a pad; every controller on a receiver
+  reads as a pad of its own) class pads
 - Motion, battery and touchpad forwarded up; rumble and light bar driven back
   down by the host
 - Several satellites side by side, with per-slot controller binding

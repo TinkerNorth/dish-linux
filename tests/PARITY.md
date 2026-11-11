@@ -88,7 +88,7 @@ paired one against it yet.
 | 8BitDo | ✅ known XInput models | ✅ in HID mode (generic HID parser); Standard only in XInput mode (XUSB owns it) | ✅ in HID mode (generic HID parser); Standard only in XInput mode (xpad owns it) |
 | Xbox 360 / One / Series wired | ✅ | ❌ Standard only (XUSB owns it) | ❌ Standard only (xpad owns it) |
 | Stadia | ✅ | ⚠️ generic HID parser, manual pick | ⚠️ generic HID parser, manual pick |
-| Steam Controller (2015) | ✅ | ⚠️ never verified | ⚠️ never verified; the mainline hid-steam driver exposes an evdev twin and manages lizard mode itself |
+| Steam Controller (2015) | ✅ | ⚠️ never verified; each controller on the receiver a pad of its own | ⚠️ never verified; each controller on the receiver a pad of its own (see below); the mainline hid-steam driver exposes an evdev twin and manages lizard mode itself |
 | Steam Controller (2026) | ❌ | ⚠️ never verified, ported from SDL | ⚠️ never verified, ported from SDL (see below) |
 
 The 2026 Steam Controller (wired `28DE:1302`, dongles `28DE:1304` and
@@ -100,10 +100,31 @@ because the pad's firmware turns lizard mode back on otherwise, and repeats a
 running rumble every 40 ms, because the pad stops one on its own. Open
 follow-ups: the two trackpads, the four back paddles, the quick-access button,
 the trigger and trackpad clicks and the capacitive touches have no wire field
-and are not forwarded; a dongle is claimed on the first of its pad interfaces
-(2 to 5) the system lists, because Direct keys a pad by model as it does for the
-2015 dongle, so a pad paired to a later slot reads nothing on Direct; and the
-Bluetooth identity (`28DE:1303`) is never Direct, like every Bluetooth pad.
+and are not forwarded; and the Bluetooth identity (`28DE:1303`) is never
+Direct, like every Bluetooth pad.
+
+A Steam Controller receiver (the 2015 `28DE:1142`, the 2026 `28DE:1304` and
+`28DE:1305`) serves up to four paired controllers, one HID interface each: 1 to
+4 on the 2015 receiver, its keyboard on 0, and 2 to 5 on the 2026 ones (SDL's
+`HIDAPI_DriverSteam_IsSupportedDevice` and
+`HIDAPI_DriverSteamTriton_IsSupportedDevice`, the kernel's
+`steam_is_valve_interface`). The Direct pick is the receiver's and claims every
+slot, all of them or none. A slot is a pad of its own, with its own card and
+binding, while its controller is there: from its connect event (the 2015 pad's
+`ID_CONTROLLER_WIRELESS`, the 2026 pad's `0x46`/`0x79`) or its first report,
+until its disconnect event, which the next 1 s scan turns into the card
+appearing or leaving. An empty slot stays claimed to listen and is no pad;
+while no controller is on, the receiver keeps its own card, which says so. A
+slot's id is its interface, so a controller that comes back lands on its card
+and its Moonlight binding; a satellite binding leaves with the controller, as
+it does for any pad that goes, and never moves onto another slot's. The 2015
+receiver's slot is asked what it holds (`ID_DONGLE_GET_WIRELESS_STATE`) when it
+opens and quieted when its controller arrives. No receiver has been on hand:
+how an empty slot answers the feature reports (the 2015 state request, the 2026
+pad's 3 s settings) is unverified. Open follow-up: a binding made on a receiver
+controller's SDL twin (hid-steam's evdev pad) is not matched to that
+controller's slot on a Direct pick, because SDL does not say which slot the twin
+rides; it moves by model, onto the first unbound slot's pad, or is dropped.
 
 ## 5. Decisions, not gaps
 
