@@ -19,6 +19,13 @@
 
 namespace dish::source::usb {
 
+// How a claim ends: handed back, with the settings the worker put on the pad taken off it again,
+// or gone with a pad that was unplugged, which nothing written reaches.
+enum class ClaimEnd : std::uint8_t {
+    PadHandedBack,
+    PadGone,
+};
+
 // One claimed pad's feedback and settings. A producer posts the newest state of a kind to the
 // mailbox and returns at once; the worker's own thread builds each pending kind's OUT report and
 // writes it, however long the pad takes, so a slow pad never holds the receive thread or the read
@@ -59,8 +66,12 @@ class OutputWorker {
     void postPadLink(bool linked);
 
     // Takes the settings the pad still holds off it, then joins the worker; whatever else is still
-    // pending is dropped with the claim. Idempotent.
+    // pending is dropped with the claim. Idempotent, and so is abandon(): the first of the two to
+    // be called decides how the claim ends.
     void stop();
+    // Joins the worker with nothing written to the pad: it is gone, and a write to a dead slot
+    // only waits on it.
+    void abandon();
 
     // Reports the writer took, and ones it gave up on or a family without the surface refused.
     std::uint64_t writes() const { return writes_.load(std::memory_order_acquire); }
@@ -69,6 +80,7 @@ class OutputWorker {
   private:
     using Clock = input::OutputCadence::Clock;
 
+    void end(ClaimEnd how);
     void run();
     bool hasWork() const;
     void sleepUntilWorkOrDue();
@@ -79,7 +91,13 @@ class OutputWorker {
     void padLinkMoved(bool linked);
     bool settingsApplied();
     bool quietSteamPad();
-    bool writeConfig(input::usbparse::SteamConfig stage);
+    // What a config direction came to: how many of its reports the pad took, and whether that
+    // was all of them.
+    struct ConfigWrite {
+        int taken = 0;
+        bool whole = false;
+    };
+    ConfigWrite writeConfig(input::usbparse::SteamConfig stage);
     void settleLinkBeforeHandBack();
     void handBack();
     void writeReport(const std::uint8_t* report, std::size_t n);
@@ -92,6 +110,9 @@ class OutputWorker {
     std::unique_ptr<HidReportWriter> writer_;
     input::OutputMailbox mailbox_;
     thread::WorkerWake wake_;
+    // end() sets the reason, then stopping_; the thread reads the reason after its loop ends.
+    std::atomic<bool> ending_{false};
+    std::atomic<ClaimEnd> end_{ClaimEnd::PadHandedBack};
     std::atomic<bool> stopping_{false};
     // The worker thread's own: the DualSense rumble mode, lamp and light-bar handoff shadow, the
     // Switch Pro's rolling packet counter, and whether the pad holds settings of ours to take back,

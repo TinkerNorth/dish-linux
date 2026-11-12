@@ -36,18 +36,20 @@ bool FdReportWriter::write(const std::uint8_t* data, std::size_t len) {
 
 // The ioctl takes a writable buffer, so the report is copied rather than cast; its length is the
 // transfer length, as a write's is. A signal is retried like the write's.
-bool FdReportWriter::writeFeature(const std::uint8_t* data, std::size_t len) {
+FeatureWrite FdReportWriter::writeFeature(const std::uint8_t* data, std::size_t len) {
     std::array<std::uint8_t, 256> buf{};
-    if (data == nullptr || len == 0 || len > buf.size() || fd_ < 0) { return false; }
+    if (data == nullptr || len == 0 || len > buf.size() || fd_ < 0) {
+        return FeatureWrite::Refused;
+    }
     std::memcpy(buf.data(), data, len);
     std::lock_guard<thread::TrackedMutex> lock(*writeMtx_);
     for (;;) {
         thread::blockingRegion("hid.write");
         if (::ioctl(fd_, HIDIOCSFEATURE(static_cast<unsigned>(len)), buf.data()) >= 0) {
-            return true;
+            return FeatureWrite::Taken;
         }
         if (errno == EINTR) { continue; }
-        return false;
+        return featureWriteOutcomeOf(errno);
     }
 }
 

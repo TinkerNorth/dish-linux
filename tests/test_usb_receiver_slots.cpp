@@ -123,11 +123,11 @@ class SlotWriter final : public HidReportWriter {
         writes_->reports.emplace_back(data, data + len);
         return true;
     }
-    bool writeFeature(const std::uint8_t* data, std::size_t len) override {
+    FeatureWrite writeFeature(const std::uint8_t* data, std::size_t len) override {
         const std::lock_guard<std::mutex> lock(writes_->mtx);
         writes_->features.emplace_back(data, data + len);
         writes_->featureWriters.push_back(std::this_thread::get_id());
-        return true;
+        return FeatureWrite::Taken;
     }
 
   private:
@@ -145,6 +145,8 @@ bool waitForFeatures(const SlotWrites& writes, std::size_t count) {
 
 constexpr std::uint8_t kSteamClearMappings = 0x81;
 constexpr std::uint8_t kSteamSetSettings = 0x87;
+constexpr std::uint8_t kSteamDefaultMappings = 0x85;
+constexpr std::uint8_t kSteamDefaultSettings = 0x8E;
 
 // Every claim gets an id of its own, and the gateway remembers which interface each one opened
 // and the report sink it was handed, which a test plays the slot's read thread through. A slot's
@@ -613,4 +615,41 @@ TEST_CASE("a controller that leaves publishes a blank input, so its last one doe
     REQUIRE(buttons.size() == 2U);
     CHECK(buttons.front() == dish::input::GamepadInputProcessor::Buttons::kA);
     CHECK(buttons.back() == 0);
+}
+
+TEST_CASE("a receiver unplugged is let go with nothing written to it",
+          "[usb-manager][receiver][steam]") {
+    // The pad is gone: there is no controller to take the settings off, and a write to the dead
+    // slot only waits on it.
+    FullReceiver rig;
+    rig.gateway.connected.clear();
+    rig.pickDirect();
+    rig.gateway.readOn(2, controllerArrivedEvent());
+    REQUIRE(waitForFeatures(rig.gateway.writes(2), 2));
+
+    rig.gateway.devices.clear();
+    rig.manager.reconcile();
+    rig.manager.reconcile();
+
+    REQUIRE_FALSE(rig.manager.controllerFor(kValve, kReceiver2015).has_value());
+    CHECK(rig.gateway.released.size() == 4U);
+    CHECK(rig.gateway.writes(2).messages() ==
+          std::vector<std::uint8_t>{kSteamClearMappings, kSteamSetSettings});
+}
+
+TEST_CASE("a Standard pick hands a connected controller its settings back, an empty slot nothing",
+          "[usb-manager][receiver][steam]") {
+    FullReceiver rig;
+    rig.gateway.connected.clear();
+    rig.pickDirect();
+    rig.gateway.readOn(2, controllerArrivedEvent());
+    REQUIRE(waitForFeatures(rig.gateway.writes(2), 2));
+
+    rig.manager.setPathChoice(kValve, kReceiver2015, PathChoice::Standard);
+
+    CHECK(rig.gateway.writes(2).messages() ==
+          std::vector<std::uint8_t>{kSteamClearMappings, kSteamSetSettings, kSteamDefaultMappings,
+                                    kSteamDefaultSettings, kSteamSetSettings});
+    CHECK(rig.gateway.writes(1).featureCount() == 0U);
+    CHECK(rig.gateway.writes(3).featureCount() == 0U);
 }

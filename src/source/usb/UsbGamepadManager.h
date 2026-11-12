@@ -269,9 +269,12 @@ class UsbGamepadManager {
     void unlistPad(int syntheticId);
 
     // Run the reducer for one event and execute its effects. All FSM mutation
-    // funnels through here so events apply in order.
+    // funnels through here so events apply in order. `claimEnd` is how a
+    // RemoveSynthetic ends its pads' claims: gone with the device on an
+    // unplug, handed back on every other way out of Direct.
     void applyEvent(int key, const reducer::UsbEvent& event);
-    void execute(int key, const reducer::UsbController& c, const reducer::UsbEffect& fx);
+    void execute(int key, const reducer::UsbController& c, const reducer::UsbEffect& fx,
+                 ClaimEnd claimEnd);
 
     // One pad as the claim opened it: the device, the gateway's answer and the worker made for it
     // before the claim, so the read thread had somewhere to post to from its first report on.
@@ -287,11 +290,13 @@ class UsbGamepadManager {
     // model's own pad is told it is there, which a receiver's slot learns from its link events.
     void startWorker(const OpenedPad& pad);
     void recordPad(int lead, const OpenedPad& pad);
-    void releasePad(int syntheticId);
+    void releasePad(int syntheticId, ClaimEnd end);
     bool forgetPad(int syntheticId);
-    // Every pad of the claim `lead` leads: released and kept as the held placeholder, or dropped.
+    // Every pad of the claim `lead` leads: handed back and kept as the held placeholder (Release),
+    // or dropped (RemoveSynthetic), handed back too unless the device is gone, which gets nothing
+    // written to it.
     void releasePads(int lead);
-    void dropPads(int lead);
+    void dropPads(int lead, ClaimEnd end);
     std::vector<int> padsOfClaim(int lead) const;
     bool leadsDirectClaim(const PadClaim& claim) const;
 

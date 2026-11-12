@@ -19,6 +19,7 @@
 #include <memory>
 #include <unordered_set>
 #include <utility>
+#include <variant>
 #include <vector>
 
 namespace dish::source::usb {
@@ -242,7 +243,22 @@ void UsbGamepadManager::recordPad(int lead, const OpenedPad& pad) {
     if (listed) { listPad(pad.outcome.syntheticId, pad.device); }
 }
 
-void UsbGamepadManager::releasePad(int syntheticId) {
+namespace {
+
+void endWorker(OutputWorker& worker, ClaimEnd end) {
+    switch (end) {
+    case ClaimEnd::PadHandedBack:
+        worker.stop();
+        return;
+    case ClaimEnd::PadGone:
+        worker.abandon();
+        return;
+    }
+}
+
+} // namespace
+
+void UsbGamepadManager::releasePad(int syntheticId, ClaimEnd end) {
     std::shared_ptr<OutputWorker> worker;
     {
         std::lock_guard<thread::TrackedMutex> lock(mtx_);
@@ -250,7 +266,7 @@ void UsbGamepadManager::releasePad(int syntheticId) {
             worker = std::move(it->second.worker);
         }
     }
-    if (worker != nullptr) { worker->stop(); }
+    if (worker != nullptr) { endWorker(*worker, end); }
     if (gateway_ != nullptr) { gateway_->releaseClaim(syntheticId); }
 }
 
@@ -264,13 +280,17 @@ std::vector<int> UsbGamepadManager::padsOfClaim(int lead) const {
 }
 
 void UsbGamepadManager::releasePads(int lead) {
-    for (const int syntheticId : padsOfClaim(lead)) { releasePad(syntheticId); }
+    for (const int syntheticId : padsOfClaim(lead)) {
+        releasePad(syntheticId, ClaimEnd::PadHandedBack);
+    }
 }
 
 // The held placeholder goes with the claim, and every pad of it that was on the slot list leaves.
-void UsbGamepadManager::dropPads(int lead) {
+// A model with no framework gamepad to wait for drops its pads straight from Direct, so this is
+// also where such a pad is handed back; only an unplug makes `end` the pad being gone.
+void UsbGamepadManager::dropPads(int lead, ClaimEnd end) {
     for (const int syntheticId : padsOfClaim(lead)) {
-        releasePad(syntheticId);
+        releasePad(syntheticId, end);
         if (forgetPad(syntheticId)) { unlistPad(syntheticId); }
     }
 }
@@ -696,7 +716,9 @@ void UsbGamepadManager::applyEvent(int key, const reducer::UsbEvent& event) {
         }
     }
     const reducer::UsbController& ctx = next.has_value() ? *next : *cur;
-    for (const auto& fx : effects) { execute(key, ctx, fx); }
+    const bool deviceGone = std::holds_alternative<reducer::event::UsbUnplugged>(event);
+    const ClaimEnd claimEnd = deviceGone ? ClaimEnd::PadGone : ClaimEnd::PadHandedBack;
+    for (const auto& fx : effects) { execute(key, ctx, fx, claimEnd); }
 
     // The single unidirectional notification: any FSM mutation re-renders the slot
     // list from the fresh snapshot. Emitted AFTER the effects (so the gateway
@@ -707,7 +729,7 @@ void UsbGamepadManager::applyEvent(int key, const reducer::UsbEvent& event) {
 }
 
 void UsbGamepadManager::execute(int key, const reducer::UsbController& c,
-                                const reducer::UsbEffect& fx) {
+                                const reducer::UsbEffect& fx, ClaimEnd claimEnd) {
     std::visit(
         [&](const auto& e) {
             using T = std::decay_t<decltype(e)>;
@@ -727,7 +749,7 @@ void UsbGamepadManager::execute(int key, const reducer::UsbController& c,
                     observer_->bind(e.frameworkId, *c.connId, c.type.value_or(kControllerTypeXbox));
                 }
             } else if constexpr (std::is_same_v<T, reducer::effect::RemoveSynthetic>) {
-                dropPads(e.syntheticId);
+                dropPads(e.syntheticId, claimEnd);
             } else if constexpr (std::is_same_v<T, reducer::effect::BeginHold>) {
                 if (observer_ != nullptr) { observer_->beginHold(c.vendorId, c.productId); }
             } else if constexpr (std::is_same_v<T, reducer::effect::EndHold>) {
@@ -815,7 +837,7 @@ void UsbGamepadManager::runReclaim(int key, const reducer::UsbController& c) {
     const ClaimResult outcome = claimPads(key);
     // The old placeholder synthetic is dropped on a reclaim (android removes it
     // before feeding the outcome back).
-    if (oldPlaceholder.has_value()) { dropPads(*oldPlaceholder); }
+    if (oldPlaceholder.has_value()) { dropPads(*oldPlaceholder, ClaimEnd::PadHandedBack); }
     if (outcome.ok) {
         if (observer_ != nullptr && c.connId.has_value()) {
             observer_->bind(outcome.syntheticId, *c.connId, c.type.value_or(kControllerTypeXbox));

@@ -38,12 +38,17 @@ void OutputWorker::start(std::unique_ptr<HidReportWriter> writer, bool ds5Vibrat
     thread_ = std::thread([this] { run(); });
 }
 
-void OutputWorker::stop() {
-    if (stopping_.exchange(true, std::memory_order_seq_cst)) {
-        if (thread_.joinable()) { thread_.join(); }
-        return;
+void OutputWorker::stop() { end(ClaimEnd::PadHandedBack); }
+
+void OutputWorker::abandon() { end(ClaimEnd::PadGone); }
+
+void OutputWorker::end(ClaimEnd how) {
+    const bool first = !ending_.exchange(true, std::memory_order_seq_cst);
+    if (first) {
+        end_.store(how, std::memory_order_seq_cst);
+        stopping_.store(true, std::memory_order_seq_cst);
+        wake_.notify();
     }
-    wake_.notify();
     if (thread_.joinable()) { thread_.join(); }
 }
 
@@ -87,7 +92,13 @@ void OutputWorker::run() {
         if (const auto taken = mailbox_.take()) { writeTaken(*taken, now); }
         writeDueCadence(now);
     }
-    handBack();
+    switch (end_.load(std::memory_order_seq_cst)) {
+    case ClaimEnd::PadHandedBack:
+        handBack();
+        return;
+    case ClaimEnd::PadGone:
+        return;
+    }
 }
 
 bool OutputWorker::hasWork() const {
@@ -124,7 +135,7 @@ void OutputWorker::writeReport(const std::uint8_t* report, std::size_t n) {
 }
 
 void OutputWorker::writeFeatureReport(const std::uint8_t* report, std::size_t n) {
-    countWrite(n != 0 && writer_->writeFeature(report, n));
+    countWrite(n != 0 && writer_->writeFeature(report, n) == FeatureWrite::Taken);
 }
 
 // A rumble write, the host's or the cadence's repeat of it, starts the pad's repeat clock over.
@@ -175,26 +186,34 @@ bool OutputWorker::settingsApplied() {
     return cadence_.sendsSettings();
 }
 
-// A quiet that does not take is undone at once, so a pad is never left part-way. True while the
-// pad holds settings of ours.
+// A quiet that took part-way is undone at once, so a pad is never left between the two; one whose
+// first report never reached the pad changed nothing and has nothing to undo. True while the pad
+// holds settings of ours.
 bool OutputWorker::quietSteamPad() {
-    if (writeConfig(input::usbparse::SteamConfig::Quiet)) { return true; }
-    const bool restored = writeConfig(input::usbparse::SteamConfig::Restore);
-    return !restored;
+    const ConfigWrite quiet = writeConfig(input::usbparse::SteamConfig::Quiet);
+    if (quiet.whole) { return true; }
+    if (quiet.taken == 0) { return false; }
+    const ConfigWrite restore = writeConfig(input::usbparse::SteamConfig::Restore);
+    return !restore.whole;
 }
 
 // One config direction, report by report, each offered the family's number of times; the first
-// report the pad never took ends the sequence. True when the pad took them all.
-bool OutputWorker::writeConfig(input::usbparse::SteamConfig stage) {
+// report the pad never took ends the sequence.
+OutputWorker::ConfigWrite OutputWorker::writeConfig(input::usbparse::SteamConfig stage) {
     std::array<std::uint8_t, input::usbparse::kMaxConfigReportBytes> report{};
     const int attempts = input::usbparse::configWriteAttempts(parser_);
+    ConfigWrite outcome;
     for (int i = 0;; ++i) {
         const std::size_t n =
             input::usbparse::buildPadConfigReport(parser_, stage, i, report.data(), report.size());
-        if (n == 0) { return true; }
+        if (n == 0) {
+            outcome.whole = true;
+            return outcome;
+        }
         const bool took = writeFeatureWithRetry(*writer_, report.data(), n, attempts);
         countWrite(took);
-        if (!took) { return false; }
+        if (!took) { return outcome; }
+        ++outcome.taken;
     }
 }
 
@@ -214,7 +233,7 @@ void OutputWorker::settleLinkBeforeHandBack() {
 void OutputWorker::handBack() {
     settleLinkBeforeHandBack();
     if (!holdsSettings_) { return; }
-    holdsSettings_ = !writeConfig(input::usbparse::SteamConfig::Restore);
+    holdsSettings_ = !writeConfig(input::usbparse::SteamConfig::Restore).whole;
 }
 
 // One report per pending kind, in a fixed order, each from the newest state the mailbox held. The
