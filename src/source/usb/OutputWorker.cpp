@@ -21,12 +21,22 @@ input::usbout::FeedbackState claimFeedbackState(bool ds5VibrationV2) {
 
 } // namespace
 
+OutputWorker::OutputWorker(input::usbparse::HidParser parser)
+    : parser_(parser), cadence_(parser, Clock::now()) {}
+
 OutputWorker::OutputWorker(std::unique_ptr<HidReportWriter> writer,
                            input::usbparse::HidParser parser, bool ds5VibrationV2)
-    : writer_(std::move(writer)), parser_(parser), state_(claimFeedbackState(ds5VibrationV2)),
-      cadence_(parser, Clock::now()), thread_([this] { run(); }) {}
+    : OutputWorker(parser) {
+    start(std::move(writer), ds5VibrationV2);
+}
 
 OutputWorker::~OutputWorker() { stop(); }
+
+void OutputWorker::start(std::unique_ptr<HidReportWriter> writer, bool ds5VibrationV2) {
+    writer_ = std::move(writer);
+    state_ = claimFeedbackState(ds5VibrationV2);
+    thread_ = std::thread([this] { run(); });
+}
 
 void OutputWorker::stop() {
     if (stopping_.exchange(true, std::memory_order_seq_cst)) {
@@ -64,6 +74,11 @@ void OutputWorker::postMicLed(std::uint8_t state) {
     wake_.notify();
 }
 
+void OutputWorker::postPadLink(bool linked) {
+    mailbox_.postPadLink(linked);
+    wake_.notify();
+}
+
 void OutputWorker::run() {
     const thread::ScopedThreadRole role(thread::ThreadRole::Other);
     while (!stopping_.load(std::memory_order_seq_cst)) {
@@ -72,6 +87,7 @@ void OutputWorker::run() {
         if (const auto taken = mailbox_.take()) { writeTaken(*taken, now); }
         writeDueCadence(now);
     }
+    handBack();
 }
 
 bool OutputWorker::hasWork() const {
@@ -140,12 +156,75 @@ void OutputWorker::writeDueCadence(Clock::time_point now) {
     if (cadence_.rumbleDue(now)) { writeRumble(rumbleStrong_, rumbleWeak_, now); }
 }
 
-// One report per pending kind, in a fixed order, each from the newest state the mailbox held.
+// A controller that arrives is given the family's settings and holds them; one that leaves took
+// them with it (a returning pad has rebooted), so there is nothing to take back.
+void OutputWorker::padLinkMoved(bool linked) {
+    if (!linked) {
+        holdsSettings_ = false;
+        return;
+    }
+    holdsSettings_ = settingsApplied();
+}
+
+// What a pad that is there gets: the 2015 pad its quiet sequence, now; a family whose settings
+// ride the cadence (the 2026 pad) holds them within a period of arriving with no write of this
+// one's. True when the pad holds settings a hand-back must take off again.
+bool OutputWorker::settingsApplied() {
+    const bool steam2015 = parser_ == input::usbparse::HidParser::SteamController;
+    if (steam2015) { return quietSteamPad(); }
+    return cadence_.sendsSettings();
+}
+
+// A quiet that does not take is undone at once, so a pad is never left part-way. True while the
+// pad holds settings of ours.
+bool OutputWorker::quietSteamPad() {
+    if (writeConfig(input::usbparse::SteamConfig::Quiet)) { return true; }
+    const bool restored = writeConfig(input::usbparse::SteamConfig::Restore);
+    return !restored;
+}
+
+// One config direction, report by report, each offered the family's number of times; the first
+// report the pad never took ends the sequence. True when the pad took them all.
+bool OutputWorker::writeConfig(input::usbparse::SteamConfig stage) {
+    std::array<std::uint8_t, input::usbparse::kMaxConfigReportBytes> report{};
+    const int attempts = input::usbparse::configWriteAttempts(parser_);
+    for (int i = 0;; ++i) {
+        const std::size_t n =
+            input::usbparse::buildPadConfigReport(parser_, stage, i, report.data(), report.size());
+        if (n == 0) { return true; }
+        const bool took = writeFeatureWithRetry(*writer_, report.data(), n, attempts);
+        countWrite(took);
+        if (!took) { return false; }
+    }
+}
+
+// A link that moved just before the stop still counts: a controller that left holds nothing to
+// take back; one that only just arrived holds what the cadence gave the slot, and nothing of what
+// this worker never got to write.
+void OutputWorker::settleLinkBeforeHandBack() {
+    const std::optional<input::OutputMailbox::Taken> taken = mailbox_.take();
+    const bool linkMoved = taken.has_value() && (taken->kinds & input::output::kPadLink) != 0;
+    if (!linkMoved) { return; }
+    const bool there = taken->state.padLinked;
+    holdsSettings_ = there && (holdsSettings_ || cadence_.sendsSettings());
+}
+
+// The settings the pad still holds come off it as the claim ends, the way SDL and hid-steam
+// restore a pad they close: a pad left quiet no longer works as a desktop mouse.
+void OutputWorker::handBack() {
+    settleLinkBeforeHandBack();
+    if (!holdsSettings_) { return; }
+    holdsSettings_ = !writeConfig(input::usbparse::SteamConfig::Restore);
+}
+
+// One report per pending kind, in a fixed order, each from the newest state the mailbox held. The
+// link first: a pad that just arrived is quieted before anything else reaches it.
 void OutputWorker::writeTaken(const input::OutputMailbox::Taken& taken, Clock::time_point now) {
     namespace output = input::output;
     namespace usbout = input::usbout;
     const input::OutputState& s = taken.state;
     std::array<std::uint8_t, usbout::kMaxOutputReportBytes> report{};
+    if ((taken.kinds & output::kPadLink) != 0) { padLinkMoved(s.padLinked); }
     if ((taken.kinds & output::kRumble) != 0) { writeRumble(s.strong, s.weak, now); }
     if ((taken.kinds & output::kLightbar) != 0) {
         writeReport(report.data(), usbout::buildLightbarReport(parser_, state_, s.r, s.g, s.b,

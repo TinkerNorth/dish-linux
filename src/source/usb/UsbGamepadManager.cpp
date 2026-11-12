@@ -78,15 +78,19 @@ std::vector<std::vector<UsbDeviceInfo>> padsByModel(const std::vector<UsbDeviceI
 class ClaimedPadPublisher {
   public:
     ClaimedPadPublisher(input::GamepadInputProcessor* processor, UsbDirectObserver* observer,
-                        const reducer::DirectPadKey& pad)
-        : processor_(processor), observer_(observer), pad_(pad) {
+                        const reducer::DirectPadKey& pad, std::shared_ptr<OutputWorker> worker)
+        : processor_(processor), observer_(observer), pad_(pad), worker_(std::move(worker)) {
         if (processor_ != nullptr) { index_ = processor_->add(reducer::directSlotId(pad_)); }
     }
 
+    // A controller that arrives is the output worker's to quiet, off this thread.
     void operator()(const UsbReport& r) const {
         switch (r.linkEvent) {
         case PadLinkEvent::None:
             publish(r);
+            return;
+        case PadLinkEvent::ControllerArrived:
+            worker_->postPadLink(true);
             return;
         case PadLinkEvent::ControllerLeft:
             controllerLeft();
@@ -115,6 +119,7 @@ class ClaimedPadPublisher {
     void controllerLeft() const {
         publish(UsbReport{});
         lastBattery_->store(kNoBatteryYet, std::memory_order_relaxed);
+        worker_->postPadLink(false);
     }
 
     // The decoder owns the mute latch (the wire bit is folded in on the read thread, with nothing
@@ -187,6 +192,7 @@ class ClaimedPadPublisher {
     std::optional<input::GamepadInputProcessor::DeviceIndex> index_;
     UsbDirectObserver* observer_ = nullptr;
     reducer::DirectPadKey pad_;
+    std::shared_ptr<OutputWorker> worker_;
 
     // Per claim, and shared across the copies std::function makes so the edge is tracked in one
     // place. Mic mute starts unmuted, which is what a freshly claimed pad's latch says too, so the
@@ -213,29 +219,27 @@ UsbGamepadManager::~UsbGamepadManager() {
     }
 }
 
-std::shared_ptr<OutputWorker>
-UsbGamepadManager::startWorker(int syntheticId, const UsbDeviceInfo& device,
-                               const input::usbout::Ds5FirmwareInfo& ds5Firmware) {
-    const auto parser = input::usbparse::parserForDevice(device.vendorId, device.productId);
+void UsbGamepadManager::startWorker(const OpenedPad& pad) {
+    const auto parser = input::usbparse::parserForDevice(pad.device.vendorId, pad.device.productId);
     const bool isDualSense = parser == input::usbparse::HidParser::DualSense;
-    const bool vibrationV2 =
-        isDualSense && input::usbout::ds5UsesVibrationV2(device.productId, ds5Firmware);
-    return std::make_shared<OutputWorker>(gateway_->openReportWriter(syntheticId), parser,
-                                          vibrationV2);
+    const bool vibrationV2 = isDualSense && input::usbout::ds5UsesVibrationV2(
+                                                pad.device.productId, pad.outcome.ds5Firmware);
+    pad.worker->start(gateway_->openReportWriter(pad.outcome.syntheticId), vibrationV2);
+    const bool padIsThere = !reducer::isReceiverSlot(padKeyOf(pad.device));
+    if (padIsThere) { pad.worker->postPadLink(true); }
 }
 
 // A model's own pad is on the slot list from its claim; a receiver's slot only once the gateway
 // sees its controller (followPadLinks).
-void UsbGamepadManager::recordPad(int lead, const UsbDeviceInfo& device,
-                                  const ClaimResult& outcome) {
-    const bool listed = !reducer::isReceiverSlot(padKeyOf(device));
-    const PadClaim claim{device, lead,
-                         startWorker(outcome.syntheticId, device, outcome.ds5Firmware), listed};
+void UsbGamepadManager::recordPad(int lead, const OpenedPad& pad) {
+    startWorker(pad);
+    const bool listed = !reducer::isReceiverSlot(padKeyOf(pad.device));
+    const PadClaim claim{pad.device, lead, pad.worker, listed};
     {
         std::lock_guard<thread::TrackedMutex> lock(mtx_);
-        claims_[outcome.syntheticId] = claim;
+        claims_[pad.outcome.syntheticId] = claim;
     }
-    if (listed) { listPad(outcome.syntheticId, device); }
+    if (listed) { listPad(pad.outcome.syntheticId, pad.device); }
 }
 
 void UsbGamepadManager::releasePad(int syntheticId) {
@@ -771,22 +775,30 @@ std::vector<UsbDeviceInfo> UsbGamepadManager::trackedPads(int key) const {
 ClaimResult UsbGamepadManager::claimPads(int key) {
     const std::vector<UsbDeviceInfo> pads = trackedPads(key);
     if (pads.empty()) { return ClaimResult::fail(reducer::DirectClaimFailure::Busy, false); }
-    std::vector<std::pair<UsbDeviceInfo, ClaimResult>> opened;
+    std::vector<OpenedPad> opened;
     for (const UsbDeviceInfo& pad : pads) {
-        const ClaimResult outcome = doClaim(pad);
-        if (!outcome.ok) {
+        OpenedPad openedPad = openPad(pad);
+        if (!openedPad.outcome.ok) {
             letGo(opened);
-            return outcome;
+            return openedPad.outcome;
         }
-        opened.emplace_back(pad, outcome);
+        opened.push_back(std::move(openedPad));
     }
-    const ClaimResult lead = opened.front().second;
-    for (const auto& [pad, outcome] : opened) { recordPad(lead.syntheticId, pad, outcome); }
+    const ClaimResult lead = opened.front().outcome;
+    for (const OpenedPad& pad : opened) { recordPad(lead.syntheticId, pad); }
     return lead;
 }
 
-void UsbGamepadManager::letGo(const std::vector<std::pair<UsbDeviceInfo, ClaimResult>>& opened) {
-    for (const auto& [pad, outcome] : opened) { gateway_->releaseClaim(outcome.syntheticId); }
+// The workers of pads let go were never started, and go with the claims.
+void UsbGamepadManager::letGo(const std::vector<OpenedPad>& opened) {
+    for (const OpenedPad& pad : opened) { gateway_->releaseClaim(pad.outcome.syntheticId); }
+}
+
+UsbGamepadManager::OpenedPad UsbGamepadManager::openPad(const UsbDeviceInfo& device) {
+    const auto parser = input::usbparse::parserForDevice(device.vendorId, device.productId);
+    auto worker = std::make_shared<OutputWorker>(parser);
+    const ClaimResult outcome = doClaim(device, worker);
+    return OpenedPad{device, outcome, std::move(worker)};
 }
 
 void UsbGamepadManager::runClaim(int key) {
@@ -814,12 +826,14 @@ void UsbGamepadManager::runReclaim(int key, const reducer::UsbController& c) {
     }
 }
 
-ClaimResult UsbGamepadManager::doClaim(const UsbDeviceInfo& device) {
+ClaimResult UsbGamepadManager::doClaim(const UsbDeviceInfo& device,
+                                       const std::shared_ptr<OutputWorker>& worker) {
     if (gateway_ == nullptr) {
         return ClaimResult::fail(reducer::DirectClaimFailure::Busy, /*frameworkStolen=*/false);
     }
     // The input pipeline's device id is the pad's slot id (reducer::directSlotId).
-    return gateway_->claim(device, ClaimedPadPublisher{processor_, observer_, padKeyOf(device)});
+    return gateway_->claim(device,
+                           ClaimedPadPublisher{processor_, observer_, padKeyOf(device), worker});
 }
 
 } // namespace dish::source::usb

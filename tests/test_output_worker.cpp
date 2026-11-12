@@ -29,16 +29,23 @@ using dish::input::usbparse::HidParser;
 using dish::source::usb::FdReportWriter;
 using dish::source::usb::HidReportWriter;
 using dish::source::usb::OutputWorker;
+using dish::source::usb::writeFeatureWithRetry;
 using namespace std::chrono_literals;
 
 namespace {
 
-// A pad that takes `delay` to accept each report, recording what it got.
+// A pad that takes `delay` to accept each report, recording what it got and the thread that
+// wrote each feature report. It refuses the first `featureRefusals` feature reports and every one
+// whose message id is in `refusedMessages`, the way a dongle under load refuses a write.
 struct SlowPad {
     std::chrono::milliseconds delay{0};
+    int featureRefusals = 0;
+    std::vector<std::uint8_t> refusedMessages;
     mutable std::mutex mtx;
     std::vector<std::vector<std::uint8_t>> reports;
     std::vector<std::vector<std::uint8_t>> features;
+    std::vector<std::thread::id> featureWriters;
+    int featureCalls = 0;
 
     std::vector<std::vector<std::uint8_t>> got() const {
         const std::lock_guard<std::mutex> lock(mtx);
@@ -47,6 +54,14 @@ struct SlowPad {
     std::vector<std::vector<std::uint8_t>> gotFeatures() const {
         const std::lock_guard<std::mutex> lock(mtx);
         return features;
+    }
+    std::vector<std::thread::id> featureWriterIds() const {
+        const std::lock_guard<std::mutex> lock(mtx);
+        return featureWriters;
+    }
+    int featureCallCount() const {
+        const std::lock_guard<std::mutex> lock(mtx);
+        return featureCalls;
     }
 };
 
@@ -61,13 +76,35 @@ class SlowWriter final : public HidReportWriter {
     }
     bool writeFeature(const std::uint8_t* data, std::size_t len) override {
         const std::lock_guard<std::mutex> lock(pad_.mtx);
+        ++pad_.featureCalls;
+        if (pad_.featureRefusals > 0) {
+            --pad_.featureRefusals;
+            return false;
+        }
+        const bool messageRefused =
+            len > 1 && std::find(pad_.refusedMessages.begin(), pad_.refusedMessages.end(),
+                                 data[1]) != pad_.refusedMessages.end();
+        if (messageRefused) { return false; }
         pad_.features.emplace_back(data, data + len);
+        pad_.featureWriters.push_back(std::this_thread::get_id());
         return true;
     }
 
   private:
     SlowPad& pad_;
 };
+
+// The 2015 Steam Controller's config reports: report id 0 at 0, the message id at 1.
+constexpr std::uint8_t kSteamClearMappings = 0x81;
+constexpr std::uint8_t kSteamSetSettings = 0x87;
+constexpr std::uint8_t kSteamDefaultMappings = 0x85;
+constexpr std::uint8_t kSteamDefaultSettings = 0x8E;
+
+std::vector<std::uint8_t> steamMessages(const std::vector<std::vector<std::uint8_t>>& features) {
+    std::vector<std::uint8_t> out;
+    for (const auto& feature : features) { out.push_back(feature.size() > 1 ? feature[1] : 0); }
+    return out;
+}
 
 bool waitFor(const SlowPad& pad, std::size_t count) {
     const auto deadline = std::chrono::steady_clock::now() + 3s;
@@ -208,6 +245,135 @@ TEST_CASE("a running 2026 rumble is sent again until a stop", "[output-worker][t
     std::this_thread::sleep_for(200ms);
     CHECK(pad.got().size() == afterStop);
     worker.stop();
+}
+
+TEST_CASE("a 2015 Steam Controller's worker quiets a pad that is there, off the posting thread",
+          "[output-worker][steam]") {
+    SlowPad pad;
+    OutputWorker worker(std::make_unique<SlowWriter>(pad), HidParser::SteamController);
+    const auto started = std::chrono::steady_clock::now();
+    worker.postPadLink(true);
+    CHECK(std::chrono::steady_clock::now() - started < 20ms);
+    REQUIRE(waitForFeatures(pad, 2));
+    const auto features = pad.gotFeatures();
+    REQUIRE(features[0].size() == 65U);
+    CHECK(features[0][0] == 0x00);
+    CHECK(steamMessages(features) ==
+          std::vector<std::uint8_t>{kSteamClearMappings, kSteamSetSettings});
+    for (const auto& writer : pad.featureWriterIds()) {
+        CHECK(writer != std::this_thread::get_id());
+    }
+    CHECK(pad.got().empty());
+    worker.postPadLink(false);
+    worker.stop();
+}
+
+TEST_CASE("a worker handed back takes the 2015 pad's settings off it", "[output-worker][steam]") {
+    SlowPad pad;
+    OutputWorker worker(std::make_unique<SlowWriter>(pad), HidParser::SteamController);
+    worker.postPadLink(true);
+    REQUIRE(waitForFeatures(pad, 2));
+    worker.stop();
+    CHECK(steamMessages(pad.gotFeatures()) ==
+          std::vector<std::uint8_t>{kSteamClearMappings, kSteamSetSettings, kSteamDefaultMappings,
+                                    kSteamDefaultSettings, kSteamSetSettings});
+}
+
+TEST_CASE("a controller that left holds nothing to take back", "[output-worker][steam]") {
+    SlowPad pad;
+    OutputWorker worker(std::make_unique<SlowWriter>(pad), HidParser::SteamController);
+    worker.postPadLink(true);
+    REQUIRE(waitForFeatures(pad, 2));
+    worker.postPadLink(false);
+    worker.stop();
+    CHECK(pad.gotFeatures().size() == 2U);
+}
+
+TEST_CASE("a slot whose controller never came is written nothing", "[output-worker][steam]") {
+    SlowPad pad;
+    OutputWorker worker(std::make_unique<SlowWriter>(pad), HidParser::SteamController);
+    std::this_thread::sleep_for(50ms);
+    worker.stop();
+    CHECK(pad.featureCallCount() == 0);
+}
+
+TEST_CASE("a quiet the dongle refuses is offered again", "[output-worker][steam]") {
+    SlowPad pad;
+    pad.featureRefusals = 2;
+    OutputWorker worker(std::make_unique<SlowWriter>(pad), HidParser::SteamController);
+    worker.postPadLink(true);
+    REQUIRE(waitForFeatures(pad, 2));
+    CHECK(pad.featureCallCount() == 4);
+    CHECK(steamMessages(pad.gotFeatures()) ==
+          std::vector<std::uint8_t>{kSteamClearMappings, kSteamSetSettings});
+    worker.postPadLink(false);
+    worker.stop();
+}
+
+TEST_CASE("a quiet the pad never takes is undone, and the pad then holds nothing",
+          "[output-worker][steam]") {
+    // The first report is offered 25 times, 20 ms apart, then the restore sequence goes; the
+    // hand-back has nothing left to do.
+    SlowPad pad;
+    pad.refusedMessages = {kSteamClearMappings};
+    OutputWorker worker(std::make_unique<SlowWriter>(pad), HidParser::SteamController);
+    worker.postPadLink(true);
+    REQUIRE(waitForFeatures(pad, 3));
+    CHECK(steamMessages(pad.gotFeatures()) == std::vector<std::uint8_t>{kSteamDefaultMappings,
+                                                                        kSteamDefaultSettings,
+                                                                        kSteamSetSettings});
+    CHECK(pad.featureCallCount() == 28);
+    worker.stop();
+    CHECK(pad.featureCallCount() == 28);
+}
+
+TEST_CASE("a 2026 slot's settings are taken back only from a controller that is there",
+          "[output-worker][triton]") {
+    SECTION("no controller: the settings went to the slot, nothing comes back") {
+        SlowPad pad;
+        OutputWorker worker(std::make_unique<SlowWriter>(pad), HidParser::SteamTriton);
+        REQUIRE(waitForFeatures(pad, 2));
+        worker.stop();
+        CHECK(pad.gotFeatures().size() == 2U);
+    }
+    SECTION("a controller there: the IMU off, then lizard mode back on") {
+        SlowPad pad;
+        OutputWorker worker(std::make_unique<SlowWriter>(pad), HidParser::SteamTriton);
+        REQUIRE(waitForFeatures(pad, 2));
+        worker.postPadLink(true);
+        worker.stop();
+        const auto features = pad.gotFeatures();
+        REQUIRE(features.size() == 4U);
+        CHECK(features[2][3] == 48); // SETTING_IMU_MODE
+        CHECK(features[2][4] == 0);  // off
+        CHECK(features[3][3] == 9);  // SETTING_LIZARD_MODE
+        CHECK(features[3][4] == 1);  // on
+    }
+}
+
+TEST_CASE("what is posted before the worker starts is taken when it does", "[output-worker]") {
+    SlowPad pad;
+    OutputWorker worker(HidParser::SteamController);
+    worker.postPadLink(true);
+    std::this_thread::sleep_for(20ms);
+    CHECK(pad.featureCallCount() == 0);
+    worker.start(std::make_unique<SlowWriter>(pad));
+    REQUIRE(waitForFeatures(pad, 2));
+    worker.postPadLink(false);
+    worker.stop();
+}
+
+TEST_CASE("a refused feature write is offered again, and a taken one ends the offers",
+          "[output-worker][hid]") {
+    SlowPad pad;
+    pad.featureRefusals = 2;
+    SlowWriter writer(pad);
+    const std::array<std::uint8_t, 3> report{0x00, kSteamClearMappings, 0x00};
+    CHECK(writeFeatureWithRetry(writer, report.data(), report.size(), 5));
+    CHECK(pad.featureCallCount() == 3);
+    pad.featureRefusals = 10;
+    CHECK_FALSE(writeFeatureWithRetry(writer, report.data(), report.size(), 3));
+    CHECK(pad.featureCallCount() == 6);
 }
 
 TEST_CASE("a family with nothing on a clock writes only what it is asked", "[output-worker]") {

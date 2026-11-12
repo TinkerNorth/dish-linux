@@ -698,6 +698,67 @@ TEST_CASE("Steam config packets refuse to overrun a caller buffer", "[usb-parser
     CHECK(buildSteamConfigPacket(SteamConfig::Quiet, -1, small, sizeof(small)) == 0);
 }
 
+TEST_CASE("a Steam config packet goes as a 65-byte feature report behind id 0",
+          "[usb-parsers][steam]") {
+    // SDL's SetFeatureReport and hid-steam's steam_send_report both send a 65-byte buffer: the id
+    // byte, the packet, zeros to the end.
+    std::array<std::uint8_t, kSteamFeatureReportBytes> report{};
+    report.fill(0xAA);
+    REQUIRE(buildSteamConfigReport(SteamConfig::Quiet, 0, report.data(), report.size()) == 65U);
+    CHECK(report[0] == 0x00);
+    CHECK(report[1] == 0x81);
+    CHECK(report[2] == 0x00);
+    CHECK(report[3] == 0x00);
+    CHECK(report[64] == 0x00);
+
+    REQUIRE(buildSteamConfigReport(SteamConfig::Quiet, 1, report.data(), report.size()) == 65U);
+    CHECK(report[1] == 0x87);
+    CHECK(report[2] == 0x09);
+    CHECK(report[11] == 0x00);
+    CHECK(buildSteamConfigReport(SteamConfig::Quiet, 2, report.data(), report.size()) == 0U);
+
+    REQUIRE(buildSteamConfigReport(SteamConfig::Restore, 2, report.data(), report.size()) == 65U);
+    CHECK(report[1] == 0x87);
+    CHECK(report[3] == 0x08);
+    CHECK(buildSteamConfigReport(SteamConfig::Restore, 3, report.data(), report.size()) == 0U);
+
+    std::array<std::uint8_t, 64> short64{};
+    CHECK(buildSteamConfigReport(SteamConfig::Quiet, 0, short64.data(), short64.size()) == 0U);
+}
+
+TEST_CASE("the receiver's state request goes as the same 65-byte feature report",
+          "[usb-parsers][steam][receiver]") {
+    std::array<std::uint8_t, kSteamFeatureReportBytes> report{};
+    REQUIRE(buildSteamReceiverStateReport(report.data(), report.size()) == 65U);
+    CHECK(report[0] == 0x00);
+    CHECK(report[1] == 0xB4);
+    CHECK(report[2] == 0x00);
+    std::array<std::uint8_t, 64> short64{};
+    CHECK(buildSteamReceiverStateReport(short64.data(), short64.size()) == 0U);
+}
+
+TEST_CASE("a family's config reports are its own, and only the 2015 pad's are offered again",
+          "[usb-parsers][steam][triton]") {
+    std::array<std::uint8_t, kMaxConfigReportBytes> report{};
+    CHECK(buildPadConfigReport(HidParser::SteamController, SteamConfig::Quiet, 0, report.data(),
+                               report.size()) == 65U);
+    CHECK(report[1] == 0x81);
+    CHECK(buildPadConfigReport(HidParser::SteamTriton, SteamConfig::Quiet, 0, report.data(),
+                               report.size()) == 64U);
+    CHECK(report[0] == 0x01);
+    CHECK(buildPadConfigReport(HidParser::SteamTriton, SteamConfig::Restore, 1, report.data(),
+                               report.size()) == 64U);
+    for (const HidParser p : {HidParser::DualSense, HidParser::DualShock4, HidParser::SwitchProUsb,
+                              HidParser::GenericHid, HidParser::None}) {
+        CHECK(buildPadConfigReport(p, SteamConfig::Quiet, 0, report.data(), report.size()) == 0U);
+        CHECK(buildPadConfigReport(p, SteamConfig::Restore, 0, report.data(), report.size()) == 0U);
+        CHECK(configWriteAttempts(p) == 1);
+    }
+    // SDL and hid-steam retry the 2015 dongle's EPIPE; the 2026 pad's settings go once.
+    CHECK(configWriteAttempts(HidParser::SteamController) == 25);
+    CHECK(configWriteAttempts(HidParser::SteamTriton) == 1);
+}
+
 TEST_CASE("Steam wireless connect and disconnect events classify", "[usb-parsers][steam]") {
     const auto disc = steamWirelessEvent(0x01);
     CHECK(checkWirelessEvent(HidParser::SteamController, disc.data(), disc.size()) ==

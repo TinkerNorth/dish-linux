@@ -273,12 +273,20 @@ class UsbGamepadManager {
     void applyEvent(int key, const reducer::UsbEvent& event);
     void execute(int key, const reducer::UsbController& c, const reducer::UsbEffect& fx);
 
-    // A pad's output worker starts with its claim and stops before the claim is released, so a
+    // One pad as the claim opened it: the device, the gateway's answer and the worker made for it
+    // before the claim, so the read thread had somewhere to post to from its first report on.
+    struct OpenedPad {
+        UsbDeviceInfo device;
+        ClaimResult outcome;
+        std::shared_ptr<OutputWorker> worker;
+    };
+    OpenedPad openPad(const UsbDeviceInfo& device);
+    // A pad's output worker is made with its claim and stopped before the claim is released, so a
     // replugged pad starts its feedback state (the DualSense handoff, the lamp) afresh, in the
-    // rumble mode the claim's firmware read picked.
-    std::shared_ptr<OutputWorker> startWorker(int syntheticId, const UsbDeviceInfo& device,
-                                              const input::usbout::Ds5FirmwareInfo& ds5Firmware);
-    void recordPad(int lead, const UsbDeviceInfo& device, const ClaimResult& outcome);
+    // rumble mode the claim's firmware read picked. Started here, with the claim's writer; a
+    // model's own pad is told it is there, which a receiver's slot learns from its link events.
+    void startWorker(const OpenedPad& pad);
+    void recordPad(int lead, const OpenedPad& pad);
     void releasePad(int syntheticId);
     bool forgetPad(int syntheticId);
     // Every pad of the claim `lead` leads: released and kept as the held placeholder, or dropped.
@@ -291,13 +299,14 @@ class UsbGamepadManager {
     // releasing it, because applyEvent takes mtx_ itself.
     std::vector<UsbDeviceInfo> trackedPads(int key) const;
     ClaimResult claimPads(int key);
-    void letGo(const std::vector<std::pair<UsbDeviceInfo, ClaimResult>>& opened);
+    void letGo(const std::vector<OpenedPad>& opened);
     void runClaim(int key);
     void runReclaim(int key, const reducer::UsbController& c);
     // Open + claim + read-loop bring-up; classify the outcome. The single place
     // an open/claim outcome becomes a DirectClaimFailure (the UsbGamepadManager
-    // tests pin this classification).
-    ClaimResult doClaim(const UsbDeviceInfo& device);
+    // tests pin this classification). `worker` is where the claim's read thread
+    // posts the pad's arrival and departure.
+    ClaimResult doClaim(const UsbDeviceInfo& device, const std::shared_ptr<OutputWorker>& worker);
 
     UsbDeviceGateway* gateway_;
     input::GamepadInputProcessor* processor_;

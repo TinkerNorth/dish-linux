@@ -237,10 +237,6 @@ class HidrawGateway : public UsbDeviceGateway {
         input::usbparse::HidParser parser = input::usbparse::HidParser::None;
         input::usbparse::StickAutoRangeState sticks;
         input::usbhid::HidLayout layout;
-        int featureReportLen = 0;
-        // The 2015 pad holds the quiet settings, so its release owes it the restore. The reader's
-        // once started; releaseClaim reads it after the join.
-        bool quieted = false;
         // The DualSense mic-mute latch. Atomics, because it is the one piece
         // of decode state a second thread touches: the read loop flips it on
         // the button edge, setPadMicMuted overwrites it when the user toggles
@@ -258,7 +254,8 @@ class HidrawGateway : public UsbDeviceGateway {
     Claimed* claimedFor(int syntheticId) const;
     void readLoop(Claimed* c);
     // readLoop's two decisions about one report: whether it was a dongle event rather than input,
-    // and which decoder reads it.
+    // and which decoder reads it. Neither arm writes to the pad: the read thread only says
+    // whether a controller is there.
     bool handleSteamWirelessEvent(Claimed* c, const std::uint8_t* data, std::size_t len);
     void controllerArrived(Claimed* c);
     void controllerLeft(Claimed* c);

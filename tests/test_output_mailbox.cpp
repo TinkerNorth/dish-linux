@@ -57,6 +57,20 @@ TEST_CASE("each kind posted sets its own pending bit, and a take clears them all
     CHECK_FALSE(box.take().has_value());
 }
 
+TEST_CASE("the pad's link posts like any other kind, the newest winning", "[output-mailbox]") {
+    OutputMailbox box;
+    box.postPadLink(true);
+    box.postPadLink(false);
+    const auto taken = box.take();
+    REQUIRE(taken.has_value());
+    CHECK(taken->kinds == output::kPadLink);
+    CHECK_FALSE(taken->state.padLinked);
+    box.postPadLink(true);
+    const auto again = box.take();
+    REQUIRE(again.has_value());
+    CHECK(again->state.padLinked);
+}
+
 TEST_CASE("a kind not posted again keeps its value for the next take", "[output-mailbox]") {
     OutputMailbox box;
     box.postLightbar(10, 20, 30);

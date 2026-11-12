@@ -63,10 +63,13 @@ struct ClaimResult {
 };
 
 // What a claim's read loop hands up besides decoded reports: a receiver slot's
-// controller leaving. Such a report carries no input; the manager publishes a
-// blank one in its place and forgets the controller's readings.
+// controller arriving or leaving. Such a report carries no input. The manager
+// has the slot's output worker quiet a controller that arrived, so the read
+// thread never writes to a pad; for one that left it publishes a blank input
+// and forgets the controller's readings.
 enum class PadLinkEvent : std::uint8_t {
     None,
+    ControllerArrived,
     ControllerLeft,
 };
 

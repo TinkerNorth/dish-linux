@@ -5,8 +5,10 @@
 
 #include "core/thread/TrackedMutex.h"
 
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <thread>
 
 namespace dish::source::usb {
 
@@ -27,6 +29,21 @@ class HidReportWriter {
     HidReportWriter(HidReportWriter&&) = default;
     HidReportWriter& operator=(HidReportWriter&&) = default;
 };
+
+inline constexpr std::chrono::milliseconds kFeatureWriteRetryPause{20};
+
+// A feature report offered `attempts` times in all, with a pause after each refusal: the way SDL
+// and hid-steam retry the 2015 dongle's EPIPE under load (usbparse::configWriteAttempts says how
+// often a family's reports are offered). True once the pad took it.
+inline bool writeFeatureWithRetry(HidReportWriter& writer, const std::uint8_t* report,
+                                  std::size_t len, int attempts) {
+    for (int attempt = 1; attempt <= attempts; ++attempt) {
+        if (writer.writeFeature(report, len)) { return true; }
+        const bool lastAttempt = attempt == attempts;
+        if (!lastAttempt) { std::this_thread::sleep_for(kFeatureWriteRetryPause); }
+    }
+    return false;
+}
 
 // The real one: a write to the claim's hidraw node, the report exactly as built, and a feature
 // report through HIDIOCSFEATURE the same way. `writeMtx` is the claim's own (hid.write), shared

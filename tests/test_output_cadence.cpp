@@ -35,6 +35,16 @@ TEST_CASE("a family with nothing on a clock owes nothing", "[output-cadence]") {
     }
 }
 
+TEST_CASE("only the 2026 Steam Controller's settings ride the clock", "[output-cadence]") {
+    const auto now = OutputCadence::Clock::now();
+    CHECK(OutputCadence(HidParser::SteamTriton, now).sendsSettings());
+    for (const HidParser p :
+         {HidParser::SteamController, HidParser::DualSense, HidParser::DualShock4,
+          HidParser::SwitchProUsb, HidParser::GenericHid, HidParser::None}) {
+        CHECK_FALSE(OutputCadence(p, now).sendsSettings());
+    }
+}
+
 TEST_CASE("the 2026 pad's settings are owed at the claim, then 3 s after each send",
           "[output-cadence][triton]") {
     // The claim sends no settings of its own, so the worker's first pass does.

@@ -60,7 +60,8 @@ the repos share a version number.
   connected, as it does for SDL. The receiver's own card is where direct is
   picked and carries no binding; each controller's card does. A controller
   switched off and on again shows its battery level again at once, unchanged or
-  not.
+  not. A controller's input no longer pauses while Dish sends it its settings,
+  which now go beside the input rather than in its way.
 - **Rumble on a DualSense in USB direct mode asks the pad the way its own
   driver does.** Dish set only the "compatible vibration" flag. The Linux
   driver and SDL also switch the pad from audio haptics to classic rumble in

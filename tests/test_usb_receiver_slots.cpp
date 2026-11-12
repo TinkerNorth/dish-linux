@@ -19,14 +19,18 @@
 #include <catch2/generators/catch_generators.hpp>
 
 #include <algorithm>
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <map>
+#include <memory>
+#include <mutex>
 #include <numeric>
 #include <optional>
 #include <set>
 #include <string>
+#include <thread>
 #include <tuple>
 #include <vector>
 
@@ -80,6 +84,68 @@ UsbReport controllerLeftEvent() {
     return r;
 }
 
+UsbReport controllerArrivedEvent() {
+    UsbReport r;
+    r.linkEvent = PadLinkEvent::ControllerArrived;
+    return r;
+}
+
+// What a slot's output worker wrote to the pad, and from which thread.
+struct SlotWrites {
+    mutable std::mutex mtx;
+    std::vector<std::vector<std::uint8_t>> features;
+    std::vector<std::thread::id> featureWriters;
+    std::vector<std::vector<std::uint8_t>> reports;
+
+    std::size_t featureCount() const {
+        const std::lock_guard<std::mutex> lock(mtx);
+        return features.size();
+    }
+    // The 2015 pad's message ids, byte 1 of each feature report.
+    std::vector<std::uint8_t> messages() const {
+        const std::lock_guard<std::mutex> lock(mtx);
+        std::vector<std::uint8_t> out;
+        for (const auto& feature : features) { out.push_back(feature.size() > 1 ? feature[1] : 0); }
+        return out;
+    }
+    bool wroteOn(std::thread::id thread) const {
+        const std::lock_guard<std::mutex> lock(mtx);
+        return std::find(featureWriters.begin(), featureWriters.end(), thread) !=
+               featureWriters.end();
+    }
+};
+
+class SlotWriter final : public HidReportWriter {
+  public:
+    explicit SlotWriter(std::shared_ptr<SlotWrites> writes) : writes_(std::move(writes)) {}
+    bool write(const std::uint8_t* data, std::size_t len) override {
+        const std::lock_guard<std::mutex> lock(writes_->mtx);
+        writes_->reports.emplace_back(data, data + len);
+        return true;
+    }
+    bool writeFeature(const std::uint8_t* data, std::size_t len) override {
+        const std::lock_guard<std::mutex> lock(writes_->mtx);
+        writes_->features.emplace_back(data, data + len);
+        writes_->featureWriters.push_back(std::this_thread::get_id());
+        return true;
+    }
+
+  private:
+    std::shared_ptr<SlotWrites> writes_;
+};
+
+bool waitForFeatures(const SlotWrites& writes, std::size_t count) {
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+    while (std::chrono::steady_clock::now() < deadline) {
+        if (writes.featureCount() >= count) { return true; }
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    return false;
+}
+
+constexpr std::uint8_t kSteamClearMappings = 0x81;
+constexpr std::uint8_t kSteamSetSettings = 0x87;
+
 // Every claim gets an id of its own, and the gateway remembers which interface each one opened
 // and the report sink it was handed, which a test plays the slot's read thread through. A slot's
 // controller is there while its interface is in `connected`, which is what the real gateway
@@ -94,6 +160,7 @@ class ReceiverGateway : public UsbDeviceGateway {
     std::vector<int> released;
     std::map<int, int> interfaceOf;
     std::map<int, std::function<void(const UsbReport&)>> sinkOf;
+    std::map<int, std::shared_ptr<SlotWrites>> writesOf;
     int nextSyntheticId = -1000;
 
     std::vector<UsbDeviceInfo> enumerate() override { return devices; }
@@ -113,6 +180,21 @@ class ReceiverGateway : public UsbDeviceGateway {
     void readOn(int interfaceNumber, const UsbReport& report) const {
         sinkOf.at(interfaceNumber)(report);
     }
+
+    // Each slot's worker writes to a log of its own, by the slot's interface.
+    std::unique_ptr<HidReportWriter> openReportWriter(int syntheticId) override {
+        return std::make_unique<SlotWriter>(writesFor(interfaceOf.at(syntheticId)));
+    }
+    const SlotWrites& writes(int interfaceNumber) { return *writesFor(interfaceNumber); }
+
+  private:
+    std::shared_ptr<SlotWrites> writesFor(int interfaceNumber) {
+        auto& writes = writesOf[interfaceNumber];
+        if (writes == nullptr) { writes = std::make_shared<SlotWrites>(); }
+        return writes;
+    }
+
+  public:
     void releaseClaim(int syntheticId) override { released.push_back(syntheticId); }
     bool isKnownFastLaneModel(int /*vendorId*/, int /*productId*/) const override { return false; }
     bool isClaimAlive(int syntheticId) const override {
@@ -445,6 +527,44 @@ TEST_CASE("a model whose pad is the device stays one pad, keyed by its model",
     CHECK(dish::reducer::directSlotId(pads.front().key) ==
           std::to_string((kValve << 16) | kWiredSteamController));
     CHECK(manager.directTarget(kValve, kWiredSteamController).has_value());
+}
+
+TEST_CASE("a controller arriving on a slot is quieted by the slot's worker, not by the reader",
+          "[usb-manager][receiver][steam]") {
+    FullReceiver rig;
+    rig.gateway.connected.clear();
+    rig.pickDirect();
+    const std::thread::id reader = std::this_thread::get_id();
+
+    rig.gateway.readOn(2, controllerArrivedEvent());
+
+    const SlotWrites& slot2 = rig.gateway.writes(2);
+    CHECK_FALSE(slot2.wroteOn(reader));
+    REQUIRE(waitForFeatures(slot2, 2));
+    CHECK(slot2.messages() == std::vector<std::uint8_t>{kSteamClearMappings, kSteamSetSettings});
+    CHECK_FALSE(slot2.wroteOn(reader));
+    CHECK(rig.gateway.writes(1).featureCount() == 0U);
+    CHECK(rig.gateway.writes(3).featureCount() == 0U);
+}
+
+TEST_CASE("a model's own Steam Controller is quieted by its worker at the claim",
+          "[usb-manager][receiver][steam]") {
+    ReceiverGateway gateway;
+    UsbDeviceInfo wired = slotDevice(kWiredSteamController, 0);
+    wired.name = "Valve Steam Controller";
+    gateway.devices = {wired};
+    UsbPathPreferenceRepository repo(makeSharedSettings());
+    UsbPathPreferenceStore prefs(&repo);
+    UsbGamepadManager manager(&gateway, nullptr, &prefs, nullptr);
+    const std::thread::id caller = std::this_thread::get_id();
+
+    manager.tryDirectMode(kValve, kWiredSteamController);
+    manager.reconcile();
+
+    const SlotWrites& pad = gateway.writes(0);
+    REQUIRE(waitForFeatures(pad, 2));
+    CHECK(pad.messages() == std::vector<std::uint8_t>{kSteamClearMappings, kSteamSetSettings});
+    CHECK_FALSE(pad.wroteOn(caller));
 }
 
 TEST_CASE("a controller that comes back reports its battery again, changed or not",

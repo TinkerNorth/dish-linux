@@ -823,6 +823,40 @@ inline std::size_t buildSteamReceiverStateRequest(std::uint8_t* out, std::size_t
     return sizeof(kGetWirelessState);
 }
 
+// The 2015 pad's packets as the whole feature reports they are sent as: report id 0, the packet,
+// zero-padded to the 65 bytes SDL (SetFeatureReport's buf[65]) and hid-steam
+// (STEAM_FEATURE_REPORT_SIZE) both send. kMaxConfigReportBytes sizes a scratch buffer for either
+// Steam family's reports (buildPadConfigReport).
+inline constexpr std::size_t kSteamFeatureReportBytes = 65;
+inline constexpr std::size_t kMaxConfigReportBytes = kSteamFeatureReportBytes;
+
+namespace detail {
+
+inline std::size_t frameSteamFeatureReport(const std::uint8_t* packet, std::size_t packetLen,
+                                           std::uint8_t* out, std::size_t outCap) {
+    const bool fits = packetLen != 0 && packetLen < kSteamFeatureReportBytes &&
+                      outCap >= kSteamFeatureReportBytes;
+    if (!fits) { return 0; }
+    for (std::size_t i = 0; i < kSteamFeatureReportBytes; i++) { out[i] = 0; }
+    for (std::size_t i = 0; i < packetLen; i++) { out[i + 1] = packet[i]; }
+    return kSteamFeatureReportBytes;
+}
+
+} // namespace detail
+
+inline std::size_t buildSteamConfigReport(SteamConfig stage, int index, std::uint8_t* out,
+                                          std::size_t outCap) {
+    std::uint8_t packet[16] = {};
+    const std::size_t n = buildSteamConfigPacket(stage, index, packet, sizeof(packet));
+    return detail::frameSteamFeatureReport(packet, n, out, outCap);
+}
+
+inline std::size_t buildSteamReceiverStateReport(std::uint8_t* out, std::size_t outCap) {
+    std::uint8_t packet[16] = {};
+    const std::size_t n = buildSteamReceiverStateRequest(packet, sizeof(packet));
+    return detail::frameSteamFeatureReport(packet, n, out, outCap);
+}
+
 namespace detail {
 
 // The 2015 dongle's connect/disconnect event. The framing follows SDL's D0G_IS_VALID_WIRELESS_EVENT
@@ -1147,6 +1181,49 @@ inline std::size_t buildKeepaliveReport(HidParser p, int index, std::uint8_t* ou
         return 0;
     }
     return 0;
+}
+
+// One config direction of a family, as whole feature reports for the claim's
+// output worker: the 2015 pad's quiet or restore sequence
+// (buildSteamConfigReport), the 2026 pad's (buildTritonConfigReport). Every
+// other family has nothing to send. Callers size their scratch buffer with
+// kMaxConfigReportBytes.
+inline std::size_t buildPadConfigReport(HidParser p, SteamConfig stage, int index,
+                                        std::uint8_t* out, std::size_t outCap) {
+    switch (p) {
+    case HidParser::SteamController:
+        return buildSteamConfigReport(stage, index, out, outCap);
+    case HidParser::SteamTriton:
+        return buildTritonConfigReport(stage, index, out, outCap);
+    case HidParser::DualShock4:
+    case HidParser::DualSense:
+    case HidParser::SwitchProUsb:
+    case HidParser::GenericHid:
+    case HidParser::None:
+        return 0;
+    }
+    return 0;
+}
+
+// How many times one of a family's config reports is offered before it is
+// given up: the 2015 dongle under load refuses a feature write transiently
+// (EPIPE), which SDL and hid-steam retry; the 2026 pad's settings go once, as
+// SDL sends them.
+inline constexpr int kSteamConfigWriteAttempts = 25;
+
+inline int configWriteAttempts(HidParser p) {
+    switch (p) {
+    case HidParser::SteamController:
+        return kSteamConfigWriteAttempts;
+    case HidParser::SteamTriton:
+    case HidParser::DualShock4:
+    case HidParser::DualSense:
+    case HidParser::SwitchProUsb:
+    case HidParser::GenericHid:
+    case HidParser::None:
+        return 1;
+    }
+    return 1;
 }
 
 // Pure: classifies a report as a wireless connect/disconnect event for the

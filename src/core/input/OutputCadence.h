@@ -54,6 +54,10 @@ class OutputCadence {
         return settingsDueAt_.has_value() && now >= *settingsDueAt_;
     }
 
+    // Whether the family's settings ride this clock at all, so a pad that is there holds them
+    // without a write of the worker's own.
+    bool sendsSettings() const { return periods_.settings.has_value(); }
+
     // Due again a period after this send, whether or not the pad took it: a write
     // that missed is the next period's to repeat, as SDL's is.
     void settingsSent(Clock::time_point at) {

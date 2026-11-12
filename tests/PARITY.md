@@ -127,8 +127,14 @@ the controller is back, changed or not. The 2015 receiver's slot is asked what
 it holds (`ID_DONGLE_GET_WIRELESS_STATE`) when it opens, the request SDL and
 hid-steam both send; the answer is read off the slot's input stream the way
 SDL's `HIDAPI_DriverSteam_InitDevice` reads it, where hid-steam's
-`steam_get_conn_status` reads it back as a feature report. Its controller is
-quieted when it arrives. No receiver has been on hand: how an empty slot answers
+`steam_get_conn_status` reads it back as a feature report. Every Steam
+Controller's settings are its claim's output worker's: the 2015 pad's quiet
+sequence goes when the pad is there (at the claim for a wired pad, on the
+connect event or first report for a receiver's controller) and its restore
+sequence when the claim is handed back while the pad still holds them; the 2026
+pad's settings go on the worker's 3 s clock and are undone the same way. The
+read thread only flags the arrival and the departure, so a slot's reports never
+wait on a feature write. No receiver has been on hand: how an empty slot answers
 the feature reports (the 2015 state request, the 2026 pad's 3 s settings) is
 unverified. Open follow-up: a binding made on a receiver controller's SDL twin
 (hid-steam's evdev pad) is not matched to that controller's slot on a Direct
