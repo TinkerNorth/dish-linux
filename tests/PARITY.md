@@ -115,10 +115,14 @@ binding, while its controller is there: from its connect event (the 2015 pad's
 `0x46`/`0x79`) or its first report, until its disconnect event, which the next
 1 s scan turns into the card appearing or leaving. An empty slot stays claimed
 to listen and is no pad; while no controller is on, the receiver keeps its own
-card, which says so. A slot's id is its interface, so a controller that comes
-back lands on its card and its Moonlight binding; a satellite binding leaves
-with the controller, as it does for any pad that goes, and never moves onto
-another slot's. The 2015 receiver's slot is asked what it holds
+card, which says so. The receiver's card carries the path toggle only and offers
+no binding or type pick (`bindable` in `docs/QML_CONTRACT.md`): it stands for
+the receiver, not for a pad, and its id is no pad's. A controller's binding and
+type are picked on its own card, which keeps them across the controller turning
+off and on. A slot's id is its interface, so a controller that comes back lands
+on its card and its Moonlight binding; a satellite binding leaves with the
+controller, as it does for any pad that goes, and never moves onto another
+slot's. The 2015 receiver's slot is asked what it holds
 (`ID_DONGLE_GET_WIRELESS_STATE`) when it opens, the request SDL and hid-steam
 both send; the answer is read off the slot's input stream the way SDL's
 `HIDAPI_DriverSteam_InitDevice` reads it, where hid-steam's

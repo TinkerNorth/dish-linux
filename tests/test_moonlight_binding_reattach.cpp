@@ -101,6 +101,18 @@ TEST_CASE("a binding already tried since the pad appeared is not asked again",
     CHECK(bindingsToReattach({standing(kPad)}, here({{kPad, {}}}), kNone, kNone, {kPad}).empty());
 }
 
+TEST_CASE("a record never lands on a slot that carries no binding",
+          "[moonlight][binding][reattach]") {
+    // A receiver's card is listed under the id its one pad had before the slots were pads of
+    // their own, so an old record names it; the card carries no binding, and the record waits.
+    CHECK(
+        bindingsToReattach({standing(kPad)}, here({{kPad, kDualSense, false}}), kNone, kNone, kNone)
+            .empty());
+    CHECK(bindingsToReattach({standing(kOtherPad, kDualSense)}, here({{kPad, kDualSense, false}}),
+                             kNone, kNone, kNone)
+              .empty());
+}
+
 TEST_CASE("only the bindings whose pads are here are put back", "[moonlight][binding][reattach]") {
     const auto plan = bindingsToReattach({standing(kPad), standing(kOtherPad)},
                                          here({{kOtherPad, {}}}), kNone, kNone, kNone);

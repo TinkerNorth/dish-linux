@@ -78,14 +78,22 @@ inline bool slotPathSwitching(UsbPhase phase, PathChoice desired, bool usbDirect
 // Controllers emulate a keyboard and mouse) shows in place of its pads, so there
 // is a place to pick Direct from: none while a pad of it is on the slot list.
 // Direct with no pad listed is a receiver whose controllers are all off, and its
-// card waits for one.
+// card waits for one. A receiver's card stands for the receiver and not for a
+// pad, so it carries no binding or type pick: those are picked on each
+// controller's own card. A wired model's pad takes the card's own slot id
+// (directSlotId), so a binding made on that card survives the claim.
 struct ModelCard {
     bool waitingForController = false;
+    bool bindable = true;
 };
 
-inline std::optional<ModelCard> modelCardFor(const UsbController& c, bool padListed) {
+inline std::optional<ModelCard> modelCardFor(const UsbController& c, bool padListed,
+                                             bool receiver) {
     if (c.frameworkExpected || padListed) { return std::nullopt; }
-    return ModelCard{c.phase == UsbPhase::Direct};
+    ModelCard card;
+    card.waitingForController = c.phase == UsbPhase::Direct;
+    card.bindable = !receiver;
+    return card;
 }
 
 // The inverse of slotPathVpKey over the decimal slot id AppModel gives a

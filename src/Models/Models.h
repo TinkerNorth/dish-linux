@@ -484,6 +484,9 @@ struct ControllerSlot {
     // A wireless receiver Dish reads directly while none of its controllers is
     // connected (reducer::modelCardFor): the card says it waits for one.
     bool waitingForController = false;
+    // The slot can carry a binding. False for a receiver's card (reducer::modelCardFor), which
+    // stands for the receiver and not for a pad and carries the path control only.
+    bool bindable = true;
 
     // The raw-HID fast lane knows this model's report layout. Drives the
     // "Layout guessed" warn chip, which belongs on the Direct option card

@@ -57,7 +57,8 @@ the repos share a version number.
   is switched on, leaves when it is switched off and comes back on the same
   card. While none is switched on, the receiver's card says Dish is reading it
   and waits for one. A controller just paired to the receiver counts as
-  connected, as it does for SDL.
+  connected, as it does for SDL. The receiver's own card is where direct is
+  picked and carries no binding; each controller's card does.
 - **Rumble on a DualSense in USB direct mode asks the pad the way its own
   driver does.** Dish set only the "compatible vibration" flag. The Linux
   driver and SDL also switch the pad from audio haptics to classic rumble in

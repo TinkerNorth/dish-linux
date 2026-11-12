@@ -472,6 +472,7 @@ telemetry tick.
 | `live` | `bool` | The bound session is `Connected`. |
 | `dotColor` | `string` | `"success"` / `"warning"` / `"muted"`. |
 | `registering` | `bool` | An attach is in flight. Render the busy card instead of chips and actions. |
+| `bindable` | `bool` | The slot can carry a binding. `false` for the card of a Steam Controller receiver, which stands for the receiver and not for a pad: it carries the path control only, and each connected controller has a card of its own for its binding and type pick. Offer no bind entry, no wizard pick and no "not bound" state on it. |
 
 ### Hardware
 

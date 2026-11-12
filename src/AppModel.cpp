@@ -620,7 +620,7 @@ void AppModel::reattachMoonlightBindings() {
     QSet<QString> presentIds;
     QSet<QString> driving;
     for (const auto& slot : state_.slotList) {
-        present.push_back({slot.id, slot.padIdentity});
+        present.push_back({slot.id, slot.padIdentity, slot.bindable});
         presentIds.insert(slot.id);
         if (!moonlight_->boundHostFor(slot.id).isEmpty()) { driving.insert(slot.id); }
     }
@@ -1018,15 +1018,18 @@ void AppModel::appendAwaitingClaimSlots(const std::map<int, reducer::UsbControll
     // A tracked model whose stand-alone identity is not a gamepad (the Steam
     // Controller emulates a keyboard and mouse) never gets an SDL row and has
     // no synthetic until a claim succeeds — without a card of its own there
-    // would be nothing to pick Direct from. Same id as its future synthetic, so
-    // the binding and type choice survive the claim; a receiver's pads take
-    // their slots' ids, and its card stays while none of them is connected.
+    // would be nothing to pick Direct from. A model's own pad takes the card's
+    // id (reducer::directSlotId); a receiver's pads take their slots' ids, so
+    // its card carries no binding, and it stays while none of them is connected.
     for (const auto& [key, c] : controllers) {
-        const auto card = reducer::modelCardFor(c, listsPadOfModel(pads, c.vendorId, c.productId));
+        const bool receiver = input::usbparse::isReceiver(c.vendorId, c.productId);
+        const auto card =
+            reducer::modelCardFor(c, listsPadOfModel(pads, c.vendorId, c.productId), receiver);
         if (!card.has_value()) { continue; }
         models::ControllerSlot s;
         s.id = QString::fromStdString(std::to_string(key));
         s.waitingForController = card->waitingForController;
+        s.bindable = card->bindable;
         s.name = QString::fromStdString(c.name);
         s.vendorId = c.vendorId;
         s.productId = c.productId;

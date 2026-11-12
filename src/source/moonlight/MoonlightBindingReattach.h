@@ -21,6 +21,8 @@ namespace dish::source::moon {
 struct PresentPad {
     QString slotId;
     QString identity;
+    // A slot that carries no binding (a receiver's card) is never a destination.
+    bool bindable = true;
 };
 
 struct Reattach {
@@ -40,7 +42,7 @@ bindingsToReattach(const std::vector<repository::MoonlightBinding>& standing,
     for (const auto& binding : standing) {
         const PresentPad* pad = nullptr;
         for (const auto& candidate : present) {
-            if (claimed.contains(candidate.slotId)) { continue; }
+            if (!candidate.bindable || claimed.contains(candidate.slotId)) { continue; }
             const bool byIdentity =
                 !binding.padIdentity.isEmpty() && candidate.identity == binding.padIdentity;
             const bool bySlot = binding.padIdentity.isEmpty() && candidate.slotId == binding.slotId;

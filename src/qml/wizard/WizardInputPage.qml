@@ -165,11 +165,14 @@ ColumnLayout {
             required property bool hasRumble
             required property int gamepadHz
             required property bool gamepadHzLive
+            required property bool bindable
 
             readonly property bool seedMatch: page.seedSlotId.length > 0
                                               && page.seedSlotId === padRow.slotId
 
             width: padList.width
+            // A card that carries no binding (a receiver's) is listed, not offered.
+            enabled: padRow.bindable
             selected: page.draft.slotId === padRow.slotId
             title: padRow.name
             subtitle: page.padSubtitle(padRow.bluetooth, padRow.pathSupported,

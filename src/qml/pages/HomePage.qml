@@ -73,6 +73,7 @@ Kit.Page {
     property string currentSlotName: ""
     property bool currentBound: false
     property bool currentRemappable: false
+    property bool currentBindable: true
 
     // Per-device dead-zone rows. The slot id IS the SDL bridge device id, so the
     // strip's dead-zone chip joins on it; re-pulled when the store moves.
@@ -203,6 +204,7 @@ Kit.Page {
                 required property string boundLabel
                 required property bool live
                 required property bool registering
+                required property bool bindable
                 required property bool bluetooth
                 required property bool remappable
                 required property string emulateName
@@ -245,12 +247,14 @@ Kit.Page {
                 ListView.onIsCurrentItemChanged: {
                     if (rowRoot.ListView.isCurrentItem)
                         page.setCurrentRow(rowRoot.slotId, rowRoot.name,
-                                           rowRoot.bound, rowRoot.remappable);
+                                           rowRoot.bound, rowRoot.remappable,
+                                           rowRoot.bindable);
                 }
                 Component.onCompleted: {
                     if (rowRoot.ListView.isCurrentItem)
                         page.setCurrentRow(rowRoot.slotId, rowRoot.name,
-                                           rowRoot.bound, rowRoot.remappable);
+                                           rowRoot.bound, rowRoot.remappable,
+                                           rowRoot.bindable);
                 }
 
                 TapHandler {
@@ -258,7 +262,8 @@ Kit.Page {
                     onTapped: {
                         wireList.currentIndex = rowRoot.index;
                         page.setCurrentRow(rowRoot.slotId, rowRoot.name,
-                                           rowRoot.bound, rowRoot.remappable);
+                                           rowRoot.bound, rowRoot.remappable,
+                                           rowRoot.bindable);
                         page.popupRowMenu();
                     }
                 }
@@ -418,7 +423,7 @@ Kit.Page {
 
                             // ── Satellite cell (dangling pad) ───────────────
                             Kit.ActionCard {
-                                visible: rowRoot.ghost
+                                visible: rowRoot.ghost && rowRoot.bindable
                                 title: qsTr("Bind…")
                                 subtitle: qsTr("Choose a satellite for this pad")
                                 Layout.fillWidth: true
@@ -431,10 +436,12 @@ Kit.Page {
                             }
 
                             // A registering pad's cell stays empty (nothing to
-                            // bind yet); the column holds so the wire geometry
+                            // bind yet), and so does a card that carries no
+                            // binding; the column holds so the wire geometry
                             // does not jump when it resolves.
                             Item {
-                                visible: !rowRoot.bound && rowRoot.registering
+                                visible: !rowRoot.bound
+                                         && (rowRoot.registering || !rowRoot.bindable)
                                 Layout.fillWidth: true
                                 Layout.minimumWidth: page.nodeMinWidth
                                 Layout.preferredWidth: page.nodePreferredWidth
@@ -533,7 +540,8 @@ Kit.Page {
         }
 
         Repeater {
-            model: page.rowMenuItems(page.currentBound, page.currentRemappable)
+            model: page.rowMenuItems(page.currentBound, page.currentRemappable,
+                                     page.currentBindable)
             delegate: MenuItem {
                 id: menuEntry
                 required property var modelData
@@ -580,11 +588,12 @@ Kit.Page {
 
     // ---- Navigation ---------------------------------------------------------
 
-    function setCurrentRow(slotId, slotName, bound, remappable) {
+    function setCurrentRow(slotId, slotName, bound, remappable, bindable) {
         page.currentSlotId = slotId;
         page.currentSlotName = slotName;
         page.currentBound = bound;
         page.currentRemappable = remappable;
+        page.currentBindable = bindable;
     }
 
     function openBindingEditor(slotId) {
@@ -597,7 +606,7 @@ Kit.Page {
     function editCurrentRow() {
         if (page.currentBound && page.currentSlotId.length > 0)
             page.openBindingEditor(page.currentSlotId);
-        else if (page.currentSlotId.length > 0 && page.shellApi)
+        else if (page.currentBindable && page.currentSlotId.length > 0 && page.shellApi)
             page.shellApi.openSetupWizard(page.currentSlotId);
     }
 
@@ -609,12 +618,12 @@ Kit.Page {
 
     // The row menu, built per row so an action that cannot apply is absent
     // rather than a dead entry.
-    function rowMenuItems(bound, remappable) {
+    function rowMenuItems(bound, remappable, bindable) {
         var items = [];
         if (bound) {
             items.push({ key: "edit", text: qsTr("Configure binding…") });
             items.push({ key: "unbind", text: qsTr("Unbind") });
-        } else {
+        } else if (bindable) {
             items.push({ key: "bind", text: qsTr("Bind…") });
         }
         if (remappable)

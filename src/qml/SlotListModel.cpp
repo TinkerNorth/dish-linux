@@ -149,6 +149,8 @@ std::optional<QVariant> SlotListModel::identityFieldFor(const models::Controller
         return s.emulateName;
     case RegisteringRole:
         return s.registering;
+    case BindableRole:
+        return s.bindable;
     default:
         return std::nullopt;
     }
@@ -246,6 +248,7 @@ QHash<int, QByteArray> SlotListModel::roleNames() const {
         {RemappableRole, "remappable"},
         {EmulateNameRole, "emulateName"},
         {RegisteringRole, "registering"},
+        {BindableRole, "bindable"},
         {HasMotionRole, "hasMotion"},
         {HasLightbarRole, "hasLightbar"},
         {BatteryLevelRole, "batteryLevel"},
