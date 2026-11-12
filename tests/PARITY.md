@@ -111,20 +111,24 @@ A Steam Controller receiver (the 2015 `28DE:1142`, the 2026 `28DE:1304` and
 `steam_is_valve_interface`). The Direct pick is the receiver's and claims every
 slot, all of them or none. A slot is a pad of its own, with its own card and
 binding, while its controller is there: from its connect event (the 2015 pad's
-`ID_CONTROLLER_WIRELESS`, the 2026 pad's `0x46`/`0x79`) or its first report,
-until its disconnect event, which the next 1 s scan turns into the card
-appearing or leaving. An empty slot stays claimed to listen and is no pad;
-while no controller is on, the receiver keeps its own card, which says so. A
-slot's id is its interface, so a controller that comes back lands on its card
-and its Moonlight binding; a satellite binding leaves with the controller, as
-it does for any pad that goes, and never moves onto another slot's. The 2015
-receiver's slot is asked what it holds (`ID_DONGLE_GET_WIRELESS_STATE`) when it
-opens and quieted when its controller arrives. No receiver has been on hand:
-how an empty slot answers the feature reports (the 2015 state request, the 2026
-pad's 3 s settings) is unverified. Open follow-up: a binding made on a receiver
-controller's SDL twin (hid-steam's evdev pad) is not matched to that
-controller's slot on a Direct pick, because SDL does not say which slot the twin
-rides; it moves by model, onto the first unbound slot's pad, or is dropped.
+`ID_CONTROLLER_WIRELESS`, connected or newly paired, the 2026 pad's
+`0x46`/`0x79`) or its first report, until its disconnect event, which the next
+1 s scan turns into the card appearing or leaving. An empty slot stays claimed
+to listen and is no pad; while no controller is on, the receiver keeps its own
+card, which says so. A slot's id is its interface, so a controller that comes
+back lands on its card and its Moonlight binding; a satellite binding leaves
+with the controller, as it does for any pad that goes, and never moves onto
+another slot's. The 2015 receiver's slot is asked what it holds
+(`ID_DONGLE_GET_WIRELESS_STATE`) when it opens, the request SDL and hid-steam
+both send; the answer is read off the slot's input stream the way SDL's
+`HIDAPI_DriverSteam_InitDevice` reads it, where hid-steam's
+`steam_get_conn_status` reads it back as a feature report. Its controller is
+quieted when it arrives. No receiver has been on hand: how an empty slot answers
+the feature reports (the 2015 state request, the 2026 pad's 3 s settings) is
+unverified. Open follow-up: a binding made on a receiver controller's SDL twin
+(hid-steam's evdev pad) is not matched to that controller's slot on a Direct
+pick, because SDL does not say which slot the twin rides; it moves by model,
+onto the first unbound slot's pad, or is dropped.
 
 ## 5. Decisions, not gaps
 

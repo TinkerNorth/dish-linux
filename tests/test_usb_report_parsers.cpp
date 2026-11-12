@@ -444,8 +444,9 @@ bool decodeSteam(const std::vector<std::uint8_t>& buf, ParsedReport& s, StickAut
     return decodeReport(HidParser::SteamController, buf.data(), buf.size(), s, st);
 }
 
-// Dongle wireless event framing per hid-steam: header {version u16, type,
-// payload length}, payload byte 0x01 = disconnected, 0x02 = connected.
+// Dongle wireless event framing per hid-steam and SDL: header {version u16,
+// type, payload length}, payload byte 0x01 = disconnected, 0x02 = connected,
+// 0x03 = newly paired.
 std::vector<std::uint8_t> steamWirelessEvent(std::uint8_t payload) {
     std::vector<std::uint8_t> r(64, 0);
     r[0] = 0x01;
@@ -739,12 +740,13 @@ TEST_CASE("Steam wireless classifier rejects malformed events", "[usb-parsers][s
     CHECK(checkWirelessEvent(HidParser::SteamController, badVersion.data(), badVersion.size()) ==
           WirelessEvent::None);
 
-    auto badPayloadLen = steamWirelessEvent(0x02);
-    badPayloadLen[3] = 0x02;
-    CHECK(checkWirelessEvent(HidParser::SteamController, badPayloadLen.data(),
-                             badPayloadLen.size()) == WirelessEvent::None);
+    auto emptyPayload = steamWirelessEvent(0x02);
+    emptyPayload[3] = 0x00;
+    CHECK(checkWirelessEvent(HidParser::SteamController, emptyPayload.data(),
+                             emptyPayload.size()) == WirelessEvent::None);
 
-    const auto unknownPayload = steamWirelessEvent(0x03);
+    // A payload value neither SDL nor hid-steam names.
+    const auto unknownPayload = steamWirelessEvent(0x04);
     CHECK(checkWirelessEvent(HidParser::SteamController, unknownPayload.data(),
                              unknownPayload.size()) == WirelessEvent::None);
 
@@ -754,6 +756,28 @@ TEST_CASE("Steam wireless classifier rejects malformed events", "[usb-parsers][s
     battery[2] = 0x04;
     CHECK(checkWirelessEvent(HidParser::SteamController, battery.data(), battery.size()) ==
           WirelessEvent::None);
+}
+
+TEST_CASE("Steam wireless event with a longer payload still classifies", "[usb-parsers][steam]") {
+    // SDL's D0G_IS_VALID_WIRELESS_EVENT asks for a payload of at least one byte,
+    // and hid-steam does not read the length at all.
+    auto longConnect = steamWirelessEvent(0x02);
+    longConnect[3] = 0x02;
+    CHECK(checkWirelessEvent(HidParser::SteamController, longConnect.data(), longConnect.size()) ==
+          WirelessEvent::Connect);
+
+    auto longDisconnect = steamWirelessEvent(0x01);
+    longDisconnect[3] = 0x05;
+    CHECK(checkWirelessEvent(HidParser::SteamController, longDisconnect.data(),
+                             longDisconnect.size()) == WirelessEvent::Disconnect);
+}
+
+TEST_CASE("a newly paired Steam controller is a connect", "[usb-parsers][steam]") {
+    // D0G_WIRELESS_NEWLYPAIRED: to SDL every valid event but a disconnect is a
+    // connect. hid-steam names only 1 and 2, so a value past 3 stays nothing.
+    const auto paired = steamWirelessEvent(0x03);
+    CHECK(checkWirelessEvent(HidParser::SteamController, paired.data(), paired.size()) ==
+          WirelessEvent::Connect);
 }
 
 TEST_CASE("other parsers never see wireless events", "[usb-parsers][steam]") {

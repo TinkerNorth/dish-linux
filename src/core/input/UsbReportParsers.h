@@ -652,6 +652,7 @@ inline constexpr std::uint8_t kSteamStateType = 0x01;
 inline constexpr std::uint8_t kSteamWirelessType = 0x03;
 inline constexpr std::uint8_t kSteamWirelessDisconnect = 0x01;
 inline constexpr std::uint8_t kSteamWirelessConnect = 0x02;
+inline constexpr std::uint8_t kSteamWirelessNewlyPaired = 0x03;
 inline constexpr std::int32_t kSteamTriggerMaxAnalog = 26000;
 // 15 degrees in Q16; the pads sit rotated on the shell and SDL applies the same
 // correction.
@@ -811,9 +812,10 @@ inline std::size_t buildSteamConfigPacket(SteamConfig stage, int index, std::uin
 }
 
 // Pure: writes ID_DONGLE_GET_WIRELESS_STATE, framed like the config packets, into out and returns
-// its length, or 0 when it does not fit. A 2015 receiver's slot answers it with the connect or
-// disconnect event for its controller, which is how a slot is asked what it holds when it is
-// opened (SDL's HIDAPI_DriverSteam_InitDevice; hid-steam's steam_get_conn_status).
+// its length, or 0 when it does not fit. The request SDL's HIDAPI_DriverSteam_InitDevice and
+// hid-steam's steam_get_conn_status both send when a 2015 receiver's slot opens. The slot answers
+// with the connect or disconnect event for its controller, read here off the slot's input stream
+// as SDL reads it; hid-steam reads the answer back as a feature report instead.
 inline std::size_t buildSteamReceiverStateRequest(std::uint8_t* out, std::size_t outCap) {
     static constexpr std::uint8_t kGetWirelessState[] = {0xB4, 0x00};
     if (sizeof(kGetWirelessState) > outCap) { return 0; }
@@ -823,17 +825,21 @@ inline std::size_t buildSteamReceiverStateRequest(std::uint8_t* out, std::size_t
 
 namespace detail {
 
-// The 2015 dongle's connect/disconnect event. Event framing and the one-byte
-// payload values follow the Linux hid-steam driver (steam_raw_event,
-// ID_CONTROLLER_WIRELESS).
+// The 2015 dongle's connect/disconnect event. The framing follows SDL's D0G_IS_VALID_WIRELESS_EVENT
+// (report version 1, type ID_CONTROLLER_WIRELESS, a payload of at least one byte) and the payload
+// values the Linux hid-steam driver names (steam_raw_event), with SDL's newly-paired value counted
+// as a connect the way D0G_IS_WIRELESS_CONNECT counts it.
 inline WirelessEvent steamWirelessEvent(const std::uint8_t* buf, std::size_t len) {
     if (len < 5) { return WirelessEvent::None; }
     if (buf[0] != 0x01 || buf[1] != 0x00) { return WirelessEvent::None; }
-    if (buf[2] != kSteamWirelessType || buf[3] != 0x01) { return WirelessEvent::None; }
+    const bool isWirelessType = buf[2] == kSteamWirelessType;
+    const bool hasPayload = buf[3] >= 1;
+    if (!isWirelessType || !hasPayload) { return WirelessEvent::None; }
     switch (buf[4]) {
     case kSteamWirelessDisconnect:
         return WirelessEvent::Disconnect;
     case kSteamWirelessConnect:
+    case kSteamWirelessNewlyPaired:
         return WirelessEvent::Connect;
     default:
         return WirelessEvent::None;
