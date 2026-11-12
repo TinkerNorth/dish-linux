@@ -62,6 +62,14 @@ struct ClaimResult {
     }
 };
 
+// What a claim's read loop hands up besides decoded reports: a receiver slot's
+// controller leaving. Such a report carries no input; the manager publishes a
+// blank one in its place and forgets the controller's readings.
+enum class PadLinkEvent : std::uint8_t {
+    None,
+    ControllerLeft,
+};
+
 // A decoded controller report from the claimed device's read loop, already
 // normalised to the XUSB axis/trigger scale (the gateway owns the per-model HID
 // report parse via core/input/UsbReportParsers). `wButtons` is the XUSB button
@@ -72,6 +80,9 @@ struct ClaimResult {
 // DualSense / Switch Pro); `motionValid` / `touchpadValid` gate whether the
 // manager forwards a MOTION / TOUCHPAD packet for this report.
 struct UsbReport {
+    // A link event rather than a report, when not None; every other field is then blank.
+    PadLinkEvent linkEvent = PadLinkEvent::None;
+
     std::uint16_t wButtons = 0; // XUSB button bits (already mapped by the decoder).
     std::uint8_t lt = 0;
     std::uint8_t rt = 0;
@@ -114,6 +125,12 @@ struct UsbReport {
     std::uint8_t batteryStatus = 0;
 };
 
+inline UsbReport padLinkReport(PadLinkEvent event) {
+    UsbReport report;
+    report.linkEvent = event;
+    return report;
+}
+
 class UsbDeviceGateway {
   public:
     virtual ~UsbDeviceGateway() = default;
@@ -125,8 +142,9 @@ class UsbDeviceGateway {
 
     // Open + claim the device's interrupt interface and start its read loop,
     // returning a ClaimResult. `onReport` is invoked from the gateway's read
-    // thread for each decoded report — plain C++, no allocation per call on the
-    // hot path. The synthetic id in a successful result is what the driver binds
+    // thread for each decoded report and for a receiver slot's link events
+    // (UsbReport::linkEvent) — plain C++, no allocation per call on the hot
+    // path. The synthetic id in a successful result is what the driver binds
     // and later passes to releaseClaim/markTransitioning.
     virtual ClaimResult claim(const UsbDeviceInfo& device,
                               std::function<void(const UsbReport&)> onReport) = 0;

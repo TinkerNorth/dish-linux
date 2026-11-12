@@ -9,6 +9,7 @@
 
 #include "source/usb/UsbGamepadManager.h"
 
+#include "Input/GamepadInputProcessor.h"
 #include "source/store/UsbPathPreferenceStore.h"
 #include "source/usb/UsbDeviceGateway.h"
 
@@ -30,6 +31,7 @@
 #include <vector>
 
 using namespace dish::source::usb;
+using dish::input::usbparse::kPadBatteryStatusDischarging;
 using dish::reducer::DirectClaimFailure;
 using dish::reducer::DirectPadKey;
 using dish::reducer::PathChoice;
@@ -64,9 +66,24 @@ std::vector<int> slotInterfaces(int firstSlot, int slotCount) {
     return out;
 }
 
-// Every claim gets an id of its own, and the gateway remembers which interface each one opened.
-// A slot's controller is there while its interface is in `connected`, which is what the real
-// gateway learns from the slot's wireless status events.
+UsbReport batteryReport(std::uint8_t level) {
+    UsbReport r;
+    r.batteryValid = true;
+    r.batteryLevel = level;
+    r.batteryStatus = kPadBatteryStatusDischarging;
+    return r;
+}
+
+UsbReport controllerLeftEvent() {
+    UsbReport r;
+    r.linkEvent = PadLinkEvent::ControllerLeft;
+    return r;
+}
+
+// Every claim gets an id of its own, and the gateway remembers which interface each one opened
+// and the report sink it was handed, which a test plays the slot's read thread through. A slot's
+// controller is there while its interface is in `connected`, which is what the real gateway
+// learns from the slot's wireless status events.
 class ReceiverGateway : public UsbDeviceGateway {
   public:
     std::vector<UsbDeviceInfo> devices;
@@ -76,18 +93,25 @@ class ReceiverGateway : public UsbDeviceGateway {
     std::vector<int> claimedInterfaces;
     std::vector<int> released;
     std::map<int, int> interfaceOf;
+    std::map<int, std::function<void(const UsbReport&)>> sinkOf;
     int nextSyntheticId = -1000;
 
     std::vector<UsbDeviceInfo> enumerate() override { return devices; }
     ClaimResult claim(const UsbDeviceInfo& device,
-                      std::function<void(const UsbReport&)> /*onReport*/) override {
+                      std::function<void(const UsbReport&)> onReport) override {
         claimedInterfaces.push_back(device.interfaceNumber);
         if (refusedInterface == device.interfaceNumber) {
             return ClaimResult::fail(DirectClaimFailure::Busy, /*frameworkStolen=*/false);
         }
         const int syntheticId = nextSyntheticId--;
         interfaceOf[syntheticId] = device.interfaceNumber;
+        sinkOf[device.interfaceNumber] = std::move(onReport);
         return ClaimResult::success(syntheticId);
+    }
+
+    // What the slot's read thread would hand up.
+    void readOn(int interfaceNumber, const UsbReport& report) const {
+        sinkOf.at(interfaceNumber)(report);
     }
     void releaseClaim(int syntheticId) override { released.push_back(syntheticId); }
     bool isKnownFastLaneModel(int /*vendorId*/, int /*productId*/) const override { return false; }
@@ -113,12 +137,22 @@ class ReceiverGateway : public UsbDeviceGateway {
     }
 };
 
-// The pads the manager put on the slot list and took off it, by synthetic id.
+// The pads the manager put on the slot list and took off it, by synthetic id, and the battery
+// readings it mirrored up, by slot.
 struct PadObserver : UsbDirectObserver {
+    struct Battery {
+        int slot;
+        std::uint8_t level;
+    };
     std::vector<int> added;
     std::vector<int> removed;
     std::vector<DirectClaimFailure> failures;
+    std::vector<Battery> batteries;
     int changes = 0;
+    void padBatteryChanged(const DirectPadKey& pad, std::uint8_t level,
+                           std::uint8_t /*status*/) override {
+        batteries.push_back({pad.slot, level});
+    }
     void syntheticAdded(int syntheticId, const std::string& /*name*/, bool /*hasGyro*/,
                         int /*pollRateHz*/, int /*vendorId*/, int /*productId*/) override {
         added.push_back(syntheticId);
@@ -411,4 +445,52 @@ TEST_CASE("a model whose pad is the device stays one pad, keyed by its model",
     CHECK(dish::reducer::directSlotId(pads.front().key) ==
           std::to_string((kValve << 16) | kWiredSteamController));
     CHECK(manager.directTarget(kValve, kWiredSteamController).has_value());
+}
+
+TEST_CASE("a controller that comes back reports its battery again, changed or not",
+          "[usb-manager][receiver][battery]") {
+    // The card forgets a pad's reading when the pad leaves the slot list, so the first reading
+    // after the controller returns has to reach it, even when the level is the one it had.
+    FullReceiver rig;
+    rig.pickDirect();
+
+    rig.gateway.readOn(2, batteryReport(5));
+    rig.gateway.readOn(2, batteryReport(5));
+    REQUIRE(rig.observer.batteries.size() == 1U);
+    CHECK(rig.observer.batteries.front().slot == 2);
+    CHECK(rig.observer.batteries.front().level == 5);
+
+    rig.gateway.readOn(2, controllerLeftEvent());
+    rig.gateway.readOn(2, batteryReport(5));
+
+    REQUIRE(rig.observer.batteries.size() == 2U);
+    CHECK(rig.observer.batteries.back().slot == 2);
+    CHECK(rig.observer.batteries.back().level == 5);
+}
+
+TEST_CASE("a controller that leaves publishes a blank input, so its last one does not stay latched",
+          "[usb-manager][receiver]") {
+    ReceiverGateway gateway;
+    gateway.devices = {slotDevice(kReceiver2015, 1)};
+    gateway.connected = {1};
+    dish::input::GamepadInputProcessor processor;
+    std::vector<std::uint16_t> buttons;
+    processor.setReportSender(
+        [&buttons](const std::string& /*id*/, std::uint16_t b, std::uint8_t /*lt*/,
+                   std::uint8_t /*rt*/, std::int16_t /*lx*/, std::int16_t /*ly*/,
+                   std::int16_t /*rx*/, std::int16_t /*ry*/) { buttons.push_back(b); });
+    UsbPathPreferenceRepository repo(makeSharedSettings());
+    UsbPathPreferenceStore prefs(&repo);
+    UsbGamepadManager manager(&gateway, &processor, &prefs, nullptr);
+    manager.tryDirectMode(kValve, kReceiver2015);
+    manager.reconcile();
+
+    UsbReport held;
+    held.wButtons = dish::input::GamepadInputProcessor::Buttons::kA;
+    gateway.readOn(1, held);
+    gateway.readOn(1, controllerLeftEvent());
+
+    REQUIRE(buttons.size() == 2U);
+    CHECK(buttons.front() == dish::input::GamepadInputProcessor::Buttons::kA);
+    CHECK(buttons.back() == 0);
 }

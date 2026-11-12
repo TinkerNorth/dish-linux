@@ -122,10 +122,11 @@ type are picked on its own card, which keeps them across the controller turning
 off and on. A slot's id is its interface, so a controller that comes back lands
 on its card and its Moonlight binding; a satellite binding leaves with the
 controller, as it does for any pad that goes, and never moves onto another
-slot's. The 2015 receiver's slot is asked what it holds
-(`ID_DONGLE_GET_WIRELESS_STATE`) when it opens, the request SDL and hid-steam
-both send; the answer is read off the slot's input stream the way SDL's
-`HIDAPI_DriverSteam_InitDevice` reads it, where hid-steam's
+slot's. Its battery reading leaves with it too, and is shown again as soon as
+the controller is back, changed or not. The 2015 receiver's slot is asked what
+it holds (`ID_DONGLE_GET_WIRELESS_STATE`) when it opens, the request SDL and
+hid-steam both send; the answer is read off the slot's input stream the way
+SDL's `HIDAPI_DriverSteam_InitDevice` reads it, where hid-steam's
 `steam_get_conn_status` reads it back as a feature report. Its controller is
 quieted when it arrives. No receiver has been on hand: how an empty slot answers
 the feature reports (the 2015 state request, the 2026 pad's 3 s settings) is

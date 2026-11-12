@@ -84,6 +84,22 @@ class ClaimedPadPublisher {
     }
 
     void operator()(const UsbReport& r) const {
+        switch (r.linkEvent) {
+        case PadLinkEvent::None:
+            publish(r);
+            return;
+        case PadLinkEvent::ControllerLeft:
+            controllerLeft();
+            return;
+        }
+    }
+
+  private:
+    // The battery sentinel (status 0xFF) is a value no report can produce, so the first valid
+    // reading is an edge and the card fills in at once.
+    static constexpr std::uint16_t kNoBatteryYet = 0xFFFF;
+
+    void publish(const UsbReport& r) const {
         mirrorMicMute(r);
         mirrorBattery(r);
         if (processor_ == nullptr || !index_.has_value()) { return; }
@@ -93,7 +109,14 @@ class ClaimedPadPublisher {
         publishTouchpad(index, r);
     }
 
-  private:
+    // A departing controller's last input must not stay latched, and its battery reading leaves
+    // with it: the card forgets the reading with the pad, so the first one after the controller
+    // returns is an edge again whatever its level.
+    void controllerLeft() const {
+        publish(UsbReport{});
+        lastBattery_->store(kNoBatteryYet, std::memory_order_relaxed);
+    }
+
     // The decoder owns the mute latch (the wire bit is folded in on the read thread, with nothing
     // in the way); the observer is told only on the edge, so the mirror costs one relaxed load per
     // report. Fires on THIS thread, which is padMicMuteChanged's contract.
@@ -167,12 +190,10 @@ class ClaimedPadPublisher {
 
     // Per claim, and shared across the copies std::function makes so the edge is tracked in one
     // place. Mic mute starts unmuted, which is what a freshly claimed pad's latch says too, so the
-    // first edge is a real press and not a startup echo. The battery sentinel (status 0xFF) is a
-    // value no report can produce, so the first valid reading is an edge and the card fills in at
-    // once.
+    // first edge is a real press and not a startup echo.
     std::shared_ptr<std::atomic<bool>> lastMicMuted_ = std::make_shared<std::atomic<bool>>(false);
     std::shared_ptr<std::atomic<std::uint16_t>> lastBattery_ =
-        std::make_shared<std::atomic<std::uint16_t>>(0xFFFF);
+        std::make_shared<std::atomic<std::uint16_t>>(kNoBatteryYet);
     // Touched only on the claim's raw-HID read thread.
     std::shared_ptr<input::TouchGate> touchGate_ = std::make_shared<input::TouchGate>();
 };
