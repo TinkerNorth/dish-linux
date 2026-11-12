@@ -44,6 +44,7 @@ class SlotListModel : public QAbstractListModel {
         RemappableRole,
         EmulateNameRole,
         RegisteringRole,
+        BindableRole,
 
         HasMotionRole,
         HasLightbarRole,
@@ -69,6 +70,7 @@ class SlotListModel : public QAbstractListModel {
         PathSupportedRole,
         ClaimInProgressRole,
         DirectFailureRole,
+        WaitingForControllerRole,
 
         SatIpRole,
         SatLinkStateRole,

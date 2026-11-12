@@ -209,6 +209,7 @@ set(DISH_CORE_SOURCES
     src/core/reducer/PollRateSampler.h
     src/core/reducer/UsbPathMachine.h
     src/core/reducer/UsbPathMachine.cpp
+    src/core/reducer/DirectPadKey.h
     src/core/reducer/UsbTwinDedup.h
     src/core/reducer/SatelliteLinkState.h
     src/core/reducer/SleepCycle.h

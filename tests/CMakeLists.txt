@@ -193,6 +193,7 @@ set(DISH_TEST_SOURCES
     test_usb_path_preference_store.cpp
     test_usb_gamepad_manager.cpp
     test_usb_gamepad_manager_feedback.cpp
+    test_usb_receiver_slots.cpp
     test_usb_report_parsers.cpp
     test_usb_output_reports.cpp
     test_steam_triton.cpp
@@ -209,6 +210,7 @@ set(DISH_TEST_SOURCES
     test_main_ui_state.cpp
     test_slot_list_model.cpp
     test_slot_path_fields.cpp
+    test_direct_pad_key.cpp
     test_connection_list_model.cpp
     test_app_view_model_maps.cpp
     test_app_view_model_connections.cpp

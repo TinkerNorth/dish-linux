@@ -14,8 +14,10 @@
 
 namespace dish::input {
 
-// What a pad's feedback should be now, the newest value of each kind.
+// What a pad's feedback should be now, the newest value of each kind, and whether its controller
+// is there as last told.
 struct OutputState {
+    bool padLinked = false;
     std::uint16_t strong = 0;
     std::uint16_t weak = 0;
     std::uint16_t durationMs = 0;
@@ -34,6 +36,7 @@ inline constexpr std::uint32_t kLightbar = 1U << 1;
 inline constexpr std::uint32_t kTriggerEffects = 1U << 2;
 inline constexpr std::uint32_t kPlayerLeds = 1U << 3;
 inline constexpr std::uint32_t kMicLed = 1U << 4;
+inline constexpr std::uint32_t kPadLink = 1U << 5;
 } // namespace output
 
 // One pad's feedback on its way to the thread that drives the pad. A producer (a session's
@@ -79,6 +82,10 @@ class OutputMailbox {
 
     void postMicLed(std::uint8_t state) {
         post(output::kMicLed, [&](OutputState& s) { s.micLedState = state; });
+    }
+
+    void postPadLink(bool linked) {
+        post(output::kPadLink, [&](OutputState& s) { s.padLinked = linked; });
     }
 
     bool pending() const { return pending_.load(std::memory_order_relaxed) != 0; }

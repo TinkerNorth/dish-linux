@@ -1143,6 +1143,10 @@
         <translation>Baterija %1 %</translation>
     </message>
     <message>
+        <source>Dish is reading this receiver directly. Turn on a controller paired with it.</source>
+        <translation>Dish direktno čita ovaj prijemnik. Uključite kontroler uparen s njim.</translation>
+    </message>
+    <message>
         <source>Unplug and replug the controller to finish switching.</source>
         <translation>Isključite i ponovo priključite kontroler da završite prebacivanje.</translation>
     </message>

@@ -13,6 +13,7 @@
 
 #include <array>
 #include <cstdint>
+#include <utility>
 #include <vector>
 
 using namespace dish::input::usbparse;
@@ -69,6 +70,36 @@ TEST_CASE("only Steam models settle without a framework gamepad", "[usb-parsers]
     CHECK(modelExpectsFrameworkGamepad(0x054C, 0x05C4));
     CHECK(modelExpectsFrameworkGamepad(0x0E6F, 0x0180));
     CHECK(modelExpectsFrameworkGamepad(0x1234, 0x5678));
+}
+
+TEST_CASE("the 2015 receiver's pads ride interfaces 1 to 4, its keyboard none",
+          "[usb-parsers][steam][receiver]") {
+    // SDL's HIDAPI_DriverSteam_IsSupportedDevice takes 1 to 4 on 28DE:1142, and
+    // hid-steam's steam_is_valve_interface names 0 the emulated keyboard.
+    CHECK(isReceiver(0x28DE, 0x1142));
+    CHECK_FALSE(interfaceCarriesPad(0x28DE, 0x1142, 0));
+    for (int iface = 1; iface <= 4; ++iface) { CHECK(interfaceCarriesPad(0x28DE, 0x1142, iface)); }
+    CHECK_FALSE(interfaceCarriesPad(0x28DE, 0x1142, 5));
+}
+
+TEST_CASE("a model whose pad is the device is no receiver, on any interface",
+          "[usb-parsers][receiver]") {
+    for (const auto& [vid, pid] : {std::pair{0x28DE, 0x1102}, std::pair{0x054C, 0x0CE6},
+                                   std::pair{0x2DC8, 0x3100}, std::pair{0x1234, 0x5678}}) {
+        CHECK_FALSE(isReceiver(vid, pid));
+        CHECK(interfaceCarriesPad(vid, pid, 0));
+        CHECK(interfaceCarriesPad(vid, pid, 3));
+    }
+}
+
+TEST_CASE("a 2015 receiver's slot is asked what it holds with ID_DONGLE_GET_WIRELESS_STATE",
+          "[usb-parsers][steam][receiver]") {
+    // SDL's HIDAPI_DriverSteam_InitDevice: buf[1] = 0xB4, no payload.
+    std::array<std::uint8_t, 8> out{};
+    REQUIRE(buildSteamReceiverStateRequest(out.data(), out.size()) == 2U);
+    CHECK(out[0] == 0xB4);
+    CHECK(out[1] == 0x00);
+    CHECK(buildSteamReceiverStateRequest(out.data(), 1) == 0U);
 }
 
 TEST_CASE("parser capability predicates agree with the families", "[usb-parsers]") {
@@ -413,8 +444,9 @@ bool decodeSteam(const std::vector<std::uint8_t>& buf, ParsedReport& s, StickAut
     return decodeReport(HidParser::SteamController, buf.data(), buf.size(), s, st);
 }
 
-// Dongle wireless event framing per hid-steam: header {version u16, type,
-// payload length}, payload byte 0x01 = disconnected, 0x02 = connected.
+// Dongle wireless event framing per hid-steam and SDL: header {version u16,
+// type, payload length}, payload byte 0x01 = disconnected, 0x02 = connected,
+// 0x03 = newly paired.
 std::vector<std::uint8_t> steamWirelessEvent(std::uint8_t payload) {
     std::vector<std::uint8_t> r(64, 0);
     r[0] = 0x01;
@@ -666,6 +698,67 @@ TEST_CASE("Steam config packets refuse to overrun a caller buffer", "[usb-parser
     CHECK(buildSteamConfigPacket(SteamConfig::Quiet, -1, small, sizeof(small)) == 0);
 }
 
+TEST_CASE("a Steam config packet goes as a 65-byte feature report behind id 0",
+          "[usb-parsers][steam]") {
+    // SDL's SetFeatureReport and hid-steam's steam_send_report both send a 65-byte buffer: the id
+    // byte, the packet, zeros to the end.
+    std::array<std::uint8_t, kSteamFeatureReportBytes> report{};
+    report.fill(0xAA);
+    REQUIRE(buildSteamConfigReport(SteamConfig::Quiet, 0, report.data(), report.size()) == 65U);
+    CHECK(report[0] == 0x00);
+    CHECK(report[1] == 0x81);
+    CHECK(report[2] == 0x00);
+    CHECK(report[3] == 0x00);
+    CHECK(report[64] == 0x00);
+
+    REQUIRE(buildSteamConfigReport(SteamConfig::Quiet, 1, report.data(), report.size()) == 65U);
+    CHECK(report[1] == 0x87);
+    CHECK(report[2] == 0x09);
+    CHECK(report[11] == 0x00);
+    CHECK(buildSteamConfigReport(SteamConfig::Quiet, 2, report.data(), report.size()) == 0U);
+
+    REQUIRE(buildSteamConfigReport(SteamConfig::Restore, 2, report.data(), report.size()) == 65U);
+    CHECK(report[1] == 0x87);
+    CHECK(report[3] == 0x08);
+    CHECK(buildSteamConfigReport(SteamConfig::Restore, 3, report.data(), report.size()) == 0U);
+
+    std::array<std::uint8_t, 64> short64{};
+    CHECK(buildSteamConfigReport(SteamConfig::Quiet, 0, short64.data(), short64.size()) == 0U);
+}
+
+TEST_CASE("the receiver's state request goes as the same 65-byte feature report",
+          "[usb-parsers][steam][receiver]") {
+    std::array<std::uint8_t, kSteamFeatureReportBytes> report{};
+    REQUIRE(buildSteamReceiverStateReport(report.data(), report.size()) == 65U);
+    CHECK(report[0] == 0x00);
+    CHECK(report[1] == 0xB4);
+    CHECK(report[2] == 0x00);
+    std::array<std::uint8_t, 64> short64{};
+    CHECK(buildSteamReceiverStateReport(short64.data(), short64.size()) == 0U);
+}
+
+TEST_CASE("a family's config reports are its own, and only the 2015 pad's are offered again",
+          "[usb-parsers][steam][triton]") {
+    std::array<std::uint8_t, kMaxConfigReportBytes> report{};
+    CHECK(buildPadConfigReport(HidParser::SteamController, SteamConfig::Quiet, 0, report.data(),
+                               report.size()) == 65U);
+    CHECK(report[1] == 0x81);
+    CHECK(buildPadConfigReport(HidParser::SteamTriton, SteamConfig::Quiet, 0, report.data(),
+                               report.size()) == 64U);
+    CHECK(report[0] == 0x01);
+    CHECK(buildPadConfigReport(HidParser::SteamTriton, SteamConfig::Restore, 1, report.data(),
+                               report.size()) == 64U);
+    for (const HidParser p : {HidParser::DualSense, HidParser::DualShock4, HidParser::SwitchProUsb,
+                              HidParser::GenericHid, HidParser::None}) {
+        CHECK(buildPadConfigReport(p, SteamConfig::Quiet, 0, report.data(), report.size()) == 0U);
+        CHECK(buildPadConfigReport(p, SteamConfig::Restore, 0, report.data(), report.size()) == 0U);
+        CHECK(configWriteAttempts(p) == 1);
+    }
+    // SDL and hid-steam retry the 2015 dongle's EPIPE; the 2026 pad's settings go once.
+    CHECK(configWriteAttempts(HidParser::SteamController) == 25);
+    CHECK(configWriteAttempts(HidParser::SteamTriton) == 1);
+}
+
 TEST_CASE("Steam wireless connect and disconnect events classify", "[usb-parsers][steam]") {
     const auto disc = steamWirelessEvent(0x01);
     CHECK(checkWirelessEvent(HidParser::SteamController, disc.data(), disc.size()) ==
@@ -708,12 +801,13 @@ TEST_CASE("Steam wireless classifier rejects malformed events", "[usb-parsers][s
     CHECK(checkWirelessEvent(HidParser::SteamController, badVersion.data(), badVersion.size()) ==
           WirelessEvent::None);
 
-    auto badPayloadLen = steamWirelessEvent(0x02);
-    badPayloadLen[3] = 0x02;
-    CHECK(checkWirelessEvent(HidParser::SteamController, badPayloadLen.data(),
-                             badPayloadLen.size()) == WirelessEvent::None);
+    auto emptyPayload = steamWirelessEvent(0x02);
+    emptyPayload[3] = 0x00;
+    CHECK(checkWirelessEvent(HidParser::SteamController, emptyPayload.data(),
+                             emptyPayload.size()) == WirelessEvent::None);
 
-    const auto unknownPayload = steamWirelessEvent(0x03);
+    // A payload value neither SDL nor hid-steam names.
+    const auto unknownPayload = steamWirelessEvent(0x04);
     CHECK(checkWirelessEvent(HidParser::SteamController, unknownPayload.data(),
                              unknownPayload.size()) == WirelessEvent::None);
 
@@ -723,6 +817,28 @@ TEST_CASE("Steam wireless classifier rejects malformed events", "[usb-parsers][s
     battery[2] = 0x04;
     CHECK(checkWirelessEvent(HidParser::SteamController, battery.data(), battery.size()) ==
           WirelessEvent::None);
+}
+
+TEST_CASE("Steam wireless event with a longer payload still classifies", "[usb-parsers][steam]") {
+    // SDL's D0G_IS_VALID_WIRELESS_EVENT asks for a payload of at least one byte,
+    // and hid-steam does not read the length at all.
+    auto longConnect = steamWirelessEvent(0x02);
+    longConnect[3] = 0x02;
+    CHECK(checkWirelessEvent(HidParser::SteamController, longConnect.data(), longConnect.size()) ==
+          WirelessEvent::Connect);
+
+    auto longDisconnect = steamWirelessEvent(0x01);
+    longDisconnect[3] = 0x05;
+    CHECK(checkWirelessEvent(HidParser::SteamController, longDisconnect.data(),
+                             longDisconnect.size()) == WirelessEvent::Disconnect);
+}
+
+TEST_CASE("a newly paired Steam controller is a connect", "[usb-parsers][steam]") {
+    // D0G_WIRELESS_NEWLYPAIRED: to SDL every valid event but a disconnect is a
+    // connect. hid-steam names only 1 and 2, so a value past 3 stays nothing.
+    const auto paired = steamWirelessEvent(0x03);
+    CHECK(checkWirelessEvent(HidParser::SteamController, paired.data(), paired.size()) ==
+          WirelessEvent::Connect);
 }
 
 TEST_CASE("other parsers never see wireless events", "[usb-parsers][steam]") {

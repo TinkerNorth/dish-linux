@@ -15,6 +15,7 @@
 #include "core/moonlight/MoonlightTouchDiffer.h"
 #include "core/reducer/CatalogFeatureGate.h"
 #include "core/reducer/CatalogPrewarm.h"
+#include "core/reducer/DirectPadKey.h"
 #include "core/reducer/HostBuiltInPad.h"
 #include "core/reducer/PickerVisibility.h"
 #include "core/reducer/RumbleRouting.h"
@@ -23,6 +24,7 @@
 #include "core/reducer/UsbTwinDedup.h"
 #include "source/moonlight/MoonlightBindingReattach.h"
 
+#include <algorithm>
 #include <chrono>
 #include <map>
 #include <memory>
@@ -64,34 +66,42 @@ void stampSlotPath(models::ControllerSlot& s, int vendorId, int productId, bool 
     s.directFailure = f.failure;
 }
 
-// A key is live only while its controller is still on the Direct path. Anything else is a
-// departed pad whose entry must go, so a stale value cannot linger on a reused key. True when
+QString padSlotId(const reducer::DirectPadKey& pad) {
+    return QString::fromStdString(reducer::directSlotId(pad));
+}
+
+bool listsPadOfModel(const std::vector<source::usb::UsbGamepadManager::DirectPad>& pads,
+                     int vendorId, int productId) {
+    return std::any_of(pads.begin(), pads.end(), [vendorId, productId](const auto& pad) {
+        return reducer::isPadOfModel(pad.key, vendorId, productId);
+    });
+}
+
+// A slot id is live only while its pad is still on the Direct slot list. Anything else is a
+// departed pad whose entry must go, so a stale value cannot linger on a reused id. True when
 // something was dropped.
 template <typename Value>
-bool pruneDeparted(QHash<int, Value>& byKey,
-                   const std::map<int, reducer::UsbController>& controllers) {
+bool pruneDeparted(QHash<QString, Value>& bySlot,
+                   const std::vector<source::usb::UsbGamepadManager::DirectPad>& pads) {
+    QSet<QString> live;
+    for (const auto& pad : pads) { live.insert(padSlotId(pad.key)); }
     bool pruned = false;
-    for (auto it = byKey.begin(); it != byKey.end();) {
-        const auto cit = controllers.find(it.key());
-        const bool live =
-            cit != controllers.end() && cit->second.phase == reducer::UsbPhase::Direct;
-        if (live) {
+    for (auto it = bySlot.begin(); it != bySlot.end();) {
+        if (live.contains(it.key())) {
             ++it;
         } else {
-            it = byKey.erase(it);
+            it = bySlot.erase(it);
             pruned = true;
         }
     }
     return pruned;
 }
 
-std::vector<int> directSyntheticIds(const std::map<int, reducer::UsbController>& controllers) {
+std::vector<int>
+directSyntheticIds(const std::vector<source::usb::UsbGamepadManager::DirectPad>& pads) {
     std::vector<int> present;
-    for (const auto& [key, c] : controllers) {
-        if (c.phase == reducer::UsbPhase::Direct && c.syntheticId.has_value()) {
-            present.push_back(*c.syntheticId);
-        }
-    }
+    present.reserve(pads.size());
+    for (const auto& pad : pads) { present.push_back(pad.syntheticId); }
     return present;
 }
 
@@ -610,7 +620,7 @@ void AppModel::reattachMoonlightBindings() {
     QSet<QString> presentIds;
     QSet<QString> driving;
     for (const auto& slot : state_.slotList) {
-        present.push_back({slot.id, slot.padIdentity});
+        present.push_back({slot.id, slot.padIdentity, slot.bindable});
         presentIds.insert(slot.id);
         if (!moonlight_->boundHostFor(slot.id).isEmpty()) { driving.insert(slot.id); }
     }
@@ -743,29 +753,29 @@ void AppModel::onUsbNotice(const reducer::UsbController& c, reducer::UsbNotice n
 
 // True when a rate moved or a departed pad's rate was dropped, either of which the slot list
 // renders.
-bool AppModel::applyUsbPollRates(const std::map<int, reducer::UsbController>& controllers) {
+bool AppModel::applyUsbPollRates(const DirectPads& pads) {
     source::usb::HidrawGateway* gw = usbGateway_.get();
     const auto updates = usbPollSampler_.sampleAll(
-        steadyNowMs(), directSyntheticIds(controllers),
+        steadyNowMs(), directSyntheticIds(pads),
         [gw](int id) -> std::int64_t { return gw != nullptr ? gw->completionCount(id) : 0; });
     if (updates.empty()) { return false; }
 
-    // The sampler is keyed by syntheticId but the UI's slot id is the controllers() map key, so
-    // they are translated here while both are in hand. A first sample emits no update and an idle
-    // one emits 0; 0 reads as "pending".
+    // The sampler is keyed by syntheticId but the UI's slot id is the pad's, so they are
+    // translated here while both are in hand. A first sample emits no update and an idle one
+    // emits 0; 0 reads as "pending".
     QHash<int, int> bySyntheticId;
     for (const auto& u : updates) { bySyntheticId.insert(u.deviceId, u.rateHz); }
     bool changed = false;
-    for (const auto& [key, c] : controllers) {
-        if (c.phase != reducer::UsbPhase::Direct || !c.syntheticId.has_value()) { continue; }
-        const auto it = bySyntheticId.constFind(*c.syntheticId);
+    for (const auto& pad : pads) {
+        const auto it = bySyntheticId.constFind(pad.syntheticId);
         if (it == bySyntheticId.constEnd()) { continue; }
-        if (usbPollRateHz_.value(key, -1) != it.value()) {
-            usbPollRateHz_.insert(key, it.value());
+        const QString slotId = padSlotId(pad.key);
+        if (usbPollRateHz_.value(slotId, -1) != it.value()) {
+            usbPollRateHz_.insert(slotId, it.value());
             changed = true;
         }
     }
-    return pruneDeparted(usbPollRateHz_, controllers) || changed;
+    return pruneDeparted(usbPollRateHz_, pads) || changed;
 }
 
 void AppModel::pollUsbDirect() {
@@ -774,14 +784,12 @@ void AppModel::pollUsbDirect() {
     // never regresses a working SDL pad.
     usbManager_->reconcile();
 
-    // ONE snapshot for the whole pass: controllers() returns BY VALUE, so calling it per lookup
-    // would compare find()/end() iterators from two different temporaries. That is UB, and the
-    // debug CRT asserts "map/set iterators incompatible" the moment a Direct pad exists.
-    const auto controllers = usbManager_->controllers();
-    if (applyUsbPollRates(controllers)) { rebuild(); }
+    // ONE snapshot for the whole pass: directPads() returns BY VALUE.
+    const DirectPads pads = usbManager_->directPads();
+    if (applyUsbPollRates(pads)) { rebuild(); }
     // The charge readings prune on the same rule, so a re-claimed pad starts from its own first
     // report rather than the last pad's.
-    if (pruneDeparted(usbPadBattery_, controllers)) { rebuild(); }
+    if (pruneDeparted(usbPadBattery_, pads)) { rebuild(); }
 
     heartbeatDirectBatteries();
     // Claims move on this poll, and a claimed pad is what makes an endpoint matchable at all.
@@ -789,26 +797,24 @@ void AppModel::pollUsbDirect() {
     resolveAudioRoutes();
 }
 
-void AppModel::onPadBatteryChanged(int vendorId, int productId, std::uint8_t level,
+void AppModel::onPadBatteryChanged(const reducer::DirectPadKey& pad, std::uint8_t level,
                                    std::uint8_t status) {
-    const int key = (vendorId << 16) | (productId & 0xFFFF);
+    const QString slotId = padSlotId(pad);
     const reducer::BatterySample sample{level, status};
-    if (const auto it = usbPadBattery_.constFind(key);
+    if (const auto it = usbPadBattery_.constFind(slotId);
         it != usbPadBattery_.constEnd() && *it == sample) {
         return;
     }
-    usbPadBattery_.insert(key, sample);
+    usbPadBattery_.insert(slotId, sample);
     rebuild();
 }
 
 void AppModel::heartbeatDirectBatteries() {
     if (usbManager_ == nullptr) { return; }
     const auto now = std::chrono::steady_clock::now();
-    const auto controllers = usbManager_->controllers();
     QSet<QString> live;
-    for (const auto& [key, c] : controllers) {
-        if (c.phase != reducer::UsbPhase::Direct) { continue; }
-        const QString slotId = QString::fromStdString(std::to_string(key));
+    for (const auto& directPad : usbManager_->directPads()) {
+        const QString slotId = padSlotId(directPad.key);
         live.insert(slotId);
         const auto sentAt = usbBatterySentAt_.constFind(slotId);
         if (sentAt != usbBatterySentAt_.constEnd() &&
@@ -820,7 +826,7 @@ void AppModel::heartbeatDirectBatteries() {
         // MSG_BATTERY is a heartbeat, and a lost one self-heals next tick.
         const auto host = util::readHostBattery();
         std::optional<reducer::BatterySample> pad;
-        if (const auto it = usbPadBattery_.constFind(key); it != usbPadBattery_.constEnd()) {
+        if (const auto it = usbPadBattery_.constFind(slotId); it != usbPadBattery_.constEnd()) {
             pad = *it;
         }
         const auto routed =
@@ -909,14 +915,11 @@ void AppModel::syncFrameworkPresence() {
 // one path. The hidden set goes into the bridge so those ids never reach the wire, their slots are
 // dropped so they get no binding, and the synthetics are added in their place.
 std::set<std::string>
-AppModel::hideSdlTwinsOfClaimedPads(const std::map<int, reducer::UsbController>& controllers,
+AppModel::hideSdlTwinsOfClaimedPads(const DirectPads& pads,
                                     const QList<input::SDLGamepadBridge::Device>& sdlDevices) {
     std::vector<reducer::SyntheticTwin> synthetics;
-    for (const auto& [key, c] : controllers) {
-        if (c.phase == reducer::UsbPhase::Direct) {
-            synthetics.push_back({c.vendorId, c.productId});
-        }
-    }
+    synthetics.reserve(pads.size());
+    for (const auto& pad : pads) { synthetics.push_back({pad.key.vendorId, pad.key.productId}); }
     std::vector<reducer::RoutedDevice> routed;
     routed.reserve(static_cast<std::size_t>(sdlDevices.size()));
     for (const auto& d : sdlDevices) {
@@ -964,15 +967,19 @@ void AppModel::appendSdlSlots(const QList<input::SDLGamepadBridge::Device>& sdlD
 }
 
 void AppModel::appendDirectSlots(const std::map<int, reducer::UsbController>& controllers,
-                                 QList<models::ControllerSlot>& next,
+                                 const DirectPads& pads, QList<models::ControllerSlot>& next,
                                  std::vector<reducer::PresentSlot>& presentPads) {
-    // One slot per USB-direct-claimed pad. Its id is the model key string the
-    // read loop publishes under, so binding it routes the decoded reports
-    // through the existing hub machinery.
-    for (const auto& [key, c] : controllers) {
-        if (c.phase != reducer::UsbPhase::Direct) { continue; }
+    // One slot per USB-direct pad: a claimed model's own, and each receiver slot
+    // with its controller connected. Its id is the pad's slot id the read loop
+    // publishes under, so binding it routes the decoded reports through the
+    // existing hub machinery.
+    for (const auto& pad : pads) {
+        const auto cit =
+            controllers.find(reducer::slotPathVpKey(pad.key.vendorId, pad.key.productId));
+        if (cit == controllers.end()) { continue; }
+        const reducer::UsbController& c = cit->second;
         models::ControllerSlot s;
-        s.id = QString::fromStdString(std::to_string(key));
+        s.id = padSlotId(pad.key);
         s.name = QString::fromStdString(c.name);
         s.vendorId = c.vendorId;
         s.productId = c.productId;
@@ -989,16 +996,16 @@ void AppModel::appendDirectSlots(const std::map<int, reducer::UsbController>& co
         s.verifiedModel =
             usbGateway_ != nullptr && usbGateway_->isKnownFastLaneModel(c.vendorId, c.productId);
         s.usbDirect = true;
-        s.liveRates.directPollHz = usbPollRateHz_.value(key, 0);
+        s.liveRates.directPollHz = usbPollRateHz_.value(s.id, 0);
         // The pad's own charge from its IN report; unknown until the first
         // report with the status byte lands. The wire carries the lower of
         // this and the host battery (heartbeatDirectBatteries).
-        const auto battery = usbPadBattery_.value(key, reducer::kUnknownBatterySample);
+        const auto battery = usbPadBattery_.value(s.id, reducer::kUnknownBatterySample);
         s.capabilities.batteryLevel = battery.level;
         s.capabilities.batteryStatus = battery.status;
         // A synthetic IS a USB-direct controller, so it is always
-        // path-supported; the mapper reads phase/desired/failure off its own
-        // entry, keyed by vid/pid, which round-trips to this key.
+        // path-supported; the mapper reads phase/desired/failure off its
+        // model's entry, keyed by vid/pid, which every pad of the model shares.
         stampSlotPath(s, c.vendorId, c.productId, /*bluetooth=*/false, controllers);
         presentPads.push_back({s.id.toStdString(), c.vendorId, c.productId});
         next.append(s);
@@ -1006,17 +1013,23 @@ void AppModel::appendDirectSlots(const std::map<int, reducer::UsbController>& co
 }
 
 void AppModel::appendAwaitingClaimSlots(const std::map<int, reducer::UsbController>& controllers,
-                                        QList<models::ControllerSlot>& next,
+                                        const DirectPads& pads, QList<models::ControllerSlot>& next,
                                         std::vector<reducer::PresentSlot>& presentPads) {
     // A tracked model whose stand-alone identity is not a gamepad (the Steam
     // Controller emulates a keyboard and mouse) never gets an SDL row and has
     // no synthetic until a claim succeeds — without a card of its own there
-    // would be nothing to pick Direct from. Same id as its future synthetic, so
-    // the binding and type choice survive the claim.
+    // would be nothing to pick Direct from. A model's own pad takes the card's
+    // id (reducer::directSlotId); a receiver's pads take their slots' ids, so
+    // its card carries no binding, and it stays while none of them is connected.
     for (const auto& [key, c] : controllers) {
-        if (c.frameworkExpected || c.phase == reducer::UsbPhase::Direct) { continue; }
+        const bool receiver = input::usbparse::isReceiver(c.vendorId, c.productId);
+        const auto card =
+            reducer::modelCardFor(c, listsPadOfModel(pads, c.vendorId, c.productId), receiver);
+        if (!card.has_value()) { continue; }
         models::ControllerSlot s;
         s.id = QString::fromStdString(std::to_string(key));
+        s.waitingForController = card->waitingForController;
+        s.bindable = card->bindable;
         s.name = QString::fromStdString(c.name);
         s.vendorId = c.vendorId;
         s.productId = c.productId;
@@ -1125,13 +1138,17 @@ void AppModel::rebuild() {
     std::vector<reducer::PresentSlot> presentPads;
 
     std::map<int, reducer::UsbController> controllers;
-    if (usbManager_ != nullptr) { controllers = usbManager_->controllers(); }
+    DirectPads pads;
+    if (usbManager_ != nullptr) {
+        controllers = usbManager_->controllers();
+        pads = usbManager_->directPads();
+    }
     const auto sdlDevices = bridge_->devices();
-    const std::set<std::string> hidden = hideSdlTwinsOfClaimedPads(controllers, sdlDevices);
+    const std::set<std::string> hidden = hideSdlTwinsOfClaimedPads(pads, sdlDevices);
 
     appendSdlSlots(sdlDevices, hidden, controllers, next, presentPads);
-    appendDirectSlots(controllers, next, presentPads);
-    appendAwaitingClaimSlots(controllers, next, presentPads);
+    appendDirectSlots(controllers, pads, next, presentPads);
+    appendAwaitingClaimSlots(controllers, pads, next, presentPads);
 
     // BEFORE the cross-reference below: resolveControllerType reads this to seed the type off the
     // pad's own USB identity.
@@ -1175,8 +1192,11 @@ std::optional<std::pair<int, int>> AppModel::boundPadIdentity(const QString& slo
     }
     // A synthetic slot id packs its own (vid, pid), so a just-released claim
     // still names the pad it belonged to. Whether that pad is still here is the
-    // gate's question, not this one's.
-    const std::optional<std::pair<int, int>> packed = reducer::parseSyntheticSlotId(id);
+    // gate's question, not this one's. A receiver slot's names none, so its
+    // binding leaves with its controller (reducer::departedPadIdentity).
+    const std::optional<reducer::DirectPadKey> pad = reducer::parseDirectSlotId(id);
+    if (!pad.has_value()) { return std::nullopt; }
+    const std::optional<std::pair<int, int>> packed = reducer::departedPadIdentity(*pad);
     if (reducer::isPadIdentity(packed)) { return packed; }
     return std::nullopt;
 }
@@ -1320,11 +1340,11 @@ void AppModel::republishSlotCaps(const QString& slotId) {
 void AppModel::setSlotMicMuted(const QString& slotId, bool muted) {
     if (slotId.isEmpty()) { return; }
     micMuteStore_.setMuted(slotId.toStdString(), muted);
-    const auto vp = reducer::parseSyntheticSlotId(slotId.toStdString());
-    if (vp.has_value() && usbManager_ != nullptr) {
+    const auto pad = reducer::parseDirectSlotId(slotId.toStdString());
+    if (pad.has_value() && usbManager_ != nullptr) {
         // Keep the wire latch in step so kXusbMicMute holds the same state the
         // app shows; a no-op when the pad's own button was the writer.
-        usbManager_->setPadMicMuted(vp->first, vp->second, muted);
+        usbManager_->setPadMicMuted(*pad, muted);
     }
     // The lamp answers immediately and locally — a mute that waits on a host
     // round-trip feels dead. A host MSG_MIC_LED landing later repaints it
@@ -1350,14 +1370,11 @@ void AppModel::toggleAllMics() {
     }
 }
 
-void AppModel::onPadMicMuteChanged(int vendorId, int productId, bool muted) {
-    // The synthetic slot id IS the model key's string form.
-    const QString slotId =
-        QString::fromStdString(std::to_string((vendorId << 16) | (productId & 0xFFFF)));
+void AppModel::onPadMicMuteChanged(const reducer::DirectPadKey& pad, bool muted) {
     // The latch already moved (the decoder owns it); this mirrors the store,
     // drives the lamp and reconciles the engines through the same single door
     // the UI click uses.
-    setSlotMicMuted(slotId, muted);
+    setSlotMicMuted(padSlotId(pad), muted);
 }
 
 // Faltering counts as streaming: it is a session riding out missed acks, and tearing audio down

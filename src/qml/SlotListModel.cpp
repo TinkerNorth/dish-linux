@@ -149,6 +149,8 @@ std::optional<QVariant> SlotListModel::identityFieldFor(const models::Controller
         return s.emulateName;
     case RegisteringRole:
         return s.registering;
+    case BindableRole:
+        return s.bindable;
     default:
         return std::nullopt;
     }
@@ -205,9 +207,12 @@ std::optional<QVariant> SlotListModel::pathFieldFor(const models::ControllerSlot
         // synthetic is gone). That is what lets the spinner end on a real event rather than an
         // arbitrary timer.
         return reducer::slotPathSwitching(s.pathPhase, s.desiredPath, s.usbDirect,
-                                          s.liveRates.directPollHz, s.directFailure.has_value());
+                                          s.liveRates.directPollHz, s.directFailure.has_value(),
+                                          s.waitingForController);
     case DirectFailureRole:
         return directFailureToken(s.directFailure);
+    case WaitingForControllerRole:
+        return s.waitingForController;
     default:
         return std::nullopt;
     }
@@ -243,6 +248,7 @@ QHash<int, QByteArray> SlotListModel::roleNames() const {
         {RemappableRole, "remappable"},
         {EmulateNameRole, "emulateName"},
         {RegisteringRole, "registering"},
+        {BindableRole, "bindable"},
         {HasMotionRole, "hasMotion"},
         {HasLightbarRole, "hasLightbar"},
         {BatteryLevelRole, "batteryLevel"},
@@ -261,6 +267,7 @@ QHash<int, QByteArray> SlotListModel::roleNames() const {
         {PathSupportedRole, "pathSupported"},
         {ClaimInProgressRole, "claimInProgress"},
         {DirectFailureRole, "directFailure"},
+        {WaitingForControllerRole, "waitingForController"},
         {SatIpRole, "satIp"},
         {SatLinkStateRole, "satLinkState"},
         {SatChipRole, "satChip"},

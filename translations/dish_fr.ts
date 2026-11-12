@@ -1135,6 +1135,10 @@
         <translation>Batterie %1 %</translation>
     </message>
     <message>
+        <source>Dish is reading this receiver directly. Turn on a controller paired with it.</source>
+        <translation>Dish lit ce récepteur directement. Allumez une manette appairée avec lui.</translation>
+    </message>
+    <message>
         <source>Unplug and replug the controller to finish switching.</source>
         <translation>Débranchez puis rebranchez la manette pour terminer le changement.</translation>
     </message>

@@ -141,29 +141,88 @@ TEST_CASE("parseSyntheticSlotId: a low-vid/pid key still splits correctly", "[sl
 TEST_CASE("slotPathSwitching: the derived loading state over the full switch flow",
           "[slotpath][switching]") {
     // Transitional FSM phases are always switching, regardless of desired/form.
-    CHECK(slotPathSwitching(UsbPhase::Claiming, PathChoice::Direct, false, 0, false));
-    CHECK(slotPathSwitching(UsbPhase::AwaitingFramework, PathChoice::Standard, true, 0, false));
+    CHECK(slotPathSwitching(UsbPhase::Claiming, PathChoice::Direct, false, 0, false, false));
+    CHECK(slotPathSwitching(UsbPhase::AwaitingFramework, PathChoice::Standard, true, 0, false,
+                            false));
 
     // Want Direct: switching until a synthetic exists AND its poll rate is
     // measured — the Hz arrives a moment after the claim.
-    CHECK(slotPathSwitching(UsbPhase::Direct, PathChoice::Direct, false, 0,
+    CHECK(slotPathSwitching(UsbPhase::Direct, PathChoice::Direct, false, 0, false,
                             false)); // not synthetic yet
-    CHECK(slotPathSwitching(UsbPhase::Direct, PathChoice::Direct, true, 0,
+    CHECK(slotPathSwitching(UsbPhase::Direct, PathChoice::Direct, true, 0, false,
                             false)); // synthetic, no rate yet
-    CHECK_FALSE(slotPathSwitching(UsbPhase::Direct, PathChoice::Direct, true, 250,
+    CHECK_FALSE(slotPathSwitching(UsbPhase::Direct, PathChoice::Direct, true, 250, false,
                                   false)); // settled + streaming
 
     // Want Standard: switching while still on the synthetic; settled once back on SDL.
-    CHECK(slotPathSwitching(UsbPhase::Routed, PathChoice::Standard, true, 100,
+    CHECK(slotPathSwitching(UsbPhase::Routed, PathChoice::Standard, true, 100, false,
                             false)); // still synthetic
-    CHECK_FALSE(
-        slotPathSwitching(UsbPhase::Routed, PathChoice::Standard, false, 0, false)); // back on SDL
+    CHECK_FALSE(slotPathSwitching(UsbPhase::Routed, PathChoice::Standard, false, 0, false,
+                                  false)); // back on SDL
 
-    CHECK_FALSE(slotPathSwitching(UsbPhase::Routed, PathChoice::Standard, false, 0, false));
+    CHECK_FALSE(slotPathSwitching(UsbPhase::Routed, PathChoice::Standard, false, 0, false, false));
 
     // Terminal / failure states surface an error note, never a perpetual spinner.
-    CHECK_FALSE(slotPathSwitching(UsbPhase::RestoreStuck, PathChoice::Direct, false, 0, false));
-    CHECK_FALSE(slotPathSwitching(UsbPhase::NeedsReplug, PathChoice::Direct, false, 0, false));
     CHECK_FALSE(
-        slotPathSwitching(UsbPhase::Routed, PathChoice::Direct, false, 0, /*hasFailure=*/true));
+        slotPathSwitching(UsbPhase::RestoreStuck, PathChoice::Direct, false, 0, false, false));
+    CHECK_FALSE(
+        slotPathSwitching(UsbPhase::NeedsReplug, PathChoice::Direct, false, 0, false, false));
+    CHECK_FALSE(slotPathSwitching(UsbPhase::Routed, PathChoice::Direct, false, 0,
+                                  /*hasFailure=*/true, false));
+}
+
+TEST_CASE("slotPathSwitching: a receiver read with no controller connected has settled",
+          "[slotpath][switching][receiver]") {
+    // Direct, no synthetic, no rate: the shape that spins, until the card is the
+    // receiver waiting for a controller.
+    CHECK(slotPathSwitching(UsbPhase::Direct, PathChoice::Direct, false, 0, false, false));
+    CHECK_FALSE(slotPathSwitching(UsbPhase::Direct, PathChoice::Direct, false, 0, false,
+                                  /*waitingForController=*/true));
+}
+
+TEST_CASE("modelCardFor: a model with no stand-alone gamepad has a card until a pad of it shows",
+          "[slotpath][receiver]") {
+    UsbController steam = controller(0x28DE, 0x1142, UsbPhase::Routed, PathChoice::Standard);
+    steam.frameworkExpected = false;
+
+    SECTION("on Standard the card is where Direct is picked") {
+        const auto card = modelCardFor(steam, /*padListed=*/false, /*receiver=*/true);
+        REQUIRE(card.has_value());
+        CHECK_FALSE(card->waitingForController);
+    }
+    SECTION("read directly with no controller connected, the card waits for one") {
+        steam.phase = UsbPhase::Direct;
+        const auto card = modelCardFor(steam, /*padListed=*/false, /*receiver=*/true);
+        REQUIRE(card.has_value());
+        CHECK(card->waitingForController);
+    }
+    SECTION("a pad of it on the list takes the card's place") {
+        steam.phase = UsbPhase::Direct;
+        CHECK_FALSE(modelCardFor(steam, /*padListed=*/true, /*receiver=*/true).has_value());
+    }
+    SECTION("a model with an SDL gamepad of its own never has one") {
+        const UsbController pad =
+            controller(0x054C, 0x0CE6, UsbPhase::Routed, PathChoice::Standard);
+        CHECK_FALSE(modelCardFor(pad, /*padListed=*/false, /*receiver=*/false).has_value());
+    }
+}
+
+TEST_CASE("modelCardFor: a receiver's card carries no binding, a wired model's keeps its pad's",
+          "[slotpath][receiver][binding]") {
+    // A receiver's pads take their slots' ids, so nothing made on the card would reach one; a
+    // wired model's pad takes the card's own id (directSlotId), so a binding made there survives
+    // the claim.
+    UsbController receiver = controller(0x28DE, 0x1142, UsbPhase::Routed, PathChoice::Standard);
+    receiver.frameworkExpected = false;
+    UsbController wired = controller(0x28DE, 0x1102, UsbPhase::Routed, PathChoice::Standard);
+    wired.frameworkExpected = false;
+
+    SECTION("on Standard") {
+        REQUIRE_FALSE(modelCardFor(receiver, false, /*receiver=*/true)->bindable);
+        REQUIRE(modelCardFor(wired, false, /*receiver=*/false)->bindable);
+    }
+    SECTION("read directly, waiting for a controller") {
+        receiver.phase = UsbPhase::Direct;
+        REQUIRE_FALSE(modelCardFor(receiver, false, /*receiver=*/true)->bindable);
+    }
 }

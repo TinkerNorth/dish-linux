@@ -423,13 +423,13 @@ namespace {
 class MuteObserver : public UsbDirectObserver {
   public:
     std::vector<std::tuple<int, int, bool>> edges;
-    void padMicMuteChanged(int vendorId, int productId, bool muted) override {
-        edges.emplace_back(vendorId, productId, muted);
+    void padMicMuteChanged(const dish::reducer::DirectPadKey& pad, bool muted) override {
+        edges.emplace_back(pad.vendorId, pad.productId, muted);
     }
     std::vector<std::tuple<int, int, std::uint8_t, std::uint8_t>> batteries;
-    void padBatteryChanged(int vendorId, int productId, std::uint8_t level,
+    void padBatteryChanged(const dish::reducer::DirectPadKey& pad, std::uint8_t level,
                            std::uint8_t status) override {
-        batteries.emplace_back(vendorId, productId, level, status);
+        batteries.emplace_back(pad.vendorId, pad.productId, level, status);
     }
 };
 

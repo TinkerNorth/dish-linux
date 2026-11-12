@@ -1135,6 +1135,10 @@
         <translation>Akku %1 %</translation>
     </message>
     <message>
+        <source>Dish is reading this receiver directly. Turn on a controller paired with it.</source>
+        <translation>Dish liest diesen Empfänger direkt. Schalte einen damit gekoppelten Controller ein.</translation>
+    </message>
+    <message>
         <source>Unplug and replug the controller to finish switching.</source>
         <translation>Trenne den Controller und schließe ihn erneut an, um den Wechsel abzuschließen.</translation>
     </message>

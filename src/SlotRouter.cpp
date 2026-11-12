@@ -11,6 +11,7 @@
 #include "Network/WifiConnectionManager.h"
 #include "core/input/UsbOutputReports.h"
 #include "core/reducer/BindingPresence.h"
+#include "core/reducer/DirectPadKey.h"
 #include "core/reducer/RumbleRouting.h"
 #include "core/reducer/SlotPathFields.h"
 #include "core/reducer/TouchpadRouting.h"
@@ -113,9 +114,9 @@ SlotRouter::SlotHardware SlotRouter::sdlHardware(const QString& slotId) const {
 
 SlotRouter::SlotHardware SlotRouter::slotHardware(const QString& slotId) const {
     // The synthetic id is checked first because it can never collide with an "sdl:N" id.
-    const auto vp = reducer::parseSyntheticSlotId(slotId.toStdString());
-    if (vp.has_value() && reducer::isPadIdentity(vp)) {
-        return syntheticHardware(vp->first, vp->second);
+    const auto pad = reducer::parseDirectSlotId(slotId.toStdString());
+    if (pad.has_value() && reducer::isPadIdentity(std::make_pair(pad->vendorId, pad->productId))) {
+        return syntheticHardware(pad->vendorId, pad->productId);
     }
     return sdlHardware(slotId);
 }
@@ -131,9 +132,9 @@ reducer::SlotFeedbackInputs SlotRouter::feedbackInputs(const QString& slotId) co
     in.padMicLed = hw.hasMicLed;
     in.standardEffects = hw.sdlEffects;
     if (hw.usbDirect) {
-        const auto vp = reducer::parseSyntheticSlotId(slotId.toStdString());
-        in.directClaimLive = vp.has_value() && deps_.usbManager != nullptr &&
-                             deps_.usbManager->isDirectClaimed(vp->first, vp->second);
+        const auto pad = reducer::parseDirectSlotId(slotId.toStdString());
+        in.directClaimLive = pad.has_value() && deps_.usbManager != nullptr &&
+                             deps_.usbManager->isDirectClaimed(*pad);
     }
     // The matcher's live answer: whether THIS pad's own endpoints were confidently named on this
     // machine. Outside the Direct branch on purpose: the audio function is a separate USB interface
@@ -152,9 +153,9 @@ audio::PadAudioRoute SlotRouter::audioRouteForSlot(const QString& slotId) const 
     // and its VID:PID is the same as a USB twin's, so keying it would hand it that twin's endpoint.
     int vendorId = 0;
     int productId = 0;
-    if (const auto vp = reducer::parseSyntheticSlotId(slotId.toStdString()); vp.has_value()) {
-        vendorId = vp->first;
-        productId = vp->second;
+    if (const auto pad = reducer::parseDirectSlotId(slotId.toStdString()); pad.has_value()) {
+        vendorId = pad->vendorId;
+        productId = pad->productId;
     } else {
         bool found = false;
         for (const auto& d : deps_.bridge->devices()) {
@@ -189,8 +190,8 @@ SlotRouter::FeedbackRoute SlotRouter::liveRoute(const QString& slotId) const {
         route.targets[static_cast<std::size_t>(kind)] = reducer::resolveFeedbackTarget(in, kind);
     }
     if (in.usbDirect && deps_.usbManager != nullptr) {
-        if (const auto vp = reducer::parseSyntheticSlotId(slotId.toStdString())) {
-            route.direct = deps_.usbManager->directTarget(vp->first, vp->second);
+        if (const auto pad = reducer::parseDirectSlotId(slotId.toStdString())) {
+            route.direct = deps_.usbManager->directTarget(*pad);
         }
     }
     route.padIndex = deps_.processor->find(slotId.toStdString());

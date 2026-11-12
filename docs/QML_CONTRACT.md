@@ -472,6 +472,7 @@ telemetry tick.
 | `live` | `bool` | The bound session is `Connected`. |
 | `dotColor` | `string` | `"success"` / `"warning"` / `"muted"`. |
 | `registering` | `bool` | An attach is in flight. Render the busy card instead of chips and actions. |
+| `bindable` | `bool` | The slot can carry a binding. `false` for the card of a Steam Controller receiver, which stands for the receiver and not for a pad: it carries the path control only, and each connected controller has a card of its own for its binding and type pick. Offer no bind entry, no wizard pick and no "not bound" state on it. |
 
 ### Hardware
 
@@ -513,6 +514,7 @@ formatting for the whole app.
 | `pathSupported` | `bool` | The device is raw-HID claimable. Show the path control only when true. An Xbox pad has no such path (xpad publishes no hidraw node), and a Bluetooth-connected pad never does, because the claim is USB-only. |
 | `claimInProgress` | `bool` | `pathPhase === "claiming"`. Disable the toggle and show a spinner. |
 | `directFailure` | `string` | Last Direct-claim failure token: `"permissionDenied"` / `"busy"` / `"initFailed"` / `"dropped"`, or `""`. Drives the inline note together with the `needsReplug` and `restoreStuck` phases. |
+| `waitingForController` | `bool` | A Steam Controller receiver read directly while none of its controllers is connected. Show the waiting note; `claimInProgress` is `false` meanwhile. Each connected controller has a card of its own, and this one leaves while any is. |
 
 ### The bound-satellite join
 

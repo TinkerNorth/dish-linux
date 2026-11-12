@@ -46,6 +46,23 @@ the repos share a version number.
 
 ### Fixed
 
+- **Every controller on a Steam Controller wireless receiver reads on USB
+  direct, each as a controller of its own, not yet tried on a real receiver.** A
+  receiver serves up to four paired controllers, the 2015 one (`28DE:1142`) and
+  both 2026 ones alike, but USB direct read one controller per model: only the
+  one on the first slot the system listed reached the host, the others read
+  nothing, and a first slot with no controller on it kept the claim and stayed
+  silent. Picking direct on the receiver now reads every slot. Each controller
+  gets its own card and its own satellite or Moonlight binding, shows up when it
+  is switched on, leaves when it is switched off and comes back on the same
+  card. While none is switched on, the receiver's card says Dish is reading it
+  and waits for one. A controller just paired to the receiver counts as
+  connected, as it does for SDL. The receiver's own card is where direct is
+  picked and carries no binding; each controller's card does. A controller
+  switched off and on again shows its battery level again at once, unchanged or
+  not. A controller's input no longer pauses while Dish sends it its settings,
+  which now go beside the input rather than in its way. Unplugging the receiver
+  no longer freezes the window for a moment per controller.
 - **Rumble on a DualSense in USB direct mode asks the pad the way its own
   driver does.** Dish set only the "compatible vibration" flag. The Linux
   driver and SDL also switch the pad from audio haptics to classic rumble in

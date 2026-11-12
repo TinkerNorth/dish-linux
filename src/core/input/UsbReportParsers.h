@@ -58,12 +58,25 @@ enum class WirelessEvent : std::uint8_t {
 
 using usbhid::ButtonOrder;
 
+// The HID interfaces a wireless receiver serves its paired controllers on, one controller per
+// interface. None for a model whose pad is the device itself.
+struct ReceiverSlots {
+    int first = 0;
+    int last = -1;
+
+    bool any() const { return first <= last; }
+    bool holds(int interfaceNumber) const {
+        return interfaceNumber >= first && interfaceNumber <= last;
+    }
+};
+
 struct KnownHidModel {
     int vid;
     int pid;
     const char* name;
     HidParser parser;
     ButtonOrder order = ButtonOrder::Western;
+    ReceiverSlots receiverSlots{};
 };
 
 // The pad's own battery, for the families whose reports carry it (the two
@@ -639,6 +652,7 @@ inline constexpr std::uint8_t kSteamStateType = 0x01;
 inline constexpr std::uint8_t kSteamWirelessType = 0x03;
 inline constexpr std::uint8_t kSteamWirelessDisconnect = 0x01;
 inline constexpr std::uint8_t kSteamWirelessConnect = 0x02;
+inline constexpr std::uint8_t kSteamWirelessNewlyPaired = 0x03;
 inline constexpr std::int32_t kSteamTriggerMaxAnalog = 26000;
 // 15 degrees in Q16; the pads sit rotated on the shell and SDL applies the same
 // correction.
@@ -797,19 +811,69 @@ inline std::size_t buildSteamConfigPacket(SteamConfig stage, int index, std::uin
     return len;
 }
 
+// Pure: writes ID_DONGLE_GET_WIRELESS_STATE, framed like the config packets, into out and returns
+// its length, or 0 when it does not fit. The request SDL's HIDAPI_DriverSteam_InitDevice and
+// hid-steam's steam_get_conn_status both send when a 2015 receiver's slot opens. The slot answers
+// with the connect or disconnect event for its controller, read here off the slot's input stream
+// as SDL reads it; hid-steam reads the answer back as a feature report instead.
+inline std::size_t buildSteamReceiverStateRequest(std::uint8_t* out, std::size_t outCap) {
+    static constexpr std::uint8_t kGetWirelessState[] = {0xB4, 0x00};
+    if (sizeof(kGetWirelessState) > outCap) { return 0; }
+    for (std::size_t i = 0; i < sizeof(kGetWirelessState); i++) { out[i] = kGetWirelessState[i]; }
+    return sizeof(kGetWirelessState);
+}
+
+// The 2015 pad's packets as the whole feature reports they are sent as: report id 0, the packet,
+// zero-padded to the 65 bytes SDL (SetFeatureReport's buf[65]) and hid-steam
+// (STEAM_FEATURE_REPORT_SIZE) both send. kMaxConfigReportBytes sizes a scratch buffer for either
+// Steam family's reports (buildPadConfigReport).
+inline constexpr std::size_t kSteamFeatureReportBytes = 65;
+inline constexpr std::size_t kMaxConfigReportBytes = kSteamFeatureReportBytes;
+
 namespace detail {
 
-// The 2015 dongle's connect/disconnect event. Event framing and the one-byte
-// payload values follow the Linux hid-steam driver (steam_raw_event,
-// ID_CONTROLLER_WIRELESS).
+inline std::size_t frameSteamFeatureReport(const std::uint8_t* packet, std::size_t packetLen,
+                                           std::uint8_t* out, std::size_t outCap) {
+    const bool fits = packetLen != 0 && packetLen < kSteamFeatureReportBytes &&
+                      outCap >= kSteamFeatureReportBytes;
+    if (!fits) { return 0; }
+    for (std::size_t i = 0; i < kSteamFeatureReportBytes; i++) { out[i] = 0; }
+    for (std::size_t i = 0; i < packetLen; i++) { out[i + 1] = packet[i]; }
+    return kSteamFeatureReportBytes;
+}
+
+} // namespace detail
+
+inline std::size_t buildSteamConfigReport(SteamConfig stage, int index, std::uint8_t* out,
+                                          std::size_t outCap) {
+    std::uint8_t packet[16] = {};
+    const std::size_t n = buildSteamConfigPacket(stage, index, packet, sizeof(packet));
+    return detail::frameSteamFeatureReport(packet, n, out, outCap);
+}
+
+inline std::size_t buildSteamReceiverStateReport(std::uint8_t* out, std::size_t outCap) {
+    std::uint8_t packet[16] = {};
+    const std::size_t n = buildSteamReceiverStateRequest(packet, sizeof(packet));
+    return detail::frameSteamFeatureReport(packet, n, out, outCap);
+}
+
+namespace detail {
+
+// The 2015 dongle's connect/disconnect event. The framing follows SDL's D0G_IS_VALID_WIRELESS_EVENT
+// (report version 1, type ID_CONTROLLER_WIRELESS, a payload of at least one byte) and the payload
+// values the Linux hid-steam driver names (steam_raw_event), with SDL's newly-paired value counted
+// as a connect the way D0G_IS_WIRELESS_CONNECT counts it.
 inline WirelessEvent steamWirelessEvent(const std::uint8_t* buf, std::size_t len) {
     if (len < 5) { return WirelessEvent::None; }
     if (buf[0] != 0x01 || buf[1] != 0x00) { return WirelessEvent::None; }
-    if (buf[2] != kSteamWirelessType || buf[3] != 0x01) { return WirelessEvent::None; }
+    const bool isWirelessType = buf[2] == kSteamWirelessType;
+    const bool hasPayload = buf[3] >= 1;
+    if (!isWirelessType || !hasPayload) { return WirelessEvent::None; }
     switch (buf[4]) {
     case kSteamWirelessDisconnect:
         return WirelessEvent::Disconnect;
     case kSteamWirelessConnect:
+    case kSteamWirelessNewlyPaired:
         return WirelessEvent::Connect;
     default:
         return WirelessEvent::None;
@@ -1119,13 +1183,47 @@ inline std::size_t buildKeepaliveReport(HidParser p, int index, std::uint8_t* ou
     return 0;
 }
 
-// A dongle carries one paired pad per HID interface, 2 to 5, and its other
-// interfaces are no pad (SDL's HIDAPI_DriverSteamTriton_IsSupportedDevice). The
-// wired pad's game interface is told apart by its collection alone.
-inline bool tritonInterfaceCarriesPad(int productId, int interfaceNumber) {
-    const bool isDongle = productId == kPidSteamProteusDongle || productId == kPidSteamNereidDongle;
-    if (!isDongle) { return true; }
-    return interfaceNumber >= 2 && interfaceNumber <= 5;
+// One config direction of a family, as whole feature reports for the claim's
+// output worker: the 2015 pad's quiet or restore sequence
+// (buildSteamConfigReport), the 2026 pad's (buildTritonConfigReport). Every
+// other family has nothing to send. Callers size their scratch buffer with
+// kMaxConfigReportBytes.
+inline std::size_t buildPadConfigReport(HidParser p, SteamConfig stage, int index,
+                                        std::uint8_t* out, std::size_t outCap) {
+    switch (p) {
+    case HidParser::SteamController:
+        return buildSteamConfigReport(stage, index, out, outCap);
+    case HidParser::SteamTriton:
+        return buildTritonConfigReport(stage, index, out, outCap);
+    case HidParser::DualShock4:
+    case HidParser::DualSense:
+    case HidParser::SwitchProUsb:
+    case HidParser::GenericHid:
+    case HidParser::None:
+        return 0;
+    }
+    return 0;
+}
+
+// How many times one of a family's config reports is offered before it is
+// given up: the 2015 dongle under load refuses a feature write transiently
+// (EPIPE), which SDL and hid-steam retry; the 2026 pad's settings go once, as
+// SDL sends them.
+inline constexpr int kSteamConfigWriteAttempts = 25;
+
+inline int configWriteAttempts(HidParser p) {
+    switch (p) {
+    case HidParser::SteamController:
+        return kSteamConfigWriteAttempts;
+    case HidParser::SteamTriton:
+    case HidParser::DualShock4:
+    case HidParser::DualSense:
+    case HidParser::SwitchProUsb:
+    case HidParser::GenericHid:
+    case HidParser::None:
+        return 1;
+    }
+    return 1;
 }
 
 // Pure: classifies a report as a wireless connect/disconnect event for the
@@ -1178,6 +1276,14 @@ inline bool decodeReport(HidParser parser, const std::uint8_t* buf, std::size_t 
     return false;
 }
 
+// The Steam Controller receivers' slots. The 2015 receiver's controllers ride interfaces 1 to 4,
+// its emulated keyboard 0 (SDL's HIDAPI_DriverSteam_IsSupportedDevice; Linux's
+// steam_is_valve_interface: "1-4: slots where up to 4 real controllers will be connected to").
+// The 2026 receivers' ride 2 to 5, beside internal comms on 0 and 1 and a pogo-pin interface on 6
+// (HIDAPI_DriverSteamTriton_IsSupportedDevice; steam_is_valve_interface).
+inline constexpr ReceiverSlots kSteamReceiverSlots{1, 4};
+inline constexpr ReceiverSlots kTritonReceiverSlots{2, 5};
+
 // Models the vendor heuristic below cannot place. The PDP wired Switch pads
 // declare their buttons in the Switch usage order (0x0186 Afterglow Wireless is
 // excluded on purpose: its USB port is charge-only and it speaks the Switch Pro
@@ -1204,12 +1310,13 @@ inline constexpr KnownHidModel kKnownModels[] = {
     {0x0E6F, 0x0187, "PDP Rock Candy Wired Controller (Switch)", HidParser::GenericHid,
      ButtonOrder::Switch},
     {0x28DE, 0x1102, "Valve Steam Controller", HidParser::SteamController},
-    {0x28DE, 0x1142, "Valve Steam Controller (dongle)", HidParser::SteamController},
+    {0x28DE, 0x1142, "Valve Steam Controller (dongle)", HidParser::SteamController,
+     ButtonOrder::Western, kSteamReceiverSlots},
     {0x28DE, kPidSteamTritonWired, "Valve Steam Controller (2026)", HidParser::SteamTriton},
     {0x28DE, kPidSteamProteusDongle, "Valve Steam Controller (2026, dongle)",
-     HidParser::SteamTriton},
-    {0x28DE, kPidSteamNereidDongle, "Valve Steam Controller (2026, dongle)",
-     HidParser::SteamTriton},
+     HidParser::SteamTriton, ButtonOrder::Western, kTritonReceiverSlots},
+    {0x28DE, kPidSteamNereidDongle, "Valve Steam Controller (2026, dongle)", HidParser::SteamTriton,
+     ButtonOrder::Western, kTritonReceiverSlots},
 };
 
 inline const KnownHidModel* lookupKnownModel(int vendorId, int productId) {
@@ -1217,6 +1324,23 @@ inline const KnownHidModel* lookupKnownModel(int vendorId, int productId) {
         if (m.vid == vendorId && m.pid == productId) { return &m; }
     }
     return nullptr;
+}
+
+inline ReceiverSlots receiverSlotsFor(int vendorId, int productId) {
+    const KnownHidModel* m = lookupKnownModel(vendorId, productId);
+    return m != nullptr ? m->receiverSlots : ReceiverSlots{};
+}
+
+// A wireless receiver, each of whose slots carries one paired controller of its own.
+inline bool isReceiver(int vendorId, int productId) {
+    return receiverSlotsFor(vendorId, productId).any();
+}
+
+// Whether a device's HID interface carries a pad: any interface of a model whose pad is the
+// device (its collection tells the game interface apart), only a slot of a receiver.
+inline bool interfaceCarriesPad(int vendorId, int productId, int interfaceNumber) {
+    const ReceiverSlots range = receiverSlotsFor(vendorId, productId);
+    return !range.any() || range.holds(interfaceNumber);
 }
 
 // The DualSense Edge decodes as a DualSense. Its OUT reports differ in one respect, the rumble

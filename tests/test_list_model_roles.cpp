@@ -111,6 +111,7 @@ m::ControllerSlot populatedSlot() {
     s.desiredPath = dish::reducer::PathChoice::Direct;
     s.pathSupported = true;
     s.directFailure = dish::reducer::DirectClaimFailure::Busy;
+    s.waitingForController = true;
     s.liveRates.gamepadHz = 250;
     s.liveRates.motionHz = 200;
     s.liveRates.directPollHz = 1000;

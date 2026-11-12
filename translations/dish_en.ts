@@ -1205,6 +1205,10 @@
         <translation>Battery %1%</translation>
     </message>
     <message>
+        <source>Dish is reading this receiver directly. Turn on a controller paired with it.</source>
+        <translation>Dish is reading this receiver directly. Turn on a controller paired with it.</translation>
+    </message>
+    <message>
         <source>Unplug and replug the controller to finish switching.</source>
         <translation>Unplug and replug the controller to finish switching.</translation>
     </message>
