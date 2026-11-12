@@ -1545,7 +1545,7 @@ QString AppViewModel::resolveSlotIdForBind(const QString& slotId) const {
     const auto& st = model_->state();
     const auto* slot = slotById(slotId);
     const bool carriesNoBinding = slot != nullptr && !slot->bindable;
-    if (carriesNoBinding) { return QString(); }
+    if (carriesNoBinding) { return {}; }
     const auto vidPid = resolveSlotVidPid(model_, slotId);
     // With no (vid, pid) to re-resolve through, the id is all there is, and it
     // is valid exactly as long as the slot is still listed. A receiver's pad is
