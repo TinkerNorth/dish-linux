@@ -123,10 +123,15 @@ off and on. A slot's id is its interface, so a controller that comes back lands
 on its card and its Moonlight binding; a satellite binding leaves with the
 controller, as it does for any pad that goes, and never moves onto another
 slot's. Its battery reading leaves with it too, and is shown again as soon as
-the controller is back, changed or not. The 2015 receiver's slot is asked what
-it holds (`ID_DONGLE_GET_WIRELESS_STATE`) when it opens, the request SDL and
-hid-steam both send; the answer is read off the slot's input stream the way
-SDL's `HIDAPI_DriverSteam_InitDevice` reads it, where hid-steam's
+the controller is back, changed or not. Known limitation: two receivers of the
+same model collapse into one. The manager keys a receiver by (vid, pid,
+interface) and the gateway re-finds a slot by vid, pid and interface, first
+match wins, so only one receiver's slots are read and the other's controllers
+reach nothing. The fix is to key a receiver by its device path and carry the
+path in `UsbDeviceInfo`. The 2015 receiver's slot is asked what it holds
+(`ID_DONGLE_GET_WIRELESS_STATE`) when it opens, the request SDL and hid-steam
+both send; the answer is read off the slot's input stream the way SDL's
+`HIDAPI_DriverSteam_InitDevice` reads it, where hid-steam's
 `steam_get_conn_status` reads it back as a feature report. Every Steam
 Controller's settings are its claim's output worker's: the 2015 pad's quiet
 sequence goes when the pad is there (at the claim for a wired pad, on the
