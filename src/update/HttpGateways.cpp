@@ -89,16 +89,18 @@ void HttpManifestGateway::fetch(Callback done) {
 
     QNetworkReply* reply = nam_->get(request);
     reply_ = reply;
+    replyContext_ = std::make_unique<QObject>();
 
     // A captive portal can answer with an arbitrarily large splash page. Cut it
     // off at the cap rather than buffering it just to reject it later.
-    QObject::connect(reply, &QNetworkReply::downloadProgress, this,
+    QObject::connect(reply, &QNetworkReply::downloadProgress, replyContext_.get(),
                      [this](qint64 receivedBytes, qint64) {
                          if (receivedBytes > kManifestMaxBytes && !reply_.isNull()) {
                              reply_->abort();
                          }
                      });
-    QObject::connect(reply, &QNetworkReply::finished, this, [this, reply] {
+    QObject::connect(reply, &QNetworkReply::finished, replyContext_.get(), [this, reply] {
+        replyContext_.reset();
         reply->deleteLater();
         if (reply_ != reply) { return; }
         reply_.clear();

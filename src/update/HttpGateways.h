@@ -56,6 +56,9 @@ class HttpManifestGateway : public QObject, public ManifestGateway {
 
     QNetworkAccessManager* nam_ = nullptr;
     QPointer<QNetworkReply> reply_;
+    // Receives fetch()'s reply connections; resetting it frees their functors on this thread.
+    // One still on a dying reply can be freed by Qt's HTTP thread, under a lock TSan cannot see.
+    std::unique_ptr<QObject> replyContext_;
     Callback done_;
     QString url_;
 };
