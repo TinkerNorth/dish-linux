@@ -79,35 +79,95 @@ TEST_CASE("a seqlock read during an open write fails, and after it succeeds",
     CHECK(seq.generation() == 2);
 }
 
-TEST_CASE("a seqlock reader never accepts a torn value from a writer on another thread",
-          "[thread-primitives][seqlock]") {
+namespace {
+
+// A writer that never pauses can fail every read of a reader slower than its cycle: the seqlock
+// never waits, by design. The race runs free until the reader has failed kStarvedAfter reads in a
+// row, then the writer holds off until a read lands, so the reader always gets to check values.
+struct SeqlockRace {
     Seqlock seq;
     AtomicWords<Stamp> value;
+    std::atomic<bool> readerStarved{false};
     std::atomic<bool> stop{false};
-    std::thread writer([&] {
-        for (std::uint32_t n = 1; !stop.load(std::memory_order_relaxed); ++n) {
-            seq.beginWrite();
-            value.store(Stamp{{n, n, n, n, n}});
-            seq.endWrite();
-        }
-    });
+};
+
+struct ReadTally {
+    int reads = 0;
     int accepted = 0;
     int torn = 0;
-    std::uint32_t last = 0;
     bool ordered = true;
-    for (int i = 0; i < 200'000; ++i) {
-        Stamp seen;
-        if (!seq.read([&] { seen = value.load(); })) { continue; }
-        ++accepted;
-        if (!seen.whole()) { ++torn; }
-        if (seen.words[0] < last) { ordered = false; }
-        last = seen.words[0];
+    std::uint32_t last = 0;
+};
+
+constexpr int kStarvedAfter = 64;
+constexpr int kReadsAtLeast = 200'000;
+constexpr int kAcceptedAtLeast = 1'000;
+constexpr std::uint32_t kWritesSeenAtLeast = 1'000;
+// Only a seqlock that never lets a read land reaches it, and fails the case instead of hanging.
+constexpr int kReadCap = 20'000'000;
+
+void writeUntilStopped(SeqlockRace& race) {
+    for (std::uint32_t n = 1; !race.stop.load(std::memory_order_relaxed); ++n) {
+        while (race.readerStarved.load(std::memory_order_acquire) &&
+               !race.stop.load(std::memory_order_relaxed)) {
+            std::this_thread::yield();
+        }
+        race.seq.beginWrite();
+        race.value.store(Stamp{{n, n, n, n, n}});
+        race.seq.endWrite();
     }
-    stop.store(true);
+}
+
+bool raceIsDone(const ReadTally& tally) {
+    return tally.reads >= kReadsAtLeast && tally.accepted >= kAcceptedAtLeast &&
+           tally.last >= kWritesSeenAtLeast;
+}
+
+ReadTally tallied(ReadTally tally, const Stamp& seen) {
+    ++tally.accepted;
+    tally.torn += seen.whole() ? 0 : 1;
+    tally.ordered = tally.ordered && seen.words[0] >= tally.last;
+    tally.last = seen.words[0];
+    return tally;
+}
+
+// Only a starved run's start and end write the flag, so the reader adds no traffic of its own to
+// the race it checks.
+void holdWriterWhileStarved(SeqlockRace& race, int failedInARow) {
+    if (failedInARow == kStarvedAfter) {
+        race.readerStarved.store(true, std::memory_order_release);
+    }
+    if (failedInARow == 0 && race.readerStarved.load(std::memory_order_relaxed)) {
+        race.readerStarved.store(false, std::memory_order_release);
+    }
+}
+
+ReadTally readUnderWrites(SeqlockRace& race) {
+    ReadTally tally;
+    int failedInARow = 0;
+    for (; tally.reads < kReadCap && !raceIsDone(tally); ++tally.reads) {
+        Stamp seen;
+        const bool landed = race.seq.read([&] { seen = race.value.load(); });
+        failedInARow = landed ? 0 : failedInARow + 1;
+        holdWriterWhileStarved(race, failedInARow);
+        if (landed) { tally = tallied(tally, seen); }
+    }
+    return tally;
+}
+
+} // namespace
+
+TEST_CASE("a seqlock reader never accepts a torn value from a writer on another thread",
+          "[thread-primitives][seqlock]") {
+    SeqlockRace race;
+    std::thread writer([&] { writeUntilStopped(race); });
+    const ReadTally tally = readUnderWrites(race);
+    race.stop.store(true);
     writer.join();
-    CHECK(accepted > 0);
-    CHECK(torn == 0);
-    CHECK(ordered);
+    CHECK(tally.accepted >= kAcceptedAtLeast);
+    CHECK(tally.last >= kWritesSeenAtLeast);
+    CHECK(tally.torn == 0);
+    CHECK(tally.ordered);
 }
 
 TEST_CASE("the latest value hands over only the newest and frees what it replaced",
