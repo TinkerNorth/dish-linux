@@ -65,6 +65,15 @@ the repos share a version number.
 
 ### Fixed
 
+- **The route-table test that republishes under a reporting thread no longer
+  depends on when that thread starts.** It republished a fixed three hundred
+  times and then asserted that a report had been routed, which assumed the
+  reporting thread had started by then; on a loaded CI runner it had not, and
+  the test failed in Release with nothing wrong in the code. The reporter now
+  counts its reports and the republishing keeps going until a thousand of them
+  have landed under it, and the report the test asserts on is sent after the
+  storm, under a table it has just published.
+
 - **Every controller on a Steam Controller wireless receiver reads on USB
   direct, each as a controller of its own, not yet tried on a real receiver.** A
   receiver serves up to four paired controllers, the 2015 one (`28DE:1142`) and
