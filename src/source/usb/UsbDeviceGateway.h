@@ -12,6 +12,7 @@
 
 #include "core/input/SteamTrackpads.h"
 #include "core/input/UsbOutputReports.h"
+#include "core/input/UsbReportParsers.h"
 #include "core/reducer/DirectClaimFailure.h"
 #include "source/usb/HidReportWriter.h"
 
@@ -37,6 +38,9 @@ struct UsbDeviceInfo {
     int endpointInInterval = 1;   // interrupt-IN bInterval.
     bool hasOutEndpoint = false;  // an interrupt-OUT endpoint exists (for rumble).
     bool hasImu = false;          // the model carries a gyro/accel (DualSense/DS4).
+    // The physical device the pad rides, as the gateway names it: one name for every interface of
+    // a device and another for each device of the same model, unchanged while it stays plugged in.
+    std::string devicePath;
 
     int vpKey() const { return (vendorId << 16) | (productId & 0xFFFF); }
 };
@@ -133,6 +137,15 @@ struct UsbReport {
     std::uint8_t batteryLevel = 0xFF;
     std::uint8_t batteryStatus = 0;
 };
+
+// Whether a node the claim walks past is the pad it was asked for. A receiver's claim takes the
+// slot it was asked for; any other model's, the first node of its device that carries its pad.
+inline bool isTheClaimedPad(const std::string& nodeDevice, int nodeInterface,
+                            const UsbDeviceInfo& device) {
+    if (nodeDevice != device.devicePath) { return false; }
+    if (!input::usbparse::isReceiver(device.vendorId, device.productId)) { return true; }
+    return nodeInterface == device.interfaceNumber;
+}
 
 inline UsbReport padLinkReport(PadLinkEvent event) {
     UsbReport report;

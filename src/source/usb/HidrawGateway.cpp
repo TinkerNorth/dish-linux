@@ -127,11 +127,20 @@ bool nodeCarriesPad(const std::string& hidrawName, int vendorId, int productId) 
     return input::usbparse::interfaceCarriesPad(vendorId, productId, interfaceNumberOf(hidrawName));
 }
 
-// A receiver's claim opens the slot it was asked for, because each slot is a pad of its own; any
-// other model's opens the first node that carries its pad.
+// The USB device a hidraw node belongs to, by its bus and the chain of ports it is plugged into
+// ("1-2.4", the name the kernel gives the device): every interface of a device sits under the same
+// one, a re-enumeration on the same port keeps it, and two devices never share it. Empty when the
+// node has no USB parent to read.
+std::string usbDeviceOf(const std::string& hidrawName) {
+    const std::string usbDeviceDir = "/sys/class/hidraw/" + hidrawName + "/device/../..";
+    const std::string bus = readSysfsLine(usbDeviceDir + "/busnum");
+    const std::string ports = readSysfsLine(usbDeviceDir + "/devpath");
+    if (bus.empty() || ports.empty()) { return {}; }
+    return bus + "-" + ports;
+}
+
 bool nodeIsTheClaimedPad(const std::string& hidrawName, const UsbDeviceInfo& device) {
-    if (!input::usbparse::isReceiver(device.vendorId, device.productId)) { return true; }
-    return interfaceNumberOf(hidrawName) == device.interfaceNumber;
+    return isTheClaimedPad(usbDeviceOf(hidrawName), interfaceNumberOf(hidrawName), device);
 }
 
 // bInterval and wMaxPacketSize off the interrupt-IN endpoint, plus whether an
@@ -360,6 +369,7 @@ std::vector<UsbDeviceInfo> HidrawGateway::enumerate() {
         }
         readEndpointInfo(ifaceDir, info);
         info.hasImu = input::usbparse::parserHasImu(parser);
+        info.devicePath = usbDeviceOf(hidrawName);
         out.push_back(std::move(info));
     }
     return out;
@@ -370,7 +380,7 @@ ClaimResult HidrawGateway::claim(const UsbDeviceInfo& device,
     const auto parser = input::usbparse::parserForDevice(device.vendorId, device.productId);
 
     // enumerate() returned descriptors, not handles, so the claim re-finds the
-    // node by VID:PID and owns the open. A model can expose several collections
+    // node by VID:PID and device and owns the open. A model can expose several collections
     // under one VID:PID (the Steam Controller's keyboard and mouse ride beside
     // its game interface); only the one the parser decodes is the claim.
     int fd = -1;

@@ -36,6 +36,21 @@ TEST_CASE("a receiver's pad is its model key and the interface its slot rides", 
     CHECK(isPadOfModel(slot, kValve, kReceiver2015));
 }
 
+TEST_CASE("a model's later device writes its unit after the model key, its first keeps its id",
+          "[directpad]") {
+    const std::vector<std::string> ids{"88870118#1", kReceiverModelKey + "#1:3",
+                                       kReceiverModelKey + "#2:1"};
+    for (const std::string& id : ids) {
+        INFO(id);
+        const auto pad = parseDirectSlotId(id);
+        REQUIRE(pad.has_value());
+        CHECK(directSlotId(*pad) == id);
+    }
+    CHECK(parseDirectSlotId(kReceiverModelKey + "#1:3") ==
+          DirectPadKey{kValve, kReceiver2015, 3, 1});
+    CHECK(directSlotId(DirectPadKey{kValve, kReceiver2015, 3, 0}) == kReceiverModelKey + ":3");
+}
+
 TEST_CASE("an SDL id, a malformed slot or junk is no Direct pad", "[directpad]") {
     const std::vector<std::string> ids{"sdl:3",
                                        kReceiverModelKey + ":",
@@ -45,7 +60,15 @@ TEST_CASE("an SDL id, a malformed slot or junk is no Direct pad", "[directpad]")
                                        kReceiverModelKey + ":2:3",
                                        kReceiverModelKey + ":256",
                                        kReceiverModelKey + ":1000",
-                                       "-5"};
+                                       "-5",
+                                       kReceiverModelKey + "#0",
+                                       kReceiverModelKey + "#0:2",
+                                       kReceiverModelKey + "#",
+                                       kReceiverModelKey + "#x",
+                                       kReceiverModelKey + "#256",
+                                       kReceiverModelKey + "#1#2",
+                                       kReceiverModelKey + ":2#1",
+                                       "#1"};
     for (const std::string& id : ids) {
         INFO(id);
         CHECK_FALSE(parseDirectSlotId(id).has_value());
@@ -62,6 +85,18 @@ TEST_CASE("pads order the way the model keys always did, a receiver's slots in t
                                             {kValve, kReceiver2015, 1},
                                             {kValve, kReceiver2015, 4},
                                             {0x2DC8, 0x3100}});
+}
+
+TEST_CASE("a model's devices list one after the other, each one's slots in turn", "[directpad]") {
+    std::vector<DirectPadKey> pads{{kValve, kReceiver2015, 1, 1},
+                                   {kValve, kReceiver2015, 4, 0},
+                                   {kValve, kReceiver2015, 2, 1},
+                                   {kValve, kReceiver2015, 1, 0}};
+    std::sort(pads.begin(), pads.end());
+    CHECK(pads == std::vector<DirectPadKey>{{kValve, kReceiver2015, 1, 0},
+                                            {kValve, kReceiver2015, 4, 0},
+                                            {kValve, kReceiver2015, 1, 1},
+                                            {kValve, kReceiver2015, 2, 1}});
 }
 
 TEST_CASE("only a receiver's pad stands for itself when a binding re-resolves its slot",
