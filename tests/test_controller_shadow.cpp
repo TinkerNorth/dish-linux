@@ -6,6 +6,7 @@
 // the state the events left must be the state the getters report.
 
 #include "Input/ControllerShadow.h"
+#include "core/model/Protocol.h"
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -21,9 +22,9 @@ using dish::input::readGamepad;
 namespace {
 
 bool sameSnapshot(const GamepadSnapshot& a, const GamepadSnapshot& b) {
-    return a.wButtons == b.wButtons && a.leftX == b.leftX && a.leftY == b.leftY &&
-           a.rightX == b.rightX && a.rightY == b.rightY && a.leftTrigger == b.leftTrigger &&
-           a.rightTrigger == b.rightTrigger;
+    return a.wButtons == b.wButtons && a.extButtons == b.extButtons && a.leftX == b.leftX &&
+           a.leftY == b.leftY && a.rightX == b.rightX && a.rightY == b.rightY &&
+           a.leftTrigger == b.leftTrigger && a.rightTrigger == b.rightTrigger;
 }
 
 // Every queued event goes into the shadow, as the pump cycle hands them over.
@@ -92,6 +93,62 @@ TEST_CASE("events replayed into the shadow reproduce what SDL's getters report",
     pumpInto(shadow);
     CHECK(sameSnapshot(shadow.snapshot(), readGamepad(gc)));
     CHECK(shadow.snapshot().rightX == 7000);
+
+    SDL_GameControllerClose(gc);
+    SDL_JoystickDetachVirtual(deviceIndex);
+    SDL_QuitSubSystem(SDL_INIT_GAMECONTROLLER | SDL_INIT_JOYSTICK);
+}
+
+TEST_CASE("SDL's paddles and misc1 are the extended-buttons word, in SDL's names",
+          "[controller-shadow][extended-buttons]") {
+    // SDL numbers the Elite's paddles P1, P3, P2, P4 (upper right, upper left, lower
+    // right, lower left from the front), which is the contract's rightPaddle1,
+    // leftPaddle1, rightPaddle2, leftPaddle2; the Steam Deck's R4/L4/R5/L5 and the
+    // DualSense Edge's back and Fn buttons reach SDL2 under the same names.
+    REQUIRE(SDL_InitSubSystem(SDL_INIT_GAMECONTROLLER | SDL_INIT_JOYSTICK) == 0);
+    SDL_VirtualJoystickDesc desc{};
+    desc.version = SDL_VIRTUAL_JOYSTICK_DESC_VERSION;
+    desc.type = SDL_JOYSTICK_TYPE_GAMECONTROLLER;
+    desc.naxes = SDL_CONTROLLER_AXIS_MAX;
+    desc.nbuttons = SDL_CONTROLLER_BUTTON_MAX;
+    desc.name = "Paddle test pad";
+    const int deviceIndex = SDL_JoystickAttachVirtualEx(&desc);
+    REQUIRE(deviceIndex >= 0);
+    SDL_GameController* gc = SDL_GameControllerOpen(deviceIndex);
+    REQUIRE(gc != nullptr);
+    SDL_Joystick* js = SDL_GameControllerGetJoystick(gc);
+
+    ControllerShadow shadow;
+    pumpInto(shadow);
+    shadow.seed(gc);
+    REQUIRE(shadow.snapshot().extButtons == 0);
+
+    struct Row {
+        SDL_GameControllerButton button;
+        std::uint32_t bit;
+    };
+    const std::array rows{
+        Row{SDL_CONTROLLER_BUTTON_PADDLE1, dish::proto::kExtButtonRightPaddle1},
+        Row{SDL_CONTROLLER_BUTTON_PADDLE2, dish::proto::kExtButtonLeftPaddle1},
+        Row{SDL_CONTROLLER_BUTTON_PADDLE3, dish::proto::kExtButtonRightPaddle2},
+        Row{SDL_CONTROLLER_BUTTON_PADDLE4, dish::proto::kExtButtonLeftPaddle2},
+        Row{SDL_CONTROLLER_BUTTON_MISC1, dish::proto::kExtButtonMisc1},
+    };
+    for (const Row& row : rows) {
+        SDL_JoystickSetVirtualButton(js, row.button, 1);
+        pumpInto(shadow);
+        CHECK(shadow.snapshot().extButtons == row.bit);
+        CHECK(shadow.snapshot().wButtons == 0);
+        CHECK(sameSnapshot(shadow.snapshot(), readGamepad(gc)));
+        SDL_JoystickSetVirtualButton(js, row.button, 0);
+        pumpInto(shadow);
+        CHECK(shadow.snapshot().extButtons == 0);
+    }
+    // The touchpad button is SDL's own and has no bit here: it stays off the word.
+    SDL_JoystickSetVirtualButton(js, SDL_CONTROLLER_BUTTON_TOUCHPAD, 1);
+    pumpInto(shadow);
+    CHECK(shadow.snapshot().extButtons == 0);
+    CHECK(sameSnapshot(shadow.snapshot(), readGamepad(gc)));
 
     SDL_GameControllerClose(gc);
     SDL_JoystickDetachVirtual(deviceIndex);

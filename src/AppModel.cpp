@@ -326,6 +326,11 @@ AppModel::AppModel(std::unique_ptr<source::WakeInhibitor> inhibitor, QObject* pa
         return slotCarriesHapticSink(slotId) &&
                speakerEnabledStore_.isEnabled(slotId.toStdString());
     });
+    // CAP_EXTENDED_BUTTONS (protocol 4) is the pad's own: the model table for a
+    // Direct pad, SDL's mapping for a Standard one. No user switch, like the
+    // other hardware facts.
+    hub_->setExtendedButtonsCapabilityFn(
+        [this](const QString& slotId) { return slotHardware(slotId).hasExtendedButtons; });
 
     // The user's Emulate override wins over the SDL hardware classification;
     // resolveControllerType applies that ladder.

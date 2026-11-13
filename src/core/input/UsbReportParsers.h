@@ -88,6 +88,30 @@ struct KnownHidModel {
 // Switch readings are hid-playstation's and hid-nintendo's, byte for byte, so
 // a pad shows the same number here it shows on a Linux desktop; the Steam
 // Controller's is SDL's.
+// The INPUT extended-buttons word the decoders fill, in SDL's names
+// (core/model/Protocol.h kExtButton*), restated here like the battery status so
+// this header stays free of the wire protocol.
+namespace extbtn {
+inline constexpr std::uint32_t kRightPaddle1 = 0x0001;
+inline constexpr std::uint32_t kLeftPaddle1 = 0x0002;
+inline constexpr std::uint32_t kRightPaddle2 = 0x0004;
+inline constexpr std::uint32_t kLeftPaddle2 = 0x0008;
+inline constexpr std::uint32_t kMisc1 = 0x0010;
+inline constexpr std::uint32_t kLeftPadClick = 0x0020;
+inline constexpr std::uint32_t kRightPadClick = 0x0040;
+inline constexpr std::uint32_t kLeftTriggerClick = 0x0080;
+inline constexpr std::uint32_t kRightTriggerClick = 0x0100;
+inline constexpr std::uint32_t kLeftStickTouch = 0x0200;
+inline constexpr std::uint32_t kRightStickTouch = 0x0400;
+inline constexpr std::uint32_t kLeftGripTouch = 0x0800;
+inline constexpr std::uint32_t kRightGripTouch = 0x1000;
+} // namespace extbtn
+
+// The DualSense Edge decodes as a DualSense. Its OUT reports differ in one respect, the rumble
+// mode it shipped with (usbout::ds5UsesVibrationV2), and its input in another, the back and Fn
+// buttons in byte 10, which is why it is named out here.
+inline constexpr int kPidDualSenseEdge = 0x0DF2;
+
 inline constexpr std::uint8_t kPadBatteryLevelUnknown = 0xFF;
 inline constexpr std::uint8_t kPadBatteryStatusUnknown = 0;
 inline constexpr std::uint8_t kPadBatteryStatusDischarging = 1;
@@ -113,6 +137,9 @@ struct AxisAutoRange {
 };
 
 struct StickAutoRangeState {
+    // Filled at the claim: the model's product id, for a decoder that tells the
+    // variants of one report family apart (the DualSense Edge's back buttons).
+    int productId = 0;
     AxisAutoRange lx;
     AxisAutoRange ly;
     AxisAutoRange rx;
@@ -400,8 +427,24 @@ inline bool decodeDualShock4(const std::uint8_t* buf, std::size_t len, ParsedRep
 // `mute` is the cross-report mic-mute latch; null decodes everything except the
 // mute state, which is the honest answer for a caller that kept no per-device
 // memory (dish-android's decoder makes the same offer).
+// The DualSense Edge's back buttons in byte 10, SDL's PS5_LEFT/RIGHT_FUNCTION and
+// PS5_LEFT/RIGHT_PADDLE, as the word's paddle 2 (Fn) and paddle 1 (back) bits.
+inline constexpr std::uint8_t kDs5EdgeLeftFnBit = 0x10;
+inline constexpr std::uint8_t kDs5EdgeRightFnBit = 0x20;
+inline constexpr std::uint8_t kDs5EdgeLeftPaddleBit = 0x40;
+inline constexpr std::uint8_t kDs5EdgeRightPaddleBit = 0x80;
+
+inline std::uint32_t dualSenseEdgeExtendedButtons(std::uint8_t misc) {
+    std::uint32_t word = 0;
+    if ((misc & kDs5EdgeLeftFnBit) != 0) { word |= extbtn::kLeftPaddle2; }
+    if ((misc & kDs5EdgeRightFnBit) != 0) { word |= extbtn::kRightPaddle2; }
+    if ((misc & kDs5EdgeLeftPaddleBit) != 0) { word |= extbtn::kLeftPaddle1; }
+    if ((misc & kDs5EdgeRightPaddleBit) != 0) { word |= extbtn::kRightPaddle1; }
+    return word;
+}
+
 inline bool decodeDualSense(const std::uint8_t* buf, std::size_t len, ParsedReport& s,
-                            StickAutoRangeState& /*unused*/, MicMuteLatch* mute = nullptr) {
+                            StickAutoRangeState& sticks, MicMuteLatch* mute = nullptr) {
     if (len < 11) { return false; }
     if (buf[0] != 0x01) { return false; }
 
@@ -441,6 +484,8 @@ inline bool decodeDualSense(const std::uint8_t* buf, std::size_t len, ParsedRepo
     }
     b = setDpadFromHat(b, static_cast<std::uint8_t>(buf[8] & 0x0F));
     s.wButtons = b;
+    const bool isTheEdge = sticks.productId == kPidDualSenseEdge;
+    s.extButtons = isTheEdge ? dualSenseEdgeExtendedButtons(buf[10]) : 0;
 
     // Gyro int16 LE at buf[16/18/20], accel at buf[22/24/26]. UNVALIDATED, and the
     // wire-scale factors are the same DS4 placeholder.
@@ -513,6 +558,9 @@ inline bool decodeDualSense(const std::uint8_t* buf, std::size_t len, ParsedRepo
 // Switch Pro standard full input report 0x30 over USB:
 //   buf[0]=0x30; buf[3]=right buttons, buf[4]=shared, buf[5]=left; sticks packed
 //   12-bit at buf[6..11]; ZL/ZR digital; IMU frames from buf[13].
+// SDL's SWITCH_SHARE, the Capture button, which its gamepad layer reads as misc1.
+inline constexpr std::uint8_t kSwitchCaptureBit = 0x20;
+
 inline bool decodeSwitchProUsb(const std::uint8_t* buf, std::size_t len, ParsedReport& s,
                                StickAutoRangeState& sticks) {
     if (len < 12) { return false; }
@@ -539,6 +587,7 @@ inline bool decodeSwitchProUsb(const std::uint8_t* buf, std::size_t len, ParsedR
     if ((bl & 0x08) != 0) { b |= layout::kXusbDpadLeft; }
     if ((bl & 0x40) != 0) { b |= layout::kXusbLeftShoulder; }
     s.wButtons = b;
+    s.extButtons = ((bs & kSwitchCaptureBit) != 0) ? extbtn::kMisc1 : 0;
 
     // ZL/ZR are digital on the Pro.
     s.lt = (bl & 0x80) != 0 ? 255 : 0;
@@ -630,6 +679,8 @@ inline bool decodeGenericHid(const std::uint8_t* buf, std::size_t len, ParsedRep
 // dongle's wireless events mirror dish-android's hardware-validated port of the
 // Linux hid-steam / SDL drivers, byte for byte.
 
+inline constexpr std::uint32_t kSteamRightTriggerClick = 0x000001;
+inline constexpr std::uint32_t kSteamLeftTriggerClick = 0x000002;
 inline constexpr std::uint32_t kSteamRightBumper = 0x000004;
 inline constexpr std::uint32_t kSteamLeftBumper = 0x000008;
 inline constexpr std::uint32_t kSteamNorth = 0x000010;
@@ -643,6 +694,8 @@ inline constexpr std::uint32_t kSteamDpadDown = 0x000800;
 inline constexpr std::uint32_t kSteamMenu = 0x001000;
 inline constexpr std::uint32_t kSteamGuide = 0x002000;
 inline constexpr std::uint32_t kSteamEscape = 0x004000;
+inline constexpr std::uint32_t kSteamBackLeft = 0x008000;
+inline constexpr std::uint32_t kSteamBackRight = 0x010000;
 inline constexpr std::uint32_t kSteamLeftPadClicked = 0x020000;
 inline constexpr std::uint32_t kSteamRightPadClicked = 0x040000;
 inline constexpr std::uint32_t kSteamLeftPadFinger = 0x080000;
@@ -697,6 +750,22 @@ inline std::int16_t steamAccelToWire(std::int32_t raw) {
     return steamClampI16(static_cast<std::int64_t>(raw) * 32767 / 65536);
 }
 
+// The extras in SDL's names: the grips are its two paddles, the full-pull trigger
+// bits its trigger clicks, and a left-pad click under a finger is the pad's, where
+// the stick logic below leaves it. The right pad's click stays R3 while the right
+// pad is the right stick, as SDL has it.
+inline std::uint32_t steamExtendedButtons(std::uint32_t btn) {
+    std::uint32_t word = 0;
+    if ((btn & kSteamBackLeft) != 0) { word |= extbtn::kLeftPaddle1; }
+    if ((btn & kSteamBackRight) != 0) { word |= extbtn::kRightPaddle1; }
+    if ((btn & kSteamLeftTriggerClick) != 0) { word |= extbtn::kLeftTriggerClick; }
+    if ((btn & kSteamRightTriggerClick) != 0) { word |= extbtn::kRightTriggerClick; }
+    const bool fingerOnLeftPad = (btn & kSteamLeftPadFinger) != 0;
+    const bool leftPadClicked = (btn & kSteamLeftPadClicked) != 0;
+    if (fingerOnLeftPad && leftPadClicked) { word |= extbtn::kLeftPadClick; }
+    return word;
+}
+
 inline bool decodeSteamController(const std::uint8_t* buf, std::size_t len, ParsedReport& s,
                                   StickAutoRangeState& st) {
     if (len < kSteamStateLen) { return false; }
@@ -743,6 +812,7 @@ inline bool decodeSteamController(const std::uint8_t* buf, std::size_t len, Pars
     }
     if ((btn & kSteamStickButton) != 0) { b |= layout::kXusbLeftThumb; }
     s.wButtons = b;
+    s.extButtons = steamExtendedButtons(btn);
     s.lx = st.steamStickX;
     s.ly = st.steamStickY;
 
@@ -904,7 +974,9 @@ inline constexpr std::uint8_t kTritonWirelessXId = 0x46;
 inline constexpr std::uint8_t kTritonStateTimestampId = 0x47;
 inline constexpr std::uint8_t kTritonWirelessId = 0x79;
 
-// TritonButtons, the ones with an XUSB bit.
+// TritonButtons. The first set has an XUSB bit; the quick-access button, the
+// four back paddles, the pad and trigger clicks and the capacitive touches ride
+// the extended-buttons word.
 inline constexpr std::uint32_t kTritonA = 0x00000001;
 inline constexpr std::uint32_t kTritonB = 0x00000002;
 inline constexpr std::uint32_t kTritonX = 0x00000004;
@@ -920,6 +992,19 @@ inline constexpr std::uint32_t kTritonMenu = 0x00004000;
 inline constexpr std::uint32_t kTritonL3 = 0x00008000;
 inline constexpr std::uint32_t kTritonSteam = 0x00010000;
 inline constexpr std::uint32_t kTritonL = 0x00080000;
+inline constexpr std::uint32_t kTritonQam = 0x00000010;
+inline constexpr std::uint32_t kTritonR4 = 0x00000080;
+inline constexpr std::uint32_t kTritonR5 = 0x00000100;
+inline constexpr std::uint32_t kTritonL4 = 0x00020000;
+inline constexpr std::uint32_t kTritonL5 = 0x00040000;
+inline constexpr std::uint32_t kTritonRightStickTouch = 0x00100000;
+inline constexpr std::uint32_t kTritonRightPadClick = 0x00400000;
+inline constexpr std::uint32_t kTritonRightTriggerClick = 0x00800000;
+inline constexpr std::uint32_t kTritonLeftStickTouch = 0x01000000;
+inline constexpr std::uint32_t kTritonLeftPadClick = 0x04000000;
+inline constexpr std::uint32_t kTritonLeftTriggerClick = 0x08000000;
+inline constexpr std::uint32_t kTritonRightGripTouch = 0x10000000;
+inline constexpr std::uint32_t kTritonLeftGripTouch = 0x20000000;
 
 struct TritonButton {
     std::uint32_t triton;
@@ -927,9 +1012,7 @@ struct TritonButton {
 };
 
 // SDL's gamepad mapping (HIDAPI_DriverSteamTriton_HandleGenericState) on the
-// XUSB word, Menu as Back and View as Start the way SDL has them. The
-// quick-access button, the four back paddles, the trackpad and trigger clicks
-// and the capacitive touches have no XUSB bit and are not carried.
+// XUSB word, Menu as Back and View as Start the way SDL has them.
 inline constexpr TritonButton kTritonButtonMap[] = {
     {kTritonA, layout::kXusbA},
     {kTritonB, layout::kXusbB},
@@ -946,6 +1029,30 @@ inline constexpr TritonButton kTritonButtonMap[] = {
     {kTritonDpadDown, layout::kXusbDpadDown},
     {kTritonDpadLeft, layout::kXusbDpadLeft},
     {kTritonDpadRight, layout::kXusbDpadRight},
+};
+
+struct TritonExtendedButton {
+    std::uint32_t triton;
+    std::uint32_t ext;
+};
+
+// SDL's names for the rest: QAM is misc1, R4/L4/R5/L5 are paddle 1-4, the pad
+// clicks are touchpad and misc2, the trigger clicks misc3 and misc4, and the
+// stick and grip touches the capsense inputs.
+inline constexpr TritonExtendedButton kTritonExtendedButtonMap[] = {
+    {kTritonQam, extbtn::kMisc1},
+    {kTritonR4, extbtn::kRightPaddle1},
+    {kTritonL4, extbtn::kLeftPaddle1},
+    {kTritonR5, extbtn::kRightPaddle2},
+    {kTritonL5, extbtn::kLeftPaddle2},
+    {kTritonLeftPadClick, extbtn::kLeftPadClick},
+    {kTritonRightPadClick, extbtn::kRightPadClick},
+    {kTritonLeftTriggerClick, extbtn::kLeftTriggerClick},
+    {kTritonRightTriggerClick, extbtn::kRightTriggerClick},
+    {kTritonLeftStickTouch, extbtn::kLeftStickTouch},
+    {kTritonRightStickTouch, extbtn::kRightStickTouch},
+    {kTritonLeftGripTouch, extbtn::kLeftGripTouch},
+    {kTritonRightGripTouch, extbtn::kRightGripTouch},
 };
 
 // Both state layouts are 46 bytes with the id (SDL's 1 +
@@ -998,6 +1105,14 @@ inline std::uint16_t tritonButtonsToXusb(std::uint32_t buttons) {
     return b;
 }
 
+inline std::uint32_t tritonExtendedButtons(std::uint32_t buttons) {
+    std::uint32_t word = 0;
+    for (const TritonExtendedButton& bit : kTritonExtendedButtonMap) {
+        if ((buttons & bit.triton) != 0) { word |= bit.ext; }
+    }
+    return word;
+}
+
 // SDL sends a trigger as raw * 2 - 32768, so the throw is the positive half.
 inline std::uint8_t tritonTriggerToWire(std::int16_t raw) {
     if (raw <= 0) { return 0; }
@@ -1033,7 +1148,9 @@ inline void decodeTritonImu(const std::uint8_t* buf, ParsedReport& s) {
 // SDL publishes motion only for a tick it has not seen, so a report that
 // repeats an IMU sample is input and not motion.
 inline void decodeTritonState(const std::uint8_t* buf, ParsedReport& s, TritonCarry& carry) {
-    s.wButtons = tritonButtonsToXusb(rdLeU32(buf, kTritonButtonsOffset));
+    const std::uint32_t buttons = rdLeU32(buf, kTritonButtonsOffset);
+    s.wButtons = tritonButtonsToXusb(buttons);
+    s.extButtons = tritonExtendedButtons(buttons);
     s.lt = tritonTriggerToWire(rdLe16(buf, kTritonLeftTriggerOffset));
     s.rt = tritonTriggerToWire(rdLe16(buf, kTritonRightTriggerOffset));
     // Up-positive already, as XUSB wants: SDL negates Y to make it down-positive.
@@ -1346,10 +1463,6 @@ inline bool interfaceCarriesPad(int vendorId, int productId, int interfaceNumber
     return !range.any() || range.holds(interfaceNumber);
 }
 
-// The DualSense Edge decodes as a DualSense. Its OUT reports differ in one respect, the rumble
-// mode it shipped with (usbout::ds5UsesVibrationV2), which is why it is named out here.
-inline constexpr int kPidDualSenseEdge = 0x0DF2;
-
 // The Sony families are named by product: the DualShock 4 (v1, v2 and its USB wireless
 // adaptor) and the DualSense (and Edge). Any other Sony product is generic HID, since a layout
 // guessed from the vendor never decodes.
@@ -1390,6 +1503,22 @@ inline bool modelExpectsFrameworkGamepad(int vendorId, int productId) {
     const bool isSteamPad =
         m->parser == HidParser::SteamController || m->parser == HidParser::SteamTriton;
     return !isSteamPad;
+}
+
+// Whether the model sources the INPUT extended-buttons word: both Steam
+// Controllers, the DualSense Edge, and the Switch pads with a Capture button (the
+// Pro and the Charging Grip). SDL reads the Capture button off both through
+// HandleFullControllerState; the Grip is unverified on one.
+inline bool modelHasExtendedButtons(int vendorId, int productId) {
+    constexpr int kPidSwitchPro = 0x2009;
+    constexpr int kPidSwitchChargingGrip = 0x200E;
+    const HidParser parser = parserForDevice(vendorId, productId);
+    const bool isSteamPad =
+        parser == HidParser::SteamController || parser == HidParser::SteamTriton;
+    const bool isTheEdge = parser == HidParser::DualSense && productId == kPidDualSenseEdge;
+    const bool hasCapture = parser == HidParser::SwitchProUsb &&
+                            (productId == kPidSwitchPro || productId == kPidSwitchChargingGrip);
+    return isSteamPad || isTheEdge || hasCapture;
 }
 
 inline bool parserHasImu(HidParser parser) {

@@ -33,4 +33,7 @@ class ControllerShadow {
 // The same snapshot, read straight from SDL's getters.
 GamepadSnapshot readGamepad(SDL_GameController* gc);
 
+// Whether SDL's mapping for the pad has any of the buttons the extended-buttons word carries.
+bool hasExtendedButtons(SDL_GameController* gc);
+
 } // namespace dish::input

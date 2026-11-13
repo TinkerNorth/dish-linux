@@ -242,6 +242,7 @@ void SDLGamepadBridge::onControllerAdded(const SDL_Event& ev) {
     d.hasLightbar = SDL_GameControllerHasLED(gc) == SDL_TRUE;
     d.hasTouchpad = SDL_GameControllerGetNumTouchpads(gc) > 0;
     d.hasRumble = SDL_GameControllerHasRumble(gc) == SDL_TRUE;
+    d.hasExtendedButtons = hasExtendedButtons(gc);
     // SDL returns 0 when it cannot read the descriptor, which the twin-dedup pairing treats as
     // "no identity".
     d.vendorId = SDL_GameControllerGetVendor(gc);

@@ -48,6 +48,7 @@
 | Touchpad | ✅ · ⚠️ · ⚠️ | ✅ · ✅ · ⚠️ | ✅ · ✅ · ⚠️ |
 | Battery | ⚠️ · ✅ · ✅ | ⚠️ · ✅ · ⚠️ | ⚠️ · ✅ · ⚠️ |
 | Controller mic | ✅ · ✅ · ❌ | ✅ · ⚠️ · ❌ | ✅ · ⚠️ · ❌ |
+| Extended buttons (paddles, the Steam extras, Capture; protocol 4) | ⚠️ · ❌ · ❌ | ⚠️ · ⚠️ · ⚠️ | ⚠️ · ⚠️ · ⚠️ |
 
 The Battery row is what the host is sent: the lower of the pad's own reading
 and the PC's battery, on every path and to a Moonlight host too, and the PC's
@@ -97,11 +98,29 @@ pad has been on hand. Like the 2015 pad it is never claimed on its own, only
 through a Direct pick on its card. Its output worker sends the quiet settings
 (lizard mode off, raw accelerometer and gyro on) at the claim and every 3 s,
 because the pad's firmware turns lizard mode back on otherwise, and repeats a
-running rumble every 40 ms, because the pad stops one on its own. Open
-follow-ups: the two trackpads, the four back paddles, the quick-access button,
-the trigger and trackpad clicks and the capacitive touches have no wire field
-and are not forwarded; and the Bluetooth identity (`28DE:1303`) is never
-Direct, like every Bluetooth pad.
+running rumble every 40 ms, because the pad stops one on its own. Its four back
+paddles, quick-access button, trackpad and trigger clicks and stick and grip
+touches ride the protocol 4 extended-buttons word (see below). Open follow-ups:
+the two trackpads are not forwarded yet; and the Bluetooth identity
+(`28DE:1303`) is never Direct, like every Bluetooth pad.
+
+The extended-buttons word (satellite `docs/contract.md` "Extended buttons",
+SDL's names) is filled by the pads that have the buttons, each from the layout
+SDL reads and none yet checked on hardware: the 2015 Steam Controller's two
+grips as `leftPaddle1` / `rightPaddle1`, its full-pull trigger bits as the
+trigger clicks, and a left-pad click under a finger as `leftPadClick` (with no
+finger it stays the stick's L3; the right pad's click stays R3 while the right
+pad is the right stick); the 2026 pad's QAM as `misc1`, R4/L4/R5/L5 as paddle
+1-4, its pad and trigger clicks and its stick and grip touches; the DualSense
+Edge's (`054C:0DF2`, never the plain DualSense) back and Fn buttons from input
+byte 10 as paddle 1 and paddle 2; the Switch Pro's and Charging Grip's Capture
+(shared byte 0x20) as `misc1`. On the Standard path SDL2's `paddle1`-`paddle4`
+and `misc1` map the same way, so a pad whose SDL mapping names them (an Xbox
+Elite through a HIDAPI driver, a DualSense Edge, the Steam Deck's own controls
+on Linux) sources the word too. A slot claims `extendedButtons` exactly when
+its path's pad has one of these (`SlotRouter::SlotHardware::hasExtendedButtons`).
+What the host renders is the emulated type's business; the DualSense Edge type
+and the trackpad pick are the next changes.
 
 A Steam Controller receiver (the 2015 `28DE:1142`, the 2026 `28DE:1304` and
 `28DE:1305`) serves up to four paired controllers, one HID interface each: 1 to
