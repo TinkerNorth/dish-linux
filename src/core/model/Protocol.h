@@ -233,6 +233,10 @@ inline constexpr std::uint8_t kControllerTypeXbox = 0;
 inline constexpr std::uint8_t kControllerTypePlayStation = 1;
 inline constexpr std::uint8_t kControllerTypeDualSense = 2;
 inline constexpr std::uint8_t kControllerTypeSwitchPro = 3;
+// Protocol 4: the DualSense with the four paddles rendered as its back and Fn
+// buttons. Catalogs list types in id order, so it comes last and a client never
+// defaults to it.
+inline constexpr std::uint8_t kControllerTypeDualSenseEdge = 4;
 
 // ── Touchpad routing modes (descriptor `touchpadMode`, wire strings) ─────────
 inline constexpr std::uint8_t kTouchpadModeDs4 = 0;

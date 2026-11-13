@@ -80,6 +80,26 @@ CatalogDto playStationFirstCatalog() {
     return c;
 }
 
+// The contract's full type list in id order: the Edge last, every Sony and
+// Nintendo type with its own `emulates` hint, Xbox with none.
+CatalogDto catalogEndingOnTheEdge() {
+    CatalogDto c;
+    c.controllerTypes.push_back(typeRow(proto::kControllerTypeXbox, QStringLiteral("Xbox 360")));
+    c.controllerTypes.push_back(typeRow(proto::kControllerTypePlayStation,
+                                        QStringLiteral("DualShock 4"),
+                                        usbHint(QStringLiteral("054c:05c4"))));
+    c.controllerTypes.push_back(typeRow(proto::kControllerTypeDualSense,
+                                        QStringLiteral("DualSense"),
+                                        usbHint(QStringLiteral("054c:0ce6"))));
+    c.controllerTypes.push_back(typeRow(proto::kControllerTypeSwitchPro,
+                                        QStringLiteral("Switch Pro"),
+                                        usbHint(QStringLiteral("057e:2009"))));
+    c.controllerTypes.push_back(typeRow(proto::kControllerTypeDualSenseEdge,
+                                        QStringLiteral("DualSense Edge"),
+                                        usbHint(QStringLiteral("054c:0df2"))));
+    return c;
+}
+
 // Exactly what the call site must do: slot id -> pad identity -> seed.
 int seedForSlot(const std::string& slotId, const std::vector<PresentSlot>& shown,
                 const std::optional<CatalogDto>& catalog,
@@ -132,6 +152,27 @@ TEST_CASE("seed: a pad with no matching hint still takes the catalog's first off
     const std::vector<PresentSlot> shown = {present("sdl:0", 0x20d6, 0xa713)};
     REQUIRE(seedForSlot("sdl:0", shown, playStationFirstCatalog()) ==
             proto::kControllerTypePlayStation);
+}
+
+TEST_CASE("seed: a catalog that ends on the DualSense Edge never defaults to it",
+          "[padidentity][catalog][dualsense-edge]") {
+    // A pad no hint names, and a slot with no identity at all, both take the first
+    // offered type; the Edge, last in id order, is only ever picked by hand or by
+    // a real Edge's own identity.
+    const std::vector<PresentSlot> shown = {present("sdl:0", 0x20d6, 0xa713),
+                                            present("sdl:1", 0x28de, 0x1102)};
+    CHECK(seedForSlot("sdl:0", shown, catalogEndingOnTheEdge()) == proto::kControllerTypeXbox);
+    CHECK(seedForSlot("sdl:1", shown, catalogEndingOnTheEdge()) == proto::kControllerTypeXbox);
+    CHECK(seedForSlot("sdl:9", {}, catalogEndingOnTheEdge()) == proto::kControllerTypeXbox);
+}
+
+TEST_CASE("seed: a real DualSense Edge takes the Edge type by its own hint, a DualSense does not",
+          "[padidentity][catalog][dualsense-edge]") {
+    const std::vector<PresentSlot> shown = {present("sdl:0", 0x054c, 0x0df2),
+                                            present("sdl:1", 0x054c, 0x0ce6)};
+    CHECK(seedForSlot("sdl:0", shown, catalogEndingOnTheEdge()) ==
+          proto::kControllerTypeDualSenseEdge);
+    CHECK(seedForSlot("sdl:1", shown, catalogEndingOnTheEdge()) == proto::kControllerTypeDualSense);
 }
 
 TEST_CASE("seed: the user's Emulate override still wins over the pad identity",

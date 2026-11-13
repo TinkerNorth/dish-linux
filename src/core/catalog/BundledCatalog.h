@@ -25,6 +25,7 @@ inline constexpr QLatin1StringView kSlugXbox360("xbox360");
 inline constexpr QLatin1StringView kSlugDs4("ds4");
 inline constexpr QLatin1StringView kSlugDualSense("dualsense");
 inline constexpr QLatin1StringView kSlugSwitchPro("switchpro");
+inline constexpr QLatin1StringView kSlugDualSenseEdge("dualsenseedge");
 
 // Catalog feature-slug vocabulary (protocol constants, never localized).
 inline constexpr QLatin1StringView kFeatureAnalogTriggers("analogTriggers");
@@ -42,6 +43,10 @@ inline constexpr QLatin1StringView kFeatureSpeaker("speaker");
 // gate as the two above; the solver has no row for it, since it rides the
 // speaker toggle and the speaker route's endpoint.
 inline constexpr QLatin1StringView kFeatureHapticAudio("hapticAudio");
+// Protocol 4: the INPUT extended buttons the type renders (the Edge's four
+// paddles). Outside knownFeatureSlugs() like the audio and feedback slugs: the
+// solver has no row for it, and the cap it pairs with is the pad's to claim.
+inline constexpr QLatin1StringView kFeatureExtendedButtons("extendedButtons");
 // The protocol-2 feedback surfaces a live catalog reports per type. Also
 // outside knownFeatureSlugs(), and deliberately absent from typeFeatureSlugs()
 // below: a satellite old enough to serve no catalog predates the messages
@@ -77,6 +82,12 @@ inline QStringList feedbackFeatureSlugs() { return {kFeatureTriggerEffects, kFea
 // audio on its own runtime controllerAudio switch, and a satellite old enough
 // to serve no catalog reports no switch at all (mirrors dish-android's
 // BundledCatalog).
+// The DualSense's features over the floor every type shares.
+inline QStringList dualSenseFeatureSlugs(const QStringList& base) {
+    return base + QStringList{kFeatureMotion, kFeatureTouchpad, kFeatureLightbar,
+                              kFeatureMic,    kFeatureSpeaker,  kFeatureHapticAudio};
+}
+
 inline std::optional<QStringList> typeFeatureSlugs(const QString& slug) {
     QStringList base{kFeatureAnalogTriggers, kFeatureRumble};
     if (slug == kSlugXbox360) { return base; }
@@ -84,9 +95,10 @@ inline std::optional<QStringList> typeFeatureSlugs(const QString& slug) {
         return base + QStringList{kFeatureMotion, kFeatureTouchpad, kFeatureLightbar, kFeatureMic,
                                   kFeatureSpeaker};
     }
-    if (slug == kSlugDualSense) {
-        return base + QStringList{kFeatureMotion, kFeatureTouchpad, kFeatureLightbar,
-                                  kFeatureMic,    kFeatureSpeaker,  kFeatureHapticAudio};
+    if (slug == kSlugDualSense) { return dualSenseFeatureSlugs(base); }
+    // The Edge is the DualSense with the four paddles.
+    if (slug == kSlugDualSenseEdge) {
+        return dualSenseFeatureSlugs(base) + QStringList{kFeatureExtendedButtons};
     }
     if (slug == kSlugSwitchPro) { return base + QStringList{kFeatureMotion}; }
     return std::nullopt;
@@ -105,6 +117,8 @@ inline QStringList typeFeatureSlugsById(int typeId) {
         return typeFeatureSlugs(kSlugDualSense).value_or(floor);
     case proto::kControllerTypeSwitchPro:
         return typeFeatureSlugs(kSlugSwitchPro).value_or(floor);
+    case proto::kControllerTypeDualSenseEdge:
+        return typeFeatureSlugs(kSlugDualSenseEdge).value_or(floor);
     default:
         return floor;
     }

@@ -97,6 +97,9 @@ TEST_CASE("declared touchpad: before the catalog arrives the bundled table decid
           proto::kTouchpadModeOff);
     CHECK(declaredTouchpadMode(kPadPick, true, proto::kControllerTypeXbox, std::nullopt) ==
           proto::kTouchpadModeOff);
+    // The Edge is a DualSense: its touchpad renders the DS4 pad too.
+    CHECK(declaredTouchpadMode(kPadPick, true, proto::kControllerTypeDualSenseEdge, std::nullopt) ==
+          proto::kTouchpadModeDs4);
 }
 
 TEST_CASE("declared touchpad: a host never picked for declares the pad render",

@@ -510,6 +510,45 @@ TEST_CASE("the audio caps parse back from the session view", "[models][descripto
     CHECK((view.caps & proto::kCapSpeaker) == 0);
 }
 
+TEST_CASE("the DualSense Edge is catalog type 4, slug dualsenseedge", "[models][catalog]") {
+    // Wire constants (satellite docs/contract.md): the id and the slug are protocol
+    // vocabulary, never localized.
+    CHECK(proto::kControllerTypeDualSenseEdge == 4);
+    CHECK(dish::catalog::kSlugDualSenseEdge == QLatin1StringView("dualsenseedge"));
+    CHECK(dish::catalog::kFeatureExtendedButtons == QLatin1StringView("extendedButtons"));
+}
+
+TEST_CASE("the bundled DualSense Edge is the DualSense with the four paddles",
+          "[models][catalog]") {
+    namespace cat = dish::catalog;
+    const auto edge = cat::typeFeatureSlugs(cat::kSlugDualSenseEdge);
+    REQUIRE(edge.has_value());
+    const auto dualsense = cat::typeFeatureSlugs(cat::kSlugDualSense);
+    REQUIRE(dualsense.has_value());
+    CHECK(*edge == *dualsense + QStringList{cat::kFeatureExtendedButtons});
+    // No other bundled type renders a paddle, and the slug stays out of the
+    // protocol-1 vocabulary like the audio and feedback slugs do.
+    for (const auto& slug :
+         {cat::kSlugXbox360, cat::kSlugDs4, cat::kSlugDualSense, cat::kSlugSwitchPro}) {
+        const auto features = cat::typeFeatureSlugs(slug);
+        REQUIRE(features.has_value());
+        CHECK_FALSE(features->contains(cat::kFeatureExtendedButtons));
+    }
+    CHECK_FALSE(cat::knownFeatureSlugs().contains(cat::kFeatureExtendedButtons));
+}
+
+TEST_CASE("typeFeatureSlugsById resolves the Edge's id to the Edge, not the Xbox floor",
+          "[models][catalog]") {
+    namespace cat = dish::catalog;
+    CHECK(cat::typeFeatureSlugsById(proto::kControllerTypeDualSenseEdge) ==
+          *cat::typeFeatureSlugs(cat::kSlugDualSenseEdge));
+    CHECK(cat::typeFeatureSlugsById(proto::kControllerTypeDualSenseEdge)
+              .contains(cat::kFeatureTouchpad));
+    // The id after the Edge is still nobody's and still degrades to the floor.
+    CHECK(cat::typeFeatureSlugsById(proto::kControllerTypeDualSenseEdge + 1) ==
+          *cat::typeFeatureSlugs(cat::kSlugXbox360));
+}
+
 TEST_CASE("the bundled catalog offers audio on the two Sony types only", "[models][catalog]") {
     // The type layer's offline truth: only the composite personas carry real
     // audio endpoints, so xbox360 and switchpro must never gain the slugs by

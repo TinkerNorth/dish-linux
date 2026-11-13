@@ -87,6 +87,35 @@ TEST_CASE("offerableTypes renders both known and unknown types from the catalog"
     REQUIRE(known.contains(QStringLiteral("switchpro")));
 }
 
+TEST_CASE("offerableTypes lists the DualSense Edge last, known, after the four it always knew",
+          "[catalog][dualsense-edge]") {
+    // The contract lists types in id order, so a catalog that offers the Edge ends
+    // on it, and first-offered (the default a hint-less pad takes) is never it.
+    const auto catalog = CatalogDto::fromJson(parse(R"({
+        "locale":"en","protocolVersion":4,"serverVersion":"2.2.0",
+        "controllerTypes":[
+          {"id":0,"slug":"xbox360","name":"Xbox 360 Controller","shortName":"Xbox"},
+          {"id":1,"slug":"ds4","name":"DualShock 4","shortName":"PlayStation"},
+          {"id":2,"slug":"dualsense","name":"DualSense","shortName":"DualSense"},
+          {"id":3,"slug":"switchpro","name":"Switch Pro","shortName":"Switch"},
+          {"id":4,"slug":"dualsenseedge","name":"DualSense Edge","shortName":"DualSense Edge",
+           "features":{"extendedButtons":{"supported":true}}}
+        ],
+        "hostFeatures":{}
+    })"));
+    const QList<PickableType> rows = offerableTypes(catalog);
+    REQUIRE(rows.size() == 5);
+    CHECK(rows.front().type == dish::proto::kControllerTypeXbox);
+    CHECK(rows.back().type == dish::proto::kControllerTypeDualSenseEdge);
+    CHECK(rows.back().slug == QStringLiteral("dualsenseedge"));
+    CHECK(rows.back().name == QStringLiteral("DualSense Edge"));
+    CHECK(rows.back().known);
+    CHECK(knownTypeSlugs() == QList<QString>{QStringLiteral("xbox360"), QStringLiteral("ds4"),
+                                             QStringLiteral("dualsense"),
+                                             QStringLiteral("switchpro"),
+                                             QStringLiteral("dualsenseedge")});
+}
+
 TEST_CASE("offerableTypes drops a nameless catalog row", "[catalog][forwardcompat]") {
     const auto catalog = CatalogDto::fromJson(parse(R"({
         "locale":"en","protocolVersion":1,"serverVersion":"1.6.0",
