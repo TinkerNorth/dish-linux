@@ -141,6 +141,9 @@ struct MicMuteLatch {
 // Normalised to the XUSB axis/trigger scale.
 struct ParsedReport {
     std::uint16_t wButtons = 0; // XUSB button bits (GamepadButtonLayouts kXusb*)
+    // The protocol 4 extended-buttons word (proto::kExtButton*), from the
+    // decoders of the pads that have the buttons.
+    std::uint32_t extButtons = 0;
     std::uint8_t lt = 0;
     std::uint8_t rt = 0;
     std::int16_t lx = 0;

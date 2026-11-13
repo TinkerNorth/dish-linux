@@ -176,6 +176,8 @@ QtObject {
         // Advertised on the wire, but never a capability row of its own.
         case "hapticAudio":
             return qsTr("Haptics");
+        case "extendedButtons":
+            return qsTr("Extra buttons");
         }
         return feature;
     }

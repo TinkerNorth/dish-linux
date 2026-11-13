@@ -71,6 +71,7 @@ class SatelliteClient {
     static constexpr std::uint16_t kCapMic = proto::kCapMic;
     static constexpr std::uint16_t kCapSpeaker = proto::kCapSpeaker;
     static constexpr std::uint16_t kCapHapticAudio = proto::kCapHapticAudio;
+    static constexpr std::uint16_t kCapExtendedButtons = proto::kCapExtendedButtons;
 
     // Wire values, mirroring satellite/src/core/types.h.
     static constexpr std::uint8_t kBatteryLevelUnknown = 0xFF;
@@ -116,9 +117,12 @@ class SatelliteClient {
         return settledProtocolVersion_.load(std::memory_order_relaxed);
     }
 
-    // Hot path: called directly from the SDL input thread.
+    // Hot path: called directly from the SDL input thread. `extButtons` is the
+    // protocol 4 word (proto::kExtButton*); it leaves only on a session settled
+    // at 4, as the shape of the frame keys on the settled version.
     void sendReport(int controllerIndex, std::uint16_t buttons, std::uint8_t lt, std::uint8_t rt,
-                    std::int16_t lx, std::int16_t ly, std::int16_t rx, std::int16_t ry);
+                    std::int16_t lx, std::int16_t ly, std::int16_t rx, std::int16_t ry,
+                    std::uint32_t extButtons);
 
     static std::uint16_t withLightbarCapability(std::uint16_t base, bool hasLightbar) {
         return static_cast<std::uint16_t>(base | (hasLightbar ? kCapLightbar : 0));
@@ -160,6 +164,14 @@ class SatelliteClient {
     // 0x0009 rumble, so the bit is set only where the 4-channel route exists.
     static std::uint16_t withHapticAudioCapability(std::uint16_t base, bool hasHapticAudio) {
         return static_cast<std::uint16_t>(base | (hasHapticAudio ? kCapHapticAudio : 0));
+    }
+
+    // Protocol 4. The house rule again: the bit says this pad SOURCES the
+    // extended-buttons word, so only a slot whose input has one of those
+    // buttons sets it.
+    static std::uint16_t withExtendedButtonsCapability(std::uint16_t base,
+                                                       bool hasExtendedButtons) {
+        return static_cast<std::uint16_t>(base | (hasExtendedButtons ? kCapExtendedButtons : 0));
     }
 
     // Axes are the satellite's right-handed frame (+X right, +Y up, +Z toward
@@ -222,6 +234,20 @@ class SatelliteClient {
     // flags bit2 in v1 is buttons bit0 here.
     static std::array<std::uint8_t, 19> encodePointerPayload(std::uint8_t controllerIndex,
                                                              const reducer::TouchpadForward& f);
+
+    // MSG_INPUT, sized by the settled version: ctrlIdx(1) + the 12-byte XUSB
+    // report, then from protocol 4 the extended-buttons word (u32 LE). A fixed
+    // record rather than a vector, because sendReport is the hot path.
+    static constexpr std::size_t kInputFrameMaxBytes =
+        1 + static_cast<std::size_t>(proto::kInputExtendedPayloadBytes);
+    struct InputFrame {
+        std::array<std::uint8_t, kInputFrameMaxBytes> bytes{};
+        std::size_t length = 0;
+    };
+    static InputFrame encodeInputPayload(int settledVersion, std::uint8_t controllerIndex,
+                                         std::uint16_t buttons, std::uint8_t lt, std::uint8_t rt,
+                                         std::int16_t lx, std::int16_t ly, std::int16_t rx,
+                                         std::int16_t ry, std::uint32_t extButtons);
 
     struct TriggerEffectsMessage {
         int controllerIndex = 0;

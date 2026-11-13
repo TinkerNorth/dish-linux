@@ -86,7 +86,8 @@ struct UsbReport {
     // A link event rather than a report, when not None; every other field is then blank.
     PadLinkEvent linkEvent = PadLinkEvent::None;
 
-    std::uint16_t wButtons = 0; // XUSB button bits (already mapped by the decoder).
+    std::uint16_t wButtons = 0;   // XUSB button bits (already mapped by the decoder).
+    std::uint32_t extButtons = 0; // The protocol 4 extended-buttons word.
     std::uint8_t lt = 0;
     std::uint8_t rt = 0;
     std::int16_t lx = 0;

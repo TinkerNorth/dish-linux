@@ -116,11 +116,12 @@ TEST_CASE("every advertised cap bit names its capability, in wire order",
     const std::uint16_t all = proto::kCapAnalogTriggers | proto::kCapRumble | proto::kCapMotion |
                               proto::kCapLightbar | proto::kCapTriggerEffects |
                               proto::kCapPlayerLeds | proto::kCapMic | proto::kCapSpeaker |
-                              proto::kCapHapticAudio;
+                              proto::kCapHapticAudio | proto::kCapExtendedButtons;
     REQUIRE(advertisedCaps(all) ==
             std::vector<WireCap>{WireCap::AnalogTriggers, WireCap::Rumble, WireCap::Motion,
                                  WireCap::Lightbar, WireCap::TriggerEffects, WireCap::PlayerLeds,
-                                 WireCap::Mic, WireCap::Speaker, WireCap::HapticAudio});
+                                 WireCap::Mic, WireCap::Speaker, WireCap::HapticAudio,
+                                 WireCap::ExtendedButtons});
 }
 
 TEST_CASE("a descriptor's caps advertise only the bits it set", "[diagnostics][session]") {

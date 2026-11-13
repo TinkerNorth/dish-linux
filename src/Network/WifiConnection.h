@@ -140,6 +140,8 @@ class WifiConnection : public QObject {
         // Protocol 3: the pad's 4-channel render endpoint is named on this
         // machine, so the haptic lanes can be played rather than reduced.
         bool hasHapticAudio = false;
+        // Protocol 4: the pad sources the extended-buttons word.
+        bool hasExtendedButtons = false;
         bool registered = false;
     };
 
@@ -183,7 +185,8 @@ class WifiConnection : public QObject {
     void attachSlot(const QString& slotId, int controllerType, bool hasLightbar, bool hasMotion,
                     bool hasRumble, std::uint8_t touchpadMode = proto::kTouchpadModeOff,
                     bool hasTriggerEffects = false, bool hasPlayerLeds = false, bool hasMic = false,
-                    bool hasSpeaker = false, bool hasHapticAudio = false);
+                    bool hasSpeaker = false, bool hasHapticAudio = false,
+                    bool hasExtendedButtons = false);
     void detachSlot();
     void detachSlot(const QString& slotId);
 

@@ -597,10 +597,11 @@ TEST_CASE("a controller that leaves publishes a blank input, so its last one doe
     gateway.connected = {1};
     dish::input::GamepadInputProcessor processor;
     std::vector<std::uint16_t> buttons;
-    processor.setReportSender(
-        [&buttons](const std::string& /*id*/, std::uint16_t b, std::uint8_t /*lt*/,
-                   std::uint8_t /*rt*/, std::int16_t /*lx*/, std::int16_t /*ly*/,
-                   std::int16_t /*rx*/, std::int16_t /*ry*/) { buttons.push_back(b); });
+    processor.setReportSender([&buttons](const std::string& /*id*/, std::uint16_t b,
+                                         std::uint8_t /*lt*/, std::uint8_t /*rt*/,
+                                         std::int16_t /*lx*/, std::int16_t /*ly*/,
+                                         std::int16_t /*rx*/, std::int16_t /*ry*/,
+                                         std::uint32_t /*extButtons*/) { buttons.push_back(b); });
     UsbPathPreferenceRepository repo(makeSharedSettings());
     UsbPathPreferenceStore prefs(&repo);
     UsbGamepadManager manager(&gateway, &processor, &prefs, nullptr);

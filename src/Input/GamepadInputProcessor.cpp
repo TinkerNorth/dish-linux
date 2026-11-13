@@ -182,7 +182,7 @@ void GamepadInputProcessor::publish(DeviceIndex index, const DeviceState& state)
     if (sink_ != nullptr) { sink_->report(index, r->id, filtered); }
     if (sender_) {
         sender_(r->id, filtered.wButtons, filtered.lt, filtered.rt, filtered.lx, filtered.ly,
-                filtered.rx, filtered.ry);
+                filtered.rx, filtered.ry, filtered.extButtons);
     }
 }
 
@@ -283,7 +283,7 @@ void GamepadInputProcessor::zeroAndSendAll() {
             continue;
         }
         r.zeroGen.fetch_add(1, std::memory_order_release);
-        if (sender_) { sender_(DeviceId(text.chars.data(), text.length), 0, 0, 0, 0, 0, 0, 0); }
+        if (sender_) { sender_(DeviceId(text.chars.data(), text.length), 0, 0, 0, 0, 0, 0, 0, 0); }
     }
 }
 
@@ -352,6 +352,7 @@ GamepadInputProcessor::DeviceState applyDeadzones(const GamepadInputProcessor::D
 bool isActuation(const GamepadInputProcessor::DeviceState& ref,
                  const GamepadInputProcessor::DeviceState& next) {
     if (ref.wButtons != next.wButtons) { return true; }
+    if (ref.extButtons != next.extButtons) { return true; }
     const auto axisMoved = [](std::int16_t a, std::int16_t b) {
         return std::abs(static_cast<std::int32_t>(a) - static_cast<std::int32_t>(b)) >=
                static_cast<std::int32_t>(kActuationStickEpsilon);

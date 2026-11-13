@@ -170,6 +170,10 @@
         <translation>Háptica</translation>
     </message>
     <message>
+        <source>Extra buttons</source>
+        <translation>Botones adicionales</translation>
+    </message>
+    <message>
         <source>buttons or sticks</source>
         <translation>botones o sticks</translation>
     </message>

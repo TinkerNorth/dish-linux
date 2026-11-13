@@ -91,6 +91,7 @@ enum class WireCap : std::uint8_t {
     Mic,
     Speaker,
     HapticAudio,
+    ExtendedButtons,
 };
 
 struct WireCapBit {
@@ -98,7 +99,7 @@ struct WireCapBit {
     WireCap cap = WireCap::AnalogTriggers;
 };
 
-inline constexpr std::array<WireCapBit, 9> kWireCapBits{{
+inline constexpr std::array<WireCapBit, 10> kWireCapBits{{
     {proto::kCapAnalogTriggers, WireCap::AnalogTriggers},
     {proto::kCapRumble, WireCap::Rumble},
     {proto::kCapMotion, WireCap::Motion},
@@ -108,6 +109,7 @@ inline constexpr std::array<WireCapBit, 9> kWireCapBits{{
     {proto::kCapMic, WireCap::Mic},
     {proto::kCapSpeaker, WireCap::Speaker},
     {proto::kCapHapticAudio, WireCap::HapticAudio},
+    {proto::kCapExtendedButtons, WireCap::ExtendedButtons},
 }};
 
 inline std::vector<WireCap> advertisedCaps(std::uint16_t caps) {

@@ -41,6 +41,7 @@ std::uint16_t capsWordFromJson(const QJsonObject& caps) {
     if (boolOr(caps, "mic", false)) { word |= proto::kCapMic; }
     if (boolOr(caps, "speaker", false)) { word |= proto::kCapSpeaker; }
     if (boolOr(caps, "hapticAudio", false)) { word |= proto::kCapHapticAudio; }
+    if (boolOr(caps, "extendedButtons", false)) { word |= proto::kCapExtendedButtons; }
     return word;
 }
 
@@ -341,6 +342,7 @@ QJsonObject ControllerDescriptor::toJson() const {
              {"mic", (caps & proto::kCapMic) != 0},
              {"speaker", (caps & proto::kCapSpeaker) != 0},
              {"hapticAudio", (caps & proto::kCapHapticAudio) != 0},
+             {"extendedButtons", (caps & proto::kCapExtendedButtons) != 0},
          }},
         {"touchpadMode",
          QString::fromUtf8(proto::touchpadModeName(touchpadMode).data(),

@@ -19,7 +19,7 @@
 
 | Feature | Android | Windows | Linux (this) |
 |---|---|---|---|
-| Satellite host, protocol 3 | ✅ | ✅ | ✅ |
+| Satellite host, protocol 4 | ✅ | ✅ | ✅ |
 | Moonlight host (Sunshine / Apollo / Wolf) | ✅ | ✅ | ✅ |
 | Mouse mode on the host | ✅ | ❌ | ❌ (deferred: `reducer::kClientRoutesTouchpadAsMouse`) |
 | Controller audio (mic + speaker) | ✅ | ✅ | ✅ |

@@ -67,6 +67,7 @@ models::ControllerDescriptor WifiConnection::descriptorOf(const SlotBinding& b) 
     caps = SatelliteClient::withMicCapability(caps, b.hasMic);
     caps = SatelliteClient::withSpeakerCapability(caps, b.hasSpeaker);
     caps = SatelliteClient::withHapticAudioCapability(caps, b.hasHapticAudio);
+    caps = SatelliteClient::withExtendedButtonsCapability(caps, b.hasExtendedButtons);
     d.caps = caps;
     d.touchpadMode = b.touchpadMode;
     return d;
@@ -248,7 +249,7 @@ void WifiConnection::markStale() {
 void WifiConnection::attachSlot(const QString& slotId, int controllerType, bool hasLightbar,
                                 bool hasMotion, bool hasRumble, std::uint8_t touchpadMode,
                                 bool hasTriggerEffects, bool hasPlayerLeds, bool hasMic,
-                                bool hasSpeaker, bool hasHapticAudio) {
+                                bool hasSpeaker, bool hasHapticAudio, bool hasExtendedButtons) {
     auto it = slots_.find(slotId);
     if (it == slots_.end()) {
         SlotBinding b;
@@ -262,6 +263,7 @@ void WifiConnection::attachSlot(const QString& slotId, int controllerType, bool 
         b.hasMic = hasMic;
         b.hasSpeaker = hasSpeaker;
         b.hasHapticAudio = hasHapticAudio;
+        b.hasExtendedButtons = hasExtendedButtons;
         b.touchpadMode = touchpadMode;
         b.registered = false;
         slots_.emplace(slotId, b);
@@ -274,7 +276,8 @@ void WifiConnection::attachSlot(const QString& slotId, int controllerType, bool 
             it->second.touchpadMode != touchpadMode ||
             it->second.hasTriggerEffects != hasTriggerEffects ||
             it->second.hasPlayerLeds != hasPlayerLeds || it->second.hasMic != hasMic ||
-            it->second.hasSpeaker != hasSpeaker || it->second.hasHapticAudio != hasHapticAudio;
+            it->second.hasSpeaker != hasSpeaker || it->second.hasHapticAudio != hasHapticAudio ||
+            it->second.hasExtendedButtons != hasExtendedButtons;
         it->second.controllerType = controllerType;
         it->second.hasLightbar = hasLightbar;
         it->second.hasMotion = hasMotion;
@@ -284,6 +287,7 @@ void WifiConnection::attachSlot(const QString& slotId, int controllerType, bool 
         it->second.hasMic = hasMic;
         it->second.hasSpeaker = hasSpeaker;
         it->second.hasHapticAudio = hasHapticAudio;
+        it->second.hasExtendedButtons = hasExtendedButtons;
         it->second.touchpadMode = touchpadMode;
         if (changed && state_ == SessionState::Live) { emit slotChanged(slotId); }
     }

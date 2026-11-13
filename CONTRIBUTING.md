@@ -415,6 +415,9 @@ server and must produce byte-identical traffic:
 - Packet layout: `token(4) | counter(4) | ciphertext+tag`, with the
   4-byte token as AAD.
 - XUSB report: 12 bytes, little-endian.
+- INPUT (0x0001): ctrlIdx + the XUSB report, and on a session settled at
+  protocol 4 the extended-buttons word (u32 LE) behind it. The frame shape
+  keys on the SETTLED version; the receiver reads it by length.
 - Ports: discovery UDP 9879, pairing and REST HTTPS 9443, streaming UDP 9876.
 
 Any change here must be coordinated with `dish-android`, `dish-mac`,

@@ -127,7 +127,7 @@ void sendFrom(SatelliteClient& client, int threads, int reportsEach) {
         senders.emplace_back([&client, t, reportsEach] {
             for (int i = 0; i < reportsEach; ++i) {
                 client.sendReport(0, static_cast<std::uint16_t>(t), 0, 0,
-                                  static_cast<std::int16_t>(i), 0, 0, 0);
+                                  static_cast<std::int16_t>(i), 0, 0, 0, 0);
             }
         });
     }
@@ -176,7 +176,7 @@ TEST_CASE("a re-key during sends never pairs one key with the other key's counte
     for (int t = 0; t < 3; ++t) {
         senders.emplace_back([&client, &stop] {
             while (!stop.load(std::memory_order_relaxed)) {
-                client.sendReport(0, 1, 0, 0, 0, 0, 0, 0);
+                client.sendReport(0, 1, 0, 0, 0, 0, 0, 0, 0);
             }
         });
     }

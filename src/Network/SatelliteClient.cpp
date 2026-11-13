@@ -143,26 +143,49 @@ void SatelliteClient::setConnectionParams(const std::array<std::uint8_t, 4>& tok
     }
 }
 
-void SatelliteClient::sendReport(int controllerIndex, std::uint16_t buttons, std::uint8_t lt,
-                                 std::uint8_t rt, std::int16_t lx, std::int16_t ly, std::int16_t rx,
-                                 std::int16_t ry) {
-    // controllerIndex(1) + XUSB_REPORT(12, LE).
-    std::uint8_t payload[13]{};
-    payload[0] = static_cast<std::uint8_t>(controllerIndex);
-    payload[1] = static_cast<std::uint8_t>(buttons & 0xFFU);
-    payload[2] = static_cast<std::uint8_t>((buttons >> 8) & 0xFFU);
-    payload[3] = lt;
-    payload[4] = rt;
-    auto storeLe16 = [&](int off, std::int16_t v) {
+SatelliteClient::InputFrame
+SatelliteClient::encodeInputPayload(int settledVersion, std::uint8_t controllerIndex,
+                                    std::uint16_t buttons, std::uint8_t lt, std::uint8_t rt,
+                                    std::int16_t lx, std::int16_t ly, std::int16_t rx,
+                                    std::int16_t ry, std::uint32_t extButtons) {
+    // Explicit LE byte-shifts, like every other encoder here: the receiver decodes
+    // the same way and neither side may depend on struct layout.
+    InputFrame frame;
+    frame.bytes[0] = controllerIndex;
+    frame.bytes[1] = static_cast<std::uint8_t>(buttons & 0xFFU);
+    frame.bytes[2] = static_cast<std::uint8_t>((buttons >> 8) & 0xFFU);
+    frame.bytes[3] = lt;
+    frame.bytes[4] = rt;
+    auto storeLe16 = [&frame](std::size_t off, std::int16_t v) {
         const auto u = static_cast<std::uint16_t>(v);
-        payload[off] = static_cast<std::uint8_t>(u & 0xFFU);
-        payload[off + 1] = static_cast<std::uint8_t>((u >> 8) & 0xFFU);
+        frame.bytes[off] = static_cast<std::uint8_t>(u & 0xFFU);
+        frame.bytes[off + 1] = static_cast<std::uint8_t>((u >> 8) & 0xFFU);
     };
     storeLe16(5, lx);
     storeLe16(7, ly);
     storeLe16(9, rx);
     storeLe16(11, ry);
-    sendEncrypted(kMsgInput, payload, sizeof(payload));
+    const std::size_t reportBytes = 1 + static_cast<std::size_t>(proto::kInputPayloadBytes);
+    if (!proto::settledCarriesExtendedButtons(settledVersion)) {
+        frame.length = reportBytes;
+        return frame;
+    }
+    const std::uint32_t known = extButtons & proto::kExtButtonsKnownMask;
+    frame.bytes[reportBytes] = static_cast<std::uint8_t>(known & 0xFFU);
+    frame.bytes[reportBytes + 1] = static_cast<std::uint8_t>((known >> 8) & 0xFFU);
+    frame.bytes[reportBytes + 2] = static_cast<std::uint8_t>((known >> 16) & 0xFFU);
+    frame.bytes[reportBytes + 3] = static_cast<std::uint8_t>((known >> 24) & 0xFFU);
+    frame.length = kInputFrameMaxBytes;
+    return frame;
+}
+
+void SatelliteClient::sendReport(int controllerIndex, std::uint16_t buttons, std::uint8_t lt,
+                                 std::uint8_t rt, std::int16_t lx, std::int16_t ly, std::int16_t rx,
+                                 std::int16_t ry, std::uint32_t extButtons) {
+    const int settled = settledProtocolVersion_.load(std::memory_order_relaxed);
+    const InputFrame frame = encodeInputPayload(settled, static_cast<std::uint8_t>(controllerIndex),
+                                                buttons, lt, rt, lx, ly, rx, ry, extButtons);
+    sendEncrypted(kMsgInput, frame.bytes.data(), frame.length);
 }
 
 std::array<std::uint8_t, 17> SatelliteClient::encodeMotionPayload(
