@@ -376,6 +376,11 @@ vends a sentence; QML localizes.
 |---|---|
 | `touchpadModeFor(connectionId)` → `"off"` / `"pad"` / `"mouse"` | Real. Per-satellite store; `"pad"` when never picked, the routing the runtime forwards then. A stored mouse pick reads `"off"` while mouse mode is unavailable, which it is on this client. |
 | `setTouchpadMode(connectionId, mode)` | Real. |
+| `steamTrackpadsFor(slotId)` → `"none"` / `"2015"` / `"2026"` | Real. Which Steam Controller's trackpads the slot's pad has (the Direct model table); `"none"` for every other pad. A slot with trackpads shows the Trackpads row instead of the host's Touchpad routing, and its Apply leaves the host's touchpad pick alone. |
+| `trackpadPickFor(slotId)` → `"stick"` / `"pad"` / `"mouse"` / `"off"` | Real. The pick in force: the per-slot store where the model offers it, else the model's default (2015 `stick`, 2026 `pad` when the bound type has a touch surface, else `off`), held to what the bound type and host carry. |
+| `trackpadPickChoicesFor(slotId)` → list of pick tokens | Real. What the picker lists: the 2015 pad's four, the 2026 pad's three (no `stick`: it has a real right stick), without `mouse` while mouse mode is unavailable on this client. Empty for a pad with no trackpads. |
+| `trackpadPickDraftModeFor(slotId)` → `0` / `1` / `2` | Real. The draft `touchpadMode` the pick in force stands for, so the capability matrix shows a Steam slot's surface as its pick says. |
+| `setTrackpadPick(slotId, pick)` | Real. Persists the pick, hands it to the pad's decoder and re-declares the slot. A token outside the four is ignored. |
 | `touchpadRoutingFor(slotId)` → `"off"` / `"pad"` / `"mouse"` | Real. What the slot's binding declares, from the runtime's own answer: a satellite descriptor's touchpad mode, or for a Moonlight binding whether its arrival carries the touchpad (`"pad"`). The binding strip reads this, never the pick. |
 | `rumbleEnabledFor(slotId)` | Real. Per-slot store; `true` when never switched. A draft seeds from it, so applying cannot silently turn rumble back on. |
 | `setRumbleEnabled(slotId, on)` | Real. Off stops the slot's motors at once and turns every rumble a host sends it into a stop; the descriptor still offers rumble, as on Android. |

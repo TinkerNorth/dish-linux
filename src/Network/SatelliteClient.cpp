@@ -298,13 +298,16 @@ void SatelliteClient::sendTouchpad(int controllerIndex, bool finger0Active, std:
                                    std::int16_t finger0X, std::int16_t finger0Y, bool finger1Active,
                                    std::uint8_t finger1Id, std::int16_t finger1X,
                                    std::int16_t finger1Y, bool buttonPressed,
-                                   std::uint32_t eventTimeMs) {
+                                   std::uint32_t eventTimeMs, bool rightPressed,
+                                   std::int16_t scrollV) {
     // The settled version, never this client's own: a v1 satellite decodes only
     // the 16-byte frame and drops anything longer.
     if (proto::settledSpeaksV2(settledProtocolVersion_.load(std::memory_order_relaxed))) {
         reducer::TouchpadForward f = reducer::assembleTouchpadForward(
             finger0Active, finger0Id, finger0X, finger0Y, finger1Active, finger1Id, finger1X,
             finger1Y, buttonPressed, eventTimeMs);
+        f.rightPressed = rightPressed;
+        f.scrollV = scrollV;
         const auto payload = encodePointerPayload(static_cast<std::uint8_t>(controllerIndex), f);
         sendEncrypted(kMsgTouchpad, payload.data(), payload.size());
         return;

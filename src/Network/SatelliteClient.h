@@ -187,10 +187,13 @@ class SatelliteClient {
 
     // `eventTimeMs` is the sender-side uptime stamp; the host's mouse-mode timing
     // depends on it, so it is not optional. Coordinates are normalised int16.
+    // `rightPressed` and `scrollV` are the POINTER frame's (protocol 2); a v1
+    // session has nowhere to put them and drops them.
     void sendTouchpad(int controllerIndex, bool finger0Active, std::uint8_t finger0Id,
                       std::int16_t finger0X, std::int16_t finger0Y, bool finger1Active,
                       std::uint8_t finger1Id, std::int16_t finger1X, std::int16_t finger1Y,
-                      bool buttonPressed, std::uint32_t eventTimeMs);
+                      bool buttonPressed, std::uint32_t eventTimeMs, bool rightPressed = false,
+                      std::int16_t scrollV = 0);
 
     // MSG_MIC_AUDIO: ctrlIdx(1) + seq(u16 BE) + exactly one 20 ms Opus packet.
     // `seq` wraps and exists only for the receiver's gap detection and

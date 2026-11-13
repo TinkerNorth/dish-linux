@@ -502,6 +502,10 @@
         <translation>Miš</translation>
     </message>
     <message>
+        <source>Right stick</source>
+        <translation>Desna palica</translation>
+    </message>
+    <message>
         <source>Found</source>
         <translation>Pronađen</translation>
     </message>
@@ -784,6 +788,10 @@
     <message>
         <source>Tilt and gyro aiming on the host.</source>
         <translation>Nagib i žiro nišanjenje na hostu.</translation>
+    </message>
+    <message>
+        <source>Trackpads</source>
+        <translation>Trackpadovi</translation>
     </message>
     <message>
         <source>Feedback from the host drives the pad’s motors.</source>

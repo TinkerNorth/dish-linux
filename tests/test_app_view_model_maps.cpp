@@ -45,6 +45,7 @@ using dish::qml::keepAwakeModeToInt;
 using dish::qml::keepAwakeReachToken;
 using dish::qml::licenseRows;
 using dish::qml::reversePairingPhaseToken;
+using dish::qml::steamTrackpadsToken;
 using dish::qml::themeModeFromInt;
 using dish::qml::themeModeToInt;
 using dish::qml::touchpadChoiceForDraftMode;
@@ -52,6 +53,8 @@ using dish::qml::touchpadChoiceForMode;
 using dish::qml::touchpadChoiceForMoonlight;
 using dish::qml::touchpadChoiceForPick;
 using dish::qml::touchpadPickForChoice;
+using dish::qml::trackpadPickDraftMode;
+using dish::qml::trackpadPickTokens;
 using dish::reducer::KeepAwakeMode;
 using dish::reducer::KeepAwakeReach;
 using dish::reducer::resolveTouchpadMode;
@@ -235,6 +238,22 @@ TEST_CASE("a draft's Off, Pad and Mouse are applied as those choices", "[appvm][
     CHECK(touchpadChoiceForDraftMode(0) == std::optional<QString>(QStringLiteral("off")));
     CHECK(touchpadChoiceForDraftMode(1) == std::optional<QString>(QStringLiteral("pad")));
     CHECK(touchpadChoiceForDraftMode(2) == std::optional<QString>(QStringLiteral("mouse")));
+}
+
+TEST_CASE("a Steam slot's trackpads, picks and draft mode read as the tokens QML words",
+          "[appvm][trackpads]") {
+    using dish::input::usbparse::SteamTrackpads;
+    using dish::input::usbparse::TrackpadPick;
+    CHECK(steamTrackpadsToken(SteamTrackpads::None) == QStringLiteral("none"));
+    CHECK(steamTrackpadsToken(SteamTrackpads::Pad2015) == QStringLiteral("2015"));
+    CHECK(steamTrackpadsToken(SteamTrackpads::Pad2026) == QStringLiteral("2026"));
+    CHECK(trackpadPickTokens({TrackpadPick::Stick, TrackpadPick::Pad, TrackpadPick::Mouse,
+                              TrackpadPick::Off}) == QStringList{"stick", "pad", "mouse", "off"});
+    // The capability matrix shows a Steam slot's surface as its pick says.
+    CHECK(trackpadPickDraftMode(TrackpadPick::Stick) == 0);
+    CHECK(trackpadPickDraftMode(TrackpadPick::Off) == 0);
+    CHECK(trackpadPickDraftMode(TrackpadPick::Pad) == 1);
+    CHECK(trackpadPickDraftMode(TrackpadPick::Mouse) == 2);
 }
 
 TEST_CASE("an editor re-run over a host whose pick is ds4 applies ds4 back", "[appvm][touchpad]") {

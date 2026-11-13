@@ -214,6 +214,7 @@ class HidrawGateway : public UsbDeviceGateway {
     bool writeOutputReport(int syntheticId, const std::uint8_t* data, std::size_t len) override;
     std::unique_ptr<HidReportWriter> openReportWriter(int syntheticId) override;
     bool setPadMicMuted(int syntheticId, bool muted) override;
+    bool setTrackpadPick(int syntheticId, input::usbparse::TrackpadPick pick) override;
 
   private:
     struct Claimed {
@@ -242,6 +243,11 @@ class HidrawGateway : public UsbDeviceGateway {
         // the button edge, setPadMicMuted overwrites it when the user toggles
         // mute in the UI, and both must land on the wire's next report.
         input::usbparse::MicMuteLatch micMute;
+        // The slot's trackpad pick, written by setTrackpadPick on the app thread
+        // and copied into `sticks` by the read loop before each decode: one
+        // relaxed load per report, no lock.
+        std::atomic<std::uint8_t> trackpadPick{
+            static_cast<std::uint8_t>(input::usbparse::TrackpadPick::Stick)};
         // Serialises writers against each other. The reader is untouched: a
         // hidraw fd carries independent read and write paths, so an OUT report
         // never waits on the blocking read.

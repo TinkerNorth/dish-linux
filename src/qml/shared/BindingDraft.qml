@@ -34,6 +34,9 @@ QtObject {
     property bool micOn: false
     property bool speakerOn: true
     property int touchpadMode: 0          // 0 off · 1 pad · 2 mouse
+    // "none" | "2015" | "2026": a Steam Controller slot's surface follows its own
+    // trackpad pick, never the host's touchpad routing.
+    property string steamTrackpads: "none"
     // What Apply sends instead for a binding that cannot carry the touchpad.
     readonly property int touchpadKeep: -1
 
@@ -133,6 +136,8 @@ QtObject {
     // that carries neither the touchpad nor the mouse keeps it rather than
     // writing the Off its draft collapsed to.
     function touchpadModeToApply() {
+        if (draft.steamTrackpads !== "none")
+            return draft.touchpadKeep;
         const rows = draft.capabilityRows();
         const carried = draft.layersCarry(rows, "touchpad") || draft.layersCarry(rows, "mouse");
         return carried ? draft.touchpadMode : draft.touchpadKeep;

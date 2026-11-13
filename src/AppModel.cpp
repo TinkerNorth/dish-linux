@@ -355,6 +355,9 @@ AppModel::AppModel(std::unique_ptr<source::WakeInhibitor> inhibitor, QObject* pa
     // The rumble switch rides the published routes, so a flip republishes them.
     rumbleSwitchSub_ = rumbleEnabledStore_.state().subscribe(
         [this](const source::RumbleEnabledMap&) { republishRouting(); }, /*emitCurrent=*/false);
+    // A trackpad pick moves the pad's decoder and the slot's declared touchpadMode.
+    trackpadPickSub_ = trackpadPickStore_.state().subscribe(
+        [this](const source::TrackpadPickMap&) { syncTrackpadPicks(); }, /*emitCurrent=*/false);
     // Enumeration only, never per-report, and on the main thread because that is
     // the only thread that may mutate the FSM.
     usbScanTimer_->setInterval(1000);
@@ -792,6 +795,7 @@ void AppModel::pollUsbDirect() {
     // ONE snapshot for the whole pass: directPads() returns BY VALUE.
     const DirectPads pads = usbManager_->directPads();
     if (applyUsbPollRates(pads)) { rebuild(); }
+    syncTrackpadPicks();
     // The charge readings prune on the same rule, so a re-claimed pad starts from its own first
     // report rather than the last pad's.
     if (pruneDeparted(usbPadBattery_, pads)) { rebuild(); }
@@ -1237,11 +1241,43 @@ bool AppModel::slotCarriesHapticSink(const QString& slotId) const {
 
 std::uint8_t AppModel::declaredTouchpadMode(const QString& slotId) const {
     const QString connId = hub_->bindings().value(slotId);
+    const auto catalog = connId.isEmpty() ? std::nullopt : catalogRepo_.cached(connId);
+    const input::usbparse::SteamTrackpads steam = steamTrackpadsFor(slotId);
+    if (steam != input::usbparse::SteamTrackpads::None) {
+        return reducer::declaredSteamTouchpadMode(trackpadPickStore_.pickFor(slotId.toStdString()),
+                                                  steam, resolveControllerType(slotId), catalog);
+    }
     const auto stored =
         connId.isEmpty() ? std::nullopt : touchpadModeStore_.modeFor(connId.toStdString());
-    const auto catalog = connId.isEmpty() ? std::nullopt : catalogRepo_.cached(connId);
     return reducer::declaredTouchpadMode(stored, slotHardware(slotId).hasTouchpad,
                                          resolveControllerType(slotId), catalog);
+}
+
+input::usbparse::SteamTrackpads AppModel::steamTrackpadsFor(const QString& slotId) const {
+    return slotHardware(slotId).steamTrackpads;
+}
+
+input::usbparse::TrackpadPick AppModel::trackpadPickFor(const QString& slotId) const {
+    const QString connId = hub_->bindings().value(slotId);
+    const auto catalog = connId.isEmpty() ? std::nullopt : catalogRepo_.cached(connId);
+    return reducer::boundTrackpadPick(trackpadPickStore_.pickFor(slotId.toStdString()),
+                                      steamTrackpadsFor(slotId), resolveControllerType(slotId),
+                                      catalog);
+}
+
+void AppModel::setSlotTrackpadPick(const QString& slotId, const std::string& pick) {
+    if (slotId.isEmpty()) { return; }
+    trackpadPickStore_.setPick(slotId.toStdString(), pick);
+    republishSlotCaps(slotId);
+}
+
+void AppModel::syncTrackpadPicks() {
+    if (usbManager_ == nullptr) { return; }
+    for (const auto& directPad : usbManager_->directPads()) {
+        const QString slotId = padSlotId(directPad.key);
+        if (steamTrackpadsFor(slotId) == input::usbparse::SteamTrackpads::None) { continue; }
+        usbManager_->setTrackpadPick(directPad.key, trackpadPickFor(slotId));
+    }
 }
 
 bool AppModel::slotCarriesRumble(const QString& slotId) const {
@@ -1663,6 +1699,8 @@ void AppModel::setSlotControllerType(const QString& slotId, int type) {
     // Re-attach so the new descriptor is PUT: bind() re-reads
     // resolveControllerType, which now returns the override.
     hub_->bind(slotId, connId);
+    // A Steam slot's pad pick needs the type's surface, so the pick in force can move.
+    syncTrackpadPicks();
 }
 
 // The repository is keyed on the stable satellite id, which IS the connection

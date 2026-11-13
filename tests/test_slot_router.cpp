@@ -204,6 +204,16 @@ TEST_CASE("a slot sources the extended buttons when its path's pad has them",
     CHECK(rig.router().slotHardware(directSlot(0x057E, 0x2009)).hasExtendedButtons);
     CHECK_FALSE(rig.router().slotHardware(directSlot(0x054C, 0x05C4)).hasExtendedButtons);
     CHECK_FALSE(rig.router().slotHardware(directSlot(0x054C, 0x0CE6)).hasExtendedButtons);
+    // The Steam Controllers' trackpads, which the per-slot pick routes.
+    using dish::input::usbparse::SteamTrackpads;
+    CHECK(rig.router().slotHardware(directSlot(0x28DE, 0x1102)).steamTrackpads ==
+          SteamTrackpads::Pad2015);
+    CHECK(rig.router().slotHardware(directSlot(0x28DE, 0x1142, 3)).steamTrackpads ==
+          SteamTrackpads::Pad2015);
+    CHECK(rig.router().slotHardware(directSlot(0x28DE, 0x1304, 2)).steamTrackpads ==
+          SteamTrackpads::Pad2026);
+    CHECK(rig.router().slotHardware(directSlot(0x054C, 0x0DF2)).steamTrackpads ==
+          SteamTrackpads::None);
     // Standard: SDL's own mapping answers. A virtual game controller maps every
     // SDL button, the paddles and misc1 among them.
     const hp::VirtualPad pad("Paddle pad");
@@ -212,6 +222,64 @@ TEST_CASE("a slot sources the extended buttons when its path's pad has them",
     REQUIRE(hp::pumpUntil([&] { return rig.router().slotHardware(padId).hasRumble; }));
     CHECK(rig.router().slotHardware(padId).hasExtendedButtons);
     CHECK_FALSE(rig.router().slotHardware(QStringLiteral("sdl:999")).hasExtendedButtons);
+}
+
+namespace {
+
+// The POINTER frame as the one session's satellite received it: its buttons byte and
+// its wheel.
+struct SeenPointer {
+    std::atomic<std::uint64_t> frames{0};
+    std::atomic<std::uint8_t> buttons{0};
+    std::atomic<std::int16_t> wheel{0};
+};
+
+constexpr std::size_t kPointerFrameBytes = 19;
+
+std::int16_t readWheelLe16(const std::uint8_t* p) {
+    return static_cast<std::int16_t>(static_cast<std::uint16_t>(p[0]) |
+                                     (static_cast<std::uint16_t>(p[1]) << 8));
+}
+
+hp::HotPathRig::HandlerFor capturePointer(SeenPointer& seen) {
+    return [&seen](int /*session*/) {
+        return [&seen](std::uint16_t type, const std::uint8_t* body, std::size_t len,
+                       hp::Clock::time_point /*arrived*/) {
+            if (type != dish::proto::kMsgTouchpad || len != kPointerFrameBytes) { return; }
+            seen.buttons.store(body[2]);
+            seen.wheel.store(readWheelLe16(body + 17));
+            seen.frames.fetch_add(1);
+        };
+    };
+}
+
+} // namespace
+
+TEST_CASE("a touch frame with the right button and a wheel turn reaches the session as a "
+          "POINTER frame carrying both",
+          "[slot-router][trackpads]") {
+    SeenPointer seen;
+    hp::HotPathRig rig(1, capturePointer(seen));
+    REQUIRE(rig.startBridge());
+    REQUIRE(rig.connectAll());
+    const QString slot = QStringLiteral("mouse-pad");
+    REQUIRE(rig.bind(slot, 0));
+    const auto index = rig.processor().add(slot.toStdString());
+    REQUIRE(index.has_value());
+    rig.router().republish({slot});
+
+    GamepadInputProcessor::TouchpadSample touch;
+    touch.finger0Active = true;
+    touch.finger0X = 1000;
+    touch.buttonPressed = true;
+    touch.rightPressed = true;
+    touch.scrollV = -120;
+    touch.eventTimeMs = 42;
+    rig.processor().publishTouchpad(*index, touch);
+    REQUIRE(hp::pumpUntil([&] { return seen.frames.load() >= 1; }));
+    CHECK(seen.buttons.load() ==
+          (dish::proto::kPointerButtonLeft | dish::proto::kPointerButtonRight));
+    CHECK(seen.wheel.load() == -120);
 }
 
 TEST_CASE("a slot on screen but bound to no session sends nothing", "[slot-router]") {

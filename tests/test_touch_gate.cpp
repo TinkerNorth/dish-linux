@@ -84,6 +84,8 @@ std::vector<FieldChange> everyFieldChange() {
         {"finger1X", [](Sample& s) { ++s.finger1X; }, false, false},
         {"finger1Y", [](Sample& s) { ++s.finger1Y; }, false, false},
         {"eventTimeMs", [](Sample& s) { s.eventTimeMs += 1000; }, false, true},
+        {"rightPressed", [](Sample& s) { s.rightPressed = !s.rightPressed; }, true, false},
+        {"scrollV", [](Sample& s) { s.scrollV = 120; }, true, false},
     };
 }
 
@@ -176,6 +178,17 @@ TEST_CASE("a contact, the click or a tracking id is an edge; a coordinate or the
         change.apply(after);
         CHECK(isTouchpadEdge(before, after) == change.isEdge);
     }
+}
+
+TEST_CASE("a wheel turn goes at once, inside the move interval, and a still wheel is not an edge",
+          "[touch-gate]") {
+    Sample turning = touchAt(1, 1);
+    turning.scrollV = 120;
+    Sample still = touchAt(1, 1);
+    runSteps({{touchAt(1, 1), 0, TouchpadSend::Fresh, 0},
+              {turning, kMs, TouchpadSend::Fresh, 1},
+              {still, 2 * kMs, TouchpadSend::Skip, 0},
+              {turning, 3 * kMs, TouchpadSend::Fresh, 3}});
 }
 
 TEST_CASE("sameTouch covers every field but the event time", "[touch-gate]") {

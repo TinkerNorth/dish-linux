@@ -12,6 +12,7 @@
 #include "Models/Models.h"
 #include "core/catalog/BundledCatalog.h"
 #include "core/reducer/TouchpadModeResolve.h"
+#include "core/reducer/TrackpadPickResolve.h"
 
 #include <QString>
 
@@ -76,6 +77,31 @@ inline std::uint8_t declaredTouchpadMode(const std::optional<std::string>& store
         catalog.has_value() && hostAdvertisesMouseControl(catalog->hostFeatures);
     return resolveTouchpadMode(pick, padHasTouchpad, typeOffersDs4,
                                mouseModeAvailable(hostAdvertisesMouse));
+}
+
+// Whether the host advertises mouse control for a bound slot: no catalog yet
+// reads as no grant.
+inline bool boundHostAdvertisesMouseControl(const std::optional<models::CatalogDto>& catalog) {
+    return catalog.has_value() && hostAdvertisesMouseControl(catalog->hostFeatures);
+}
+
+// The pick in force for a Steam Controller slot, through the pick's own ladder
+// (TrackpadPickResolve.h) with the same type and host gates as the satellite
+// pick above.
+inline TrackpadPick boundTrackpadPick(const std::optional<std::string>& storedPick,
+                                      SteamTrackpads model, int typeId,
+                                      const std::optional<models::CatalogDto>& catalog) {
+    const bool typeOffersDs4 = boundTypeOffersTouchpadDs4(typeId, catalog);
+    return effectiveTrackpadPick(storedPick, model, typeOffersDs4,
+                                 mouseModeAvailable(boundHostAdvertisesMouseControl(catalog)));
+}
+
+// The touchpadMode a Steam Controller slot declares: the pick in force,
+// projected onto the wire.
+inline std::uint8_t declaredSteamTouchpadMode(const std::optional<std::string>& storedPick,
+                                              SteamTrackpads model, int typeId,
+                                              const std::optional<models::CatalogDto>& catalog) {
+    return wireModeForTrackpadPick(boundTrackpadPick(storedPick, model, typeId, catalog));
 }
 
 } // namespace dish::reducer

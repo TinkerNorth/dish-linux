@@ -93,13 +93,19 @@ class GamepadInputProcessor {
         std::int16_t finger1X = 0;
         std::int16_t finger1Y = 0;
         bool buttonPressed = false;
+        // The pointer frame's right button and wheel (protocol 2): a Steam
+        // Controller's trackpads composed as a mouse. The wheel is an event, so
+        // a frame that carries one is never "the same" as the frame before.
+        bool rightPressed = false;
+        std::int16_t scrollV = 0;
         std::uint32_t eventTimeMs = 0;
         bool sameTouch(const TouchpadSample& o) const {
             return finger0Active == o.finger0Active && finger0Id == o.finger0Id &&
                    finger0X == o.finger0X && finger0Y == o.finger0Y &&
                    finger1Active == o.finger1Active && finger1Id == o.finger1Id &&
                    finger1X == o.finger1X && finger1Y == o.finger1Y &&
-                   buttonPressed == o.buttonPressed;
+                   buttonPressed == o.buttonPressed && rightPressed == o.rightPressed &&
+                   scrollV == o.scrollV;
         }
     };
     using TouchpadSender = std::function<void(const DeviceId& id, const TouchpadSample& sample)>;

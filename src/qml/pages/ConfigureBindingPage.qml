@@ -227,6 +227,7 @@ Kit.Page {
         draft.rumbleOn = App.rumbleEnabledFor(page.slotId);
         draft.micOn = App.micEnabledFor(page.slotId);
         draft.speakerOn = App.speakerEnabledFor(page.slotId);
+        page.reloadTrackpads();
 
         draft.sanitize();
         page.snapshot();
@@ -428,6 +429,41 @@ Kit.Page {
                                            && !page.motionTunable && !page.rumbleTunable
                                            && !page.touchpadTunable && !page.micTunable
                                            && !page.speakerTunable
+
+    // A Steam Controller slot picks what its trackpads are instead of the host's
+    // touchpad routing: "none" for every other pad. Re-read after each pick.
+    property string steamTrackpads: "none"
+    property string trackpadPick: "off"
+    property var trackpadPickChoices: []
+    readonly property bool trackpadsTunable: page.steamTrackpads !== "none"
+    function trackpadPickWord(pick) {
+        switch (pick) {
+        case "stick":
+            return qsTr("Right stick");
+        case "pad":
+            return qsTr("Touchpad");
+        case "mouse":
+            return qsTr("Mouse");
+        }
+        return qsTr("Off");
+    }
+    readonly property var trackpadPickWords: page.trackpadPickChoices.map(
+                                                 pick => page.trackpadPickWord(pick))
+    function reloadTrackpads() {
+        page.steamTrackpads = App.steamTrackpadsFor(page.slotId);
+        page.trackpadPick = App.trackpadPickFor(page.slotId);
+        page.trackpadPickChoices = App.trackpadPickChoicesFor(page.slotId);
+        draft.steamTrackpads = page.steamTrackpads;
+        if (page.trackpadsTunable)
+            draft.touchpadMode = App.trackpadPickDraftModeFor(page.slotId);
+    }
+    function pickTrackpads(word) {
+        const index = page.trackpadPickWords.indexOf(word);
+        if (index < 0)
+            return;
+        App.setTrackpadPick(page.slotId, page.trackpadPickChoices[index]);
+        page.reloadTrackpads();
+    }
 
     readonly property bool mouseOffered: draft.offersMouse(page.matrixRows)
     readonly property var touchpadOptions: page.mouseOffered
@@ -1203,7 +1239,26 @@ Kit.Page {
                                 }
 
                                 RowLayout {
-                                    visible: page.touchpadTunable
+                                    visible: page.trackpadsTunable
+                                    Layout.fillWidth: true
+                                    spacing: Tokens.s5
+
+                                    Label {
+                                        Layout.fillWidth: true
+                                        text: qsTr("Trackpads")
+                                        color: Theme.onSurface
+                                        font.pixelSize: Tokens.textBase
+                                    }
+                                    Kit.SegmentedControl {
+                                        small: true
+                                        options: page.trackpadPickWords
+                                        value: page.trackpadPickWord(page.trackpadPick)
+                                        onPicked: option => page.pickTrackpads(option)
+                                    }
+                                }
+
+                                RowLayout {
+                                    visible: page.touchpadTunable && !page.trackpadsTunable
                                     Layout.fillWidth: true
                                     spacing: Tokens.s5
 

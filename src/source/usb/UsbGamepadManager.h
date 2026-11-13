@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "core/input/SteamTrackpads.h"
 #include "source/usb/OutputWorker.h"
 #include "source/usb/UsbDeviceGateway.h"
 
@@ -178,6 +179,10 @@ class UsbGamepadManager {
     // into the wire bit). False when the model is not Direct-claimed or has no
     // latch.
     bool setPadMicMuted(int vendorId, int productId, bool muted);
+
+    // Hand a claimed Steam Controller the slot's trackpad pick. False when the pad
+    // is not Direct-claimed or has no trackpads.
+    bool setTrackpadPick(const reducer::DirectPadKey& pad, input::usbparse::TrackpadPick pick);
 
     // A claimed pad's synthetic id, decoder family and output worker, resolved once so a caller
     // that keeps it (the published route table) posts feedback with no lookup. A target whose claim

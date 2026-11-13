@@ -721,6 +721,8 @@ TEST_CASE("a claimed report with a touchpad publishes TOUCHPAD through the proce
     gw.report.finger0Id = 7;
     gw.report.finger0X = -100;
     gw.report.touchpadButton = true;
+    gw.report.touchpadRightButton = true;
+    gw.report.touchpadScrollV = -120;
 
     dish::input::GamepadInputProcessor processor;
     bool gotTouch = false;
@@ -741,6 +743,44 @@ TEST_CASE("a claimed report with a touchpad publishes TOUCHPAD through the proce
     CHECK(got.finger0Id == 7);
     CHECK(got.finger0X == -100);
     CHECK(got.buttonPressed);
+    CHECK(got.rightPressed);
+    CHECK(got.scrollV == -120);
+}
+
+namespace {
+
+// Records the trackpad pick handed to a claimed pad.
+class PickingGateway : public ReportingGateway {
+  public:
+    int pickedId = 0;
+    std::optional<dish::input::usbparse::TrackpadPick> picked;
+    bool setTrackpadPick(int claimId, dish::input::usbparse::TrackpadPick pick) override {
+        pickedId = claimId;
+        picked = pick;
+        return true;
+    }
+};
+
+} // namespace
+
+TEST_CASE("the slot's trackpad pick reaches the claimed pad through its gateway",
+          "[usb-manager][trackpads]") {
+    PickingGateway gw;
+    gw.syntheticId = -7;
+    dish::input::GamepadInputProcessor processor;
+    UsbPathPreferenceRepository repo(makeSharedSettings());
+    UsbPathPreferenceStore prefs(&repo);
+    UsbGamepadManager m(&gw, &processor, &prefs, nullptr);
+    // Nothing is claimed yet: the pick has nowhere to go.
+    CHECK_FALSE(m.setTrackpadPick(dish::reducer::DirectPadKey{kVid, kPid},
+                                  dish::input::usbparse::TrackpadPick::Pad));
+    CHECK_FALSE(gw.picked.has_value());
+
+    m.tryDirectMode(kVid, kPid);
+    REQUIRE(m.setTrackpadPick(dish::reducer::DirectPadKey{kVid, kPid},
+                              dish::input::usbparse::TrackpadPick::Pad));
+    CHECK(gw.pickedId == -7);
+    CHECK(gw.picked == dish::input::usbparse::TrackpadPick::Pad);
 }
 
 namespace {
