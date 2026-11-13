@@ -178,6 +178,12 @@ or is dropped.
 - Android's keep-awake is fixed (screen and wake lock while streaming); the
   desktop setting is about PC sleep, a different problem.
 - Mouse mode on desktop is a recorded deferral, not an oversight.
+- The DualSense Edge type (catalog id 4, `dualsenseedge`, protocol 4) is the
+  DualSense's bundled feature set plus `extendedButtons`, the four paddles the
+  host renders as its back and Fn buttons. It is listed last and is never the
+  type a slot defaults to: only a real Edge's own `emulates` hint or the user's
+  pick lands on it. The desktops carry no per-type art or labels, so the picker
+  shows the satellite catalog's name for it, as for every type.
 - The Android protocol chip keys on the satellite's advertised version and
   reads "Dish update required" for a newer satellite that still accepts this
   build; this client keys the chip on the negotiation, so that case reads as

@@ -9,9 +9,9 @@ namespace dish::composer {
 
 QList<QString> knownTypeSlugs() {
     // Lockstep with proto::kControllerType* (xbox360 = 0, ds4 = 1,
-    // dualsense = 2, switchpro = 3).
+    // dualsense = 2, switchpro = 3, dualsenseedge = 4).
     return {QStringLiteral("xbox360"), QStringLiteral("ds4"), QStringLiteral("dualsense"),
-            QStringLiteral("switchpro")};
+            QStringLiteral("switchpro"), QStringLiteral("dualsenseedge")};
 }
 
 QList<PickableType> offerableTypes(const models::CatalogDto& catalog) {

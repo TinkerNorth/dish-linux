@@ -20,6 +20,12 @@ the repos share a version number.
 
 ### Added
 
+- **DualSense Edge as a controller type.** A Satellite that offers it can be
+  asked to plug in a DualSense Edge: a DualSense whose two back buttons and two
+  Fn buttons are the extra buttons a controller sends on protocol 4, so a Steam
+  Controller's back buttons or a real Edge's reach the game. It sits last in the
+  list and Dish never picks it on its own; a real DualSense Edge is the one
+  controller it is suggested for.
 - **A controller's extra buttons reach the host.** On a Satellite that speaks
   protocol 4, a Steam Controller on USB direct sends its back buttons: the 2015
   model's two grips, its trigger clicks and a click on its left trackpad while a
