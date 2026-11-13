@@ -2491,12 +2491,72 @@
         <translation>Utišaj</translation>
     </message>
     <message>
+        <source>Right paddle 1</source>
+        <translation>Desna lopatica 1</translation>
+    </message>
+    <message>
+        <source>Left paddle 1</source>
+        <translation>Lijeva lopatica 1</translation>
+    </message>
+    <message>
+        <source>Right paddle 2</source>
+        <translation>Desna lopatica 2</translation>
+    </message>
+    <message>
+        <source>Left paddle 2</source>
+        <translation>Lijeva lopatica 2</translation>
+    </message>
+    <message>
+        <source>Misc 1</source>
+        <translation>Misc 1</translation>
+    </message>
+    <message>
+        <source>Left trackpad click</source>
+        <translation>Klik lijevog trackpada</translation>
+    </message>
+    <message>
+        <source>Right trackpad click</source>
+        <translation>Klik desnog trackpada</translation>
+    </message>
+    <message>
+        <source>Left trigger click</source>
+        <translation>Klik lijevog okidača</translation>
+    </message>
+    <message>
+        <source>Right trigger click</source>
+        <translation>Klik desnog okidača</translation>
+    </message>
+    <message>
+        <source>Left stick touch</source>
+        <translation>Dodir lijeve palice</translation>
+    </message>
+    <message>
+        <source>Right stick touch</source>
+        <translation>Dodir desne palice</translation>
+    </message>
+    <message>
+        <source>Left grip touch</source>
+        <translation>Dodir lijevog rukohvata</translation>
+    </message>
+    <message>
+        <source>Right grip touch</source>
+        <translation>Dodir desnog rukohvata</translation>
+    </message>
+    <message>
         <source>Pressed: %1</source>
         <translation>Pritisnuto: %1</translation>
     </message>
     <message>
         <source>none</source>
         <translation>ništa</translation>
+    </message>
+    <message>
+        <source>Wheel %1</source>
+        <translation>Točkić %1</translation>
+    </message>
+    <message>
+        <source>Right click</source>
+        <translation>Desni klik</translation>
     </message>
     <message>
         <source>%1 across, %2 down</source>

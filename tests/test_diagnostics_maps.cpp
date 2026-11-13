@@ -10,6 +10,7 @@
 #include "Network/SatelliteClient.h"
 #include "Network/WifiConnection.h"
 #include "ServerPacket.h"
+#include "core/input/InputReadout.h"
 #include "core/input/StickHealth.h"
 #include "core/model/Protocol.h"
 #include "core/reducer/DiagnosticsLog.h"
@@ -21,6 +22,7 @@
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
+#include <QSet>
 #include <QString>
 #include <QStringList>
 #include <QVariant>
@@ -37,6 +39,7 @@ using Catch::Approx;
 using dish::composer::ConnectionRow;
 using dish::composer::PickableType;
 using dish::input::GamepadInputProcessor;
+using dish::input::kExtendedButtonBits;
 using dish::input::StickBench;
 using dish::input::StickTestKind;
 using dish::models::ControllerApplyDto;
@@ -71,6 +74,7 @@ namespace proto = dish::proto;
 namespace {
 
 const QString kSlot = QStringLiteral("sdl:1");
+constexpr std::int16_t kOneNotchDown = -120;
 
 DiscoveredServer server() {
     DiscoveredServer s;
@@ -144,6 +148,14 @@ void goLive(WifiConnection& conn) {
 }
 
 QStringList strings(const QVariant& list) { return list.toStringList(); }
+
+QVariantMap rowHoldingExtendedButtons(std::uint32_t extButtons) {
+    GamepadInputProcessor::DeviceState report;
+    report.extButtons = extButtons;
+    GamepadInputProcessor::Inspection seen;
+    seen.wire = report;
+    return inputSnapshotRow(seen);
+}
 
 PickableType pickable(int type, const QString& shortName) {
     PickableType t;
@@ -427,6 +439,29 @@ TEST_CASE("a report reads its buttons as tokens and its axes as fractions", "[di
     CHECK(row.value("rt").toDouble() == 1.0);
 }
 
+TEST_CASE("a report reads its extended buttons as tokens of their own, in wire-bit order",
+          "[diagnostics][maps]") {
+    GamepadInputProcessor::Inspection seen;
+    GamepadInputProcessor::DeviceState report;
+    report.wButtons = GamepadInputProcessor::Buttons::kA;
+    report.extButtons = proto::kExtButtonMisc1 | proto::kExtButtonLeftPaddle1;
+    seen.wire = report;
+    const QVariantMap row = inputSnapshotRow(seen);
+    CHECK(strings(row.value("buttons")) == QStringList{"a"});
+    CHECK(strings(row.value("extButtons")) == QStringList{"leftPaddle1", "misc1"});
+}
+
+TEST_CASE("each extended button reads as a token no other button reads as", "[diagnostics][maps]") {
+    QSet<QString> tokens;
+    for (const auto& entry : kExtendedButtonBits) {
+        const QStringList read = strings(rowHoldingExtendedButtons(entry.bit).value("extButtons"));
+        REQUIRE(read.size() == 1);
+        REQUIRE_FALSE(read.front().isEmpty());
+        tokens.insert(read.front());
+    }
+    CHECK(tokens.size() == static_cast<qsizetype>(kExtendedButtonBits.size()));
+}
+
 TEST_CASE("a motion sample reads in degrees per second and in g", "[diagnostics][maps]") {
     GamepadInputProcessor::Inspection seen;
     GamepadInputProcessor::MotionSample motion;
@@ -455,6 +490,18 @@ TEST_CASE("a touch frame reads its fingers as fractions across the pad", "[diagn
     CHECK(row.value("finger0Y").toDouble() == 0.0);
     CHECK_FALSE(row.value("finger1").toBool());
     CHECK(row.value("touchClick").toBool());
+}
+
+TEST_CASE("a touch frame reads the pointer's right button and its wheel step",
+          "[diagnostics][maps]") {
+    GamepadInputProcessor::Inspection seen;
+    GamepadInputProcessor::TouchpadSample touch;
+    touch.rightPressed = true;
+    touch.scrollV = kOneNotchDown;
+    seen.touchpad = touch;
+    const QVariantMap row = inputSnapshotRow(seen);
+    CHECK(row.value("rightClick").toBool());
+    CHECK(row.value("wheel").toInt() == kOneNotchDown);
 }
 
 TEST_CASE("an idle bench reads idle with no result", "[diagnostics][maps]") {

@@ -2,14 +2,16 @@
 // Copyright (C) 2026 Dish contributors.
 //
 // What the input inspector shows of one wire report: which buttons the XUSB
-// word holds down, and the sticks, triggers, motion and touch in human units.
-// The button table reads the same layout constants the report builders write,
-// so the inspector cannot name a bit the wire does not carry.
+// word and the protocol 4 extended-buttons word hold down, and the sticks,
+// triggers, motion and touch in human units. The button tables read the same
+// constants the report builders write, so the inspector cannot name a bit the
+// wire does not carry.
 
 #pragma once
 
 #include "core/input/GamepadButtonLayouts.h"
 #include "core/input/StickHealth.h"
+#include "core/model/Protocol.h"
 
 #include <array>
 #include <cstdint>
@@ -65,6 +67,51 @@ inline std::vector<WireButton> pressedButtons(std::uint16_t wButtons) {
     std::vector<WireButton> pressed;
     for (const auto& entry : kWireButtonBits) {
         if ((wButtons & entry.bit) != 0) { pressed.push_back(entry.button); }
+    }
+    return pressed;
+}
+
+enum class ExtendedButton : std::uint8_t {
+    RightPaddle1,
+    LeftPaddle1,
+    RightPaddle2,
+    LeftPaddle2,
+    Misc1,
+    LeftPadClick,
+    RightPadClick,
+    LeftTriggerClick,
+    RightTriggerClick,
+    LeftStickTouch,
+    RightStickTouch,
+    LeftGripTouch,
+    RightGripTouch,
+};
+
+struct ExtendedButtonBit {
+    std::uint32_t bit = 0;
+    ExtendedButton button = ExtendedButton::RightPaddle1;
+};
+
+inline constexpr std::array<ExtendedButtonBit, 13> kExtendedButtonBits{{
+    {proto::kExtButtonRightPaddle1, ExtendedButton::RightPaddle1},
+    {proto::kExtButtonLeftPaddle1, ExtendedButton::LeftPaddle1},
+    {proto::kExtButtonRightPaddle2, ExtendedButton::RightPaddle2},
+    {proto::kExtButtonLeftPaddle2, ExtendedButton::LeftPaddle2},
+    {proto::kExtButtonMisc1, ExtendedButton::Misc1},
+    {proto::kExtButtonLeftPadClick, ExtendedButton::LeftPadClick},
+    {proto::kExtButtonRightPadClick, ExtendedButton::RightPadClick},
+    {proto::kExtButtonLeftTriggerClick, ExtendedButton::LeftTriggerClick},
+    {proto::kExtButtonRightTriggerClick, ExtendedButton::RightTriggerClick},
+    {proto::kExtButtonLeftStickTouch, ExtendedButton::LeftStickTouch},
+    {proto::kExtButtonRightStickTouch, ExtendedButton::RightStickTouch},
+    {proto::kExtButtonLeftGripTouch, ExtendedButton::LeftGripTouch},
+    {proto::kExtButtonRightGripTouch, ExtendedButton::RightGripTouch},
+}};
+
+inline std::vector<ExtendedButton> pressedExtendedButtons(std::uint32_t extButtons) {
+    std::vector<ExtendedButton> pressed;
+    for (const auto& entry : kExtendedButtonBits) {
+        if ((extButtons & entry.bit) != 0) { pressed.push_back(entry.button); }
     }
     return pressed;
 }

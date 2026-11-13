@@ -122,6 +122,38 @@ QString wireButtonToken(input::WireButton button) {
     return {};
 }
 
+QString extendedButtonToken(input::ExtendedButton button) {
+    switch (button) {
+    case input::ExtendedButton::RightPaddle1:
+        return QStringLiteral("rightPaddle1");
+    case input::ExtendedButton::LeftPaddle1:
+        return QStringLiteral("leftPaddle1");
+    case input::ExtendedButton::RightPaddle2:
+        return QStringLiteral("rightPaddle2");
+    case input::ExtendedButton::LeftPaddle2:
+        return QStringLiteral("leftPaddle2");
+    case input::ExtendedButton::Misc1:
+        return QStringLiteral("misc1");
+    case input::ExtendedButton::LeftPadClick:
+        return QStringLiteral("leftPadClick");
+    case input::ExtendedButton::RightPadClick:
+        return QStringLiteral("rightPadClick");
+    case input::ExtendedButton::LeftTriggerClick:
+        return QStringLiteral("leftTriggerClick");
+    case input::ExtendedButton::RightTriggerClick:
+        return QStringLiteral("rightTriggerClick");
+    case input::ExtendedButton::LeftStickTouch:
+        return QStringLiteral("leftStickTouch");
+    case input::ExtendedButton::RightStickTouch:
+        return QStringLiteral("rightStickTouch");
+    case input::ExtendedButton::LeftGripTouch:
+        return QStringLiteral("leftGripTouch");
+    case input::ExtendedButton::RightGripTouch:
+        return QStringLiteral("rightGripTouch");
+    }
+    return {};
+}
+
 QString eventKindToken(reducer::DiagnosticsEventKind kind) {
     switch (kind) {
     case reducer::DiagnosticsEventKind::LinkAppeared:
@@ -227,8 +259,17 @@ QVariantList buttonList(std::uint16_t wButtons) {
     return out;
 }
 
+QVariantList extendedButtonList(std::uint32_t extButtons) {
+    QVariantList out;
+    for (const auto button : input::pressedExtendedButtons(extButtons)) {
+        out.append(extendedButtonToken(button));
+    }
+    return out;
+}
+
 void putReport(QVariantMap& row, const input::GamepadInputProcessor::DeviceState& report) {
     row[QStringLiteral("buttons")] = buttonList(report.wButtons);
+    row[QStringLiteral("extButtons")] = extendedButtonList(report.extButtons);
     row[QStringLiteral("lx")] = input::stickFraction(report.lx);
     row[QStringLiteral("ly")] = input::stickFraction(report.ly);
     row[QStringLiteral("rx")] = input::stickFraction(report.rx);
@@ -254,6 +295,8 @@ void putTouch(QVariantMap& row, const input::GamepadInputProcessor::TouchpadSamp
     row[QStringLiteral("finger1X")] = input::touchFraction(touch.finger1X);
     row[QStringLiteral("finger1Y")] = input::touchFraction(touch.finger1Y);
     row[QStringLiteral("touchClick")] = touch.buttonPressed;
+    row[QStringLiteral("rightClick")] = touch.rightPressed;
+    row[QStringLiteral("wheel")] = static_cast<int>(touch.scrollV);
 }
 
 void putStickResult(QVariantMap& row, const input::StickTestResult& result) {

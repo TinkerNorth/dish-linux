@@ -20,6 +20,13 @@ the repos share a version number.
 
 ### Added
 
+- **The controller inspector shows a controller's extra buttons.** Its live
+  input now names a back paddle, the Misc 1 button (a Switch Pro Controller's
+  Capture, the new Steam Controller's "..."), a trackpad or trigger click and a
+  stick or grip touch as you press them, next to the usual buttons. A right
+  click and a turn of the scroll wheel show under the touchpad, for the Mouse
+  pick of a Steam Controller's trackpads once this client offers it. Before,
+  the inspector showed only the buttons an Xbox controller has.
 - **A Steam Controller picks what its trackpads are.** A Steam Controller's card
   gets a Trackpads pick: Right stick (the 2015 model's right trackpad stays the
   right stick, as before), Touchpad (both trackpads on the emulated

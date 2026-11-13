@@ -2477,12 +2477,72 @@
         <translation>Mudo</translation>
     </message>
     <message>
+        <source>Right paddle 1</source>
+        <translation>Paddle direito 1</translation>
+    </message>
+    <message>
+        <source>Left paddle 1</source>
+        <translation>Paddle esquerdo 1</translation>
+    </message>
+    <message>
+        <source>Right paddle 2</source>
+        <translation>Paddle direito 2</translation>
+    </message>
+    <message>
+        <source>Left paddle 2</source>
+        <translation>Paddle esquerdo 2</translation>
+    </message>
+    <message>
+        <source>Misc 1</source>
+        <translation>Misc 1</translation>
+    </message>
+    <message>
+        <source>Left trackpad click</source>
+        <translation>Clique trackpad esquerdo</translation>
+    </message>
+    <message>
+        <source>Right trackpad click</source>
+        <translation>Clique trackpad direito</translation>
+    </message>
+    <message>
+        <source>Left trigger click</source>
+        <translation>Clique gatilho esquerdo</translation>
+    </message>
+    <message>
+        <source>Right trigger click</source>
+        <translation>Clique gatilho direito</translation>
+    </message>
+    <message>
+        <source>Left stick touch</source>
+        <translation>Toque analógico esquerdo</translation>
+    </message>
+    <message>
+        <source>Right stick touch</source>
+        <translation>Toque analógico direito</translation>
+    </message>
+    <message>
+        <source>Left grip touch</source>
+        <translation>Toque empunhadura esquerda</translation>
+    </message>
+    <message>
+        <source>Right grip touch</source>
+        <translation>Toque empunhadura direita</translation>
+    </message>
+    <message>
         <source>Pressed: %1</source>
         <translation>Pressionados: %1</translation>
     </message>
     <message>
         <source>none</source>
         <translation>nenhum</translation>
+    </message>
+    <message>
+        <source>Wheel %1</source>
+        <translation>Rolagem %1</translation>
+    </message>
+    <message>
+        <source>Right click</source>
+        <translation>Clique direito</translation>
     </message>
     <message>
         <source>%1 across, %2 down</source>
