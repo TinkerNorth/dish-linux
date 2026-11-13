@@ -2477,12 +2477,72 @@
         <translation>Mute</translation>
     </message>
     <message>
+        <source>Right paddle 1</source>
+        <translation>Right paddle 1</translation>
+    </message>
+    <message>
+        <source>Left paddle 1</source>
+        <translation>Left paddle 1</translation>
+    </message>
+    <message>
+        <source>Right paddle 2</source>
+        <translation>Right paddle 2</translation>
+    </message>
+    <message>
+        <source>Left paddle 2</source>
+        <translation>Left paddle 2</translation>
+    </message>
+    <message>
+        <source>Misc 1</source>
+        <translation>Misc 1</translation>
+    </message>
+    <message>
+        <source>Left trackpad click</source>
+        <translation>Left trackpad click</translation>
+    </message>
+    <message>
+        <source>Right trackpad click</source>
+        <translation>Right trackpad click</translation>
+    </message>
+    <message>
+        <source>Left trigger click</source>
+        <translation>Left trigger click</translation>
+    </message>
+    <message>
+        <source>Right trigger click</source>
+        <translation>Right trigger click</translation>
+    </message>
+    <message>
+        <source>Left stick touch</source>
+        <translation>Left stick touch</translation>
+    </message>
+    <message>
+        <source>Right stick touch</source>
+        <translation>Right stick touch</translation>
+    </message>
+    <message>
+        <source>Left grip touch</source>
+        <translation>Left grip touch</translation>
+    </message>
+    <message>
+        <source>Right grip touch</source>
+        <translation>Right grip touch</translation>
+    </message>
+    <message>
         <source>Pressed: %1</source>
         <translation>Pressed: %1</translation>
     </message>
     <message>
         <source>none</source>
         <translation>none</translation>
+    </message>
+    <message>
+        <source>Wheel %1</source>
+        <translation>Wheel %1</translation>
+    </message>
+    <message>
+        <source>Right click</source>
+        <translation>Right click</translation>
     </message>
     <message>
         <source>%1 across, %2 down</source>

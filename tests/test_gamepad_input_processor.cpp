@@ -1011,6 +1011,17 @@ TEST_CASE("inspect: the last report reads as it went on the wire and as the pad 
     REQUIRE(seen.raw->lt == 10);
 }
 
+TEST_CASE("inspect: the last report carries its extended-buttons word", "[input][inspect]") {
+    GamepadInputProcessor p;
+    GamepadInputProcessor::DeviceState s;
+    s.extButtons = 0x0012;
+    p.publish("pad", s);
+
+    const auto seen = p.inspect("pad");
+    REQUIRE(seen.wire.has_value());
+    REQUIRE(seen.wire->extButtons == 0x0012U);
+}
+
 TEST_CASE("inspect: reads the last motion sample forwarded, not one the gate dropped",
           "[input][inspect]") {
     GamepadInputProcessor p;
@@ -1041,6 +1052,20 @@ TEST_CASE("inspect: reads the last touch frame", "[input][inspect]") {
     REQUIRE(seen.touchpad->finger0Active);
     REQUIRE(seen.touchpad->finger0X == 1200);
     REQUIRE(seen.touchpad->buttonPressed);
+}
+
+TEST_CASE("inspect: the touch frame carries the pointer's right button and its wheel",
+          "[input][inspect]") {
+    GamepadInputProcessor p;
+    GamepadInputProcessor::TouchpadSample touch;
+    touch.rightPressed = true;
+    touch.scrollV = -120;
+    p.publishTouchpad("pad", touch);
+
+    const auto seen = p.inspect("pad");
+    REQUIRE(seen.touchpad.has_value());
+    REQUIRE(seen.touchpad->rightPressed);
+    REQUIRE(seen.touchpad->scrollV == -120);
 }
 
 TEST_CASE("inspect: a removed device reads nothing again", "[input][inspect]") {

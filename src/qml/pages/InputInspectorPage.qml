@@ -86,10 +86,53 @@ Kit.Page {
         return token;
     }
 
+    function extendedButtonName(token) {
+        switch (token) {
+        case "rightPaddle1":
+            return qsTr("Right paddle 1");
+        case "leftPaddle1":
+            return qsTr("Left paddle 1");
+        case "rightPaddle2":
+            return qsTr("Right paddle 2");
+        case "leftPaddle2":
+            return qsTr("Left paddle 2");
+        case "misc1":
+            return qsTr("Misc 1");
+        case "leftPadClick":
+            return qsTr("Left trackpad click");
+        case "rightPadClick":
+            return qsTr("Right trackpad click");
+        case "leftTriggerClick":
+            return qsTr("Left trigger click");
+        case "rightTriggerClick":
+            return qsTr("Right trigger click");
+        case "leftStickTouch":
+            return qsTr("Left stick touch");
+        case "rightStickTouch":
+            return qsTr("Right stick touch");
+        case "leftGripTouch":
+            return qsTr("Left grip touch");
+        case "rightGripTouch":
+            return qsTr("Right grip touch");
+        }
+        return token;
+    }
+
     function pressedText() {
-        const buttons = page.snapshot.buttons || [];
-        const names = buttons.map(token => page.buttonName(token));
+        const wire = (page.snapshot.buttons || []).map(token => page.buttonName(token));
+        const extended = (page.snapshot.extButtons || []).map(token => page.extendedButtonName(token));
+        const names = wire.concat(extended);
         return qsTr("Pressed: %1").arg(names.length > 0 ? names.join(" · ") : qsTr("none"));
+    }
+
+    function wheelText(step) {
+        return qsTr("Wheel %1").arg(step > 0 ? "+" + step : String(step));
+    }
+
+    function pointerText() {
+        const rightClick = page.snapshot.rightClick === true ? [qsTr("Right click")] : [];
+        const wheel = page.snapshot.wheel ? [page.wheelText(page.snapshot.wheel)] : [];
+        return rightClick.concat(wheel).join(" · ");
     }
 
     function fingerText(active, x, y) {
@@ -280,6 +323,15 @@ Kit.Page {
                                     .arg(page.snapshot.touchClick ? qsTr("pressed") : qsTr("released"))
                               : qsTr("No touch data from this controller.")
                         color: page.snapshot.hasTouch === true ? Theme.onSurface : Theme.muted
+                        font.family: Tokens.monoFamily
+                        font.pixelSize: Tokens.textMeta
+                        wrapMode: Text.WordWrap
+                    }
+                    Label {
+                        Layout.fillWidth: true
+                        visible: text.length > 0
+                        text: page.pointerText()
+                        color: Theme.onSurface
                         font.family: Tokens.monoFamily
                         font.pixelSize: Tokens.textMeta
                         wrapMode: Text.WordWrap

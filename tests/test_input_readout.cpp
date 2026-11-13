@@ -3,6 +3,7 @@
 
 #include "core/input/GamepadButtonLayouts.h"
 #include "core/input/InputReadout.h"
+#include "core/model/Protocol.h"
 
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
@@ -12,15 +13,19 @@
 
 using Catch::Approx;
 using dish::input::accelG;
+using dish::input::ExtendedButton;
 using dish::input::gyroDegreesPerSecond;
+using dish::input::kExtendedButtonBits;
 using dish::input::kWireButtonBits;
 using dish::input::pressedButtons;
+using dish::input::pressedExtendedButtons;
 using dish::input::stickFraction;
 using dish::input::stickSampleOf;
 using dish::input::touchFraction;
 using dish::input::triggerFraction;
 using dish::input::WireButton;
 namespace layout = dish::input::layout;
+namespace proto = dish::proto;
 
 namespace {
 constexpr int kWordBits = 16;
@@ -48,6 +53,34 @@ TEST_CASE("every bit of the XUSB word names exactly one button", "[diagnostics][
     }
     REQUIRE(covered == kEveryBit);
     REQUIRE(static_cast<int>(kWireButtonBits.size()) == kWordBits);
+}
+
+TEST_CASE("an idle report holds no extended button down", "[diagnostics][input]") {
+    REQUIRE(pressedExtendedButtons(0).empty());
+}
+
+TEST_CASE("held extended buttons read in wire-bit order", "[diagnostics][input]") {
+    const std::uint32_t word =
+        proto::kExtButtonMisc1 | proto::kExtButtonRightGripTouch | proto::kExtButtonLeftPaddle1;
+    REQUIRE(pressedExtendedButtons(word) ==
+            std::vector<ExtendedButton>{ExtendedButton::LeftPaddle1, ExtendedButton::Misc1,
+                                        ExtendedButton::RightGripTouch});
+}
+
+TEST_CASE("every bit of the extended-buttons word names exactly one button, in bit order",
+          "[diagnostics][input]") {
+    std::uint32_t covered = 0;
+    for (const auto& entry : kExtendedButtonBits) {
+        const auto ordinal = static_cast<std::uint32_t>(entry.button);
+        REQUIRE(entry.bit == (1U << ordinal));
+        REQUIRE(pressedExtendedButtons(entry.bit) == std::vector<ExtendedButton>{entry.button});
+        covered |= entry.bit;
+    }
+    REQUIRE(covered == proto::kExtButtonsKnownMask);
+}
+
+TEST_CASE("a reserved bit above the known mask names no button", "[diagnostics][input]") {
+    REQUIRE(pressedExtendedButtons(~proto::kExtButtonsKnownMask).empty());
 }
 
 TEST_CASE("a stick reads its deflection as a fraction of full travel", "[diagnostics][input]") {
