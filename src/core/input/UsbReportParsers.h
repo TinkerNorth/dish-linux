@@ -17,6 +17,8 @@
 #pragma once
 
 #include "core/input/GamepadButtonLayouts.h"
+#include "core/input/ExtendedButtons.h"
+#include "core/input/SteamTrackpads.h"
 #include "core/input/UsbHidLayout.h"
 
 #include <atomic>
@@ -88,25 +90,6 @@ struct KnownHidModel {
 // Switch readings are hid-playstation's and hid-nintendo's, byte for byte, so
 // a pad shows the same number here it shows on a Linux desktop; the Steam
 // Controller's is SDL's.
-// The INPUT extended-buttons word the decoders fill, in SDL's names
-// (core/model/Protocol.h kExtButton*), restated here like the battery status so
-// this header stays free of the wire protocol.
-namespace extbtn {
-inline constexpr std::uint32_t kRightPaddle1 = 0x0001;
-inline constexpr std::uint32_t kLeftPaddle1 = 0x0002;
-inline constexpr std::uint32_t kRightPaddle2 = 0x0004;
-inline constexpr std::uint32_t kLeftPaddle2 = 0x0008;
-inline constexpr std::uint32_t kMisc1 = 0x0010;
-inline constexpr std::uint32_t kLeftPadClick = 0x0020;
-inline constexpr std::uint32_t kRightPadClick = 0x0040;
-inline constexpr std::uint32_t kLeftTriggerClick = 0x0080;
-inline constexpr std::uint32_t kRightTriggerClick = 0x0100;
-inline constexpr std::uint32_t kLeftStickTouch = 0x0200;
-inline constexpr std::uint32_t kRightStickTouch = 0x0400;
-inline constexpr std::uint32_t kLeftGripTouch = 0x0800;
-inline constexpr std::uint32_t kRightGripTouch = 0x1000;
-} // namespace extbtn
-
 // The DualSense Edge decodes as a DualSense. Its OUT reports differ in one respect, the rumble
 // mode it shipped with (usbout::ds5UsesVibrationV2), and its input in another, the back and Fn
 // buttons in byte 10, which is why it is named out here.
@@ -149,6 +132,11 @@ struct StickAutoRangeState {
     std::int16_t steamStickX = 0;
     std::int16_t steamStickY = 0;
     TritonCarry triton;
+    // The slot's trackpad pick (routeSteamTrackpads), copied in from the claim
+    // before each decode: the 2015 pad's right pad is the right stick until told
+    // otherwise, and the 2026 pad treats that as off.
+    TrackpadPick trackpadPick = TrackpadPick::Stick;
+    PadScrollTracker padScroll;
 };
 
 // The DualSense mic-mute button is momentary, but the wire's kXusbMicMute
@@ -199,6 +187,10 @@ struct ParsedReport {
     std::int16_t finger1X = 0;
     std::int16_t finger1Y = 0;
     bool touchpadButton = false;
+    // The pointer frame's right button and wheel (protocol 2): a Steam Controller's
+    // trackpads composed as a mouse; every other decoder leaves them idle.
+    bool touchpadRightButton = false;
+    std::int16_t touchpadScrollV = 0;
 
     // The pad's own charge (see kPadBattery*). Valid only when the report was
     // long enough to carry the status byte; a short report leaves the last
@@ -728,9 +720,28 @@ inline std::uint8_t steamTriggerToWire(std::uint8_t raw) {
     return static_cast<std::uint8_t>((v * 255) / kSteamTriggerMaxAnalog);
 }
 
+// The router's surface, buttons, wheel and leftover clicks onto the report; the
+// 2015 right stick is the caller's, since the 2026 pad has a real one.
+inline void applySteamTrackpadRoute(const SteamTrackpadRoute& route, ParsedReport& s) {
+    s.touchpadValid = true;
+    s.finger0Active = route.finger0Active;
+    s.finger0Id = route.finger0Id;
+    s.finger0X = route.finger0X;
+    s.finger0Y = route.finger0Y;
+    s.finger1Active = route.finger1Active;
+    s.finger1Id = route.finger1Id;
+    s.finger1X = route.finger1X;
+    s.finger1Y = route.finger1Y;
+    s.touchpadButton = route.click;
+    s.touchpadRightButton = route.rightClick;
+    s.touchpadScrollV = route.scrollV;
+    s.extButtons |= route.extButtons;
+}
+
 // SDL adds a further +1000 to each axis while a finger is down. That is
 // harmless for a touch surface but would park a stick off centre, so it is
-// deliberately not carried over.
+// deliberately not carried over. SDL rotates the right pad by the shell angle
+// and the left pad by its negative.
 inline void steamRotatePad(std::int32_t x, std::int32_t y, std::int16_t& outX, std::int16_t& outY) {
     outX = steamClampI16((static_cast<std::int64_t>(kSteamPadCos) * x -
                           static_cast<std::int64_t>(kSteamPadSin) * y) /
@@ -738,6 +749,34 @@ inline void steamRotatePad(std::int32_t x, std::int32_t y, std::int16_t& outX, s
     outY = steamClampI16((static_cast<std::int64_t>(kSteamPadSin) * x +
                           static_cast<std::int64_t>(kSteamPadCos) * y) /
                          65536);
+}
+
+inline void steamRotateLeftPad(std::int32_t x, std::int32_t y, std::int16_t& outX,
+                               std::int16_t& outY) {
+    outX = steamClampI16((static_cast<std::int64_t>(kSteamPadCos) * x +
+                          static_cast<std::int64_t>(kSteamPadSin) * y) /
+                         65536);
+    outY = steamClampI16((static_cast<std::int64_t>(kSteamPadCos) * y -
+                          static_cast<std::int64_t>(kSteamPadSin) * x) /
+                         65536);
+}
+
+// The two pads as the router takes them. The left pad rides the shared left axes
+// while its finger is down; a left-pad click with no finger is the stick's, so it
+// is not the pad's here.
+inline SteamPads steamPads(const std::uint8_t* buf, std::uint32_t btn) {
+    SteamPads pads;
+    pads.left.active = (btn & kSteamLeftPadFinger) != 0;
+    if (pads.left.active) {
+        steamRotateLeftPad(rdLe16(buf, 16), rdLe16(buf, 18), pads.left.x, pads.left.y);
+    }
+    pads.left.click = pads.left.active && (btn & kSteamLeftPadClicked) != 0;
+    pads.right.active = (btn & kSteamRightPadFinger) != 0;
+    if (pads.right.active) {
+        steamRotatePad(rdLe16(buf, 20), rdLe16(buf, 22), pads.right.x, pads.right.y);
+    }
+    pads.right.click = (btn & kSteamRightPadClicked) != 0;
+    return pads;
 }
 
 // Steam reports gyro over +-2000 deg/s and accel over +-2g; the wire wants
@@ -750,19 +789,14 @@ inline std::int16_t steamAccelToWire(std::int32_t raw) {
     return steamClampI16(static_cast<std::int64_t>(raw) * 32767 / 65536);
 }
 
-// The extras in SDL's names: the grips are its two paddles, the full-pull trigger
-// bits its trigger clicks, and a left-pad click under a finger is the pad's, where
-// the stick logic below leaves it. The right pad's click stays R3 while the right
-// pad is the right stick, as SDL has it.
+// The extras in SDL's names: the grips are its two paddles and the full-pull
+// trigger bits its trigger clicks. The pad clicks are the trackpad router's.
 inline std::uint32_t steamExtendedButtons(std::uint32_t btn) {
     std::uint32_t word = 0;
     if ((btn & kSteamBackLeft) != 0) { word |= extbtn::kLeftPaddle1; }
     if ((btn & kSteamBackRight) != 0) { word |= extbtn::kRightPaddle1; }
     if ((btn & kSteamLeftTriggerClick) != 0) { word |= extbtn::kLeftTriggerClick; }
     if ((btn & kSteamRightTriggerClick) != 0) { word |= extbtn::kRightTriggerClick; }
-    const bool fingerOnLeftPad = (btn & kSteamLeftPadFinger) != 0;
-    const bool leftPadClicked = (btn & kSteamLeftPadClicked) != 0;
-    if (fingerOnLeftPad && leftPadClicked) { word |= extbtn::kLeftPadClick; }
     return word;
 }
 
@@ -790,7 +824,6 @@ inline bool decodeSteamController(const std::uint8_t* buf, std::size_t len, Pars
     if ((btn & kSteamDpadDown) != 0) { b |= layout::kXusbDpadDown; }
     if ((btn & kSteamDpadLeft) != 0) { b |= layout::kXusbDpadLeft; }
     if ((btn & kSteamDpadRight) != 0) { b |= layout::kXusbDpadRight; }
-    if ((btn & kSteamRightPadClicked) != 0) { b |= layout::kXusbRightThumb; }
 
     s.lt = steamTriggerToWire(buf[11]);
     s.rt = steamTriggerToWire(buf[12]);
@@ -811,17 +844,17 @@ inline bool decodeSteamController(const std::uint8_t* buf, std::size_t len, Pars
         st.steamStickY = 0;
     }
     if ((btn & kSteamStickButton) != 0) { b |= layout::kXusbLeftThumb; }
-    s.wButtons = b;
-    s.extButtons = steamExtendedButtons(btn);
     s.lx = st.steamStickX;
     s.ly = st.steamStickY;
 
-    if ((btn & kSteamRightPadFinger) != 0) {
-        steamRotatePad(rdLe16(buf, 20), rdLe16(buf, 22), s.rx, s.ry);
-    } else {
-        s.rx = 0;
-        s.ry = 0;
-    }
+    const SteamTrackpadRoute route = routeSteamTrackpads(st.trackpadPick, SteamTrackpads::Pad2015,
+                                                         steamPads(buf, btn), st.padScroll);
+    if (route.rightStickClick) { b |= layout::kXusbRightThumb; }
+    s.wButtons = b;
+    s.extButtons = steamExtendedButtons(btn);
+    s.rx = route.rightStickX;
+    s.ry = route.rightStickY;
+    applySteamTrackpadRoute(route, s);
 
     const std::int16_t ax = rdLe16(buf, 28);
     const std::int16_t ay = rdLe16(buf, 30);
@@ -1036,17 +1069,15 @@ struct TritonExtendedButton {
     std::uint32_t ext;
 };
 
-// SDL's names for the rest: QAM is misc1, R4/L4/R5/L5 are paddle 1-4, the pad
-// clicks are touchpad and misc2, the trigger clicks misc3 and misc4, and the
-// stick and grip touches the capsense inputs.
+// SDL's names for the rest: QAM is misc1, R4/L4/R5/L5 are paddle 1-4, the trigger
+// clicks misc3 and misc4, and the stick and grip touches the capsense inputs. The
+// pad clicks are the trackpad router's.
 inline constexpr TritonExtendedButton kTritonExtendedButtonMap[] = {
     {kTritonQam, extbtn::kMisc1},
     {kTritonR4, extbtn::kRightPaddle1},
     {kTritonL4, extbtn::kLeftPaddle1},
     {kTritonR5, extbtn::kRightPaddle2},
     {kTritonL5, extbtn::kLeftPaddle2},
-    {kTritonLeftPadClick, extbtn::kLeftPadClick},
-    {kTritonRightPadClick, extbtn::kRightPadClick},
     {kTritonLeftTriggerClick, extbtn::kLeftTriggerClick},
     {kTritonRightTriggerClick, extbtn::kRightTriggerClick},
     {kTritonLeftStickTouch, extbtn::kLeftStickTouch},
@@ -1068,6 +1099,13 @@ inline constexpr int kTritonLeftStickXOffset = 10;
 inline constexpr int kTritonLeftStickYOffset = 12;
 inline constexpr int kTritonRightStickXOffset = 14;
 inline constexpr int kTritonRightStickYOffset = 16;
+// The pads: left x y, pressure, right x y, pressure, from 18 on the plain reports
+// and from 20 on the timestamp report, which puts a u16 pad timestamp first.
+inline constexpr int kTritonPadsOffset = 18;
+inline constexpr int kTritonTimestampPadsOffset = 20;
+inline constexpr int kTritonRightPadWithinPads = 6;
+inline constexpr std::uint32_t kTritonRightPadTouch = 0x00200000;
+inline constexpr std::uint32_t kTritonLeftPadTouch = 0x02000000;
 inline constexpr int kTritonImuTickOffset = 30;
 inline constexpr int kTritonImuTick16Offset = 32;
 inline constexpr int kTritonAccelOffset = 34;
@@ -1145,12 +1183,39 @@ inline void decodeTritonImu(const std::uint8_t* buf, ParsedReport& s) {
     s.motionValid = true;
 }
 
+inline PadSample tritonPad(const std::uint8_t* buf, int offset, bool touched, bool clicked) {
+    PadSample pad;
+    pad.active = touched;
+    if (touched) {
+        pad.x = rdLe16(buf, offset);
+        pad.y = rdLe16(buf, offset + 2);
+    }
+    pad.click = clicked;
+    return pad;
+}
+
+inline SteamPads tritonPads(const std::uint8_t* buf, std::uint32_t buttons) {
+    const bool isTheTimestampReport = buf[0] == kTritonStateTimestampId;
+    const int offset = isTheTimestampReport ? kTritonTimestampPadsOffset : kTritonPadsOffset;
+    SteamPads pads;
+    pads.left = tritonPad(buf, offset, (buttons & kTritonLeftPadTouch) != 0,
+                          (buttons & kTritonLeftPadClick) != 0);
+    pads.right =
+        tritonPad(buf, offset + kTritonRightPadWithinPads, (buttons & kTritonRightPadTouch) != 0,
+                  (buttons & kTritonRightPadClick) != 0);
+    return pads;
+}
+
 // SDL publishes motion only for a tick it has not seen, so a report that
 // repeats an IMU sample is input and not motion.
-inline void decodeTritonState(const std::uint8_t* buf, ParsedReport& s, TritonCarry& carry) {
+inline void decodeTritonState(const std::uint8_t* buf, ParsedReport& s, StickAutoRangeState& st) {
+    TritonCarry& carry = st.triton;
     const std::uint32_t buttons = rdLeU32(buf, kTritonButtonsOffset);
     s.wButtons = tritonButtonsToXusb(buttons);
     s.extButtons = tritonExtendedButtons(buttons);
+    applySteamTrackpadRoute(routeSteamTrackpads(st.trackpadPick, SteamTrackpads::Pad2026,
+                                                tritonPads(buf, buttons), st.padScroll),
+                            s);
     s.lt = tritonTriggerToWire(rdLe16(buf, kTritonLeftTriggerOffset));
     s.rt = tritonTriggerToWire(rdLe16(buf, kTritonRightTriggerOffset));
     // Up-positive already, as XUSB wants: SDL negates Y to make it down-positive.
@@ -1204,7 +1269,7 @@ inline bool decodeSteamTriton(const std::uint8_t* buf, std::size_t len, ParsedRe
     case kTritonStateBleId:
     case kTritonStateTimestampId:
         if (len < kTritonStateLen) { return false; }
-        decodeTritonState(buf, s, st.triton);
+        decodeTritonState(buf, s, st);
         return true;
     case kTritonBatteryId:
         if (len >= kTritonBatteryLen) { decodeTritonBattery(buf, st.triton); }
@@ -1519,6 +1584,23 @@ inline bool modelHasExtendedButtons(int vendorId, int productId) {
     const bool hasCapture = parser == HidParser::SwitchProUsb &&
                             (productId == kPidSwitchPro || productId == kPidSwitchChargingGrip);
     return isSteamPad || isTheEdge || hasCapture;
+}
+
+// Which Steam Controller's trackpads a model has, for the per-slot pick.
+inline SteamTrackpads modelSteamTrackpads(int vendorId, int productId) {
+    switch (parserForDevice(vendorId, productId)) {
+    case HidParser::SteamController:
+        return SteamTrackpads::Pad2015;
+    case HidParser::SteamTriton:
+        return SteamTrackpads::Pad2026;
+    case HidParser::DualShock4:
+    case HidParser::DualSense:
+    case HidParser::SwitchProUsb:
+    case HidParser::GenericHid:
+    case HidParser::None:
+        return SteamTrackpads::None;
+    }
+    return SteamTrackpads::None;
 }
 
 inline bool parserHasImu(HidParser parser) {

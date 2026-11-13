@@ -769,6 +769,143 @@ TEST_CASE("Steam stick and right-pad clicks map to thumb buttons", "[usb-parsers
     CHECK((s.wButtons & layout::kXusbRightThumb) != 0);
 }
 
+namespace {
+
+// A state packet with a finger on each pad: the left pad rides the shared left axes at
+// 16/18 while its finger is down, the right pad its own at 20/22.
+std::vector<std::uint8_t> steamPadsState(std::uint32_t buttons, std::int16_t leftX,
+                                         std::int16_t leftY, std::int16_t rightX,
+                                         std::int16_t rightY) {
+    auto r = steamState(buttons);
+    setLe16(r, 16, leftX);
+    setLe16(r, 18, leftY);
+    setLe16(r, 20, rightX);
+    setLe16(r, 22, rightY);
+    return r;
+}
+
+ParsedReport decodeSteamAs(TrackpadPick pick, const std::vector<std::uint8_t>& buf) {
+    StickAutoRangeState st;
+    st.trackpadPick = pick;
+    ParsedReport s{};
+    REQUIRE(decodeSteam(buf, s, st));
+    return s;
+}
+
+// 10000 through the +-15 degree shell rotation in Q16: cos 63303, sin 16962.
+constexpr std::int16_t kRotatedX = 9659;
+constexpr std::int16_t kRotatedY = 2588;
+
+} // namespace
+
+TEST_CASE("Steam pad pick: the left pad is rotated by minus the shell angle, the right by plus, "
+          "onto the two halves of one surface",
+          "[usb-parsers][steam][trackpads]") {
+    const auto s =
+        decodeSteamAs(TrackpadPick::Pad,
+                      steamPadsState(kBtnLeftPadFinger | kBtnRightPadFinger, 10000, 0, 10000, 0));
+    REQUIRE(s.touchpadValid);
+    CHECK(s.finger0Active);
+    CHECK(s.finger0Id == 0);
+    CHECK(s.finger0X == kRotatedX / 2 - 16384);
+    CHECK(s.finger0Y == kRotatedY);
+    CHECK(s.finger1Active);
+    CHECK(s.finger1Id == 1);
+    CHECK(s.finger1X == kRotatedX / 2 + 16384);
+    CHECK(s.finger1Y == -kRotatedY);
+    // The right stick is nobody's in pad mode, and the left stick is held, not the pad.
+    CHECK(s.rx == 0);
+    CHECK(s.ry == 0);
+    CHECK(s.lx == 0);
+    CHECK(s.ly == 0);
+}
+
+TEST_CASE("Steam pad pick: either pad click is the surface click, not R3 and not the word",
+          "[usb-parsers][steam][trackpads]") {
+    const auto left = decodeSteamAs(
+        TrackpadPick::Pad, steamPadsState(kBtnLeftPadFinger | kBtnLeftPadClicked, 1, 2, 0, 0));
+    CHECK(left.touchpadButton);
+    CHECK(left.extButtons == 0);
+    CHECK((left.wButtons & (layout::kXusbLeftThumb | layout::kXusbRightThumb)) == 0);
+    const auto right = decodeSteamAs(
+        TrackpadPick::Pad, steamPadsState(kBtnRightPadFinger | kBtnRightPadClicked, 0, 0, 1, 2));
+    CHECK(right.touchpadButton);
+    CHECK(right.extButtons == 0);
+    CHECK((right.wButtons & layout::kXusbRightThumb) == 0);
+}
+
+TEST_CASE(
+    "Steam off pick: both pads vanish, their clicks ride the word, the right stick is centred",
+    "[usb-parsers][steam][trackpads]") {
+    const auto s = decodeSteamAs(TrackpadPick::Off,
+                                 steamPadsState(kBtnLeftPadFinger | kBtnRightPadFinger |
+                                                    kBtnLeftPadClicked | kBtnRightPadClicked,
+                                                10000, 0, 10000, 0));
+    REQUIRE(s.touchpadValid);
+    CHECK_FALSE(s.finger0Active);
+    CHECK_FALSE(s.finger1Active);
+    CHECK_FALSE(s.touchpadButton);
+    CHECK(s.rx == 0);
+    CHECK(s.ry == 0);
+    CHECK((s.wButtons & layout::kXusbRightThumb) == 0);
+    CHECK(s.extButtons == (extbtn::kLeftPadClick | extbtn::kRightPadClick));
+}
+
+TEST_CASE("Steam mouse pick: the right pad is the cursor and left button, the left click the right "
+          "button, the left pad's travel the wheel",
+          "[usb-parsers][steam][trackpads]") {
+    StickAutoRangeState st;
+    st.trackpadPick = TrackpadPick::Mouse;
+    ParsedReport first{};
+    REQUIRE(decodeSteam(steamPadsState(kBtnLeftPadFinger | kBtnRightPadFinger | kBtnLeftPadClicked |
+                                           kBtnRightPadClicked,
+                                       0, 0, 10000, 0),
+                        first, st));
+    REQUIRE(first.touchpadValid);
+    CHECK(first.finger0Active);
+    CHECK(first.finger0X == kRotatedX);
+    CHECK(first.finger0Y == -kRotatedY);
+    CHECK_FALSE(first.finger1Active);
+    CHECK(first.touchpadButton);
+    CHECK(first.touchpadRightButton);
+    CHECK(first.touchpadScrollV == 0);
+    CHECK(first.extButtons == 0);
+    CHECK(first.rx == 0);
+    // A left-pad swipe of a notch (the rotation leaves its y nearly whole).
+    ParsedReport second{};
+    REQUIRE(decodeSteam(steamPadsState(kBtnLeftPadFinger | kBtnRightPadFinger, 0, 4300, 10000, 0),
+                        second, st));
+    CHECK(second.touchpadScrollV == 120);
+    CHECK_FALSE(second.touchpadRightButton);
+}
+
+TEST_CASE("Steam stick pick is today's behaviour: the right pad the stick, its click R3, the left "
+          "click under a finger on the word, nothing on the surface",
+          "[usb-parsers][steam][trackpads]") {
+    const auto s = decodeSteamAs(TrackpadPick::Stick,
+                                 steamPadsState(kBtnLeftPadFinger | kBtnRightPadFinger |
+                                                    kBtnLeftPadClicked | kBtnRightPadClicked,
+                                                0, 0, 10000, 0));
+    CHECK(s.rx == kRotatedX);
+    CHECK(s.ry == kRotatedY);
+    CHECK((s.wButtons & layout::kXusbRightThumb) != 0);
+    CHECK(s.extButtons == extbtn::kLeftPadClick);
+    REQUIRE(s.touchpadValid);
+    CHECK_FALSE(s.finger0Active);
+    CHECK_FALSE(s.finger1Active);
+    CHECK_FALSE(s.touchpadButton);
+}
+
+TEST_CASE("the Steam models and their trackpads", "[usb-parsers][steam][trackpads]") {
+    CHECK(modelSteamTrackpads(0x28DE, 0x1102) == SteamTrackpads::Pad2015);
+    CHECK(modelSteamTrackpads(0x28DE, 0x1142) == SteamTrackpads::Pad2015);
+    CHECK(modelSteamTrackpads(0x28DE, 0x1302) == SteamTrackpads::Pad2026);
+    CHECK(modelSteamTrackpads(0x28DE, 0x1304) == SteamTrackpads::Pad2026);
+    CHECK(modelSteamTrackpads(0x28DE, 0x1305) == SteamTrackpads::Pad2026);
+    CHECK(modelSteamTrackpads(0x054C, 0x0CE6) == SteamTrackpads::None);
+    CHECK(modelSteamTrackpads(0x1234, 0x5678) == SteamTrackpads::None);
+}
+
 TEST_CASE("Steam right pad drives the right stick through the shell rotation",
           "[usb-parsers][steam]") {
     StickAutoRangeState st;

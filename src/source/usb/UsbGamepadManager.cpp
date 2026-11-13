@@ -184,6 +184,8 @@ class ClaimedPadPublisher {
         t.finger1X = r.finger1X;
         t.finger1Y = r.finger1Y;
         t.buttonPressed = r.touchpadButton;
+        t.rightPressed = r.touchpadRightButton;
+        t.scrollV = r.touchpadScrollV;
         const input::TouchpadVerdict verdict = touchGate_->decide(t, processor_->nanoTime());
         if (verdict.send == input::TouchpadSend::Skip) { return; }
         t.eventTimeMs = verdict.eventTimeMs;
@@ -659,6 +661,13 @@ bool UsbGamepadManager::setPadMicMuted(const reducer::DirectPadKey& pad, bool mu
     const auto target = directTarget(pad);
     if (!target.has_value() || gateway_ == nullptr) { return false; }
     return gateway_->setPadMicMuted(target->syntheticId, muted);
+}
+
+bool UsbGamepadManager::setTrackpadPick(const reducer::DirectPadKey& pad,
+                                        input::usbparse::TrackpadPick pick) {
+    const auto target = directTarget(pad);
+    if (!target.has_value() || gateway_ == nullptr) { return false; }
+    return gateway_->setTrackpadPick(target->syntheticId, pick);
 }
 
 bool UsbGamepadManager::setPadMicMuted(int vendorId, int productId, bool muted) {

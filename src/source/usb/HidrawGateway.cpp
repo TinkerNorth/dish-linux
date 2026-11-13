@@ -295,6 +295,8 @@ UsbReport toUsbReport(const input::usbparse::ParsedReport& parsed, const bool mi
     report.finger1X = parsed.finger1X;
     report.finger1Y = parsed.finger1Y;
     report.touchpadButton = parsed.touchpadButton;
+    report.touchpadRightButton = parsed.touchpadRightButton;
+    report.touchpadScrollV = parsed.touchpadScrollV;
     report.batteryValid = parsed.batteryValid;
     report.batteryLevel = parsed.batteryLevel;
     report.batteryStatus = parsed.batteryStatus;
@@ -494,7 +496,20 @@ void HidrawGateway::controllerLeft(Claimed* c) {
 bool HidrawGateway::decodeOneReport(Claimed* c, const std::uint8_t* data, std::size_t len,
                                     input::usbparse::ParsedReport& parsed) {
     if (c->layout.valid) { return input::usbhid::decodeFromLayout(data, len, parsed, c->layout); }
+    c->sticks.trackpadPick =
+        static_cast<input::usbparse::TrackpadPick>(c->trackpadPick.load(std::memory_order_relaxed));
     return input::usbparse::decodeReport(c->parser, data, len, parsed, c->sticks, &c->micMute);
+}
+
+bool HidrawGateway::setTrackpadPick(int syntheticId, input::usbparse::TrackpadPick pick) {
+    std::lock_guard<thread::TrackedMutex> lock(mtx_);
+    const auto it = claimed_.find(syntheticId);
+    if (it == claimed_.end()) { return false; }
+    const bool isASteamPad = it->second->parser == input::usbparse::HidParser::SteamController ||
+                             it->second->parser == input::usbparse::HidParser::SteamTriton;
+    if (!isASteamPad) { return false; }
+    it->second->trackpadPick.store(static_cast<std::uint8_t>(pick), std::memory_order_relaxed);
+    return true;
 }
 
 // Plain C++ on its own thread, no Qt and no allocation per report: the read buffer and the

@@ -260,8 +260,6 @@ TEST_CASE("each extra bit is its SDL-named extended button",
         {kL4, extbtn::kLeftPaddle1},
         {kR5, extbtn::kRightPaddle2},
         {kL5, extbtn::kLeftPaddle2},
-        {kLeftPadClick, extbtn::kLeftPadClick},
-        {kRightPadClick, extbtn::kRightPadClick},
         {kLeftTriggerClick, extbtn::kLeftTriggerClick},
         {kRightTriggerClick, extbtn::kRightTriggerClick},
         {kLeftStickTouch, extbtn::kLeftStickTouch},
@@ -275,6 +273,93 @@ TEST_CASE("each extra bit is its SDL-named extended button",
         CHECK(d.report.extButtons == row.ext);
         CHECK(d.report.wButtons == 0);
     }
+}
+
+namespace {
+
+// The pads: left x y at 18/20, right at 24/26 (pressure between) on the plain reports;
+// two bytes later on the timestamp report, behind its u16 pad timestamp.
+std::vector<std::uint8_t> stateWithPads(std::uint32_t buttons, std::uint8_t id, std::int16_t leftX,
+                                        std::int16_t leftY, std::int16_t rightX,
+                                        std::int16_t rightY) {
+    auto r = state(buttons, id);
+    const std::size_t base = id == kStateTimestampId ? 20 : 18;
+    putLe16(r, base, leftX);
+    putLe16(r, base + 2, leftY);
+    putLe16(r, base + 6, rightX);
+    putLe16(r, base + 8, rightY);
+    return r;
+}
+
+Decoded decodeTritonAs(TrackpadPick pick, const std::vector<std::uint8_t>& r) {
+    StickAutoRangeState carried;
+    carried.trackpadPick = pick;
+    return decodeTriton(r, carried);
+}
+
+} // namespace
+
+TEST_CASE("the 2026 pad's trackpads sit at 18/20 and 24/26, two bytes on in the timestamp layout",
+          "[usb-parsers][triton][trackpads]") {
+    for (const std::uint8_t id : {kStateId, kStateBleId, kStateTimestampId}) {
+        const auto d =
+            decodeTritonAs(TrackpadPick::Pad, stateWithPads(kLeftPadTouch | kRightPadTouch, id,
+                                                            -20000, 30000, 20000, -30000));
+        REQUIRE(d.ok);
+        REQUIRE(d.report.touchpadValid);
+        CHECK(d.report.finger0Active);
+        CHECK(d.report.finger0X == -20000 / 2 - 16384);
+        CHECK(d.report.finger0Y == -30000);
+        CHECK(d.report.finger1Active);
+        CHECK(d.report.finger1X == 20000 / 2 + 16384);
+        CHECK(d.report.finger1Y == 30000);
+    }
+}
+
+TEST_CASE("a 2026 pad with no touch bit is lifted whatever its coordinates say",
+          "[usb-parsers][triton][trackpads]") {
+    const auto d = decodeTritonAs(TrackpadPick::Pad, stateWithPads(0, kStateId, 5, 6, 7, 8));
+    REQUIRE(d.ok);
+    CHECK_FALSE(d.report.finger0Active);
+    CHECK_FALSE(d.report.finger1Active);
+}
+
+TEST_CASE("the 2026 pad's real right stick is left alone by every pick",
+          "[usb-parsers][triton][trackpads]") {
+    for (const TrackpadPick pick :
+         {TrackpadPick::Stick, TrackpadPick::Pad, TrackpadPick::Mouse, TrackpadPick::Off}) {
+        auto r = stateWithPads(kRightPadTouch, kStateId, 0, 0, 12000, 0);
+        putLe16(r, 14, 4321);
+        putLe16(r, 16, -1234);
+        const auto d = decodeTritonAs(pick, r);
+        REQUIRE(d.ok);
+        CHECK(d.report.rx == 4321);
+        CHECK(d.report.ry == -1234);
+    }
+}
+
+TEST_CASE(
+    "the 2026 pad's clicks are the router's: on the surface in pad, on the word in off and stick",
+    "[usb-parsers][triton][trackpads]") {
+    const auto both = kLeftPadTouch | kRightPadTouch | kLeftPadClick | kRightPadClick;
+    const auto pad = decodeTritonAs(TrackpadPick::Pad, stateWithPads(both, kStateId, 1, 2, 3, 4));
+    CHECK(pad.report.touchpadButton);
+    CHECK(pad.report.extButtons == 0);
+    const auto off = decodeTritonAs(TrackpadPick::Off, stateWithPads(both, kStateId, 1, 2, 3, 4));
+    CHECK_FALSE(off.report.touchpadButton);
+    CHECK_FALSE(off.report.finger0Active);
+    CHECK(off.report.extButtons == (extbtn::kLeftPadClick | extbtn::kRightPadClick));
+    // A fresh decoder state reads stick, which the 2026 pad treats as off.
+    const auto fresh = decodeTriton(stateWithPads(both, kStateId, 1, 2, 3, 4));
+    CHECK(fresh.report.extButtons == (extbtn::kLeftPadClick | extbtn::kRightPadClick));
+    CHECK_FALSE(fresh.report.finger0Active);
+    const auto mouse =
+        decodeTritonAs(TrackpadPick::Mouse, stateWithPads(both, kStateId, 1, 2, 3, 4));
+    CHECK(mouse.report.touchpadButton);
+    CHECK(mouse.report.touchpadRightButton);
+    CHECK(mouse.report.finger0Active);
+    CHECK_FALSE(mouse.report.finger1Active);
+    CHECK(mouse.report.extButtons == 0);
 }
 
 TEST_CASE("the pad touches and the mapped buttons leave the word clear",

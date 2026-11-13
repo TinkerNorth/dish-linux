@@ -524,6 +524,14 @@ class AppViewModel : public QObject {
     // runtime's own answer (a satellite descriptor, or a Moonlight arrival), so
     // the binding strip cannot show another routing.
     Q_INVOKABLE QString touchpadRoutingFor(const QString& slotId) const;
+    // A Steam Controller slot's trackpads ("none" | "2015" | "2026"), the pick in
+    // force for them ("stick" | "pad" | "mouse" | "off"), the picks its model and
+    // this client offer, and the draft touchpadMode the pick stands for.
+    Q_INVOKABLE QString steamTrackpadsFor(const QString& slotId) const;
+    Q_INVOKABLE QString trackpadPickFor(const QString& slotId) const;
+    Q_INVOKABLE QStringList trackpadPickChoicesFor(const QString& slotId) const;
+    Q_INVOKABLE int trackpadPickDraftModeFor(const QString& slotId) const;
+    Q_INVOKABLE void setTrackpadPick(const QString& slotId, const QString& pick);
     // Keyed exactly as setMotionEnabled writes, so a draft seeded from it cannot
     // silently re-enable gyro the user turned off on the Dead zones page.
     Q_INVOKABLE bool motionEnabledFor(const QString& slotId) const;

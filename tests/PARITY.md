@@ -22,6 +22,7 @@
 | Satellite host, protocol 4 | ✅ | ✅ | ✅ |
 | Moonlight host (Sunshine / Apollo / Wolf) | ✅ | ✅ | ✅ |
 | Mouse mode on the host | ✅ | ❌ | ❌ (deferred: `reducer::kClientRoutesTouchpadAsMouse`) |
+| Steam Controller trackpad pick (stick / pad / mouse / off) | ⚠️ | ⚠️ (mouse behind the deferral above) | ⚠️ (mouse behind the deferral above) |
 | Controller audio (mic + speaker) | ✅ | ✅ | ✅ |
 | DualSense HD haptics | ⚠️ | ⚠️ | ⚠️ |
 | Adaptive triggers, player LEDs, mic lamp | ✅ | ✅ | ✅ |
@@ -99,10 +100,36 @@ through a Direct pick on its card. Its output worker sends the quiet settings
 (lizard mode off, raw accelerometer and gyro on) at the claim and every 3 s,
 because the pad's firmware turns lizard mode back on otherwise, and repeats a
 running rumble every 40 ms, because the pad stops one on its own. Its four back
-paddles, quick-access button, trackpad and trigger clicks and stick and grip
-touches ride the protocol 4 extended-buttons word (see below). Open follow-ups:
-the two trackpads are not forwarded yet; and the Bluetooth identity
+paddles, quick-access button, trigger clicks and stick and grip touches ride the
+protocol 4 extended-buttons word (see below), and its two trackpads go where the
+slot's trackpad pick puts them (below). Open follow-up: the Bluetooth identity
 (`28DE:1303`) is never Direct, like every Bluetooth pad.
+
+The trackpad pick, per Steam Controller slot (`reducer::TrackpadPickResolve`,
+`usbparse::routeSteamTrackpads`, the same ladder and router as dish-android's):
+`stick | pad | mouse | off`, stored by slot id (`TrackpadPickRepository`), the
+2015 pad defaulting to `stick` (its right pad the right stick and its click R3,
+the behaviour before the pick) and the 2026 pad, which has a real right stick
+and no `stick` choice, to `pad` when the emulated type has a touch surface,
+else `off`. `pad` puts the left pad on the left half of the one wire surface
+(finger 0, `x/2 - 16384`) and the right pad on the right half (finger 1,
+`x/2 + 16384`), either click the surface's click; `off` drops both pads and
+sends their clicks as `leftPadClick` / `rightPadClick`; `mouse` makes the right
+pad the cursor and left button, the left pad's click the right button and its
+vertical travel the wheel (4096 units a notch, the remainder carried), through
+the protocol 2 POINTER frame's buttons byte and `scrollV`, which the Direct path
+now carries end to end. The pick in force is held to what the path carries:
+`pad` needs the type's surface, `mouse` the host's grant AND this client's
+mouse routing (`reducer::kClientRoutesTouchpadAsMouse`, still deferred, so the
+picker lists no Mouse yet). `test_steam_trackpads` pins, over every pick and
+both models, that each pad position lands in at most one wire field and each
+click in exactly one, and that outside `stick` the 2015 right stick stays
+centred and nothing is R3. The pick reaches the claim as one atomic the read
+loop copies before each decode; the slot's declared `touchpadMode` is the
+pick's projection (`pad` → `ds4`, `mouse` → `mouse`, else `off`), not the
+satellite's per-host touchpad pick, which a Steam slot's Apply leaves alone.
+Unverified on hardware: the 2015 left pad's rotation sign follows SDL's
+`RotatePad(-angle)`; the wheel's 4096 units a notch is a chosen feel.
 
 The extended-buttons word (satellite `docs/contract.md` "Extended buttons",
 SDL's names) is filled by the pads that have the buttons, each from the layout

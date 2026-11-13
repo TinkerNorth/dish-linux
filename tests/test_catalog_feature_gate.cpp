@@ -102,6 +102,38 @@ TEST_CASE("declared touchpad: before the catalog arrives the bundled table decid
           proto::kTouchpadModeDs4);
 }
 
+TEST_CASE("declared touchpad, Steam slot: the pick in force projects onto the wire",
+          "[catalog][touchpad-declared][trackpads]") {
+    using dish::reducer::declaredSteamTouchpadMode;
+    using dish::reducer::SteamTrackpads;
+    const std::optional<std::string> never = std::nullopt;
+    // A 2015 pad never picked for keeps its right pad as the stick: no surface.
+    CHECK(declaredSteamTouchpadMode(never, SteamTrackpads::Pad2015, proto::kControllerTypeDualSense,
+                                    std::nullopt) == proto::kTouchpadModeOff);
+    // A 2026 pad never picked for puts its pads on a type that has a surface.
+    CHECK(declaredSteamTouchpadMode(never, SteamTrackpads::Pad2026, proto::kControllerTypeDualSense,
+                                    std::nullopt) == proto::kTouchpadModeDs4);
+    CHECK(declaredSteamTouchpadMode(never, SteamTrackpads::Pad2026, proto::kControllerTypeXbox,
+                                    std::nullopt) == proto::kTouchpadModeOff);
+    // A pad pick on a type with a surface is ds4; on one without, off.
+    CHECK(declaredSteamTouchpadMode(std::string("pad"), SteamTrackpads::Pad2015,
+                                    proto::kControllerTypePlayStation,
+                                    std::nullopt) == proto::kTouchpadModeDs4);
+    CHECK(declaredSteamTouchpadMode(std::string("pad"), SteamTrackpads::Pad2015,
+                                    proto::kControllerTypeSwitchPro,
+                                    std::nullopt) == proto::kTouchpadModeOff);
+    // Mouse waits on this client's deferral, whatever the host advertises.
+    const auto hostGrantsMouse = catalogOf({catalogType(proto::kControllerTypeDualSense, true)});
+    CHECK(declaredSteamTouchpadMode(std::string("mouse"), SteamTrackpads::Pad2026,
+                                    proto::kControllerTypeDualSense,
+                                    hostGrantsMouse) == proto::kTouchpadModeOff);
+    // The satellite's own catalog decides the type's surface once it is cached.
+    const auto noSurface = catalogOf({catalogType(proto::kControllerTypeDualSense, false)});
+    CHECK(declaredSteamTouchpadMode(std::string("pad"), SteamTrackpads::Pad2026,
+                                    proto::kControllerTypeDualSense,
+                                    noSurface) == proto::kTouchpadModeOff);
+}
+
 TEST_CASE("declared touchpad: a host never picked for declares the pad render",
           "[catalog][touchpad-declared]") {
     const auto catalog = catalogOf({catalogType(proto::kControllerTypePlayStation, true)});

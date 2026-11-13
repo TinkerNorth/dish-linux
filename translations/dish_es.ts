@@ -501,6 +501,10 @@
         <translation>Ratón</translation>
     </message>
     <message>
+        <source>Right stick</source>
+        <translation>Stick derecho</translation>
+    </message>
+    <message>
         <source>Found</source>
         <translation>Encontrado</translation>
     </message>
@@ -782,6 +786,10 @@
     <message>
         <source>Tilt and gyro aiming on the host.</source>
         <translation>Inclinación y puntería con giro en el host.</translation>
+    </message>
+    <message>
+        <source>Trackpads</source>
+        <translation>Trackpads</translation>
     </message>
     <message>
         <source>Feedback from the host drives the pad’s motors.</source>

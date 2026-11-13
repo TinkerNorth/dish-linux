@@ -127,6 +127,44 @@ QString reversePairingPhaseToken(net::ReversePairingPhase phase) {
     return QStringLiteral("idle");
 }
 
+QString steamTrackpadsToken(input::usbparse::SteamTrackpads model) {
+    switch (model) {
+    case input::usbparse::SteamTrackpads::None:
+        return QStringLiteral("none");
+    case input::usbparse::SteamTrackpads::Pad2015:
+        return QStringLiteral("2015");
+    case input::usbparse::SteamTrackpads::Pad2026:
+        return QStringLiteral("2026");
+    }
+    return QStringLiteral("none");
+}
+
+QString trackpadPickToken(input::usbparse::TrackpadPick pick) {
+    const std::string_view name = reducer::trackpadPickName(pick);
+    return QString::fromUtf8(name.data(), static_cast<qsizetype>(name.size()));
+}
+
+QStringList trackpadPickTokens(const std::vector<input::usbparse::TrackpadPick>& picks) {
+    QStringList out;
+    for (const input::usbparse::TrackpadPick pick : picks) {
+        out.push_back(trackpadPickToken(pick));
+    }
+    return out;
+}
+
+int trackpadPickDraftMode(input::usbparse::TrackpadPick pick) {
+    switch (pick) {
+    case input::usbparse::TrackpadPick::Stick:
+    case input::usbparse::TrackpadPick::Off:
+        return 0;
+    case input::usbparse::TrackpadPick::Pad:
+        return 1;
+    case input::usbparse::TrackpadPick::Mouse:
+        return 2;
+    }
+    return 0;
+}
+
 QString touchpadChoiceForPick(const std::optional<std::string>& pick, bool mouseModeAvailable) {
     const std::uint8_t mode = proto::touchpadModeFromName(reducer::touchpadPickOrDefault(pick));
     const bool mouseShut = mode == proto::kTouchpadModeMouse && !mouseModeAvailable;

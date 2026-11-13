@@ -82,6 +82,7 @@ SlotRouter::SlotHardware SlotRouter::syntheticHardware(int vendorId, int product
     hw.hasTouchpad = input::usbparse::parserHasTouchpad(parser);
     hw.hasRumble = input::usbparse::parserHasRumble(parser);
     hw.hasExtendedButtons = input::usbparse::modelHasExtendedButtons(vendorId, productId);
+    hw.steamTrackpads = input::usbparse::modelSteamTrackpads(vendorId, productId);
     // The Direct path has an OUT report path, so a claimed pad answers for its real actuators.
     // Whether it can drive them right now is the router's call (the claim has to be live).
     hw.hasLightbar = input::usbout::parserHasLightbar(parser);
@@ -390,10 +391,10 @@ void SlotRouter::touchpad(DeviceIndex index, const DeviceId& id, const TouchpadS
                 const auto fwd = reducer::assembleTouchpadForward(
                     s.finger0Active, s.finger0Id, s.finger0X, s.finger0Y, s.finger1Active,
                     s.finger1Id, s.finger1X, s.finger1Y, s.buttonPressed, eventTimeMs);
-                route.client->sendTouchpad(route.controllerIndex, fwd.finger0Active, fwd.finger0Id,
-                                           fwd.finger0X, fwd.finger0Y, fwd.finger1Active,
-                                           fwd.finger1Id, fwd.finger1X, fwd.finger1Y,
-                                           fwd.buttonPressed, fwd.eventTimeMs);
+                route.client->sendTouchpad(
+                    route.controllerIndex, fwd.finger0Active, fwd.finger0Id, fwd.finger0X,
+                    fwd.finger0Y, fwd.finger1Active, fwd.finger1Id, fwd.finger1X, fwd.finger1Y,
+                    fwd.buttonPressed, fwd.eventTimeMs, s.rightPressed, s.scrollV);
                 return;
             }
         }

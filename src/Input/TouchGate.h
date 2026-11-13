@@ -26,10 +26,12 @@ inline bool isTouchpadEdge(const GamepadInputProcessor::TouchpadSample& last,
                            const GamepadInputProcessor::TouchpadSample& next) {
     const bool contactChanged =
         next.finger0Active != last.finger0Active || next.finger1Active != last.finger1Active;
-    const bool clickChanged = next.buttonPressed != last.buttonPressed;
+    const bool clickChanged =
+        next.buttonPressed != last.buttonPressed || next.rightPressed != last.rightPressed;
     const bool trackingIdChanged =
         next.finger0Id != last.finger0Id || next.finger1Id != last.finger1Id;
-    return contactChanged || clickChanged || trackingIdChanged;
+    const bool wheelTurned = next.scrollV != 0;
+    return contactChanged || clickChanged || trackingIdChanged || wheelTurned;
 }
 
 // Send-on-change for a touchpad that rides every input report: an edge goes at once, a move at
@@ -38,7 +40,8 @@ class TouchGate {
   public:
     TouchpadVerdict decide(const GamepadInputProcessor::TouchpadSample& sample,
                            std::int64_t nowNs) {
-        if (sample.sameTouch(last_)) { return heal(nowNs); }
+        const bool wheelTurned = sample.scrollV != 0;
+        if (!wheelTurned && sample.sameTouch(last_)) { return heal(nowNs); }
         return change(sample, nowNs);
     }
 
@@ -49,7 +52,10 @@ class TouchGate {
                            std::int64_t nowNs) {
         const bool insideTheMoveInterval = nowNs - lastSentNs_ < kTouchpadMoveIntervalNs;
         if (!isTouchpadEdge(last_, sample) && insideTheMoveInterval) { return {}; }
+        // The wheel is an event, not a level: the latch keeps the levels, so the
+        // still frame after a turn is the same touch and heals rather than resends.
         last_ = sample;
+        last_.scrollV = 0;
         lastSentNs_ = nowNs;
         eventTimeMs_ = static_cast<std::uint32_t>(nowNs / kNsPerMs);
         healsLeft_ = kTouchpadHealResends;

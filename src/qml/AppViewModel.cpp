@@ -1596,6 +1596,31 @@ bool AppViewModel::motionEnabledFor(const QString& slotId) const {
     return model_->motionEnabledStore()->isEnabled(slotId.toStdString());
 }
 
+QString AppViewModel::steamTrackpadsFor(const QString& slotId) const {
+    return steamTrackpadsToken(model_->steamTrackpadsFor(slotId));
+}
+
+QString AppViewModel::trackpadPickFor(const QString& slotId) const {
+    return trackpadPickToken(model_->trackpadPickFor(slotId));
+}
+
+QStringList AppViewModel::trackpadPickChoicesFor(const QString& slotId) const {
+    const QString connectionId = model_->hub()->bindings().value(slotId);
+    const bool hostAdvertisesMouse =
+        reducer::hostAdvertisesMouseControl(model_->catalogHostFeatures(connectionId));
+    return trackpadPickTokens(reducer::offeredTrackpadPicks(
+        model_->steamTrackpadsFor(slotId), reducer::mouseModeAvailable(hostAdvertisesMouse)));
+}
+
+int AppViewModel::trackpadPickDraftModeFor(const QString& slotId) const {
+    return trackpadPickDraftMode(model_->trackpadPickFor(slotId));
+}
+
+void AppViewModel::setTrackpadPick(const QString& slotId, const QString& pick) {
+    if (slotId.isEmpty()) { return; }
+    model_->setSlotTrackpadPick(slotId, pick.toStdString());
+}
+
 bool AppViewModel::rumbleEnabledFor(const QString& slotId) const {
     if (slotId.isEmpty()) { return source::RumbleEnabledStore::kDefaultEnabled; }
     return model_->rumbleEnabledStore()->isEnabled(slotId);

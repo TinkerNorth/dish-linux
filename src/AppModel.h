@@ -62,6 +62,7 @@
 #include "source/store/SlotSwitches.h"
 #include "source/store/OnboardingPreferenceStore.h"
 #include "source/store/TouchpadModeStore.h"
+#include "source/store/TrackpadPickStore.h"
 #include "source/store/ThemePreferenceStore.h"
 #include "source/store/UpdatePreferenceStore.h"
 #include "source/store/UsbPathPreferenceStore.h"
@@ -158,6 +159,7 @@ class AppModel : public QObject {
     // Live per-slot mute, deliberately unpersisted (see MicMuteStore.h).
     source::MicMuteStore* micMuteStore() { return &micMuteStore_; }
     source::TouchpadModeStore* touchpadModeStore() { return &touchpadModeStore_; }
+    source::TrackpadPickStore* trackpadPickStore() { return &trackpadPickStore_; }
 
     // Both mute controls land here: the slot card's click and (via the
     // observer's edge upcall) the DualSense's own button. Writes the store,
@@ -253,6 +255,14 @@ class AppModel : public QObject {
     // Direct-claimed pad that decodes its own touch block declares it: "off"
     // makes the satellite drop every MSG_TOUCHPAD the forward path sends.
     std::uint8_t declaredTouchpadMode(const QString& slotId) const;
+
+    // A Steam Controller slot's trackpads and the pick in force for them
+    // (reducer::boundTrackpadPick): the stored pick where the model offers it,
+    // else the model's default, held to what the bound type and host carry.
+    input::usbparse::SteamTrackpads steamTrackpadsFor(const QString& slotId) const;
+    input::usbparse::TrackpadPick trackpadPickFor(const QString& slotId) const;
+    // Stores the pick, hands it to the pad's decoder and re-declares the slot.
+    void setSlotTrackpadPick(const QString& slotId, const std::string& pick);
 
     // Whether a slot's Moonlight binding sends the pad's touches to its host:
     // the host's pick, the pad, and the arrival bindMoonlightSlot announces with
@@ -511,6 +521,9 @@ class AppModel : public QObject {
     // Re-attach a bound slot so its descriptor re-folds and re-PUTs (the hub's
     // capability fns re-run on bind). No-op for an unbound slot.
     void republishSlotCaps(const QString& slotId);
+    // Every claimed Steam Controller gets the pick in force for its slot: idempotent
+    // atomic stores, run on the scan tick, a pick change and a type change.
+    void syncTrackpadPicks();
 
     // The matcher's answer for the slot's USB pad (a synthetic's own vid:pid,
     // or an SDL slot's from the bridge), NONE for a Bluetooth or unknown slot.
@@ -641,6 +654,9 @@ class AppModel : public QObject {
     // Absent = never picked; declaredTouchpadMode sends ds4 for it.
     repository::TouchpadModeRepository touchpadModeRepo_;
     source::TouchpadModeStore touchpadModeStore_{&touchpadModeRepo_};
+    // The Steam Controller slots' trackpad picks; absent = the model's default.
+    repository::TrackpadPickRepository trackpadPickRepo_;
+    source::TrackpadPickStore trackpadPickStore_{&trackpadPickRepo_};
 
     // Declaration order: the repo must precede the store that hydrates from it.
     // The StateSource carries the whole map per emit, so joystickRemapSub_ folds
@@ -651,6 +667,7 @@ class AppModel : public QObject {
     // Hands every move of the Motion switch to the Moonlight manager's sessions.
     arch::Observable<source::MotionEnabledMap>::Subscription motionSwitchSub_;
     arch::Observable<source::RumbleEnabledMap>::Subscription rumbleSwitchSub_;
+    arch::Observable<source::TrackpadPickMap>::Subscription trackpadPickSub_;
     // Device ids whose persisted deadzone profile was already pushed, so
     // onBridgeDevicesChanged pushes once per attach rather than per tick.
     QSet<QString> deadzonePushedDevices_;

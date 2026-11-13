@@ -20,6 +20,18 @@ the repos share a version number.
 
 ### Added
 
+- **A Steam Controller picks what its trackpads are.** A Steam Controller's card
+  gets a Trackpads pick: Right stick (the 2015 model's right trackpad stays the
+  right stick, as before), Touchpad (both trackpads on the emulated
+  controller's touch surface, the left on its left half and the right on its
+  right half) or Off. The 2015 model starts on Right stick; the 2026 model,
+  which has a real right stick, starts on Touchpad when the emulated
+  controller has a touch surface and Off otherwise. A trackpad click goes where
+  the pick puts the trackpad, and nowhere twice; a click nothing uses reaches
+  the host as an extra button on protocol 4. A Mouse pick (right trackpad as
+  the pointer and left button, left trackpad as the wheel and right button) is
+  built and tested but offered only once this client routes a pad as the
+  host's mouse, which it does not yet. Not tried on a real Steam Controller.
 - **DualSense Edge as a controller type.** A Satellite that offers it can be
   asked to plug in a DualSense Edge: a DualSense whose two back buttons and two
   Fn buttons are the extra buttons a controller sends on protocol 4, so a Steam

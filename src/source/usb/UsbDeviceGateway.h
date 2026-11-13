@@ -10,6 +10,7 @@
 
 #pragma once
 
+#include "core/input/SteamTrackpads.h"
 #include "core/input/UsbOutputReports.h"
 #include "core/reducer/DirectClaimFailure.h"
 #include "source/usb/HidReportWriter.h"
@@ -115,6 +116,10 @@ struct UsbReport {
     std::int16_t finger1X = 0;
     std::int16_t finger1Y = 0;
     bool touchpadButton = false;
+    // The pointer frame's right button and wheel: a Steam Controller's trackpads
+    // composed as a mouse (usbparse::routeSteamTrackpads).
+    bool touchpadRightButton = false;
+    std::int16_t touchpadScrollV = 0;
 
     // The decoder's mic-mute LATCH state (DualSense only; false elsewhere).
     // Already folded into wButtons as kXusbMicMute by the decoder — this field
@@ -195,6 +200,13 @@ class UsbDeviceGateway {
     // own button stay one state. False for an unknown id or a family with no
     // latch. Default no-op so fakes that never touch audio need no override.
     virtual bool setPadMicMuted(int /*syntheticId*/, bool /*muted*/) { return false; }
+
+    // Hand a claimed Steam Controller the slot's trackpad pick, which its decoder
+    // routes the pads by from the next report. False for an unknown id or a
+    // family with no trackpads. Default no-op so fakes need no override.
+    virtual bool setTrackpadPick(int /*syntheticId*/, input::usbparse::TrackpadPick /*pick*/) {
+        return false;
+    }
 
     // The claim's OUT reports for its output worker. The default writes through
     // writeOutputReport; a gateway with the handle at hand returns a writer on it.

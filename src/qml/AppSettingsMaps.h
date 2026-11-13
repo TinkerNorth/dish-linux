@@ -8,15 +8,18 @@
 #pragma once
 
 #include "core/reducer/KeepAwake.h"
+#include "core/reducer/TrackpadPickResolve.h"
 #include "source/store/ThemePreferenceStore.h"
 
 #include <QString>
+#include <QStringList>
 #include <QVariantList>
 #include <QVariantMap>
 
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <vector>
 
 namespace dish::ui {
 struct LicenseManifest;
@@ -74,6 +77,16 @@ QString touchpadChoiceForMode(std::uint8_t mode);
 // touches reach the host (moonlight::touchReachesHost), which renders them as
 // its own pad's, and otherwise "off".
 QString touchpadChoiceForMoonlight(bool touchReachesHost);
+
+// A Steam Controller slot's trackpads as QML reads them: "none" | "2015" | "2026".
+QString steamTrackpadsToken(input::usbparse::SteamTrackpads model);
+
+// The pick's own names ("stick" | "pad" | "mouse" | "off") as QString, and the
+// draft's touchpadMode a pick stands for (0 off, 1 pad, 2 mouse): what the
+// capability matrix shows for a Steam slot, whose surface follows the pick.
+QString trackpadPickToken(input::usbparse::TrackpadPick pick);
+QStringList trackpadPickTokens(const std::vector<input::usbparse::TrackpadPick>& picks);
+int trackpadPickDraftMode(input::usbparse::TrackpadPick pick);
 
 // The choice a binding draft's touchpadMode stands for: 0 off, 1 pad, 2 mouse,
 // the order of the choice table. Any other value is the editors' keep: the

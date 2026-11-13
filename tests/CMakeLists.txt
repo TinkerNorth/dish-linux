@@ -99,6 +99,10 @@ set(DISH_TEST_SOURCES
     test_battery_ui.cpp
     test_config_blocker.cpp
     test_touchpad_mode_resolve.cpp
+    test_trackpad_pick_resolve.cpp
+    test_steam_trackpads.cpp
+    test_trackpad_pick_repository.cpp
+    test_trackpad_pick_store.cpp
     test_touchpad_mode_repository.cpp
     test_touchpad_mode_store.cpp
     test_pairing_machine.cpp

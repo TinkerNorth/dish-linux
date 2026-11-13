@@ -501,6 +501,10 @@
         <translation>Souris</translation>
     </message>
     <message>
+        <source>Right stick</source>
+        <translation>Stick droit</translation>
+    </message>
+    <message>
         <source>Found</source>
         <translation>Trouvée</translation>
     </message>
@@ -782,6 +786,10 @@
     <message>
         <source>Tilt and gyro aiming on the host.</source>
         <translation>Visée gyro et inclinaison sur l&apos;hôte.</translation>
+    </message>
+    <message>
+        <source>Trackpads</source>
+        <translation>Trackpads</translation>
     </message>
     <message>
         <source>Feedback from the host drives the pad’s motors.</source>
