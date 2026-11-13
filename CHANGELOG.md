@@ -71,6 +71,16 @@ the repos share a version number.
 
 ### Fixed
 
+- **The seqlock race test no longer depends on its reader ever finding a gap
+  between writes.** Its writer rewrote the value in a loop that never paused
+  and the test asserted that at least one of 200,000 reads had landed; a read
+  slower than one write cycle (a Debug build on a busy runner) overlaps a
+  write every time, so the gcc Debug lane failed with `accepted > 0` while the
+  seqlock was right to refuse each of those reads. The writer still runs free,
+  but holds off once the reader has failed 64 reads in a row, until one lands;
+  the reader decides when the race ends (at least 200,000 reads, 1,000 of them
+  landed, and the writer's 1,000th value seen). The torn-read check is as
+  strong as before: a seqlock mutated to accept every read fails it.
 - **The route-table test that republishes under a reporting thread no longer
   depends on when that thread starts.** It republished a fixed three hundred
   times and then asserted that a report had been routed, which assumed the
