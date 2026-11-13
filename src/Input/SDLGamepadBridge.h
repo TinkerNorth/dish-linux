@@ -85,6 +85,10 @@ class SDLGamepadBridge : public QObject {
         // Whether SDL can actually drive this pad's motors (the probe, not the
         // model DB) — what CAP_RUMBLE advertises for a Standard-path slot.
         bool hasRumble = false;
+        // Whether SDL's mapping for the pad has a paddle or misc1 (an Elite, an
+        // Edge, the Steam Deck's own controls): what the pad sources of the
+        // protocol 4 extended-buttons word.
+        bool hasExtendedButtons = false;
         // Classified at attach from SDL's device path. Gates the USB-path stamp
         // in AppModel::rebuild — a wireless pad has no USB path to switch.
         // False when SDL reports no path, which leaves

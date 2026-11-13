@@ -436,6 +436,7 @@ ClaimResult HidrawGateway::claim(const UsbDeviceInfo& device,
     claimed->vendorId = device.vendorId;
     claimed->productId = device.productId;
     claimed->parser = parser;
+    claimed->sticks.productId = device.productId;
     claimed->linked.store(!receiverSlot);
     if (parser == input::usbparse::HidParser::GenericHid) {
         // The descriptor-derived field map replaces the fixed-offset guess

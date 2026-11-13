@@ -60,6 +60,16 @@ constexpr std::uint32_t kL4 = 0x00020000;
 constexpr std::uint32_t kL5 = 0x00040000;
 constexpr std::uint32_t kL = 0x00080000;
 // Touches, pad and trigger clicks, grips: bits 20..29.
+constexpr std::uint32_t kRightStickTouch = 0x00100000;
+constexpr std::uint32_t kRightPadTouch = 0x00200000;
+constexpr std::uint32_t kRightPadClick = 0x00400000;
+constexpr std::uint32_t kRightTriggerClick = 0x00800000;
+constexpr std::uint32_t kLeftStickTouch = 0x01000000;
+constexpr std::uint32_t kLeftPadTouch = 0x02000000;
+constexpr std::uint32_t kLeftPadClick = 0x04000000;
+constexpr std::uint32_t kLeftTriggerClick = 0x08000000;
+constexpr std::uint32_t kRightGripTouch = 0x10000000;
+constexpr std::uint32_t kLeftGripTouch = 0x20000000;
 constexpr std::uint32_t kEverySenseAndClick = 0x3FF00000;
 
 // One state report, 1 id byte + the 45-byte packed body both layouts share.
@@ -233,6 +243,58 @@ TEST_CASE("the buttons with no XUSB bit set nothing", "[usb-parsers][triton]") {
     const auto d = decodeTriton(state(kQam | kL4 | kL5 | kR4 | kR5 | kEverySenseAndClick));
     REQUIRE(d.ok);
     CHECK(d.report.wButtons == 0);
+}
+
+TEST_CASE("each extra bit is its SDL-named extended button",
+          "[usb-parsers][triton][extended-buttons]") {
+    struct Row {
+        std::uint32_t triton;
+        std::uint32_t ext;
+    };
+    // SDL_hidapi_steam_triton.c: QAM is misc1, R4/L4/R5/L5 paddle 1-4, the pad
+    // clicks touchpad and misc2, the trigger clicks misc3 and misc4, the stick
+    // and grip touches the capsense inputs.
+    const Row rows[] = {
+        {kQam, extbtn::kMisc1},
+        {kR4, extbtn::kRightPaddle1},
+        {kL4, extbtn::kLeftPaddle1},
+        {kR5, extbtn::kRightPaddle2},
+        {kL5, extbtn::kLeftPaddle2},
+        {kLeftPadClick, extbtn::kLeftPadClick},
+        {kRightPadClick, extbtn::kRightPadClick},
+        {kLeftTriggerClick, extbtn::kLeftTriggerClick},
+        {kRightTriggerClick, extbtn::kRightTriggerClick},
+        {kLeftStickTouch, extbtn::kLeftStickTouch},
+        {kRightStickTouch, extbtn::kRightStickTouch},
+        {kLeftGripTouch, extbtn::kLeftGripTouch},
+        {kRightGripTouch, extbtn::kRightGripTouch},
+    };
+    for (const Row& row : rows) {
+        const auto d = decodeTriton(state(row.triton));
+        REQUIRE(d.ok);
+        CHECK(d.report.extButtons == row.ext);
+        CHECK(d.report.wButtons == 0);
+    }
+}
+
+TEST_CASE("the pad touches and the mapped buttons leave the word clear",
+          "[usb-parsers][triton][extended-buttons]") {
+    // A finger on a pad has no slot in the word (the pads themselves are the
+    // trackpad pick's business), and an XUSB button is only an XUSB button.
+    const auto d = decodeTriton(state(kLeftPadTouch | kRightPadTouch | kA | kMenu | kL3 | kDpadUp));
+    REQUIRE(d.ok);
+    CHECK(d.report.extButtons == 0);
+    CHECK((d.report.wButtons & layout::kXusbA) != 0);
+}
+
+TEST_CASE("the timestamp and Bluetooth-framed reports carry the same word",
+          "[usb-parsers][triton][extended-buttons]") {
+    const std::uint32_t held = kQam | kL4 | kRightTriggerClick | kLeftGripTouch;
+    const std::uint32_t expected =
+        extbtn::kMisc1 | extbtn::kLeftPaddle1 | extbtn::kRightTriggerClick | extbtn::kLeftGripTouch;
+    CHECK(decodeTriton(state(held, kStateId)).report.extButtons == expected);
+    CHECK(decodeTriton(state(held, kStateBleId)).report.extButtons == expected);
+    CHECK(decodeTriton(state(held, kStateTimestampId)).report.extButtons == expected);
 }
 
 TEST_CASE("the 2026 pad's triggers scale from their positive half to the 8-bit wire",

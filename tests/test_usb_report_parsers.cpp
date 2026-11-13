@@ -7,6 +7,7 @@
 // pin the OFFSETS and the present/absent gating, not a hardware-true magnitude.
 
 #include "core/input/UsbReportParsers.h"
+#include "core/model/Protocol.h"
 #include "core/reducer/BatteryRouting.h"
 
 #include <catch2/catch_test_macros.hpp>
@@ -18,6 +19,7 @@
 
 using namespace dish::input::usbparse;
 namespace layout = dish::input::layout;
+namespace proto = dish::proto;
 
 namespace {
 
@@ -58,6 +60,45 @@ TEST_CASE("every PDP wired Switch pad carries the Switch button order", "[usb-pa
     // Table and vendor fallbacks stay western too.
     CHECK(buttonOrderForDevice(0x054C, 0x0CE6) == ButtonOrder::Western);
     CHECK(buttonOrderForDevice(0x1234, 0x5678) == ButtonOrder::Western);
+}
+
+TEST_CASE("the decoders' extended-button bits are the wire's, in SDL's names",
+          "[usb-parsers][extended-buttons]") {
+    // Restated in the decoder header so it stays free of the wire protocol; this
+    // is the pin that keeps the two tables one.
+    CHECK(extbtn::kRightPaddle1 == proto::kExtButtonRightPaddle1);
+    CHECK(extbtn::kLeftPaddle1 == proto::kExtButtonLeftPaddle1);
+    CHECK(extbtn::kRightPaddle2 == proto::kExtButtonRightPaddle2);
+    CHECK(extbtn::kLeftPaddle2 == proto::kExtButtonLeftPaddle2);
+    CHECK(extbtn::kMisc1 == proto::kExtButtonMisc1);
+    CHECK(extbtn::kLeftPadClick == proto::kExtButtonLeftPadClick);
+    CHECK(extbtn::kRightPadClick == proto::kExtButtonRightPadClick);
+    CHECK(extbtn::kLeftTriggerClick == proto::kExtButtonLeftTriggerClick);
+    CHECK(extbtn::kRightTriggerClick == proto::kExtButtonRightTriggerClick);
+    CHECK(extbtn::kLeftStickTouch == proto::kExtButtonLeftStickTouch);
+    CHECK(extbtn::kRightStickTouch == proto::kExtButtonRightStickTouch);
+    CHECK(extbtn::kLeftGripTouch == proto::kExtButtonLeftGripTouch);
+    CHECK(extbtn::kRightGripTouch == proto::kExtButtonRightGripTouch);
+}
+
+TEST_CASE("the models that source the extended-buttons word", "[usb-parsers][extended-buttons]") {
+    // Both Steam Controllers, the DualSense Edge, and the Switch pads with a
+    // Capture button (the Pro and the Charging Grip).
+    CHECK(modelHasExtendedButtons(0x28DE, 0x1102));
+    CHECK(modelHasExtendedButtons(0x28DE, 0x1142));
+    CHECK(modelHasExtendedButtons(0x28DE, 0x1302));
+    CHECK(modelHasExtendedButtons(0x28DE, 0x1304));
+    CHECK(modelHasExtendedButtons(0x28DE, 0x1305));
+    CHECK(modelHasExtendedButtons(0x054C, 0x0DF2));
+    CHECK(modelHasExtendedButtons(0x057E, 0x2009));
+    CHECK(modelHasExtendedButtons(0x057E, 0x200E));
+    // A plain DualSense, a DualShock 4, another Nintendo product, a generic HID
+    // pad and an unknown model never claim the word.
+    CHECK_FALSE(modelHasExtendedButtons(0x054C, 0x0CE6));
+    CHECK_FALSE(modelHasExtendedButtons(0x054C, 0x09CC));
+    CHECK_FALSE(modelHasExtendedButtons(0x057E, 0x2017));
+    CHECK_FALSE(modelHasExtendedButtons(0x2DC8, 0x9015));
+    CHECK_FALSE(modelHasExtendedButtons(0x1234, 0x5678));
 }
 
 TEST_CASE("only Steam models settle without a framework gamepad", "[usb-parsers][steam]") {
@@ -258,6 +299,67 @@ TEST_CASE("DualSense decodes Cross to XUSB A with shifted trigger and button byt
     CHECK(out.lx == 0);
 }
 
+namespace {
+
+// A DualSense-family report decoded under the model the claim read at attach.
+ParsedReport decodeDualSenseAs(int productId, const std::vector<std::uint8_t>& buf) {
+    ParsedReport out{};
+    StickAutoRangeState sticks;
+    sticks.productId = productId;
+    const bool ok = decodeReport(HidParser::DualSense, buf.data(), buf.size(), out, sticks);
+    out.wButtons = ok ? out.wButtons : 0xDEAD;
+    return out;
+}
+
+// Byte 10 of the DualSense input report: SDL's PS5_LEFT_FUNCTION, RIGHT_FUNCTION,
+// LEFT_PADDLE and RIGHT_PADDLE on the Edge.
+constexpr std::uint8_t kEdgeLeftFn = 0x10;
+constexpr std::uint8_t kEdgeRightFn = 0x20;
+constexpr std::uint8_t kEdgeLeftPaddle = 0x40;
+constexpr std::uint8_t kEdgeRightPaddle = 0x80;
+constexpr int kPidEdge = 0x0DF2;
+constexpr int kPidPlainDualSense = 0x0CE6;
+
+std::vector<std::uint8_t> dualSenseWithMisc(std::uint8_t misc) {
+    std::vector<std::uint8_t> r(11, 0);
+    r[0] = 0x01;
+    r[8] = 0x08; // hat neutral
+    r[10] = misc;
+    return r;
+}
+
+} // namespace
+
+TEST_CASE("DualSense Edge back and Fn buttons are the four paddles, by byte 10",
+          "[usb-parsers][dualsense][extended-buttons]") {
+    CHECK(decodeDualSenseAs(kPidEdge, dualSenseWithMisc(kEdgeRightPaddle)).extButtons ==
+          extbtn::kRightPaddle1);
+    CHECK(decodeDualSenseAs(kPidEdge, dualSenseWithMisc(kEdgeLeftPaddle)).extButtons ==
+          extbtn::kLeftPaddle1);
+    CHECK(decodeDualSenseAs(kPidEdge, dualSenseWithMisc(kEdgeRightFn)).extButtons ==
+          extbtn::kRightPaddle2);
+    CHECK(decodeDualSenseAs(kPidEdge, dualSenseWithMisc(kEdgeLeftFn)).extButtons ==
+          extbtn::kLeftPaddle2);
+    const auto all =
+        decodeDualSenseAs(kPidEdge, dualSenseWithMisc(kEdgeLeftFn | kEdgeRightFn | kEdgeLeftPaddle |
+                                                      kEdgeRightPaddle));
+    CHECK(all.extButtons == (extbtn::kRightPaddle1 | extbtn::kLeftPaddle1 | extbtn::kRightPaddle2 |
+                             extbtn::kLeftPaddle2));
+    CHECK(all.wButtons == 0);
+}
+
+TEST_CASE("a plain DualSense never sources the word, whatever byte 10 says",
+          "[usb-parsers][dualsense][extended-buttons]") {
+    const auto out = decodeDualSenseAs(
+        kPidPlainDualSense,
+        dualSenseWithMisc(kEdgeLeftFn | kEdgeRightFn | kEdgeLeftPaddle | kEdgeRightPaddle));
+    CHECK(out.extButtons == 0);
+    // The PS button and the pad click beside them keep their XUSB meaning.
+    const auto edge = decodeDualSenseAs(kPidEdge, dualSenseWithMisc(0x01));
+    CHECK((edge.wButtons & layout::kXusbGuide) != 0);
+    CHECK(edge.extButtons == 0);
+}
+
 TEST_CASE("DualSense maps shoulders thumbs and Share by position", "[usb-parsers][dualsense]") {
     std::vector<std::uint8_t> r(11, 0);
     r[0] = 0x01;
@@ -323,6 +425,21 @@ TEST_CASE("SwitchPro maps face buttons by physical position and digital triggers
     CHECK((out.wButtons & layout::kXusbDpadUp) != 0);
     CHECK(out.rt == 255); // ZR digital -> full
     CHECK(out.lt == 255); // ZL digital -> full
+}
+
+TEST_CASE("SwitchPro Capture, bit 0x20 of the shared byte, is misc1",
+          "[usb-parsers][switch][extended-buttons]") {
+    std::vector<std::uint8_t> r(25, 0);
+    r[0] = 0x30;
+    r[4] = 0x20;
+    const auto out = decode(HidParser::SwitchProUsb, r);
+    CHECK(out.extButtons == extbtn::kMisc1);
+    CHECK(out.wButtons == 0);
+    // Every other shared-byte bit keeps to the XUSB word.
+    r[4] = 0x01 | 0x02 | 0x04 | 0x08 | 0x10;
+    const auto rest = decode(HidParser::SwitchProUsb, r);
+    CHECK(rest.extButtons == 0);
+    CHECK((rest.wButtons & layout::kXusbGuide) != 0);
 }
 
 TEST_CASE("SwitchPro a full report decodes the first IMU frame", "[usb-parsers][switch]") {
@@ -405,6 +522,8 @@ TEST_CASE("scaleSwitchStickAuto deadzones the center and ranges the throw",
 
 namespace {
 
+constexpr std::uint32_t kBtnRightTriggerClick = 0x000001;
+constexpr std::uint32_t kBtnLeftTriggerClick = 0x000002;
 constexpr std::uint32_t kBtnRightBumper = 0x000004;
 constexpr std::uint32_t kBtnLeftBumper = 0x000008;
 constexpr std::uint32_t kBtnNorth = 0x000010;
@@ -416,6 +535,8 @@ constexpr std::uint32_t kBtnDpadRight = 0x000200;
 constexpr std::uint32_t kBtnMenu = 0x001000;
 constexpr std::uint32_t kBtnGuide = 0x002000;
 constexpr std::uint32_t kBtnEscape = 0x004000;
+constexpr std::uint32_t kBtnBackLeft = 0x008000;
+constexpr std::uint32_t kBtnBackRight = 0x010000;
 constexpr std::uint32_t kBtnLeftPadClicked = 0x020000;
 constexpr std::uint32_t kBtnRightPadClicked = 0x040000;
 constexpr std::uint32_t kBtnLeftPadFinger = 0x080000;
@@ -579,12 +700,65 @@ TEST_CASE("Steam left-pad click is a stick click while the pad is idle", "[usb-p
     ParsedReport s{};
     REQUIRE(decodeSteam(steamState(kBtnLeftPadClicked), s, st));
     CHECK((s.wButtons & layout::kXusbLeftThumb) != 0);
+    CHECK(s.extButtons == 0);
 
     // With a finger actually on the pad the click belongs to the pad, not the
-    // stick.
+    // stick: it rides the word as the left pad's click.
     ParsedReport onPad{};
     REQUIRE(decodeSteam(steamState(kBtnLeftPadClicked | kBtnLeftPadFinger), onPad, st));
     CHECK((onPad.wButtons & layout::kXusbLeftThumb) == 0);
+    CHECK(onPad.extButtons == extbtn::kLeftPadClick);
+}
+
+TEST_CASE("Steam grips are SDL's left and right paddle", "[usb-parsers][steam][extended-buttons]") {
+    StickAutoRangeState st;
+    ParsedReport left{};
+    REQUIRE(decodeSteam(steamState(kBtnBackLeft), left, st));
+    CHECK(left.extButtons == extbtn::kLeftPaddle1);
+    ParsedReport right{};
+    REQUIRE(decodeSteam(steamState(kBtnBackRight), right, st));
+    CHECK(right.extButtons == extbtn::kRightPaddle1);
+    CHECK(left.wButtons == 0);
+    CHECK(right.wButtons == 0);
+}
+
+TEST_CASE("Steam full-pull trigger bits are the trigger clicks",
+          "[usb-parsers][steam][extended-buttons]") {
+    StickAutoRangeState st;
+    ParsedReport left{};
+    REQUIRE(decodeSteam(steamState(kBtnLeftTriggerClick), left, st));
+    CHECK(left.extButtons == extbtn::kLeftTriggerClick);
+    ParsedReport right{};
+    REQUIRE(decodeSteam(steamState(kBtnRightTriggerClick), right, st));
+    CHECK(right.extButtons == extbtn::kRightTriggerClick);
+}
+
+TEST_CASE("Steam right-pad click stays the right stick click and sets no bit",
+          "[usb-parsers][steam][extended-buttons]") {
+    // The right pad IS the right stick on this path, and SDL maps the click to
+    // RIGHT_STICK too, so nothing lands in two wire fields.
+    StickAutoRangeState st;
+    ParsedReport s{};
+    REQUIRE(decodeSteam(steamState(kBtnRightPadClicked | kBtnRightPadFinger), s, st));
+    CHECK((s.wButtons & layout::kXusbRightThumb) != 0);
+    CHECK(s.extButtons == 0);
+}
+
+TEST_CASE("Steam every extra rides the word at once and the mapped buttons leave it clear",
+          "[usb-parsers][steam][extended-buttons]") {
+    StickAutoRangeState st;
+    ParsedReport every{};
+    REQUIRE(decodeSteam(steamState(kBtnBackLeft | kBtnBackRight | kBtnLeftTriggerClick |
+                                   kBtnRightTriggerClick | kBtnLeftPadClicked | kBtnLeftPadFinger),
+                        every, st));
+    CHECK(every.extButtons ==
+          (extbtn::kLeftPaddle1 | extbtn::kRightPaddle1 | extbtn::kLeftTriggerClick |
+           extbtn::kRightTriggerClick | extbtn::kLeftPadClick));
+    ParsedReport mapped{};
+    REQUIRE(decodeSteam(steamState(kBtnSouth | kBtnEast | kBtnMenu | kBtnEscape | kBtnGuide |
+                                   kBtnDpadUp | kBtnStickButton | kBtnRightBumper),
+                        mapped, st));
+    CHECK(mapped.extButtons == 0);
 }
 
 TEST_CASE("Steam stick and right-pad clicks map to thumb buttons", "[usb-parsers][steam]") {

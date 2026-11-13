@@ -3,11 +3,15 @@
 
 #include "Input/ControllerShadow.h"
 
+#include "core/model/Protocol.h"
+
 #include <SDL_gamecontroller.h>
 
 #include <utility>
 
 namespace dish::input {
+
+namespace proto = dish::proto;
 
 namespace {
 
@@ -30,6 +34,17 @@ constexpr std::pair<SDL_GameControllerButton, std::uint16_t> kButtonBits[] = {
     {SDL_CONTROLLER_BUTTON_B, GamepadInputProcessor::Buttons::kB},
     {SDL_CONTROLLER_BUTTON_X, GamepadInputProcessor::Buttons::kX},
     {SDL_CONTROLLER_BUTTON_Y, GamepadInputProcessor::Buttons::kY},
+};
+
+// SDL button to extended-buttons bit, SDL's own names: its paddles 1 to 4 are the Elite's
+// P1, P3, P2, P4 and the Steam Deck's R4, L4, R5, L5, which the contract calls rightPaddle1,
+// leftPaddle1, rightPaddle2, leftPaddle2; misc1 is the Deck's QAM, Capture, Share.
+constexpr std::pair<SDL_GameControllerButton, std::uint32_t> kExtendedButtonBits[] = {
+    {SDL_CONTROLLER_BUTTON_PADDLE1, proto::kExtButtonRightPaddle1},
+    {SDL_CONTROLLER_BUTTON_PADDLE2, proto::kExtButtonLeftPaddle1},
+    {SDL_CONTROLLER_BUTTON_PADDLE3, proto::kExtButtonRightPaddle2},
+    {SDL_CONTROLLER_BUTTON_PADDLE4, proto::kExtButtonLeftPaddle2},
+    {SDL_CONTROLLER_BUTTON_MISC1, proto::kExtButtonMisc1},
 };
 
 std::uint32_t bitOf(int button) { return std::uint32_t{1} << static_cast<unsigned>(button); }
@@ -78,7 +93,12 @@ GamepadSnapshot ControllerShadow::snapshot() const {
     for (const auto& [button, bit] : kButtonBits) {
         if (pressed(button)) { buttons |= bit; }
     }
+    std::uint32_t extButtons = 0;
+    for (const auto& [button, bit] : kExtendedButtonBits) {
+        if (pressed(button)) { extButtons |= bit; }
+    }
     return {.wButtons = buttons,
+            .extButtons = extButtons,
             .leftX = axes_[SDL_CONTROLLER_AXIS_LEFTX],
             .leftY = axes_[SDL_CONTROLLER_AXIS_LEFTY],
             .rightX = axes_[SDL_CONTROLLER_AXIS_RIGHTX],
@@ -92,13 +112,25 @@ GamepadSnapshot readGamepad(SDL_GameController* gc) {
     for (const auto& [button, bit] : kButtonBits) {
         if (SDL_GameControllerGetButton(gc, button) != 0) { buttons |= bit; }
     }
+    std::uint32_t extButtons = 0;
+    for (const auto& [button, bit] : kExtendedButtonBits) {
+        if (SDL_GameControllerGetButton(gc, button) != 0) { extButtons |= bit; }
+    }
     return {.wButtons = buttons,
+            .extButtons = extButtons,
             .leftX = SDL_GameControllerGetAxis(gc, SDL_CONTROLLER_AXIS_LEFTX),
             .leftY = SDL_GameControllerGetAxis(gc, SDL_CONTROLLER_AXIS_LEFTY),
             .rightX = SDL_GameControllerGetAxis(gc, SDL_CONTROLLER_AXIS_RIGHTX),
             .rightY = SDL_GameControllerGetAxis(gc, SDL_CONTROLLER_AXIS_RIGHTY),
             .leftTrigger = SDL_GameControllerGetAxis(gc, SDL_CONTROLLER_AXIS_TRIGGERLEFT),
             .rightTrigger = SDL_GameControllerGetAxis(gc, SDL_CONTROLLER_AXIS_TRIGGERRIGHT)};
+}
+
+bool hasExtendedButtons(SDL_GameController* gc) {
+    for (const auto& [button, bit] : kExtendedButtonBits) {
+        if (SDL_GameControllerHasButton(gc, button) == SDL_TRUE) { return true; }
+    }
+    return false;
 }
 
 } // namespace dish::input

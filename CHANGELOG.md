@@ -20,6 +20,17 @@ the repos share a version number.
 
 ### Added
 
+- **A controller's extra buttons reach the host.** On a Satellite that speaks
+  protocol 4, a Steam Controller on USB direct sends its back buttons: the 2015
+  model's two grips, its trigger clicks and a click on its left trackpad while a
+  finger rests on it; the 2026 model's four back paddles, its "..." button, its
+  trackpad and trigger clicks and its stick and grip touches. A DualSense Edge on
+  USB direct sends its two back buttons and two Fn buttons, a Switch Pro
+  Controller its Capture button, and a controller read through SDL sends the
+  paddles and extra button SDL's own mapping names (the Steam Deck's own back buttons and quick-access button among them). What
+  the host makes of them is up to the controller type Dish emulates there, which
+  the next updates extend. Not tried on a real Steam Controller or DualSense
+  Edge yet.
 - **Room on the wire for a controller's extra buttons.** `[wire-coordinated]`
   Protocol 4. Dish now speaks Satellite protocol 4: on a connection that
   settled on it, every controller report carries a second word for the buttons

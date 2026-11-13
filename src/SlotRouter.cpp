@@ -81,6 +81,7 @@ SlotRouter::SlotHardware SlotRouter::syntheticHardware(int vendorId, int product
     hw.hasMotion = input::usbparse::parserHasImu(parser);
     hw.hasTouchpad = input::usbparse::parserHasTouchpad(parser);
     hw.hasRumble = input::usbparse::parserHasRumble(parser);
+    hw.hasExtendedButtons = input::usbparse::modelHasExtendedButtons(vendorId, productId);
     // The Direct path has an OUT report path, so a claimed pad answers for its real actuators.
     // Whether it can drive them right now is the router's call (the claim has to be live).
     hw.hasLightbar = input::usbout::parserHasLightbar(parser);
@@ -98,6 +99,7 @@ SlotRouter::SlotHardware SlotRouter::sdlHardware(const QString& slotId) const {
         hw.hasLightbar = d.hasLightbar;
         hw.hasTouchpad = d.hasTouchpad;
         hw.hasRumble = d.hasRumble;
+        hw.hasExtendedButtons = d.hasExtendedButtons;
         const auto parser = input::usbparse::parserForDevice(d.vendorId, d.productId);
         applyOutputActuators(hw, parser);
         // SDL_GameControllerSendEffect lands only in SDL's own HIDAPI drivers; XInput, DirectInput

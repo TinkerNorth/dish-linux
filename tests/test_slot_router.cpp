@@ -9,6 +9,7 @@
 
 #include "FeatureSettings.h"
 #include "core/model/Protocol.h"
+#include "core/reducer/DirectPadKey.h"
 #include "core/thread/TrackedMutex.h"
 
 #include <catch2/catch_test_macros.hpp>
@@ -166,6 +167,40 @@ TEST_CASE("a report on the rig's protocol 4 session is the 17-byte INPUT frame c
     REQUIRE(hp::pumpUntil([&] { return seen.inputs.load() >= 1; }));
     CHECK(seen.length.load() == kInputWithWordBytes);
     CHECK(seen.word.load() == (dish::proto::kExtButtonLeftPaddle1 | dish::proto::kExtButtonMisc1));
+}
+
+namespace {
+
+QString directSlot(int vendorId, int productId, int slot = dish::reducer::kNoReceiverSlot) {
+    return QString::fromStdString(
+        dish::reducer::directSlotId(dish::reducer::DirectPadKey{vendorId, productId, slot}));
+}
+
+} // namespace
+
+TEST_CASE("a slot sources the extended buttons when its path's pad has them",
+          "[slot-router][extended-buttons]") {
+    Seen seen;
+    hp::HotPathRig rig(1, countInto(seen));
+    REQUIRE(rig.startBridge());
+    // Direct: the model table answers. Both Steam Controllers (a wired pad and a
+    // receiver's slot alike), the DualSense Edge and the Switch Pro source the
+    // word; a DualShock 4 and a plain DualSense do not.
+    CHECK(rig.router().slotHardware(directSlot(0x28DE, 0x1102)).hasExtendedButtons);
+    CHECK(rig.router().slotHardware(directSlot(0x28DE, 0x1142, 2)).hasExtendedButtons);
+    CHECK(rig.router().slotHardware(directSlot(0x28DE, 0x1302)).hasExtendedButtons);
+    CHECK(rig.router().slotHardware(directSlot(0x054C, 0x0DF2)).hasExtendedButtons);
+    CHECK(rig.router().slotHardware(directSlot(0x057E, 0x2009)).hasExtendedButtons);
+    CHECK_FALSE(rig.router().slotHardware(directSlot(0x054C, 0x05C4)).hasExtendedButtons);
+    CHECK_FALSE(rig.router().slotHardware(directSlot(0x054C, 0x0CE6)).hasExtendedButtons);
+    // Standard: SDL's own mapping answers. A virtual game controller maps every
+    // SDL button, the paddles and misc1 among them.
+    const hp::VirtualPad pad("Paddle pad");
+    REQUIRE(pad.ok());
+    const QString padId = pad.deviceId();
+    REQUIRE(hp::pumpUntil([&] { return rig.router().slotHardware(padId).hasRumble; }));
+    CHECK(rig.router().slotHardware(padId).hasExtendedButtons);
+    CHECK_FALSE(rig.router().slotHardware(QStringLiteral("sdl:999")).hasExtendedButtons);
 }
 
 TEST_CASE("a slot on screen but bound to no session sends nothing", "[slot-router]") {
