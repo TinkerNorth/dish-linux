@@ -73,6 +73,17 @@ class Mover {
     int step_ = 0;
 };
 
+constexpr std::uint64_t kReportsUnderRepublish = 1000;
+
+void reportUntilStopped(Mover& pad, std::atomic<std::uint64_t>& reports,
+                        const std::atomic<bool>& stop) {
+    const dish::thread::ScopedThreadRole role(dish::thread::ThreadRole::SdlInput);
+    while (!stop.load(std::memory_order_relaxed)) {
+        pad.next();
+        reports.fetch_add(1, std::memory_order_relaxed);
+    }
+}
+
 bool staysAt(const std::atomic<std::uint64_t>& counter, std::uint64_t value) {
     std::this_thread::sleep_for(std::chrono::milliseconds(kQuietMs));
     return counter.load() == value;
@@ -305,18 +316,17 @@ TEST_CASE("republishing under a reporting thread never pulls a table from under 
     REQUIRE(index.has_value());
     rig.router().republish({slot});
 
+    Mover pad(rig.processor(), *index);
+    std::atomic<std::uint64_t> reports{0};
     std::atomic<bool> stop{false};
-    std::thread reporter([&] {
-        const dish::thread::ScopedThreadRole role(dish::thread::ThreadRole::SdlInput);
-        Mover pad(rig.processor(), *index);
-        while (!stop.load(std::memory_order_relaxed)) { pad.next(); }
-    });
-    for (int round = 0; round < 300; ++round) {
+    std::thread reporter([&] { reportUntilStopped(pad, reports, stop); });
+    for (int round = 0; reports.load(std::memory_order_relaxed) < kReportsUnderRepublish; ++round) {
         rig.router().republish(round % 2 == 0 ? QStringList{} : QStringList{slot});
     }
-    rig.router().republish({slot});
-    stop.store(true);
+    stop.store(true, std::memory_order_relaxed);
     reporter.join();
+    rig.router().republish({slot});
+    pad.next();
     CHECK(hp::pumpUntil([&] { return seen.inputs.load() > 0; }));
 }
 
