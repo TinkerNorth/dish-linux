@@ -90,6 +90,11 @@ the repos share a version number.
 
 ### Fixed
 
+- **The privacy policy names the computer's own battery.** Since a
+  controller reports the lower of its battery and the computer's, Dish reads
+  this computer's battery level and charging state from
+  `/sys/class/power_supply` and sends it to the bound satellite; the policy
+  listed only the controller's readings. It now lists both.
 - **Two of the same controller on USB direct are two controllers, not yet tried
   with two real ones.** Two devices of one model plugged in at once (two
   DualSense controllers, two Steam Controller receivers) shared one entry: only
