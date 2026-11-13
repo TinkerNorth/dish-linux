@@ -26,6 +26,7 @@
 #include <QEventLoop>
 #include <QHostAddress>
 #include <QNetworkReply>
+#include <QObject>
 #include <QRegularExpression>
 #include <QString>
 #include <QSysInfo>
@@ -134,6 +135,15 @@ bool spinUntil(const std::function<bool()>& ready, int timeoutMs = 10000) {
 
 void spinFor(int ms) {
     spinUntil([] { return false; }, ms);
+}
+
+// Disconnecting is the only public way to ask Qt whether anything still listens. The size cap is
+// the one receiver of downloadProgress, and the gateway itself should receive nothing.
+bool fetchStillListens(QNetworkReply* reply, const QObject* gateway) {
+    const bool sizeCapListens =
+        QObject::disconnect(reply, &QNetworkReply::downloadProgress, nullptr, nullptr);
+    const bool gatewayListens = QObject::disconnect(reply, nullptr, gateway, nullptr);
+    return sizeCapListens || gatewayListens;
 }
 
 } // namespace
@@ -330,4 +340,96 @@ TEST_CASE("HttpManifestGateway: a second fetch while one is in flight is ignored
     // Dropped on the floor, not queued: one callback per ACCEPTED fetch.
     spinFor(100);
     CHECK_FALSE(secondCalled);
+}
+
+TEST_CASE("HttpManifestGateway: nothing of a fetch still listens to its reply when it answers",
+          "[update][http]") {
+    FixtureServer server(canned(response(200, "OK", goldenManifest())));
+    REQUIRE(server.listening());
+
+    HttpManifestGateway gateway;
+    gateway.setUrl(server.url());
+    QNetworkReply* reply = nullptr;
+    std::optional<bool> stillListening;
+    gateway.fetch([&stillListening, &reply, &gateway](const ManifestFetchResult&) {
+        stillListening = fetchStillListens(reply, &gateway);
+    });
+    reply = gateway.findChild<QNetworkReply*>();
+    REQUIRE(reply != nullptr);
+
+    REQUIRE(spinUntil([&stillListening] { return stillListening.has_value(); }));
+    CHECK_FALSE(*stillListening);
+}
+
+// ── Qt's connection teardown ────────────────────────────────────────────────
+
+namespace {
+
+// How a functor's connection is dropped from inside an emission of its sender: where the manifest
+// gateway drops its reply's, in the finished handler.
+enum class Drop { DestroyContext, Disconnect };
+
+// A functor holding the only reference to a token, so the token expiring is Qt destroying the
+// functor, and a second slot on the same signal that drops the functor's connection mid-emission.
+class InEmissionDrop {
+  public:
+    explicit InEmissionDrop(Drop drop) : drop_(drop) {
+        const auto token = std::make_shared<int>(0);
+        functor_ = token;
+        connection_ =
+            QObject::connect(&sender_, &QObject::objectNameChanged, context_.get(), [token] {});
+        QObject::connect(&sender_, &QObject::objectNameChanged, &sender_,
+                         [this] { dropMidEmission(); });
+    }
+
+    void emitSignal() { sender_.setObjectName(QStringLiteral("emitted")); }
+    bool dropped() const { return dropped_; }
+    bool destroyedMidEmission() const { return destroyedMidEmission_; }
+    bool destroyed() const { return functor_.expired(); }
+
+  private:
+    void dropMidEmission() {
+        dropped_ = dropConnection();
+        destroyedMidEmission_ = functor_.expired();
+    }
+
+    bool dropConnection() {
+        switch (drop_) {
+        case Drop::DestroyContext:
+            context_.reset();
+            return true;
+        case Drop::Disconnect:
+            return QObject::disconnect(connection_);
+        }
+        return false;
+    }
+
+    QObject sender_;
+    std::unique_ptr<QObject> context_ = std::make_unique<QObject>();
+    std::weak_ptr<int> functor_;
+    QMetaObject::Connection connection_;
+    const Drop drop_;
+    bool dropped_ = false;
+    bool destroyedMidEmission_ = false;
+};
+
+} // namespace
+
+TEST_CASE("Qt: destroying a functor's context mid-emission destroys the functor there and then",
+          "[update][http]") {
+    InEmissionDrop probe(Drop::DestroyContext);
+    probe.emitSignal();
+    REQUIRE(probe.dropped());
+    CHECK(probe.destroyedMidEmission());
+}
+
+TEST_CASE("Qt: a functor disconnected mid-emission lives until the emission ends",
+          "[update][http]") {
+    // Until then it waits on the sender's orphan list, which Qt frees on whichever thread next
+    // cleans it: for a QNetworkReply, possibly its HTTP thread tearing down the request.
+    InEmissionDrop probe(Drop::Disconnect);
+    probe.emitSignal();
+    REQUIRE(probe.dropped());
+    CHECK_FALSE(probe.destroyedMidEmission());
+    CHECK(probe.destroyed());
 }

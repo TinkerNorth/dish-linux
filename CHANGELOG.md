@@ -71,6 +71,14 @@ the repos share a version number.
 
 ### Fixed
 
+- **The update check's network tests no longer fail now and then under
+  ThreadSanitizer.** A manifest fetch left the code that watched its reply
+  attached until the reply was deleted, and Qt's network thread, tearing down
+  its own side of the same request at that moment, could be the one to free it.
+  Qt orders that with a lock ThreadSanitizer cannot see, so the sanitizer job
+  reported a race that was not there, in about one run in forty. A fetch now
+  lets go of its reply on its own thread as soon as it answers.
+
 - **The seqlock race test no longer depends on its reader ever finding a gap
   between writes.** Its writer rewrote the value in a loop that never paused
   and the test asserted that at least one of 200,000 reads had landed; a read
