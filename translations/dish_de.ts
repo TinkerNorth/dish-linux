@@ -170,6 +170,10 @@
         <translation>Haptik</translation>
     </message>
     <message>
+        <source>Extra buttons</source>
+        <translation>Zusätzliche Tasten</translation>
+    </message>
+    <message>
         <source>buttons or sticks</source>
         <translation>Tasten oder Sticks</translation>
     </message>

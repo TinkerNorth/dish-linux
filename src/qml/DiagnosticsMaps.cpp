@@ -78,6 +78,8 @@ QString wireCapToken(reducer::WireCap cap) {
         return QStringLiteral("speaker");
     case reducer::WireCap::HapticAudio:
         return QStringLiteral("hapticAudio");
+    case reducer::WireCap::ExtendedButtons:
+        return QStringLiteral("extendedButtons");
     }
     return {};
 }

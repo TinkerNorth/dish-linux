@@ -20,7 +20,9 @@ namespace dish::proto {
 // with 409 + `supported`/`supportedMin` (see reducer/ProtocolNegotiation.h).
 // 3 added the HAPTIC_AUDIO return path (kMsgHapticAudio + kCapHapticAudio); no
 // frame shape changed, so a session settled on 2 is byte-identical on the wire.
-inline constexpr int kProtocolVersion = 3;
+// 4 appends the extended-buttons word to INPUT (kInputExtendedPayloadBytes +
+// kCapExtendedButtons); a session settled on 3 keeps the 13-byte frame.
+inline constexpr int kProtocolVersion = 4;
 
 // The oldest version this client still speaks end to end. A session that
 // settles on 1 streams the 16-byte TOUCHPAD frame and gets no feedback return
@@ -31,10 +33,19 @@ inline constexpr int kProtocolVersionMin = 1;
 // client goes through this, so raising the floor is one edit.
 inline constexpr bool settledSpeaksV2(int settledVersion) { return settledVersion >= 2; }
 
+// Whether a settled session carries the extended-buttons word behind the INPUT
+// report (contract "Extended buttons"). The frame shape keys on the SETTLED
+// version, as 0x000C's does: an older satellite reads only the first 13 bytes.
+inline constexpr int kProtocolVersionExtendedButtons = 4;
+inline constexpr bool settledCarriesExtendedButtons(int settledVersion) {
+    return settledVersion >= kProtocolVersionExtendedButtons;
+}
+
 // ── UDP opcodes ─────────────────────────────────────────────────────────────
 // The topology-mutation opcodes 0x0004..0x0008 and 0x000E are gone in
 // protocol-1; leaving them undefined makes a stray reference fail to compile.
-inline constexpr std::uint16_t kMsgInput = 0x0001;        // c→s ctrlIdx + GamepadReport(12)
+inline constexpr std::uint16_t kMsgInput =
+    0x0001; // c→s ctrlIdx + GamepadReport(12) [+ extButtons u32]
 inline constexpr std::uint16_t kMsgHeartbeat = 0x0002;    // c→s empty
 inline constexpr std::uint16_t kMsgHeartbeatAck = 0x0003; // s→c enriched (see below)
 inline constexpr std::uint16_t kMsgRumble = 0x0009;       // s→c ctrlIdx + strong/weak/dur (BE)
@@ -69,6 +80,31 @@ inline constexpr std::uint16_t kMsgHapticAudio = 0x0015;
 // After the 4-byte inner type+len header: backendAvailable(1) +
 // totalActiveControllers(1) + epoch(u16 BE) + activeBitmap(u16 BE).
 inline constexpr int kHeartbeatAckPayloadBytes = 6;
+
+// INPUT after the 1-byte ctrlIdx: the 12-byte XUSB report (wButtons u16, LT, RT,
+// LX LY RX RY i16, all LE), and on a session settled at protocol 4 the
+// extended-buttons word (u32 LE) behind it. The receiver reads the frame by
+// length: 17 B or more carries the word, 13..16 B reads it as 0.
+inline constexpr int kInputPayloadBytes = 12;
+inline constexpr int kInputExtendedPayloadBytes = 16;
+
+// The extended-buttons word, in SDL's names (contract "Extended buttons"). Bits
+// are levels like wButtons; everything above the known mask is reserved, so a
+// sender writes it as 0.
+inline constexpr std::uint32_t kExtButtonRightPaddle1 = 0x0001;
+inline constexpr std::uint32_t kExtButtonLeftPaddle1 = 0x0002;
+inline constexpr std::uint32_t kExtButtonRightPaddle2 = 0x0004;
+inline constexpr std::uint32_t kExtButtonLeftPaddle2 = 0x0008;
+inline constexpr std::uint32_t kExtButtonMisc1 = 0x0010;
+inline constexpr std::uint32_t kExtButtonLeftPadClick = 0x0020;
+inline constexpr std::uint32_t kExtButtonRightPadClick = 0x0040;
+inline constexpr std::uint32_t kExtButtonLeftTriggerClick = 0x0080;
+inline constexpr std::uint32_t kExtButtonRightTriggerClick = 0x0100;
+inline constexpr std::uint32_t kExtButtonLeftStickTouch = 0x0200;
+inline constexpr std::uint32_t kExtButtonRightStickTouch = 0x0400;
+inline constexpr std::uint32_t kExtButtonLeftGripTouch = 0x0800;
+inline constexpr std::uint32_t kExtButtonRightGripTouch = 0x1000;
+inline constexpr std::uint32_t kExtButtonsKnownMask = 0x1FFF;
 
 // After the 1-byte ctrlIdx: flags(1) + f0(id1+x2+y2) + f1(id1+x2+y2) +
 // eventTimeMs(u32 LE). The server requires an inner msgLen >= 16, so the
@@ -187,6 +223,10 @@ inline constexpr std::uint16_t kCapSpeaker = 0x0080;
 // endpoint this machine can name). A client that would only ever reduce it to
 // motor strength leaves this off and lets the host do that.
 inline constexpr std::uint16_t kCapHapticAudio = 0x0100;
+// Protocol 4. The client's claim that this pad SOURCES the extended-buttons
+// word (a paddle, a pad or trigger click, a capacitive touch). Like kCapMotion
+// it is not a receive gate: the satellite reads the word by frame length.
+inline constexpr std::uint16_t kCapExtendedButtons = 0x0200;
 
 // ── Controller types (catalog ids / descriptor `type`) ──────────────────────
 inline constexpr std::uint8_t kControllerTypeXbox = 0;

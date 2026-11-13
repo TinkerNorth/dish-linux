@@ -41,7 +41,7 @@ TEST_CASE("publish forwards every changed state to the report sender", "[input]"
     int calls = 0;
     std::uint16_t lastButtons = 0;
     p.setReportSender([&](const std::string& id, std::uint16_t b, std::uint8_t, std::uint8_t,
-                          std::int16_t, std::int16_t, std::int16_t, std::int16_t) {
+                          std::int16_t, std::int16_t, std::int16_t, std::int16_t, std::uint32_t) {
         ++calls;
         lastButtons = b;
         REQUIRE(id == "pad-1");
@@ -62,13 +62,17 @@ TEST_CASE("zeroAndSendAll emits a neutral report for every known device", "[inpu
     GamepadInputProcessor p;
     int zeros = 0;
     p.setReportSender([&](const std::string&, std::uint16_t b, std::uint8_t lt, std::uint8_t rt,
-                          std::int16_t lx, std::int16_t ly, std::int16_t rx, std::int16_t ry) {
-        if (b == 0 && lt == 0 && rt == 0 && lx == 0 && ly == 0 && rx == 0 && ry == 0) { ++zeros; }
+                          std::int16_t lx, std::int16_t ly, std::int16_t rx, std::int16_t ry,
+                          std::uint32_t ext) {
+        const bool neutral =
+            b == 0 && lt == 0 && rt == 0 && lx == 0 && ly == 0 && rx == 0 && ry == 0 && ext == 0;
+        if (neutral) { ++zeros; }
     });
 
     GamepadInputProcessor::DeviceState a;
     a.wButtons = GamepadInputProcessor::Buttons::kStart;
     a.lt = 100;
+    a.extButtons = 0x0001;
     p.publish("pad-a", a);
     GamepadInputProcessor::DeviceState b;
     b.lx = 12345;
@@ -81,7 +85,7 @@ TEST_CASE("zeroAndSendAll emits a neutral report for every known device", "[inpu
 TEST_CASE("drainTelemetry resets per-second counters and keeps lifetime total", "[input]") {
     GamepadInputProcessor p;
     p.setReportSender([](const std::string&, std::uint16_t, std::uint8_t, std::uint8_t,
-                         std::int16_t, std::int16_t, std::int16_t, std::int16_t) {});
+                         std::int16_t, std::int16_t, std::int16_t, std::int16_t, std::uint32_t) {});
 
     GamepadInputProcessor::DeviceState s;
     p.publish("pad", s);
@@ -109,7 +113,7 @@ struct ForwardLog {
     void install(GamepadInputProcessor& p) {
         p.setReportSender([this](const std::string&, std::uint16_t b, std::uint8_t lt,
                                  std::uint8_t rt, std::int16_t lx, std::int16_t ly, std::int16_t rx,
-                                 std::int16_t ry) {
+                                 std::int16_t ry, std::uint32_t) {
             ++calls;
             last = GamepadInputProcessor::DeviceState{b, lt, rt, lx, ly, rx, ry};
         });
@@ -252,7 +256,8 @@ TEST_CASE("publish uses per-device deadzones", "[input]") {
     std::uint8_t lastLt = 0xFF;
     std::uint8_t lastRt = 0xFF;
     p.setReportSender([&](const std::string&, std::uint16_t, std::uint8_t lt, std::uint8_t rt,
-                          std::int16_t lx, std::int16_t ly, std::int16_t, std::int16_t) {
+                          std::int16_t lx, std::int16_t ly, std::int16_t, std::int16_t,
+                          std::uint32_t) {
         lastLx = lx;
         lastLy = ly;
         lastLt = lt;
@@ -275,8 +280,8 @@ TEST_CASE("publish applies different deadzones per device", "[input]") {
     GamepadInputProcessor p;
     std::unordered_map<std::string, std::int16_t> byId;
     p.setReportSender([&](const std::string& id, std::uint16_t, std::uint8_t, std::uint8_t,
-                          std::int16_t lx, std::int16_t, std::int16_t,
-                          std::int16_t) { byId[id] = lx; });
+                          std::int16_t lx, std::int16_t, std::int16_t, std::int16_t,
+                          std::uint32_t) { byId[id] = lx; });
     p.setDeadzones("lax", {0, 0});
     p.setDeadzones("strict", {10000, 0});
     GamepadInputProcessor::DeviceState s;
@@ -291,8 +296,8 @@ TEST_CASE("remove clears deadzones too", "[input]") {
     GamepadInputProcessor p;
     std::int16_t lastLx = -1;
     p.setReportSender([&](const std::string&, std::uint16_t, std::uint8_t, std::uint8_t,
-                          std::int16_t lx, std::int16_t, std::int16_t,
-                          std::int16_t) { lastLx = lx; });
+                          std::int16_t lx, std::int16_t, std::int16_t, std::int16_t,
+                          std::uint32_t) { lastLx = lx; });
     p.setDeadzones("pad", {5000, 0});
     p.remove("pad");
     GamepadInputProcessor::DeviceState s;
@@ -599,7 +604,7 @@ TEST_CASE("publishTouchpad is a no-op when no touchpad sender is installed", "[t
 TEST_CASE("inputCounters tally one gamepad event per publish", "[input][rate]") {
     GamepadInputProcessor p;
     p.setReportSender([](const std::string&, std::uint16_t, std::uint8_t, std::uint8_t,
-                         std::int16_t, std::int16_t, std::int16_t, std::int16_t) {});
+                         std::int16_t, std::int16_t, std::int16_t, std::int16_t, std::uint32_t) {});
     REQUIRE(p.inputCounters("pad").gamepadEvents == 0);
 
     GamepadInputProcessor::DeviceState s;
@@ -615,7 +620,7 @@ TEST_CASE("inputCounters tally one gamepad event per publish", "[input][rate]") 
 TEST_CASE("inputCounters count a gamepad event even for an unchanged state", "[input][rate]") {
     GamepadInputProcessor p;
     p.setReportSender([](const std::string&, std::uint16_t, std::uint8_t, std::uint8_t,
-                         std::int16_t, std::int16_t, std::int16_t, std::int16_t) {});
+                         std::int16_t, std::int16_t, std::int16_t, std::int16_t, std::uint32_t) {});
     GamepadInputProcessor::DeviceState s; // identical each time
     p.publish("pad", s);
     p.publish("pad", s);
@@ -645,7 +650,7 @@ TEST_CASE("inputCounters motion tally counts only forwarded samples", "[input][r
 TEST_CASE("inputCounters are independent per device", "[input][rate]") {
     GamepadInputProcessor p;
     p.setReportSender([](const std::string&, std::uint16_t, std::uint8_t, std::uint8_t,
-                         std::int16_t, std::int16_t, std::int16_t, std::int16_t) {});
+                         std::int16_t, std::int16_t, std::int16_t, std::int16_t, std::uint32_t) {});
     GamepadInputProcessor::DeviceState s;
     p.publish("a", s);
     p.publish("a", s);
@@ -658,7 +663,7 @@ TEST_CASE("inputCounters are independent per device", "[input][rate]") {
 TEST_CASE("remove resets a device's input counters so a re-attach re-baselines", "[input][rate]") {
     GamepadInputProcessor p;
     p.setReportSender([](const std::string&, std::uint16_t, std::uint8_t, std::uint8_t,
-                         std::int16_t, std::int16_t, std::int16_t, std::int16_t) {});
+                         std::int16_t, std::int16_t, std::int16_t, std::int16_t, std::uint32_t) {});
     p.setMotionSender([](const std::string&, std::int16_t, std::int16_t, std::int16_t, std::int16_t,
                          std::int16_t, std::int16_t, std::uint32_t) {});
     GamepadInputProcessor::DeviceState s;
@@ -681,6 +686,66 @@ TEST_CASE("remove resets a device's input counters so a re-attach re-baselines",
 // The rate counters above tally every report; these tally only reports that
 // moved something, because a resting pad streams at 250 Hz forever and would
 // otherwise hold the machine awake all night.
+
+TEST_CASE("a change in the extended buttons alone is a report", "[input]") {
+    GamepadInputProcessor p;
+    int calls = 0;
+    std::uint32_t lastWord = 0;
+    p.setReportSender([&](const std::string&, std::uint16_t, std::uint8_t, std::uint8_t,
+                          std::int16_t, std::int16_t, std::int16_t, std::int16_t,
+                          std::uint32_t ext) {
+        ++calls;
+        lastWord = ext;
+    });
+
+    GamepadInputProcessor::DeviceState s;
+    p.publish("pad-1", s);
+    s.extButtons = 0x0002;
+    p.publish("pad-1", s);
+    p.publish("pad-1", s);
+
+    REQUIRE(calls == 2);
+    REQUIRE(lastWord == 0x0002U);
+}
+
+TEST_CASE("the sink sees the extended buttons in the state it is handed", "[input]") {
+    struct Capture : GamepadInputProcessor::InputSink {
+        std::uint32_t word = 0;
+        void report(GamepadInputProcessor::DeviceIndex, const GamepadInputProcessor::DeviceId&,
+                    const GamepadInputProcessor::DeviceState& state) override {
+            word = state.extButtons;
+        }
+        void motion(GamepadInputProcessor::DeviceIndex, const GamepadInputProcessor::DeviceId&,
+                    const GamepadInputProcessor::MotionSample&, std::uint32_t) override {}
+        void battery(GamepadInputProcessor::DeviceIndex, const GamepadInputProcessor::DeviceId&,
+                     const GamepadInputProcessor::BatterySample&) override {}
+        void touchpad(GamepadInputProcessor::DeviceIndex, const GamepadInputProcessor::DeviceId&,
+                      const GamepadInputProcessor::TouchpadSample&) override {}
+    };
+    GamepadInputProcessor p;
+    Capture sink;
+    p.setSink(&sink);
+    GamepadInputProcessor::DeviceState s;
+    s.extButtons = 0x1000;
+    p.publish("pad-1", s);
+    REQUIRE(sink.word == 0x1000U);
+}
+
+TEST_CASE("the dead zones leave the extended buttons alone", "[input][deadzone]") {
+    GamepadInputProcessor::DeviceState s;
+    s.lx = 100;
+    s.extButtons = 0x0180;
+    const auto out = applyDeadzones(s, {5000, 10});
+    REQUIRE(out.lx == 0);
+    REQUIRE(out.extButtons == 0x0180U);
+}
+
+TEST_CASE("isActuation: an extended button change is an actuation", "[input][activity]") {
+    GamepadInputProcessor::DeviceState ref;
+    GamepadInputProcessor::DeviceState next;
+    next.extButtons = 0x0010;
+    REQUIRE(isActuation(ref, next));
+}
 
 TEST_CASE("isActuation: a button change is always an actuation", "[input][activity]") {
     GamepadInputProcessor::DeviceState ref;

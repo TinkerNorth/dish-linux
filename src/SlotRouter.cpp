@@ -326,7 +326,7 @@ void SlotRouter::report(DeviceIndex index, const DeviceId& id, const DeviceState
             const InputRoute& route = table->inputs[index];
             if (route.client) {
                 route.client->sendReport(route.controllerIndex, s.wButtons, s.lt, s.rt, s.lx, s.ly,
-                                         s.rx, s.ry);
+                                         s.rx, s.ry, s.extButtons);
                 return;
             }
         }

@@ -158,12 +158,15 @@ void ConnectionHub::bind(const QString& slotId, const QString& connectionId) {
     const bool hasMic = micCapabilityFn_ && micCapabilityFn_(slotId);
     const bool hasSpeaker = speakerCapabilityFn_ && speakerCapabilityFn_(slotId);
     const bool hasHapticAudio = hapticAudioCapabilityFn_ && hapticAudioCapabilityFn_(slotId);
+    const bool hasExtendedButtons =
+        extendedButtonsCapabilityFn_ && extendedButtonsCapabilityFn_(slotId);
     const int controllerType = controllerTypeFn_ ? controllerTypeFn_(slotId) : 0;
     const std::uint8_t touchpadMode =
         touchpadModeFn_ ? touchpadModeFn_(slotId) : proto::kTouchpadModeOff;
     if (auto* c = wifi_->get(connectionId)) {
         c->attachSlot(slotId, controllerType, hasLightbar, hasMotion, hasRumble, touchpadMode,
-                      hasTriggerEffects, hasPlayerLeds, hasMic, hasSpeaker, hasHapticAudio);
+                      hasTriggerEffects, hasPlayerLeds, hasMic, hasSpeaker, hasHapticAudio,
+                      hasExtendedButtons);
     }
 }
 

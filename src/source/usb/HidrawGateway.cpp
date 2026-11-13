@@ -270,6 +270,7 @@ ReadOutcome readOneReport(pollfd& pfd, std::array<std::uint8_t, 128>& buf, std::
 UsbReport toUsbReport(const input::usbparse::ParsedReport& parsed, const bool micMuted) {
     UsbReport report{};
     report.wButtons = parsed.wButtons;
+    report.extButtons = parsed.extButtons;
     report.micMuted = micMuted;
     report.lt = parsed.lt;
     report.rt = parsed.rt;

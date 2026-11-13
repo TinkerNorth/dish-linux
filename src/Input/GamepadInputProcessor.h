@@ -51,9 +51,10 @@ class GamepadInputProcessor {
 
     // Runs inline on the caller's thread (normally the SDL gamepad thread);
     // the hot path deliberately never hops threads.
-    using ReportSender = std::function<void(const DeviceId& id, std::uint16_t wButtons,
-                                            std::uint8_t lt, std::uint8_t rt, std::int16_t lx,
-                                            std::int16_t ly, std::int16_t rx, std::int16_t ry)>;
+    using ReportSender =
+        std::function<void(const DeviceId& id, std::uint16_t wButtons, std::uint8_t lt,
+                           std::uint8_t rt, std::int16_t lx, std::int16_t ly, std::int16_t rx,
+                           std::int16_t ry, std::uint32_t extButtons)>;
 
     // Rate-limited per device to kMotionRateLimitHz before it reaches the
     // sender.
@@ -117,9 +118,11 @@ class GamepadInputProcessor {
         std::int16_t ly = 0;
         std::int16_t rx = 0;
         std::int16_t ry = 0;
+        // The protocol 4 extended-buttons word (proto::kExtButton*).
+        std::uint32_t extButtons = 0;
         bool operator==(const DeviceState& o) const {
             return wButtons == o.wButtons && lt == o.lt && rt == o.rt && lx == o.lx && ly == o.ly &&
-                   rx == o.rx && ry == o.ry;
+                   rx == o.rx && ry == o.ry && extButtons == o.extButtons;
         }
     };
 

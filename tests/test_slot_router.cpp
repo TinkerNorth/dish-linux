@@ -113,6 +113,61 @@ TEST_CASE("a slot's reports reach its session only while the published table rou
     CHECK(hp::pumpUntil([&] { return seen.inputs.load() > routed; }));
 }
 
+namespace {
+
+// The INPUT frame as the one session's satellite received it: its length and
+// the word behind the report, when the frame is long enough to carry one.
+struct SeenInput {
+    std::atomic<std::uint64_t> inputs{0};
+    std::atomic<std::size_t> length{0};
+    std::atomic<std::uint32_t> word{0};
+};
+
+constexpr std::size_t kInputWithWordBytes = 17;
+constexpr std::size_t kInputWordOffset = 13;
+
+std::uint32_t readWordLe32(const std::uint8_t* p) {
+    return static_cast<std::uint32_t>(p[0]) | (static_cast<std::uint32_t>(p[1]) << 8) |
+           (static_cast<std::uint32_t>(p[2]) << 16) | (static_cast<std::uint32_t>(p[3]) << 24);
+}
+
+hp::HotPathRig::HandlerFor captureInput(SeenInput& seen) {
+    return [&seen](int /*session*/) {
+        return [&seen](std::uint16_t type, const std::uint8_t* body, std::size_t len,
+                       hp::Clock::time_point /*arrived*/) {
+            if (type != dish::proto::kMsgInput) { return; }
+            seen.length.store(len);
+            if (len >= kInputWithWordBytes) {
+                seen.word.store(readWordLe32(body + kInputWordOffset));
+            }
+            seen.inputs.fetch_add(1);
+        };
+    };
+}
+
+} // namespace
+
+TEST_CASE("a report on the rig's protocol 4 session is the 17-byte INPUT frame carrying the "
+          "extended-buttons word",
+          "[slot-router]") {
+    SeenInput seen;
+    hp::HotPathRig rig(1, captureInput(seen));
+    REQUIRE(rig.startBridge());
+    REQUIRE(rig.connectAll());
+    const QString slot = QStringLiteral("paddle-pad");
+    REQUIRE(rig.bind(slot, 0));
+    const auto index = rig.processor().add(slot.toStdString());
+    REQUIRE(index.has_value());
+    rig.router().republish({slot});
+
+    GamepadInputProcessor::DeviceState s;
+    s.extButtons = dish::proto::kExtButtonLeftPaddle1 | dish::proto::kExtButtonMisc1;
+    rig.processor().publish(*index, s);
+    REQUIRE(hp::pumpUntil([&] { return seen.inputs.load() >= 1; }));
+    CHECK(seen.length.load() == kInputWithWordBytes);
+    CHECK(seen.word.load() == (dish::proto::kExtButtonLeftPaddle1 | dish::proto::kExtButtonMisc1));
+}
+
 TEST_CASE("a slot on screen but bound to no session sends nothing", "[slot-router]") {
     Seen seen;
     hp::HotPathRig rig(1, countInto(seen));

@@ -634,19 +634,22 @@ TEST_CASE("a claimed report publishes INPUT through the processor on the claim p
     gw.report.wButtons = dish::input::GamepadInputProcessor::Buttons::kA;
     gw.report.lt = 200;
     gw.report.lx = 12345;
+    gw.report.extButtons = 0x0010;
 
     dish::input::GamepadInputProcessor processor;
     std::string gotId;
     std::uint16_t gotButtons = 0;
     std::uint8_t gotLt = 0;
     std::int16_t gotLx = 0;
+    std::uint32_t gotExt = 0;
     processor.setReportSender([&](const std::string& id, std::uint16_t b, std::uint8_t lt,
                                   std::uint8_t /*rt*/, std::int16_t lx, std::int16_t /*ly*/,
-                                  std::int16_t /*rx*/, std::int16_t /*ry*/) {
+                                  std::int16_t /*rx*/, std::int16_t /*ry*/, std::uint32_t ext) {
         gotId = id;
         gotButtons = b;
         gotLt = lt;
         gotLx = lx;
+        gotExt = ext;
     });
     UsbPathPreferenceRepository repo(makeSharedSettings());
     UsbPathPreferenceStore prefs(&repo);
@@ -660,6 +663,7 @@ TEST_CASE("a claimed report publishes INPUT through the processor on the claim p
     CHECK(gotButtons == dish::input::GamepadInputProcessor::Buttons::kA);
     CHECK(gotLt == 200);
     CHECK(gotLx == 12345);
+    CHECK(gotExt == 0x0010U);
 }
 
 TEST_CASE("a claimed report with IMU publishes MOTION through the processor", "[usb-manager]") {

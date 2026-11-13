@@ -24,13 +24,29 @@ using dish::reducer::settleRejected;
 
 namespace proto = dish::proto;
 
-TEST_CASE("the client offers 3 and still speaks 1", "[protocol][negotiation]") {
+TEST_CASE("the client offers 4 and still speaks 1", "[protocol][negotiation]") {
     // Guards the rest of this file: every expectation below is written against
     // this range, so a bump has to come here first.
-    CHECK(proto::kProtocolVersion == 3);
+    CHECK(proto::kProtocolVersion == 4);
     CHECK(proto::kProtocolVersionMin == 1);
     CHECK(proto::settledSpeaksV2(2));
     CHECK_FALSE(proto::settledSpeaksV2(1));
+    CHECK(proto::settledCarriesExtendedButtons(4));
+    CHECK_FALSE(proto::settledCarriesExtendedButtons(3));
+}
+
+TEST_CASE("a protocol 3 satellite settles the session at 3, where INPUT carries no word",
+          "[protocol][negotiation]") {
+    const auto echoed = settleAccepted(3);
+    CHECK(echoed.verdict == ProtocolVerdict::Settled);
+    CHECK(echoed.settledVersion == 3);
+    CHECK(echoed.satelliteBehind);
+    CHECK_FALSE(proto::settledCarriesExtendedButtons(echoed.settledVersion));
+    // The same satellite answering the offer of 4 with a 409 names 3 as its
+    // ceiling, and the re-offer settles there too.
+    const auto rejected = settleRejected(/*supported=*/3, /*supportedMin=*/1);
+    CHECK(rejected.verdict == ProtocolVerdict::RetryLower);
+    CHECK(rejected.settledVersion == 3);
 }
 
 TEST_CASE("an echo of our own version settles there with no hint", "[protocol][negotiation]") {

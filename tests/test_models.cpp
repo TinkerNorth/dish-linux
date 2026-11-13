@@ -416,6 +416,26 @@ TEST_CASE("ControllerDescriptor.toJson matches the contract's controllers[] elem
     REQUIRE(obj.value("touchpadMode").toString() == "ds4");
 }
 
+TEST_CASE("the descriptor carries the protocol 4 extended-buttons claim", "[models][descriptor]") {
+    ControllerDescriptor d;
+    d.caps = proto::kCapExtendedButtons;
+    const auto caps = d.toJson().value("caps").toObject();
+    CHECK(caps.value("extendedButtons").toBool());
+    CHECK_FALSE(caps.value("hapticAudio").toBool());
+    CHECK_FALSE(caps.value("rumble").toBool());
+}
+
+TEST_CASE("a controller view reads the extended-buttons claim back off its caps",
+          "[models][session]") {
+    const auto v = SessionViewDto::fromJson(parse(R"({
+        "connectionId":"conn_1","epoch":1,"protocolVersion":4,"maxControllers":16,
+        "controllers":[{"ctrlIdx":0,"active":true,"appliedType":0,
+           "caps":{"analogTriggers":true,"extendedButtons":true},"touchpadMode":"off"}]
+    })"));
+    REQUIRE(v.controllers.size() == 1);
+    CHECK(v.controllers.first().caps == (proto::kCapAnalogTriggers | proto::kCapExtendedButtons));
+}
+
 TEST_CASE("the descriptor carries the protocol-2 actuator caps", "[models][descriptor]") {
     // The satellite gates MSG_TRIGGER_EFFECTS and MSG_PLAYER_LEDS on exactly
     // these two keys, so a missing or misspelled one is a feature that silently

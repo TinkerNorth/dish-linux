@@ -20,6 +20,14 @@ the repos share a version number.
 
 ### Added
 
+- **Room on the wire for a controller's extra buttons.** `[wire-coordinated]`
+  Protocol 4. Dish now speaks Satellite protocol 4: on a connection that
+  settled on it, every controller report carries a second word for the buttons
+  an Xbox pad does not have (back paddles, the Steam Controller's "..." button,
+  trackpad and trigger clicks, the capacitive touches), and a controller that
+  sources them says so in its capabilities. This update adds the word and the
+  claim; the controllers that fill it follow. An older Satellite keeps working
+  at protocol 3 and sees exactly what it saw before.
 - **The 2026 Steam Controller over USB direct, not yet tried on a real one.**
   The wired controller (`28DE:1302`) and its two wireless dongles (`28DE:1304`,
   `28DE:1305`) can be taken over on the direct path, ported from SDL's driver

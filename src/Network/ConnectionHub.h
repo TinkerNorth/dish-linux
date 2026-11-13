@@ -77,6 +77,13 @@ class ConnectionHub : public QObject {
         hapticAudioCapabilityFn_ = std::move(fn);
     }
 
+    // Protocol 4: whether the slot's input sources an extended button. Unset
+    // reads as "no", so the descriptor claims only what a decoder fills.
+    using ExtendedButtonsCapabilityFn = std::function<bool(const QString& slotId)>;
+    void setExtendedButtonsCapabilityFn(ExtendedButtonsCapabilityFn fn) {
+        extendedButtonsCapabilityFn_ = std::move(fn);
+    }
+
     // A proto CONTROLLER_TYPE_*, which is how a DualSense registers as a virtual
     // DS4 rather than an Xbox pad. Unset means CONTROLLER_TYPE_XBOX.
     using ControllerTypeFn = std::function<int(const QString& slotId)>;
@@ -122,6 +129,7 @@ class ConnectionHub : public QObject {
     MicCapabilityFn micCapabilityFn_;
     SpeakerCapabilityFn speakerCapabilityFn_;
     HapticAudioCapabilityFn hapticAudioCapabilityFn_;
+    ExtendedButtonsCapabilityFn extendedButtonsCapabilityFn_;
     ControllerTypeFn controllerTypeFn_;
     TouchpadModeFn touchpadModeFn_;
 };

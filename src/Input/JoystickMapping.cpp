@@ -173,7 +173,8 @@ GamepadInputProcessor::DeviceState mapGamepad(const GamepadSnapshot& snap) {
             .lx = snap.leftX,
             .ly = deadzone::invertStickAxis(snap.leftY),
             .rx = snap.rightX,
-            .ry = deadzone::invertStickAxis(snap.rightY)};
+            .ry = deadzone::invertStickAxis(snap.rightY),
+            .extButtons = snap.extButtons};
 }
 
 GamepadInputProcessor::DeviceState mapJoystick(const JoystickSnapshot& snap,

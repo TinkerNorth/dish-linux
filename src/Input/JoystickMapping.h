@@ -41,6 +41,8 @@ struct JoystickSnapshot {
 // stick Y positive DOWN, triggers 0..32767, buttons already in wire bits.
 struct GamepadSnapshot {
     std::uint16_t wButtons = 0;
+    // The protocol 4 extended-buttons word (proto::kExtButton*).
+    std::uint32_t extButtons = 0;
     std::int16_t leftX = 0;
     std::int16_t leftY = 0;
     std::int16_t rightX = 0;

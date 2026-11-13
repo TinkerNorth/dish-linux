@@ -338,7 +338,8 @@ TEST_CASE("a binding row names its advertised caps with the capability table's w
     f.controllerIndex = 2;
     f.caps = proto::kCapAnalogTriggers | proto::kCapRumble | proto::kCapMotion |
              proto::kCapLightbar | proto::kCapTriggerEffects | proto::kCapPlayerLeds |
-             proto::kCapMic | proto::kCapSpeaker | proto::kCapHapticAudio;
+             proto::kCapMic | proto::kCapSpeaker | proto::kCapHapticAudio |
+             proto::kCapExtendedButtons;
     f.touchpadMode = proto::kTouchpadModeMouse;
     f.confirmed = true;
     f.streaming = Streaming::Yes;
@@ -347,7 +348,7 @@ TEST_CASE("a binding row names its advertised caps with the capability table's w
     CHECK(row.value("controllerIndex").toInt() == 2);
     CHECK(strings(row.value("advertised")) ==
           QStringList{"triggers", "rumble", "motion", "lightbar", "triggerEffects", "playerLeds",
-                      "mic", "speaker", "hapticAudio"});
+                      "mic", "speaker", "hapticAudio", "extendedButtons"});
     CHECK(row.value("touchpadMode").toString() == QStringLiteral("mouse"));
     CHECK(row.value("confirmed").toBool());
     CHECK(row.value("streaming").toString() == QStringLiteral("yes"));
