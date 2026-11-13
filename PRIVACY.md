@@ -1,6 +1,6 @@
 # Dish for Linux: Privacy Policy
 
-**Effective date:** 2026-09-06.
+**Effective date:** 2026-11-13.
 **Canonical copy:** this file, at
 [`https://github.com/TinkerNorth/dish-linux/blob/main/PRIVACY.md`](https://github.com/TinkerNorth/dish-linux/blob/main/PRIVACY.md).
 The app links to it from Help, and the privacy index on
@@ -98,7 +98,11 @@ Held in memory only, never written and never transmitted anywhere except to
 the satellite you bound the controller to:
 
 - Gamepad input events: buttons, sticks, triggers, motion, touchpad.
-- Battery readings reported by a connected controller.
+- Battery readings reported by a connected controller, and this computer's own
+  battery level and charging state, read from `/sys/class/power_supply` (a
+  system battery only, never a peripheral's), so that a controller reports the
+  lower of its battery and the computer's, or the computer's when the
+  controller has none. A computer without a battery adds nothing.
 - Raw HID reports read from a controller in USB-direct mode.
 
 The app reads input from connected game controllers, through SDL2 and, in
