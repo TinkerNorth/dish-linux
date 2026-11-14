@@ -28,6 +28,7 @@
 
 #include <cstdint>
 #include <functional>
+#include <vector>
 
 using dish::net::ConnectIntent;
 using dish::net::SessionState;
@@ -50,6 +51,9 @@ constexpr int kPastFirstRetryMs = 2500;
 constexpr int kNothingFollowsMs = 500;
 // A UDP port the controller socket refuses, where the REST port is fine.
 constexpr int kUnusableUdpPort = 0;
+// Public, and reserved for documentation (RFC 5737), so a guard that let it through dials no one.
+const QString kPublicIp = QStringLiteral("203.0.113.5");
+const std::vector<QString> kOnlyUnreachable{QStringLiteral("unreachable")};
 
 // Every session PUT is answered with `status` and `body`; anything else is granted.
 std::function<PairingAnswer(const SeenRequest&)> answeringSessions(int status, QJsonObject body) {
@@ -377,7 +381,8 @@ TEST_CASE("connect guard: a silent reconnect to an IPv6 satellite is refused wit
     CHECK(rig.errors() == 0);
 }
 
-TEST_CASE("pairing guard: a PIN pair to an IPv6 satellite is refused before the PIN is sent",
+TEST_CASE("pairing guard: a PIN pair to an IPv6 satellite is refused before the PIN is sent, and "
+          "the sheet hears it is unreachable",
           "[wifi][pairing][ipv6]") {
     ManagerRig rig(QHostAddress::LocalHostIPv6);
     REQUIRE(rig.listener.listening());
@@ -388,6 +393,7 @@ TEST_CASE("pairing guard: a PIN pair to an IPv6 satellite is refused before the 
 
     CHECK(rig.listener.requests().empty());
     CHECK(rig.errors() == 1);
+    CHECK(rig.pairingFailures == kOnlyUnreachable);
     CHECK_FALSE(rig.wifi->isPairingInFlight(rig.server.id()));
 }
 
@@ -554,4 +560,17 @@ TEST_CASE("connect guard: a silent reconnect to a public address is refused with
 
     CHECK(rig.errors() == 0);
     CHECK(connection(rig) == nullptr);
+}
+
+TEST_CASE("pairing guard: a PIN pair to a public address is refused, and the sheet hears it is "
+          "unreachable",
+          "[wifi][pairing][guard]") {
+    ManagerRig rig;
+    rig.server.ip = kPublicIp;
+
+    rig.wifi->pairWithPin(rig.server, QStringLiteral("1234"));
+
+    CHECK(rig.errors() == 1);
+    CHECK(rig.pairingFailures == kOnlyUnreachable);
+    CHECK_FALSE(rig.wifi->isPairingInFlight(rig.server.id()));
 }

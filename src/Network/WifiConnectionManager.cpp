@@ -388,7 +388,10 @@ void WifiConnectionManager::connectTo(const models::DiscoveredServer& server,
 
 void WifiConnectionManager::pairWithPin(const models::DiscoveredServer& server,
                                         const QString& pin) {
-    if (refusesAddress(server, ConnectIntent::UserInitiated)) { return; }
+    if (refusesAddress(server, ConnectIntent::UserInitiated)) {
+        emit pairingFailed(WifiConnection::idFor(server), QStringLiteral("unreachable"));
+        return;
+    }
     auto* conn = ensureConnection(server);
     clearForUserAction(conn->id());
     if (conn->state() == SessionState::Live) { return; }

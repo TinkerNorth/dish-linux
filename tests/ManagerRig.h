@@ -57,8 +57,9 @@ struct ManagerRig {
     std::unique_ptr<net::ConnectionStore> store;
     std::unique_ptr<net::WifiConnectionManager> wifi;
     models::DiscoveredServer server;
-    // Every event the manager raised, in order.
+    // Every event, and every pairing failure's reason, the manager raised, in order.
     std::vector<net::ConnectionEvent> events;
+    std::vector<QString> pairingFailures;
 
     // The satellite answers on IPv4 loopback unless a test needs the other one.
     explicit ManagerRig(QHostAddress::SpecialAddress loopback = QHostAddress::LocalHost)
@@ -68,6 +69,9 @@ struct ManagerRig {
         wifi = std::make_unique<net::WifiConnectionManager>(store.get());
         QObject::connect(wifi.get(), &net::WifiConnectionManager::connectionEvent, wifi.get(),
                          [this](const net::ConnectionEvent& e) { events.push_back(e); });
+        QObject::connect(
+            wifi.get(), &net::WifiConnectionManager::pairingFailed, wifi.get(),
+            [this](const QString&, const QString& reason) { pairingFailures.push_back(reason); });
         server.machineId = QStringLiteral("m-den");
         server.ip = serverIpFor(QHostAddress(loopback));
         server.name = QStringLiteral("Den");
