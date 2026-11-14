@@ -90,6 +90,12 @@ the repos share a version number.
 
 ### Fixed
 
+- **The pairing sheet says when it cannot reach a satellite at a refused
+  address.** Dish never sends a PIN to a satellite whose address is not on this
+  network or is an IPv6 address. When it refused one, only the error notice
+  said why; the sheet itself showed nothing. It now marks the PIN field and
+  says it couldn't reach the satellite, as it does when a satellite does not
+  answer, and as dish-windows does.
 - **The privacy policy names the computer's own battery.** Since a
   controller reports the lower of its battery and the computer's, Dish reads
   this computer's battery level and charging state from
