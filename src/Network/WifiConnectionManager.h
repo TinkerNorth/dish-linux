@@ -140,13 +140,23 @@ class WifiConnectionManager : public QObject {
     void wireSlotSync(WifiConnection* conn);
     void pairAndConnect(WifiConnection* conn, const models::DiscoveredServer& server,
                         ConnectIntent intent);
+    // The PIN and approval POSTs, at the connection's current offer.
+    void sendPinPair(WifiConnection* conn, const models::DiscoveredServer& server,
+                     const QString& pin);
+    void sendReversePair(WifiConnection* conn, const models::DiscoveredServer& server,
+                         const QString& pin);
+    // True when a 409's range lowered this connection's offer and the caller may send again; false
+    // when the attempt is over and a user's attempt has been told which end must update.
+    bool lowerOfferOrFail(WifiConnection* conn, ConnectIntent intent, int supported,
+                          int supportedMin);
     // The forward pairs' replies: a connect's PIN-less one, and the operator's PIN from the sheet.
     // `sentOn` is the connection the request went out on.
     void onConnectPairReply(const QString& id, const QPointer<WifiConnection>& sentOn,
                             const models::DiscoveredServer& server, ConnectIntent intent,
                             const PairingOutcome::Arm& outcome);
     void onPinPairReply(const QString& id, const QPointer<WifiConnection>& sentOn,
-                        const models::DiscoveredServer& server, const PairingOutcome::Arm& outcome);
+                        const models::DiscoveredServer& server, const QString& pin,
+                        const PairingOutcome::Arm& outcome);
     // What a reply for `id` may act on: the connection its request went out on, while that is still
     // the one filed under the id. A Forget in between leaves none, and a Forget and a fresh pair
     // leave a newer one, which an older reply must not reach. Null for either.

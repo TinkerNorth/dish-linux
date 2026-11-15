@@ -29,7 +29,7 @@ PairingOutcome::Arm PairingOutcome::classify(const models::PairResponse& respons
     case reducer::PairVerdict::AuthRequired:
         return AuthRequired{};
     case reducer::PairVerdict::VersionMismatch:
-        return VersionMismatch{};
+        return VersionMismatch{response.supportedProtocol, response.supportedProtocolMin};
     case reducer::PairVerdict::IdentityChanged:
         return IdentityChanged{};
     case reducer::PairVerdict::Unreachable:
