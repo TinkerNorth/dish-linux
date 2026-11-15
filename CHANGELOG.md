@@ -16,7 +16,7 @@ the repos share a version number.
 
 ---
 
-## [Unreleased]
+## [2.7.0] - 2026-11-15
 
 ### Added
 
@@ -74,8 +74,9 @@ the repos share a version number.
   haptics, repeated while it runs because the controller stops it on its own.
   Letting go of the controller turns its keyboard-and-mouse mode back on. Like
   the 2015 Steam Controller it is never taken over automatically, only when you
-  pick direct on its card. The trackpads, the back paddles and the
-  quick-access button are not forwarded yet.
+  pick direct on its card. Its trackpads follow its Trackpads pick, and its
+  back paddles and quick-access button reach the host as extra buttons on
+  protocol 4.
 
 ### Changed
 
