@@ -574,3 +574,107 @@ TEST_CASE("pairing guard: a PIN pair to a public address is refused, and the she
     CHECK(rig.pairingFailures == kOnlyUnreachable);
     CHECK_FALSE(rig.wifi->isPairingInFlight(rig.server.id()));
 }
+
+// ---- A pair meets the 409 before any session does, and re-offers the same way ----
+
+namespace {
+
+const QString kPairPath = QStringLiteral("/api/pair");
+
+// A satellite one protocol behind: an offer above `ceiling`, on a pair or a session PUT, draws the
+// 409 with its range; anything else is granted, with the session settled at the ceiling.
+std::function<PairingAnswer(const SeenRequest&)> oneBehind(int ceiling) {
+    return [ceiling](const SeenRequest& r) {
+        const int offered = r.body.value(QStringLiteral("protocolVersion")).toInt();
+        if (offered > ceiling) {
+            return PairingAnswer{409, QJsonObject{{QStringLiteral("supported"), ceiling},
+                                                  {QStringLiteral("supportedMin"),
+                                                   dish::proto::kProtocolVersionMin}}};
+        }
+        PairingAnswer answer = dish::test::grantingEverything(r);
+        if (r.path == kSessionPath) {
+            answer.body.insert(QStringLiteral("protocolVersion"), ceiling);
+        }
+        return answer;
+    };
+}
+
+std::vector<SeenRequest> requestsTo(const ManagerRig& rig, const QByteArray& method,
+                                    const QString& path) {
+    std::vector<SeenRequest> matching;
+    for (const auto& r : rig.listener.requests()) {
+        if (r.method == method && r.path == path) { matching.push_back(r); }
+    }
+    return matching;
+}
+
+int offeredVersionOf(const SeenRequest& r) {
+    return r.body.value(QStringLiteral("protocolVersion")).toInt();
+}
+
+} // namespace
+
+TEST_CASE("pairing: a connect with no key is offered again at the satellite's ceiling after the "
+          "pair's 409, and the session that follows starts there",
+          "[wifi][pairing][protocol]") {
+    ManagerRig rig;
+    REQUIRE(rig.listener.listening());
+    const int ceiling = dish::proto::kProtocolVersion - 1;
+    REQUIRE(ceiling >= dish::proto::kProtocolVersionMin);
+    rig.listener.respond = oneBehind(ceiling);
+
+    rig.wifi->connectTo(rig.server, ConnectIntent::UserInitiated);
+    REQUIRE(spinFor([&] { return inState(rig, SessionState::Live); }));
+
+    const auto pairs = requestsTo(rig, "POST", kPairPath);
+    REQUIRE(pairs.size() == 2);
+    CHECK(offeredVersionOf(pairs[0]) == dish::proto::kProtocolVersion);
+    CHECK(offeredVersionOf(pairs[1]) == ceiling);
+    const auto puts = requestsTo(rig, "PUT", kSessionPath);
+    REQUIRE(puts.size() == 1);
+    CHECK(offeredVersionOf(puts[0]) == ceiling);
+    CHECK(connection(rig)->settledProtocolVersion() == ceiling);
+    CHECK(connection(rig)->protocolCompat() == ProtocolCompat::SatelliteUpdateAvailable);
+    CHECK(rig.store->sharedKey(rig.server.id()).has_value());
+    CHECK(rig.errors() == 0);
+}
+
+TEST_CASE("pairing: a PIN pair is offered again at the satellite's ceiling after a 409, with the "
+          "same PIN",
+          "[wifi][pairing][protocol]") {
+    ManagerRig rig;
+    REQUIRE(rig.listener.listening());
+    const int ceiling = dish::proto::kProtocolVersion - 1;
+    REQUIRE(ceiling >= dish::proto::kProtocolVersionMin);
+    rig.listener.respond = oneBehind(ceiling);
+
+    rig.wifi->pairWithPin(rig.server, QStringLiteral("1234"));
+    REQUIRE(spinFor([&] { return inState(rig, SessionState::Live); }));
+
+    const auto pairs = requestsTo(rig, "POST", kPairPath);
+    REQUIRE(pairs.size() == 2);
+    CHECK(offeredVersionOf(pairs[1]) == ceiling);
+    CHECK(pairs[1].body.value(QStringLiteral("pin")).toString() == QStringLiteral("1234"));
+    CHECK(offeredVersionOf(requestsTo(rig, "PUT", kSessionPath).at(0)) == ceiling);
+    CHECK(rig.pairingFailures.empty());
+    CHECK(rig.errors() == 0);
+}
+
+TEST_CASE("pairing: a pair's 409 that names no lower version ends the attempt instead of looping",
+          "[wifi][pairing][protocol]") {
+    ManagerRig rig;
+    REQUIRE(rig.listener.listening());
+    rig.listener.respond = [](const SeenRequest&) {
+        return PairingAnswer{
+            409, QJsonObject{{QStringLiteral("supported"), dish::proto::kProtocolVersion},
+                             {QStringLiteral("supportedMin"), dish::proto::kProtocolVersionMin}}};
+    };
+
+    rig.wifi->pairWithPin(rig.server, QStringLiteral("1234"));
+    REQUIRE(spinFor([&] { return !rig.wifi->isPairingInFlight(rig.server.id()); }));
+
+    CHECK(rig.listener.seen(kPairPath) == 1);
+    CHECK(inState(rig, SessionState::Idle));
+    CHECK(rig.pairingFailures == std::vector<QString>{QStringLiteral("versionMismatch")});
+    CHECK(rig.errors() == 1);
+}

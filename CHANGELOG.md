@@ -91,6 +91,15 @@ the repos share a version number.
 
 ### Fixed
 
+- **Pairing with a satellite one protocol version behind works again.** The
+  pair offered this build's protocol version and nothing else, so a satellite
+  that speaks only an older one answered every pairing attempt, from a first
+  connect, the PIN sheet and an approval request alike, with "different
+  protocol versions", while a session on a key already held negotiated down
+  without trouble. The pair now re-offers the version the satellite named, as
+  the session does and as the other Dish clients do, and the session that
+  follows starts at that version. A satellite with no version in common still
+  says which end must update.
 - **The pairing sheet says when it cannot reach a satellite at a refused
   address.** Dish never sends a PIN to a satellite whose address is not on this
   network or is an IPv6 address. When it refused one, only the error notice

@@ -214,14 +214,11 @@ models::PairResponse pairResponseFrom(const QByteArray& body, int status, bool r
 
 void HTTPClient::pair(const QString& ip, int port, const QString& deviceId,
                       const QString& deviceName, const QString& pin, const QString& clientPin,
-                      PairCb cb) {
+                      int protocolVersion, PairCb cb) {
     const QString url = QStringLiteral("https://%1:%2/api/pair").arg(ip).arg(port);
     const QJsonObject obj{
-        {"deviceId", deviceId},
-        {"deviceName", deviceName},
-        {"protocolVersion", proto::kProtocolVersion},
-        {"pin", pin},
-        {"clientPin", clientPin},
+        {"deviceId", deviceId}, {"deviceName", deviceName}, {"protocolVersion", protocolVersion},
+        {"pin", pin},           {"clientPin", clientPin},
     };
     perform(url, "POST", QJsonDocument(obj).toJson(QJsonDocument::Compact), {}, {}, {}, {},
             [cb = std::move(cb)](const RawReply& r) {

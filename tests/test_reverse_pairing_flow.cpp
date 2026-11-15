@@ -171,3 +171,36 @@ TEST_CASE("reverse pairing: a satellite nobody answers at is unreachable, in the
     // The transport's own words ("connect failed") are not a sentence for a user.
     CHECK(rig.events.back().message == kUnreachableMsg);
 }
+
+TEST_CASE("reverse pairing: a 409 that still overlaps is offered again at the satellite's ceiling, "
+          "with the same PIN on screen",
+          "[reverse][flow]") {
+    ManagerRig rig;
+    REQUIRE(rig.listener.listening());
+    const int ceiling = dish::proto::kProtocolVersion - 1;
+    REQUIRE(ceiling >= dish::proto::kProtocolVersionMin);
+    rig.listener.respond = [ceiling](const SeenRequest& r) {
+        if (r.body.value(QStringLiteral("protocolVersion")).toInt() > ceiling) {
+            return PairingAnswer{409, QJsonObject{{QStringLiteral("supported"), ceiling},
+                                                  {QStringLiteral("supportedMin"),
+                                                   dish::proto::kProtocolVersionMin}}};
+        }
+        return PairingAnswer{
+            200, QJsonObject{{QStringLiteral("ok"), false}, {QStringLiteral("pending"), true}}};
+    };
+
+    rig.wifi->requestReversePairing(rig.server);
+    const QString shown = rig.wifi->reversePairingPin();
+    REQUIRE(spinFor([&] {
+        return rig.listener.seen(QStringLiteral("/api/pair")) == 2 &&
+               !rig.wifi->isPairingInFlight(rig.server.id());
+    }));
+
+    CHECK(rig.wifi->reversePairingPhase() == ReversePairingPhase::AwaitingApproval);
+    CHECK(rig.wifi->reversePairingPin() == shown);
+    const auto& again = rig.listener.requests().back();
+    CHECK(again.path == QStringLiteral("/api/pair"));
+    CHECK(again.body.value(QStringLiteral("protocolVersion")).toInt() == ceiling);
+    CHECK(again.body.value(QStringLiteral("clientPin")).toString() == shown);
+    CHECK(rig.errors() == 0);
+}

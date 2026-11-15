@@ -56,11 +56,26 @@ TEST_CASE("classify: ok=true but empty sharedKey is AuthRequired, not Success", 
         holds<PairingOutcome::AuthRequired>(PairingOutcome::classify(reply200(true, false, ""))));
 }
 
-TEST_CASE("classify: 409 -> VersionMismatch (terminal)", "[pairing]") {
+TEST_CASE("classify: 409 -> VersionMismatch, carrying the satellite's range", "[pairing]") {
     PairResponse r;
     r.httpStatus = 409;
     r.reachable = true;
-    REQUIRE(holds<PairingOutcome::VersionMismatch>(PairingOutcome::classify(r)));
+    r.supportedProtocol = 3;
+    r.supportedProtocolMin = 1;
+    const auto o = PairingOutcome::classify(r);
+    REQUIRE(holds<PairingOutcome::VersionMismatch>(o));
+    REQUIRE(std::get<PairingOutcome::VersionMismatch>(o).supported == 3);
+    REQUIRE(std::get<PairingOutcome::VersionMismatch>(o).supportedMin == 1);
+}
+
+TEST_CASE("classify: a 409 whose body names no range carries zeros", "[pairing]") {
+    PairResponse r;
+    r.httpStatus = 409;
+    r.reachable = true;
+    const auto o = PairingOutcome::classify(r);
+    REQUIRE(holds<PairingOutcome::VersionMismatch>(o));
+    REQUIRE(std::get<PairingOutcome::VersionMismatch>(o).supported == 0);
+    REQUIRE(std::get<PairingOutcome::VersionMismatch>(o).supportedMin == 0);
 }
 
 TEST_CASE("classify: unreachable surfaces a network message", "[pairing]") {

@@ -22,9 +22,13 @@ struct PairingOutcome {
     struct Success {
         QString sharedKeyHex;
     };
-    struct Pending {};         // Path B accepted - poll /api/pair/status
-    struct AuthRequired {};    // reachable, no key - first-time pair, or it forgot us
-    struct VersionMismatch {}; // 409 - protocol skew, terminal
+    struct Pending {};      // Path B accepted - poll /api/pair/status
+    struct AuthRequired {}; // reachable, no key - first-time pair, or it forgot us
+    // 409 - protocol skew, with the satellite's range (0 where the body named no bound)
+    struct VersionMismatch {
+        int supported = 0;
+        int supportedMin = 0;
+    };
     struct IdentityChanged {}; // TOFU pin mismatch - terminal, forget and pair again
     struct Unreachable {
         QString message;

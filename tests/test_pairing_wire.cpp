@@ -82,11 +82,13 @@ Delivered await(const std::function<void(HTTPClient::PairCb)>& send) {
 
 const QString kLoopback = QStringLiteral("127.0.0.1");
 
-// The pair most cases send: device dev-1 with the operator's PIN, no client PIN.
-Delivered pairDen(HTTPClient& client, int port) {
+// The pair most cases send: device dev-1 with the operator's PIN, no client PIN, offering this
+// build's protocol version unless told otherwise.
+Delivered pairDen(HTTPClient& client, int port,
+                  int protocolVersion = dish::proto::kProtocolVersion) {
     return await([&](HTTPClient::PairCb cb) {
         client.pair(kLoopback, port, QStringLiteral("dev-1"), QStringLiteral("Den PC"),
-                    QStringLiteral("1234"), QString(), std::move(cb));
+                    QStringLiteral("1234"), QString(), protocolVersion, std::move(cb));
     });
 }
 
@@ -216,6 +218,39 @@ TEST_CASE("pairing wire: the transport status is stamped onto the parsed reply",
     CHECK(classifiesAs<PairingOutcome::VersionMismatch>(reply));
 }
 
+TEST_CASE("pairing wire: a pair posts the version it is told to offer", "[pairing][wire]") {
+    FakePairingListener listener;
+    REQUIRE(listener.listening());
+    HTTPClient client;
+    client.setPinVerifier(recordingVerifier(std::make_shared<VerifierLog>(), true));
+
+    pairDen(client, listener.port(), dish::proto::kProtocolVersion - 1);
+
+    REQUIRE(listener.requests().size() == 1);
+    CHECK(listener.requests().front().body.value(QStringLiteral("protocolVersion")).toInt() ==
+          dish::proto::kProtocolVersion - 1);
+}
+
+TEST_CASE("pairing wire: a 409 carries the satellite's range for the re-offer", "[pairing][wire]") {
+    FakePairingListener listener;
+    REQUIRE(listener.listening());
+    listener.respond = [](const dish::test::SeenRequest&) {
+        return PairingAnswer{409, QJsonObject{{QStringLiteral("error"),
+                                               QStringLiteral("protocol version unsupported")},
+                                              {QStringLiteral("supported"), 3},
+                                              {QStringLiteral("supportedMin"), 1}}};
+    };
+    HTTPClient client;
+    client.setPinVerifier(recordingVerifier(std::make_shared<VerifierLog>(), true));
+
+    const auto reply = pairDen(client, listener.port());
+
+    const auto arm = PairingOutcome::classify(reply.response, reply.pinMismatch);
+    REQUIRE(std::holds_alternative<PairingOutcome::VersionMismatch>(arm));
+    CHECK(std::get<PairingOutcome::VersionMismatch>(arm).supported == 3);
+    CHECK(std::get<PairingOutcome::VersionMismatch>(arm).supportedMin == 1);
+}
+
 TEST_CASE("pairing wire: the status poll percent-encodes the device id", "[pairing][wire]") {
     FakePairingListener listener;
     REQUIRE(listener.listening());
@@ -280,11 +315,11 @@ TEST_CASE("pairing wire: each client runs the verifier it was built with", "[pai
 
     const auto fromA = await([&](HTTPClient::PairCb cb) {
         a.pair(kLoopback, listener.port(), QStringLiteral("dev-a"), QStringLiteral("A"),
-               QStringLiteral("1111"), QString(), std::move(cb));
+               QStringLiteral("1111"), QString(), dish::proto::kProtocolVersion, std::move(cb));
     });
     const auto fromB = await([&](HTTPClient::PairCb cb) {
         b.pair(kLoopback, listener.port(), QStringLiteral("dev-b"), QStringLiteral("B"),
-               QStringLiteral("2222"), QString(), std::move(cb));
+               QStringLiteral("2222"), QString(), dish::proto::kProtocolVersion, std::move(cb));
     });
 
     CHECK(fromA.response.reachable);

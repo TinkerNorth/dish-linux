@@ -87,9 +87,10 @@ class HTTPClient : public QObject {
     // which answers Pending and is then polled). Both fields always ride in the
     // body, empty when unused; the server tries a valid `pin` first. It passes the
     // same pin gate as every other call here: the first pair pins the certificate,
-    // and every later call must present it.
+    // and every later call must present it. `protocolVersion` is the version to
+    // OFFER, as on putSession.
     void pair(const QString& ip, int port, const QString& deviceId, const QString& deviceName,
-              const QString& pin, const QString& clientPin, PairCb cb);
+              const QString& pin, const QString& clientPin, int protocolVersion, PairCb cb);
 
     // GET /api/pair/status?deviceId= — the Path B approval poll.
     void pairStatus(const QString& ip, int port, const QString& deviceId, PairCb cb);
