@@ -16,7 +16,7 @@ the repos share a version number.
 
 ---
 
-## [Unreleased]
+## [2.7.1] - 2026-11-19
 
 ### Fixed
 

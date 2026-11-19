@@ -105,6 +105,12 @@
   <!-- Kept in step with project(Dish VERSION ...); version-consistency.yml
        fails the PR that moves one without the other. -->
   <releases>
+    <release version="2.7.1" date="2026-11-19" type="stable">
+      <url type="details">https://github.com/TinkerNorth/dish-linux/releases/tag/2.7.1</url>
+      <description>
+        <p>A controller's microphone, speaker and haptics are promised to the satellite only when this computer will carry them. Dish told the satellite it would play a DualSense's haptics as audio whenever the controller's sound output had four channels and its speaker switch was on, but it opened the voice only once the satellite had also said it carries that direction, and never for an output the audio stack refused to open; the satellite trusted the promise and sent the haptics as audio instead of turning them into rumble, so a game's haptics went silent. The promise now follows the same rule as the voices, an output Dish cannot open is not asked for again until the controller is plugged in again or the output changes, and the satellite turns the haptics into rumble meanwhile.</p>
+      </description>
+    </release>
     <release version="2.7.0" date="2026-11-15" type="stable">
       <url type="details">https://github.com/TinkerNorth/dish-linux/releases/tag/2.7.0</url>
       <description>
