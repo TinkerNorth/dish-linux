@@ -124,6 +124,11 @@ class WifiConnectionManager : public QObject {
     void scanningChanged();
     void pairingInFlightChanged();
     void reversePairingChanged();
+    // A connection's host grant for controller audio moved: a probe said something new, or its
+    // session ended and reset it. The descriptor's audio caps are folded from the grant, so
+    // AppModel re-folds the slots bound there. Relayed per connection, as changed() is to
+    // poolChanged().
+    void hostControllerAudioChanged(const QString& id);
     // Not named `event`, which would shadow QObject::event.
     void connectionEvent(const dish::net::ConnectionEvent& evt);
     // Lets the hub roll a binding back when the server rejects a descriptor.

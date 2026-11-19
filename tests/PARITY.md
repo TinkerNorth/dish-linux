@@ -199,6 +199,16 @@ or is dropped.
 - Android's on-screen pad takes controller audio from the phone's own mic and
   speaker. A physical pad, on every client, uses only its own USB endpoints and
   refuses on ambiguity; a Bluetooth pad gets none.
+- The three audio caps are promises the host streams on alone, so every client
+  advertises one only while it will carry the direction right now: the pad's
+  route, the slot's switch, the host's grant as the client last read it, and
+  no endpoint the platform refused to open. A refused open is kept per slot,
+  lane and endpoint (`core/audio/AudioRefusal.h` here, `PadAudioRefusalStore`
+  on Android, `RefusedEndpoint` on the Mac), is not retried at that endpoint,
+  and lapses when the endpoint changes or the device departs and returns. A
+  moved grant re-sends the bound slots' descriptors; the grant is read when a
+  session opens, so a direction the host switches on reaches a connected client
+  at its next session.
 - Xbox Direct exists only on Android: xpad owns those pads here.
 - Virtual-pad skins, lightbar wash, cutout theme, Play billing, store
   screenshots: phone-only by nature.

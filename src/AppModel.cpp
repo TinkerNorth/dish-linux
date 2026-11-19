@@ -208,6 +208,10 @@ AppModel::AppModel(std::unique_ptr<source::WakeInhibitor> inhibitor, QObject* pa
     // and installRumbleHandlers is idempotent over the already-wired ones.
     QObject::connect(wifi_, &net::WifiConnectionManager::poolChanged, this,
                      &AppModel::installRumbleHandlers);
+    // Queued, as scheduleMoonlightReattach is: the re-fold is a bind, a bind
+    // rebuilds, and the grant's reset at teardown can land inside a rebuild.
+    QObject::connect(wifi_, &net::WifiConnectionManager::hostControllerAudioChanged, this,
+                     &AppModel::onHostControllerAudioChanged, Qt::QueuedConnection);
 
     autoReconnectTimer_->setInterval(15'000);
     QObject::connect(autoReconnectTimer_, &QTimer::timeout, this,
@@ -307,25 +311,20 @@ AppModel::AppModel(std::unique_ptr<source::WakeInhibitor> inhibitor, QObject* pa
         return reducer::slotCarriesFeedback(feedbackInputs(slotId), reducer::FeedbackKind::Rumble);
     });
 
-    // CAP_MIC / CAP_SPEAKER: the audio route (the matcher's answer for the
-    // slot's USB pad, on either HID path) gated by the per-binding toggle,
-    // same shape as CAP_MOTION above. The mic gate matters doubly — CAP_MIC is also what
-    // invites the MIC_LED return path, and a lamp for a microphone the user
-    // switched off would report a stream that cannot exist.
-    hub_->setMicCapabilityFn([this](const QString& slotId) {
-        return slotCarriesMicSource(slotId) && micEnabledStore_.isEnabled(slotId.toStdString());
-    });
-    hub_->setSpeakerCapabilityFn([this](const QString& slotId) {
-        return slotCarriesSpeakerSink(slotId) &&
-               speakerEnabledStore_.isEnabled(slotId.toStdString());
-    });
-    // CAP_HAPTIC_AUDIO rides the speaker toggle: the lanes are the same
-    // endpoint's, and a user who switched the pad's audio off wants the host
-    // to fall back to rumble, not to keep streaming a waveform nobody plays.
-    hub_->setHapticAudioCapabilityFn([this](const QString& slotId) {
-        return slotCarriesHapticSink(slotId) &&
-               speakerEnabledStore_.isEnabled(slotId.toStdString());
-    });
+    // CAP_MIC / CAP_SPEAKER / CAP_HAPTIC_AUDIO are promises the host streams on,
+    // or lights the mute lamp on, with no check of its own, so each is the
+    // engines' own rule (audio::audioCapAdvertised): the audio route (the
+    // matcher's answer for the slot's USB pad, on either HID path), the
+    // per-binding toggle, the host's grant on the bound connection, and no
+    // endpoint the audio stack refused. The haptic lanes ride the speaker
+    // toggle: one endpoint, one switch, and a user who switched the pad's
+    // audio off wants the host to fall back to rumble, not to keep streaming
+    // a waveform nobody plays.
+    hub_->setMicCapabilityFn([this](const QString& slotId) { return micCapAdvertised(slotId); });
+    hub_->setSpeakerCapabilityFn(
+        [this](const QString& slotId) { return speakerCapAdvertised(slotId); });
+    hub_->setHapticAudioCapabilityFn(
+        [this](const QString& slotId) { return hapticAudioCapAdvertised(slotId); });
     // CAP_EXTENDED_BUTTONS (protocol 4) is the pad's own: the model table for a
     // Direct pad, SDL's mapping for a Standard one. No user switch, like the
     // other hardware facts.
@@ -614,6 +613,13 @@ void AppModel::clearPairingTarget() {
 void AppModel::onHubChanged() {
     state_.connections = hub_->connections();
     rebuild();
+}
+
+void AppModel::onHostControllerAudioChanged(const QString& connId) {
+    const auto bindings = hub_->bindings();
+    for (auto it = bindings.cbegin(); it != bindings.cend(); ++it) {
+        if (it.value() == connId) { republishSlotCaps(it.key()); }
+    }
 }
 
 // Queued rather than run inside rebuild: the bind rebuilds the list, and a rebuild inside a
@@ -1378,6 +1384,20 @@ void AppModel::republishSlotCaps(const QString& slotId) {
     hub_->bind(slotId, bound->id);
 }
 
+void AppModel::republishSlotCapsLater(const audio::RefusedSlots& slotIds) {
+    for (const auto& slotId : slotIds) {
+        const QString id = QString::fromStdString(slotId);
+        QMetaObject::invokeMethod(
+            this, [this, id] { republishSlotCaps(id); }, Qt::QueuedConnection);
+    }
+}
+
+net::WifiConnection* AppModel::boundWifiConnection(const QString& slotId) const {
+    const QString connId = hub_->bindings().value(slotId);
+    if (connId.isEmpty()) { return nullptr; }
+    return wifi_->get(connId);
+}
+
 void AppModel::setSlotMicMuted(const QString& slotId, bool muted) {
     if (slotId.isEmpty()) { return; }
     micMuteStore_.setMuted(slotId.toStdString(), muted);
@@ -1424,15 +1444,83 @@ static bool audioIsStreaming(const net::SessionState state) {
     return state == net::SessionState::Live || state == net::SessionState::Faltering;
 }
 
+// The width a voice opens the route's endpoint at: the endpoint's own when the stack reported
+// one, so a 4-channel pad gets its stereo on the speaker pair and not spread across the
+// actuators; the wire's stereo otherwise. The refusal ledger is keyed on the same figure.
+static int playbackWidthOf(const audio::PadAudioRoute& route) {
+    return route.playbackChannels > 0 ? route.playbackChannels : proto::kAudioSpeakerChannels;
+}
+
+audio::AudioSlotFacts AppModel::micFactsFor(const QString& slotId,
+                                            const net::WifiConnection& conn) const {
+    const std::string id = slotId.toStdString();
+    audio::AudioSlotFacts mic;
+    mic.streaming = audioIsStreaming(conn.state());
+    mic.toggleOn = micEnabledStore_.isEnabled(id);
+    mic.routeMatched = slotCarriesMicSource(slotId);
+    mic.hostCarries = conn.hostMicAvailable();
+    mic.muted = micMuteStore_.isMuted(id);
+    return mic;
+}
+
+// The haptic lanes share the speaker's toggle (one endpoint, one switch) but have their own route
+// fact and their own host verdict: a host with the speaker off and haptics on still streams them.
+audio::AudioSlotFacts AppModel::speakerFactsFor(const QString& slotId,
+                                                const net::WifiConnection& conn) const {
+    audio::AudioSlotFacts speaker;
+    speaker.streaming = audioIsStreaming(conn.state());
+    speaker.toggleOn = speakerEnabledStore_.isEnabled(slotId.toStdString());
+    speaker.routeMatched = slotCarriesSpeakerSink(slotId);
+    speaker.hostCarries = conn.hostSpeakerAvailable();
+    return speaker;
+}
+
+audio::AudioSlotFacts AppModel::hapticFactsFor(const QString& slotId,
+                                               const net::WifiConnection& conn) const {
+    audio::AudioSlotFacts haptic;
+    haptic.streaming = audioIsStreaming(conn.state());
+    haptic.toggleOn = speakerEnabledStore_.isEnabled(slotId.toStdString());
+    haptic.routeMatched = slotCarriesHapticSink(slotId);
+    haptic.hostCarries = conn.hostHapticAudioAvailable();
+    return haptic;
+}
+
+// The hub folds these at bind, with the binding already published, so the bound connection is
+// the one the slot is being attached to. An unbound slot promises nothing.
+bool AppModel::micCapAdvertised(const QString& slotId) const {
+    const net::WifiConnection* conn = boundWifiConnection(slotId);
+    if (conn == nullptr) { return false; }
+    const audio::PadAudioRoute route = audioRouteForSlot(slotId);
+    const bool refused = micEngine_.captureRefused(slotId.toStdString(), route.captureDeviceName);
+    return audio::audioCapAdvertised(audio::audioCapFactsOf(micFactsFor(slotId, *conn), refused));
+}
+
+bool AppModel::speakerCapAdvertised(const QString& slotId) const {
+    const net::WifiConnection* conn = boundWifiConnection(slotId);
+    if (conn == nullptr) { return false; }
+    const audio::PadAudioRoute route = audioRouteForSlot(slotId);
+    const bool refused =
+        speakerEngine_.playbackRefused(slotId.toStdString(), source::audio::PlayoutLane::Speaker,
+                                       route.playbackDeviceName, playbackWidthOf(route));
+    return audio::audioCapAdvertised(
+        audio::audioCapFactsOf(speakerFactsFor(slotId, *conn), refused));
+}
+
+bool AppModel::hapticAudioCapAdvertised(const QString& slotId) const {
+    const net::WifiConnection* conn = boundWifiConnection(slotId);
+    if (conn == nullptr) { return false; }
+    const audio::PadAudioRoute route = audioRouteForSlot(slotId);
+    const bool refused =
+        speakerEngine_.playbackRefused(slotId.toStdString(), source::audio::PlayoutLane::Haptic,
+                                       route.playbackDeviceName, playbackWidthOf(route));
+    return audio::audioCapAdvertised(
+        audio::audioCapFactsOf(hapticFactsFor(slotId, *conn), refused));
+}
+
 void AppModel::collectMicForSlot(const models::ControllerSlot& s, net::WifiConnection& conn,
                                  const audio::PadAudioRoute& route, AudioReconcile& out) const {
     const std::string slotId = s.id.toStdString();
-    audio::AudioSlotFacts mic;
-    mic.streaming = audioIsStreaming(conn.state());
-    mic.toggleOn = micEnabledStore_.isEnabled(slotId);
-    mic.routeMatched = route.microphone;
-    mic.hostCarries = conn.hostMicAvailable();
-    mic.muted = micMuteStore_.isMuted(slotId);
+    const audio::AudioSlotFacts mic = micFactsFor(s.id, conn);
 
     // The app-wide indicator folds the same facts with mute set aside: a muted slot still has a
     // microphone the user must be able to find.
@@ -1469,38 +1557,18 @@ AppModel::speakerVoiceFor(const models::ControllerSlot& s, net::WifiConnection& 
     voice.slotId = s.id.toStdString();
     voice.playbackDeviceName = route.playbackDeviceName;
     voice.lane = lane;
-    // The endpoint's own width when the stack reported one, so a 4-channel pad gets its stereo on
-    // the speaker pair and not spread across the actuators.
-    voice.deviceChannels =
-        route.playbackChannels > 0 ? route.playbackChannels : proto::kAudioSpeakerChannels;
+    voice.deviceChannels = playbackWidthOf(route);
     return voice;
 }
 
-// The haptic lanes share the speaker's toggle (one endpoint, one switch) but have their own route
-// fact and their own host verdict: a host with the speaker off and haptics on still streams them.
 void AppModel::collectSpeakerForSlot(const models::ControllerSlot& s, net::WifiConnection& conn,
                                      const audio::PadAudioRoute& route, AudioReconcile& out) const {
-    const std::string slotId = s.id.toStdString();
-    const bool streaming = audioIsStreaming(conn.state());
-    const bool toggleOn = speakerEnabledStore_.isEnabled(slotId);
-
-    audio::AudioSlotFacts speaker;
-    speaker.streaming = streaming;
-    speaker.toggleOn = toggleOn;
-    speaker.routeMatched = route.speaker;
-    speaker.hostCarries = conn.hostSpeakerAvailable();
-    if (audio::speakerPlayoutEligible(speaker)) {
+    if (audio::speakerPlayoutEligible(speakerFactsFor(s.id, conn))) {
         if (auto voice = speakerVoiceFor(s, conn, route, source::audio::PlayoutLane::Speaker)) {
             out.speakerVoices.push_back(std::move(*voice));
         }
     }
-
-    audio::AudioSlotFacts haptic;
-    haptic.streaming = streaming;
-    haptic.toggleOn = toggleOn;
-    haptic.routeMatched = route.haptics;
-    haptic.hostCarries = conn.hostHapticAudioAvailable();
-    if (audio::speakerPlayoutEligible(haptic)) {
+    if (audio::speakerPlayoutEligible(hapticFactsFor(s.id, conn))) {
         if (auto voice = speakerVoiceFor(s, conn, route, source::audio::PlayoutLane::Haptic)) {
             out.speakerVoices.push_back(std::move(*voice));
         }
@@ -1509,12 +1577,18 @@ void AppModel::collectSpeakerForSlot(const models::ControllerSlot& s, net::WifiC
 
 // A departed device's voices and captures close first, so a replug that lands between two route
 // resolves never keeps a dead handle; then the routes re-resolve and the engines re-converge,
-// whether or not the routes read the same by name.
+// whether or not the routes read the same by name. The device's refusals leave with it, and the
+// slots that lost one re-fold AFTER the reconcile, so a device that came back and refused again is
+// on record before its descriptor is read: one PUT with the right answer, not one on and one off.
 void AppModel::onAudioDevicesChanged() {
-    speakerEngine_.closeOnDevicesAbsent(audioGateway_.playbackDeviceNames());
-    micEngine_.closeOnDevicesAbsent(audioGateway_.captureDeviceNames());
+    const audio::RefusedSlots lapsedPlayout =
+        speakerEngine_.closeOnDevicesAbsent(audioGateway_.playbackDeviceNames());
+    const audio::RefusedSlots lapsedCapture =
+        micEngine_.closeOnDevicesAbsent(audioGateway_.captureDeviceNames());
     resolveAudioRoutes();
     reconcileAudioEngines();
+    for (const auto& slotId : lapsedPlayout) { republishSlotCaps(QString::fromStdString(slotId)); }
+    for (const auto& slotId : lapsedCapture) { republishSlotCaps(QString::fromStdString(slotId)); }
 }
 
 // Any bound USB pad, Direct or Standard: the engines talk to the pad's audio endpoints, which the
@@ -1535,8 +1609,10 @@ void AppModel::reconcileAudioEngines() {
         collectSpeakerForSlot(s, *conn, route, out);
     }
 
-    micEngine_.reconcile(out.micTargets);
-    speakerEngine_.reconcile(out.speakerVoices);
+    // A refusal that appeared or lapsed moves the slot's caps, and the descriptor follows: the
+    // host turns the haptics into rumble, or stops streaming into a voice that is not there.
+    republishSlotCapsLater(micEngine_.reconcile(out.micTargets));
+    republishSlotCapsLater(speakerEngine_.reconcile(out.speakerVoices));
 
     armedMicSlotIds_ = std::move(out.armedMicSlotIds);
     capturingMicSlots_ = out.capturingMicSlots;

@@ -17,6 +17,7 @@ using dish::reducer::FeedbackKind;
 using dish::reducer::FeedbackTarget;
 using dish::reducer::resolveFeedbackTarget;
 using dish::reducer::slotCarriesFeedback;
+using dish::reducer::slotCarriesHapticPlayout;
 using dish::reducer::slotCarriesMicCapture;
 using dish::reducer::slotCarriesSpeakerPlayout;
 using dish::reducer::SlotFeedbackInputs;
@@ -259,4 +260,33 @@ TEST_CASE("the default inputs carry no audio and no lamp", "[feedback][routing][
     CHECK_FALSE(slotCarriesMicCapture(liveDirect));
     CHECK_FALSE(slotCarriesSpeakerPlayout(liveDirect));
     CHECK(resolveFeedbackTarget(liveDirect, FeedbackKind::MicLed) == FeedbackTarget::None);
+}
+
+TEST_CASE("the haptic cap needs the speaker route and the actuator lanes behind it",
+          "[feedback][routing][audio]") {
+    // The waveform plays into the speaker endpoint's third and fourth channels, so the claim
+    // needs that endpoint named AND the matcher's word that it is the 4-channel one. Like the
+    // other two audio caps, the HID path does not move it.
+    SlotFeedbackInputs in;
+    in.padSpeakerRoute = true;
+    in.padHapticRoute = true;
+    for (const bool direct : {false, true}) {
+        for (const bool live : {false, true}) {
+            in.usbDirect = direct;
+            in.directClaimLive = live;
+            INFO("direct " << direct << " live " << live);
+            CHECK(slotCarriesHapticPlayout(in));
+        }
+    }
+    // A stereo endpoint keeps its speaker and loses the lanes: the host reduces them to rumble.
+    in.padHapticRoute = false;
+    CHECK_FALSE(slotCarriesHapticPlayout(in));
+    CHECK(slotCarriesSpeakerPlayout(in));
+    // The matcher never sets the lanes without the speaker; the rule refuses the pair anyway.
+    in.padHapticRoute = true;
+    in.padSpeakerRoute = false;
+    CHECK_FALSE(slotCarriesHapticPlayout(in));
+
+    const SlotFeedbackInputs defaults;
+    CHECK_FALSE(slotCarriesHapticPlayout(defaults));
 }

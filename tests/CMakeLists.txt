@@ -234,6 +234,7 @@ set(DISH_TEST_SOURCES
     test_wifi_connection_descriptor.cpp
     test_pad_audio_matcher.cpp
     test_audio_engine_policy.cpp
+    test_audio_refusal.cpp
     test_mic_capture_engine.cpp
     test_speaker_playout_engine.cpp
     test_mic_mute_store.cpp

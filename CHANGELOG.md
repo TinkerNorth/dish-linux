@@ -16,6 +16,31 @@ the repos share a version number.
 
 ---
 
+## [Unreleased]
+
+### Fixed
+
+- **A controller's microphone, speaker and haptics are promised to the
+  satellite only when this computer will carry them.** Dish told the satellite
+  it would play a DualSense's haptics as audio whenever the controller's sound
+  output had four channels and its speaker switch was on, and the same for the
+  speaker and the microphone, but it opened the voice, or the microphone, only
+  once the satellite had also said it carries that direction, and never for an
+  endpoint the audio stack refused to open. The satellite trusts the promise:
+  for the haptics lane it sends the game's haptics as audio instead of turning
+  them into rumble, so in that gap a game's haptics went silent while every
+  screen said all was well. The promise now follows the same rule as the
+  voices: the controller's audio function, its switch, the satellite's own
+  word on the direction as Dish last read it, and an endpoint this computer
+  actually opened. An endpoint the audio stack refuses takes its lane off the
+  promise, and Dish does not ask that endpoint again, until the controller is
+  plugged in again or the endpoint changes; the satellite turns the haptics
+  into rumble meanwhile. A session's opening request carries no audio promise
+  until that session's probe has answered, so a direction the satellite
+  switched off between sessions is never promised, and one it switched on
+  reaches a connected Dish at its next session, as it did for the voices
+  before.
+
 ## [2.7.0] - 2026-11-15
 
 ### Added

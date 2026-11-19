@@ -316,6 +316,8 @@ WifiConnection* WifiConnectionManager::ensureConnection(const models::Discovered
     QObject::connect(conn, &WifiConnection::changed, this, &WifiConnectionManager::poolChanged);
     QObject::connect(conn, &WifiConnection::telemetryChanged, this,
                      &WifiConnectionManager::poolTelemetryChanged);
+    QObject::connect(conn, &WifiConnection::hostControllerAudioChanged, this,
+                     [this, id] { emit hostControllerAudioChanged(id); });
     QObject::connect(conn, &WifiConnection::errorOccurred, this,
                      [this](const QString& msg) { emit connectionEvent(makeError(msg)); });
     wireSlotSync(conn);

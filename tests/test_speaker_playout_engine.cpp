@@ -20,6 +20,7 @@
 #include <memory>
 #include <vector>
 
+using dish::audio::RefusedSlots;
 using dish::source::audio::PlayoutDispatch;
 using dish::source::audio::PlayoutLane;
 using dish::source::audio::SpeakerPlayoutEngine;
@@ -300,15 +301,92 @@ TEST_CASE("a device change reopens the voice; an unchanged one is kept", "[audio
     CHECK(h.gateway.playbackFor("spk-b") != nullptr);
 }
 
-TEST_CASE("a refused playback device leaves no voice and retries next reconcile",
-          "[audio][playout]") {
+TEST_CASE("a refused playback device is not retried on the same endpoint", "[audio][playout]") {
+    // The descriptor's cap follows this refusal, and the host streams on the strength of the cap
+    // alone: a voice asked for again on every reconcile would flap under a claim that says it
+    // plays. The endpoint is asked once, and again only when it changes or the device comes back.
+    Harness h;
+    h.gateway.refuse = {"spk"};
+    CHECK(h.engine.reconcile({Harness::voice("sat", 0, "slot", "spk")}) == RefusedSlots{"slot"});
+    CHECK_FALSE(h.engine.playingFor("slot"));
+    CHECK(h.engine.playbackRefused("slot", PlayoutLane::Speaker, "spk", 2));
+    h.gateway.refuse = {};
+    // The standing refusal is not news twice.
+    CHECK(h.engine.reconcile({Harness::voice("sat", 0, "slot", "spk")}).empty());
+    CHECK_FALSE(h.engine.playingFor("slot"));
+    CHECK(h.gateway.openPlaybackCount() == 0);
+}
+
+TEST_CASE("a fresh engine holds no refusals", "[audio][playout]") {
+    // The ledger is the engine's own, so it dies with it: a restart is a fresh attempt at every
+    // endpoint.
+    FakeAudioGateway gateway;
+    gateway.refuse = {"spk"};
+    {
+        SpeakerPlayoutEngine refusedOnce{&gateway, {}, PlayoutDispatch::Inline};
+        refusedOnce.reconcile({Harness::voice("sat", 0, "slot", "spk")});
+        CHECK(refusedOnce.playbackRefused("slot", PlayoutLane::Speaker, "spk", 2));
+    }
+    gateway.refuse = {};
+    SpeakerPlayoutEngine fresh{&gateway, {}, PlayoutDispatch::Inline};
+    CHECK_FALSE(fresh.playbackRefused("slot", PlayoutLane::Speaker, "spk", 2));
+    CHECK_FALSE(fresh.playbackRefused("slot", PlayoutLane::Haptic, "spk", 2));
+    CHECK(fresh.reconcile({Harness::voice("sat", 0, "slot", "spk")}).empty());
+    CHECK(fresh.playingFor("slot"));
+}
+
+TEST_CASE("a refused voice reopens once its endpoint name changes", "[audio][playout]") {
+    // A route that moved to another device is a new attempt: the refusal was that device's.
+    Harness h;
+    h.gateway.refuse = {"spk-a"};
+    h.engine.reconcile({Harness::voice("sat", 0, "slot", "spk-a")});
+    h.gateway.refuse = {};
+    h.engine.reconcile({Harness::voice("sat", 0, "slot", "spk-a")});
+    CHECK_FALSE(h.engine.playingFor("slot"));
+    // The open at the new device spends the old refusal, and that lapse is reported too.
+    CHECK(h.engine.reconcile({Harness::voice("sat", 0, "slot", "spk-b")}) == RefusedSlots{"slot"});
+    CHECK(h.engine.playingFor("slot"));
+    CHECK(h.gateway.playbackFor("spk-b") != nullptr);
+    CHECK_FALSE(h.engine.playbackRefused("slot", PlayoutLane::Speaker, "spk-a", 2));
+}
+
+TEST_CASE("a departed and returned device clears its refusal", "[audio][playout]") {
+    // A replugged pad enumerates afresh, so the refusal its old enumeration earned is spent.
     Harness h;
     h.gateway.refuse = {"spk"};
     h.engine.reconcile({Harness::voice("sat", 0, "slot", "spk")});
-    CHECK_FALSE(h.engine.playingFor("slot"));
     h.gateway.refuse = {};
     h.engine.reconcile({Harness::voice("sat", 0, "slot", "spk")});
+    CHECK_FALSE(h.engine.playingFor("slot"));
+    // A device still present keeps its refusal; the departure names the slot that lost one.
+    CHECK(h.engine.closeOnDevicesAbsent({"spk"}).empty());
+    CHECK(h.engine.playbackRefused("slot", PlayoutLane::Speaker, "spk", 2));
+    CHECK(h.engine.closeOnDevicesAbsent({}) == RefusedSlots{"slot"});
+    CHECK_FALSE(h.engine.playbackRefused("slot", PlayoutLane::Speaker, "spk", 2));
+    CHECK(h.engine.reconcile({Harness::voice("sat", 0, "slot", "spk")}).empty());
     CHECK(h.engine.playingFor("slot"));
+}
+
+TEST_CASE("a refusal withdraws only its own slot and lane", "[audio][playout]") {
+    // One open refused on a 4-channel pad: the lane it was for stays closed, the other lane on
+    // the same endpoint and the other slot's voice play, and the next reconcile asks for none of
+    // the refused lane again.
+    Harness h;
+    h.gateway.refuseNextOpens = 1;
+    const std::vector<SpeakerVoiceTarget> targets{
+        Harness::voice("sat", 0, "slot-a", "ds5", PlayoutLane::Speaker, 4),
+        Harness::voice("sat", 0, "slot-a", "ds5", PlayoutLane::Haptic, 4),
+        Harness::voice("sat", 1, "slot-b", "spk-b")};
+    CHECK(h.engine.reconcile(targets) == RefusedSlots{"slot-a"});
+    CHECK_FALSE(h.engine.playingFor("slot-a", PlayoutLane::Speaker));
+    CHECK(h.engine.playingFor("slot-a", PlayoutLane::Haptic));
+    CHECK(h.engine.playingFor("slot-b", PlayoutLane::Speaker));
+    CHECK(h.engine.playbackRefused("slot-a", PlayoutLane::Speaker, "ds5", 4));
+    CHECK_FALSE(h.engine.playbackRefused("slot-a", PlayoutLane::Haptic, "ds5", 4));
+    CHECK_FALSE(h.engine.playbackRefused("slot-b", PlayoutLane::Speaker, "spk-b", 2));
+    CHECK(h.engine.reconcile(targets).empty());
+    CHECK_FALSE(h.engine.playingFor("slot-a", PlayoutLane::Speaker));
+    CHECK(h.gateway.openPlaybackCount() == 2);
 }
 
 TEST_CASE("two voices on one connection route by controller index", "[audio][playout]") {
@@ -381,11 +459,16 @@ TEST_CASE("the haptic lane is its own stream on the same endpoint, written to th
 TEST_CASE("a haptic voice needs a 4-channel endpoint; a stereo one refuses it",
           "[audio][playout][haptics]") {
     Harness h;
-    h.engine.reconcile({Harness::voice("sat", 0, "slot", "ds4", PlayoutLane::Speaker, 2),
-                        Harness::voice("sat", 0, "slot", "ds4", PlayoutLane::Haptic, 2)});
+    const RefusedSlots moved =
+        h.engine.reconcile({Harness::voice("sat", 0, "slot", "ds4", PlayoutLane::Speaker, 2),
+                            Harness::voice("sat", 0, "slot", "ds4", PlayoutLane::Haptic, 2)});
     CHECK(h.gateway.openPlaybackCount() == 1);
     CHECK(h.engine.playingFor("slot", PlayoutLane::Speaker));
     CHECK_FALSE(h.engine.playingFor("slot", PlayoutLane::Haptic));
+    // Too narrow is not a refusal: the matcher already withdrew the haptic route from a stereo
+    // endpoint, so there is no cap left to take off and nothing to re-fold.
+    CHECK(moved.empty());
+    CHECK_FALSE(h.engine.playbackRefused("slot", PlayoutLane::Haptic, "ds4", 2));
     // A haptic frame for the missing voice is dropped, never decoded onto the
     // speaker stream.
     h.frame("sat", 0, 0, 0x41, PlayoutLane::Haptic);
@@ -397,6 +480,24 @@ TEST_CASE("a changed endpoint width reopens the voice", "[audio][playout][haptic
     h.engine.reconcile({Harness::voice("sat", 0, "slot", "ds5", PlayoutLane::Speaker, 2)});
     h.engine.reconcile({Harness::voice("sat", 0, "slot", "ds5", PlayoutLane::Speaker, 4)});
     CHECK(h.gateway.closes == 1);
+    auto* playback = h.gateway.playbackFor("ds5");
+    REQUIRE(playback != nullptr);
+    CHECK(playback->channels == 4);
+}
+
+TEST_CASE("a refused voice reopens once its endpoint width changes", "[audio][playout][haptics]") {
+    // The same device at another width is a re-enumerated endpoint, so the refusal at the old
+    // width is spent.
+    Harness h;
+    h.gateway.refuse = {"ds5"};
+    h.engine.reconcile({Harness::voice("sat", 0, "slot", "ds5", PlayoutLane::Speaker, 2)});
+    h.gateway.refuse = {};
+    h.engine.reconcile({Harness::voice("sat", 0, "slot", "ds5", PlayoutLane::Speaker, 2)});
+    CHECK_FALSE(h.engine.playingFor("slot"));
+    CHECK(h.engine.playbackRefused("slot", PlayoutLane::Speaker, "ds5", 2));
+    CHECK_FALSE(h.engine.playbackRefused("slot", PlayoutLane::Speaker, "ds5", 4));
+    h.engine.reconcile({Harness::voice("sat", 0, "slot", "ds5", PlayoutLane::Speaker, 4)});
+    CHECK(h.engine.playingFor("slot"));
     auto* playback = h.gateway.playbackFor("ds5");
     REQUIRE(playback != nullptr);
     CHECK(playback->channels == 4);

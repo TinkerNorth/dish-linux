@@ -39,6 +39,17 @@ constexpr std::size_t frameBytesFor(int channels) {
            static_cast<std::size_t>(channels) * sizeof(std::int16_t);
 }
 
+// The ledger's lane for a voice's: the microphone is never a voice.
+constexpr dish::audio::AudioLane ledgerLaneOf(PlayoutLane lane) {
+    switch (lane) {
+    case PlayoutLane::Speaker:
+        return dish::audio::AudioLane::Speaker;
+    case PlayoutLane::Haptic:
+        return dish::audio::AudioLane::Haptic;
+    }
+    return dish::audio::AudioLane::Speaker;
+}
+
 } // namespace
 
 SpeakerPlayoutEngine::SpeakerPlayoutEngine(AudioDeviceGateway* gateway,
@@ -62,7 +73,7 @@ SpeakerPlayoutEngine::~SpeakerPlayoutEngine() {
     wake_.notify();
     if (worker_.joinable()) { worker_.join(); }
     try {
-        reconcile({});
+        closeEverything();
     } catch (const std::exception& e) {
         // Same rule as the capture engine: nowhere to report a teardown
         // failure, and the handles die with the process anyway; logged so a
@@ -94,13 +105,18 @@ void SpeakerPlayoutEngine::closeDepartedLocked(const std::vector<SpeakerVoiceTar
     }
 }
 
-void SpeakerPlayoutEngine::openMissingLocked(const std::vector<SpeakerVoiceTarget>& targets) {
+void SpeakerPlayoutEngine::openMissingLocked(const std::vector<SpeakerVoiceTarget>& targets,
+                                             dish::audio::RefusedSlots& moved) {
     for (const auto& t : targets) {
         if (t.connectionId.empty() || t.playbackDeviceName.empty()) { continue; }
-        // A lane needs at least its own pair to exist at the offset it writes.
+        // A lane needs at least its own pair to exist at the offset it writes. Not a refusal: the
+        // matcher withdraws the haptic route from a stereo endpoint, so the cap is off already.
         if (t.deviceChannels < laneOffset(t.lane) + proto::kAudioSpeakerChannels) { continue; }
         const VoiceKey key{t.connectionId, t.controllerIndex, t.lane};
         if (voices_.find(key) != voices_.end()) { continue; }
+        const dish::audio::AudioLane lane = ledgerLaneOf(t.lane);
+        const dish::audio::AudioEndpoint endpoint{t.playbackDeviceName, t.deviceChannels};
+        if (refusals_.stands(t.slotId, lane, endpoint)) { continue; }
 
         auto voice = std::make_unique<Voice>();
         voice->slotId = t.slotId;
@@ -110,23 +126,32 @@ void SpeakerPlayoutEngine::openMissingLocked(const std::vector<SpeakerVoiceTarge
         voice->decoder = decoderFactory_();
         if (voice->decoder == nullptr) { continue; } // no codec, no voice
         voice->handle = gateway_->openPlayback(t.playbackDeviceName, t.deviceChannels);
-        if (voice->handle == kNoAudioDevice) { continue; }
+        if (voice->handle == kNoAudioDevice) {
+            if (refusals_.record(t.slotId, lane, endpoint)) { moved.insert(t.slotId); }
+            continue;
+        }
+        // An open at another endpoint spends the refusal the old one earned.
+        if (refusals_.lift(t.slotId, lane)) { moved.insert(t.slotId); }
         voices_.emplace(key, std::move(voice));
     }
 }
 
-void SpeakerPlayoutEngine::reconcile(const std::vector<SpeakerVoiceTarget>& targets) {
-    if (gateway_ == nullptr) { return; }
+dish::audio::RefusedSlots
+SpeakerPlayoutEngine::reconcile(const std::vector<SpeakerVoiceTarget>& targets) {
+    dish::audio::RefusedSlots moved;
+    if (gateway_ == nullptr) { return moved; }
     std::lock_guard<thread::TrackedMutex> lock(mtx_);
     // Narrowing before widening, the same order the capture engine uses, so a voice that moved
     // endpoints is never open on two devices at once.
     closeDepartedLocked(targets);
-    openMissingLocked(targets);
+    openMissingLocked(targets, moved);
+    return moved;
 }
 
 // The platform dropped a device: every voice on it closes, so the next reconcile reopens on the
 // fresh handle rather than keeping the dead one a same-named replug would hide.
-void SpeakerPlayoutEngine::closeOnDevicesAbsent(const std::vector<std::string>& presentDevices) {
+dish::audio::RefusedSlots
+SpeakerPlayoutEngine::closeOnDevicesAbsent(const std::vector<std::string>& presentDevices) {
     std::lock_guard<thread::TrackedMutex> lock(mtx_);
     for (auto it = voices_.begin(); it != voices_.end();) {
         const bool present = std::find(presentDevices.begin(), presentDevices.end(),
@@ -138,6 +163,13 @@ void SpeakerPlayoutEngine::closeOnDevicesAbsent(const std::vector<std::string>& 
         closeLocked(*it->second);
         it = voices_.erase(it);
     }
+    return refusals_.pruneAbsent(presentDevices);
+}
+
+void SpeakerPlayoutEngine::closeEverything() {
+    std::lock_guard<thread::TrackedMutex> lock(mtx_);
+    for (auto& [key, voice] : voices_) { closeLocked(*voice); }
+    voices_.clear();
 }
 
 // The receive thread's half: copy the frame onto the playout thread and return. The queue is
@@ -281,6 +313,12 @@ bool SpeakerPlayoutEngine::playingFor(const std::string& slotId, PlayoutLane lan
         if (voice->slotId == slotId && voice->lane == lane) { return true; }
     }
     return false;
+}
+
+bool SpeakerPlayoutEngine::playbackRefused(const std::string& slotId, PlayoutLane lane,
+                                           const std::string& deviceName, int channels) const {
+    const dish::audio::AudioEndpoint endpoint{deviceName, channels};
+    return refusals_.stands(slotId, ledgerLaneOf(lane), endpoint);
 }
 
 void SpeakerPlayoutEngine::closeLocked(Voice& voice) {

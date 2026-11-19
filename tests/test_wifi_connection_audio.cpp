@@ -4,13 +4,15 @@
 // The connection-level half of controller audio: the descriptor's audio caps
 // ride the attach facts (and default to ABSENT, which is the whole Wave-1
 // posture), and the host's probed verdict is per-session state that resets with
-// the session it was probed for.
+// the session it was probed for and says so when it moves, since the caps are
+// folded from it.
 
 #include "Network/WifiConnection.h"
 #include "core/model/Protocol.h"
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <QObject>
 #include <QString>
 
 using dish::net::WifiConnection;
@@ -25,6 +27,14 @@ dish::models::DiscoveredServer server() {
     s.name = QStringLiteral("Sat");
     return s;
 }
+
+// QSignalSpy stand-in: DishTests links Catch2, not Qt6::Test.
+struct SignalCounter {
+    int count = 0;
+    template <class Sender, class Signal> SignalCounter(Sender* s, Signal sig) {
+        QObject::connect(s, sig, [this] { ++count; });
+    }
+};
 
 } // namespace
 
@@ -106,4 +116,33 @@ TEST_CASE("the host audio verdict defaults conservative and resets with the sess
     CHECK_FALSE(conn.hostMicAvailable());
     CHECK_FALSE(conn.hostSpeakerAvailable());
     CHECK_FALSE(conn.hostHapticAudioAvailable());
+}
+
+TEST_CASE("a host grant that moves signals once; one that does not move is silent",
+          "[wifi][audio]") {
+    // The descriptor's audio caps are folded from the grant, so a move has to re-fold the slots
+    // bound here. The probe lands after every session PUT and mostly repeats itself, and a word
+    // that changes nothing must not re-PUT every controller.
+    WifiConnection conn(QStringLiteral("mid:m1"), server());
+    SignalCounter moved(&conn, &WifiConnection::hostControllerAudioChanged);
+
+    conn.setHostControllerAudio(/*mic=*/true, /*speaker=*/true, /*hapticAudio=*/true);
+    CHECK(moved.count == 1);
+    conn.setHostControllerAudio(true, true, true);
+    CHECK(moved.count == 1);
+    conn.setHostControllerAudio(/*mic=*/true, /*speaker=*/false, /*hapticAudio=*/true);
+    CHECK(moved.count == 2);
+
+    // The reset with the session is a move too: a cap the host withdrew between sessions must
+    // not ride the next session's opening PUT, so the bound slots re-fold now, not at the probe.
+    conn.markConnecting();
+    conn.markDisconnected();
+    CHECK(moved.count == 3);
+    CHECK_FALSE(conn.hostMicAvailable());
+    CHECK_FALSE(conn.hostHapticAudioAvailable());
+
+    // A session that never had a grant has nothing to reset.
+    conn.markConnecting();
+    conn.markDisconnected();
+    CHECK(moved.count == 3);
 }

@@ -18,6 +18,7 @@
 #include <memory>
 #include <vector>
 
+using dish::audio::RefusedSlots;
 using dish::source::audio::MicCaptureEngine;
 using dish::source::audio::MicCaptureTarget;
 using dish::test::FakeAudioGateway;
@@ -206,17 +207,90 @@ TEST_CASE("a departed device closes its capture and a reconcile reopens it", "[a
     CHECK(h.engine.capturingFor("slot"));
 }
 
-TEST_CASE("a refused device leaves no session and the next reconcile retries",
-          "[audio][micengine]") {
+TEST_CASE("a refused device is not retried on the same endpoint", "[audio][micengine]") {
+    // CAP_MIC follows this refusal, and the host lights the lamp and expects the stream on the
+    // strength of the cap alone: a microphone asked for again on every reconcile would flap under
+    // a claim that says it captures. The endpoint is asked once, and again only when it changes
+    // or the device comes back.
+    Harness h;
+    h.gateway.refuse = {"mic"};
+    CHECK(h.engine.reconcile({h.target("slot", "mic")}) == RefusedSlots{"slot"});
+    CHECK_FALSE(h.engine.capturingFor("slot"));
+    CHECK(h.gateway.openCaptureCount() == 0);
+    CHECK(h.engine.captureRefused("slot", "mic"));
+
+    h.gateway.refuse = {};
+    // The standing refusal is not news twice.
+    CHECK(h.engine.reconcile({h.target("slot", "mic")}).empty());
+    CHECK_FALSE(h.engine.capturingFor("slot"));
+    CHECK(h.gateway.openCaptureCount() == 0);
+}
+
+TEST_CASE("a fresh engine holds no refusals", "[audio][micengine]") {
+    // The ledger is the engine's own, so it dies with it: a restart is a fresh attempt.
+    FakeAudioGateway gateway;
+    gateway.refuse = {"mic"};
+    MicCaptureTarget t;
+    t.slotId = "slot";
+    t.captureDeviceName = "mic";
+    t.send = [](std::uint16_t, const std::uint8_t*, std::size_t) { return true; };
+    {
+        MicCaptureEngine refusedOnce{&gateway};
+        refusedOnce.reconcile({t});
+        CHECK(refusedOnce.captureRefused("slot", "mic"));
+    }
+    gateway.refuse = {};
+    MicCaptureEngine fresh{&gateway};
+    CHECK_FALSE(fresh.captureRefused("slot", "mic"));
+    CHECK(fresh.reconcile({t}).empty());
+    CHECK(fresh.capturingFor("slot"));
+}
+
+TEST_CASE("a refused microphone reopens once its endpoint name changes", "[audio][micengine]") {
+    Harness h;
+    h.gateway.refuse = {"mic-a"};
+    h.engine.reconcile({h.target("slot", "mic-a")});
+    h.gateway.refuse = {};
+    h.engine.reconcile({h.target("slot", "mic-a")});
+    CHECK_FALSE(h.engine.capturingFor("slot"));
+    // The open at the new device spends the old refusal, and that lapse is reported too.
+    CHECK(h.engine.reconcile({h.target("slot", "mic-b")}) == RefusedSlots{"slot"});
+    CHECK(h.engine.capturingFor("slot"));
+    CHECK(h.gateway.captureFor("mic-b") != nullptr);
+    CHECK_FALSE(h.engine.captureRefused("slot", "mic-a"));
+}
+
+TEST_CASE("a departed and returned microphone clears its refusal", "[audio][micengine]") {
+    // A replugged pad enumerates afresh, so the refusal its old enumeration earned is spent.
     Harness h;
     h.gateway.refuse = {"mic"};
     h.engine.reconcile({h.target("slot", "mic")});
-    CHECK_FALSE(h.engine.capturingFor("slot"));
-    CHECK(h.gateway.openCaptureCount() == 0);
-
     h.gateway.refuse = {};
     h.engine.reconcile({h.target("slot", "mic")});
+    CHECK_FALSE(h.engine.capturingFor("slot"));
+    // A device still present keeps its refusal; the departure names the slot that lost one.
+    CHECK(h.engine.closeOnDevicesAbsent({"mic"}).empty());
+    CHECK(h.engine.captureRefused("slot", "mic"));
+    CHECK(h.engine.closeOnDevicesAbsent({}) == RefusedSlots{"slot"});
+    CHECK_FALSE(h.engine.captureRefused("slot", "mic"));
+    CHECK(h.engine.reconcile({h.target("slot", "mic")}).empty());
     CHECK(h.engine.capturingFor("slot"));
+}
+
+TEST_CASE("a refused microphone withdraws only its own slot", "[audio][micengine]") {
+    Harness h;
+    h.gateway.refuse = {"mic-a"};
+    CHECK(h.engine.reconcile({h.target("a", "mic-a"), h.target("b", "mic-b")}) ==
+          RefusedSlots{"a"});
+    CHECK_FALSE(h.engine.capturingFor("a"));
+    CHECK(h.engine.capturingFor("b"));
+    CHECK(h.engine.captureRefused("a", "mic-a"));
+    CHECK_FALSE(h.engine.captureRefused("b", "mic-b"));
+    h.gateway.refuse = {};
+    h.engine.reconcile({h.target("a", "mic-a"), h.target("b", "mic-b")});
+    CHECK_FALSE(h.engine.capturingFor("a"));
+    CHECK(h.engine.capturingFor("b"));
+    CHECK(h.gateway.openCaptureCount() == 1);
 }
 
 TEST_CASE("two targets capture from their own devices independently", "[audio][micengine]") {

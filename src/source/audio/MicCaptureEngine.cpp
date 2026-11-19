@@ -15,7 +15,15 @@
 namespace dish::source::audio {
 
 namespace {
+
 Q_LOGGING_CATEGORY(lcDishAudio, "dish.audio")
+
+// A capture opens at the wire's own width, so the endpoint a refusal is keyed on is the device
+// alone.
+dish::audio::AudioEndpoint captureEndpointOf(const std::string& captureDeviceName) {
+    return dish::audio::AudioEndpoint{captureDeviceName, proto::kAudioMicChannels};
+}
+
 } // namespace
 
 MicCaptureEngine::MicCaptureEngine(AudioDeviceGateway* gateway, EncoderFactory encoderFactory)
@@ -30,7 +38,7 @@ MicCaptureEngine::MicCaptureEngine(AudioDeviceGateway* gateway, EncoderFactory e
 
 MicCaptureEngine::~MicCaptureEngine() {
     try {
-        reconcile({});
+        closeEverything();
     } catch (const std::exception& e) {
         // A teardown IO failure has nowhere to go: the devices are closing with
         // the process either way, and a throwing destructor terminates. It is
@@ -84,7 +92,8 @@ void MicCaptureEngine::closeDeparted(const std::vector<MicCaptureTarget>& target
     }
 }
 
-void MicCaptureEngine::closeOnDevicesAbsent(const std::vector<std::string>& presentDevices) {
+dish::audio::RefusedSlots
+MicCaptureEngine::closeOnDevicesAbsent(const std::vector<std::string>& presentDevices) {
     for (auto it = entries_.begin(); it != entries_.end();) {
         const bool present = std::find(presentDevices.begin(), presentDevices.end(),
                                        it->second.deviceName) != presentDevices.end();
@@ -95,12 +104,21 @@ void MicCaptureEngine::closeOnDevicesAbsent(const std::vector<std::string>& pres
         close(it->first, it->second);
         it = entries_.erase(it);
     }
+    return refusals_.pruneAbsent(presentDevices);
 }
 
-void MicCaptureEngine::openMissing(const std::vector<MicCaptureTarget>& targets) {
+void MicCaptureEngine::closeEverything() {
+    for (auto& [slotId, entry] : entries_) { close(slotId, entry); }
+    entries_.clear();
+}
+
+void MicCaptureEngine::openMissing(const std::vector<MicCaptureTarget>& targets,
+                                   dish::audio::RefusedSlots& moved) {
     for (const auto& t : targets) {
         if (t.slotId.empty() || t.captureDeviceName.empty() || !t.send) { continue; }
         if (entries_.find(t.slotId) != entries_.end()) { continue; }
+        const dish::audio::AudioEndpoint endpoint = captureEndpointOf(t.captureDeviceName);
+        if (refusals_.stands(t.slotId, dish::audio::AudioLane::Mic, endpoint)) { continue; }
 
         auto session = std::make_shared<Session>();
         session->encoder = encoderFactory_();
@@ -114,21 +132,37 @@ void MicCaptureEngine::openMissing(const std::vector<MicCaptureTarget>& targets)
         entry.deviceName = t.captureDeviceName;
         entry.session = session;
         entry.handle = gateway_->openCapture(t.captureDeviceName, WindowPublisher{session});
-        if (entry.handle == kNoAudioDevice) { continue; }
+        if (entry.handle == kNoAudioDevice) {
+            if (refusals_.record(t.slotId, dish::audio::AudioLane::Mic, endpoint)) {
+                moved.insert(t.slotId);
+            }
+            continue;
+        }
+        // An open at another device spends the refusal the old one earned.
+        if (refusals_.lift(t.slotId, dish::audio::AudioLane::Mic)) { moved.insert(t.slotId); }
         entries_.emplace(t.slotId, std::move(entry));
     }
 }
 
-void MicCaptureEngine::reconcile(const std::vector<MicCaptureTarget>& targets) {
-    if (gateway_ == nullptr) { return; }
+dish::audio::RefusedSlots
+MicCaptureEngine::reconcile(const std::vector<MicCaptureTarget>& targets) {
+    dish::audio::RefusedSlots moved;
+    if (gateway_ == nullptr) { return moved; }
     // Narrowing before widening, so a slot that moved endpoints is never captured from two
     // devices at once.
     closeDeparted(targets);
-    openMissing(targets);
+    openMissing(targets, moved);
+    return moved;
 }
 
 bool MicCaptureEngine::capturingFor(const std::string& slotId) const {
     return entries_.find(slotId) != entries_.end();
+}
+
+bool MicCaptureEngine::captureRefused(const std::string& slotId,
+                                      const std::string& captureDeviceName) const {
+    return refusals_.stands(slotId, dish::audio::AudioLane::Mic,
+                            captureEndpointOf(captureDeviceName));
 }
 
 void MicCaptureEngine::close(const std::string& slotId, Entry& entry) {
