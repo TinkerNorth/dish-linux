@@ -1528,6 +1528,14 @@
         <translation>Dijagnostika</translation>
     </message>
     <message>
+        <source>Your mail app has the message. Nothing is sent until you press Send.</source>
+        <translation>Vaša aplikacija za poštu ima poruku. Ništa se ne šalje dok ne pritisnete Pošalji.</translation>
+    </message>
+    <message>
+        <source>Your mail app opened without the file: attach the one the file manager shows.</source>
+        <translation>Vaša aplikacija za poštu se otvorila bez datoteke: priložite onu koju prikazuje upravitelj datoteka.</translation>
+    </message>
+    <message>
         <source>Controller inspector</source>
         <translation>Inspektor kontrolera</translation>
     </message>
@@ -1840,6 +1848,174 @@
         <translation>Dodirna ploča prema hostu</translation>
     </message>
     <message>
+        <source>Verified</source>
+        <translation>Provjereno</translation>
+    </message>
+    <message>
+        <source>Flagged</source>
+        <translation>Označeno</translation>
+    </message>
+    <message>
+        <source>Layout guessed</source>
+        <translation>Raspored pogođen</translation>
+    </message>
+    <message>
+        <source>No record for this controller</source>
+        <translation>Nema zapisa za ovaj kontroler</translation>
+    </message>
+    <message>
+        <source>%1 (name and notes only on this PC)</source>
+        <translation>%1 (samo ime i napomene na ovom računaru)</translation>
+    </message>
+    <message>
+        <source>nothing written yet</source>
+        <translation>još ništa nije upisano</translation>
+    </message>
+    <message>
+        <source>sent · report %1 · %2</source>
+        <translation>poslano · izvještaj %1 · %2</translation>
+    </message>
+    <message>
+        <source>no error code</source>
+        <translation>nema koda greške</translation>
+    </message>
+    <message>
+        <source>failed · report %1 · %2 · %3</source>
+        <translation>neuspjelo · izvještaj %1 · %2 · %3</translation>
+    </message>
+    <message>
+        <source>weak rumble</source>
+        <translation>slaba vibracija</translation>
+    </message>
+    <message>
+        <source>strong rumble</source>
+        <translation>jaka vibracija</translation>
+    </message>
+    <message>
+        <source>both motors</source>
+        <translation>oba motora</translation>
+    </message>
+    <message>
+        <source>felt</source>
+        <translation>osjećeno</translation>
+    </message>
+    <message>
+        <source>not felt</source>
+        <translation>nije osjećeno</translation>
+    </message>
+    <message>
+        <source>%1 · %2 · %3</source>
+        <translation>%1 · %2 · %3</translation>
+    </message>
+    <message>
+        <source>Record</source>
+        <translation>Zapis</translation>
+    </message>
+    <message>
+        <source>as the record expects</source>
+        <translation>kako zapis očekuje</translation>
+    </message>
+    <message>
+        <source>Hardware check</source>
+        <translation>Provjera hardvera</translation>
+    </message>
+    <message>
+        <source>Last write</source>
+        <translation>Posljednji upis</translation>
+    </message>
+    <message>
+        <source>Last test</source>
+        <translation>Posljednji test</translation>
+    </message>
+    <message>
+        <source>up to date</source>
+        <translation>ažurno</translation>
+    </message>
+    <message>
+        <source>updated</source>
+        <translation>ažurirano</translation>
+    </message>
+    <message>
+        <source>could not reach dish.tinkernorth.com</source>
+        <translation>dish.tinkernorth.com nije dostupan</translation>
+    </message>
+    <message>
+        <source>the download did not verify</source>
+        <translation>preuzimanje nije prošlo provjeru</translation>
+    </message>
+    <message>
+        <source>checks are off</source>
+        <translation>provjere su isključene</translation>
+    </message>
+    <message>
+        <source>%1 · downloaded</source>
+        <translation>%1 · preuzeto</translation>
+    </message>
+    <message>
+        <source>%1 · bundled</source>
+        <translation>%1 · ugrađeno</translation>
+    </message>
+    <message>
+        <source>%1 · %2</source>
+        <translation>%1 · %2</translation>
+    </message>
+    <message>
+        <source>never</source>
+        <translation>nikada</translation>
+    </message>
+    <message>
+        <source>In use</source>
+        <translation>U upotrebi</translation>
+    </message>
+    <message>
+        <source>Bundled</source>
+        <translation>Ugrađeno</translation>
+    </message>
+    <message>
+        <source>Last check</source>
+        <translation>Posljednja provjera</translation>
+    </message>
+    <message>
+        <source>checking…</source>
+        <translation>provjera…</translation>
+    </message>
+    <message>
+        <source>Dish %1 on %2</source>
+        <translation>Dish %1 na %2</translation>
+    </message>
+    <message>
+        <source>Controller database: %1</source>
+        <translation>Baza kontrolera: %1</translation>
+    </message>
+    <message>
+        <source>no record</source>
+        <translation>nema zapisa</translation>
+    </message>
+    <message>
+        <source>%1: %2 · %3</source>
+        <translation>%1: %2 · %3</translation>
+    </message>
+    <message>
+        <source>Host %1: %2</source>
+        <translation>Host %1: %2</translation>
+    </message>
+    <message>
+        <source>The file holds this page and its log, never pairing keys, fingerprints, IP addresses, Wi-Fi names or PC names.</source>
+        <translation>Datoteka sadrži ovu stranicu i njen dnevnik, nikada ključeve uparivanja, otiske, IP adrese, nazive Wi-Fi mreža ni nazive računara.</translation>
+    </message>
+    <message>
+        <source>The diagnostics file could not be written, or a mail from the last one is still open.</source>
+        <translation>Datoteka dijagnostike nije mogla biti upisana ili je pošta od prošlog puta još otvorena.</translation>
+    </message>
+    <message>
+        <source>Diagnostics saved. The file manager shows its folder.</source>
+        <translation>Dijagnostika je sačuvana. Upravitelj datoteka prikazuje njenu mapu.</translation>
+    </message>
+    <message>
+        <source>The diagnostics file could not be written.</source>
+        <translation>Datoteka dijagnostike nije mogla biti upisana.</translation>
+    </message>
+    <message>
         <source>Not available</source>
         <translation>Nije dostupan</translation>
     </message>
@@ -1914,6 +2090,34 @@
     <message>
         <source>Inspect input</source>
         <translation>Pregledaj unos</translation>
+    </message>
+    <message>
+        <source>Controller database</source>
+        <translation>Baza kontrolera</translation>
+    </message>
+    <message>
+        <source>Check now</source>
+        <translation>Provjeri sada</translation>
+    </message>
+    <message>
+        <source>Automatic controller checks are off in Settings, so Dish sends no request for the list.</source>
+        <translation>Automatske provjere kontrolera su isključene u Postavkama, pa Dish ne šalje nikakav zahtjev za listu.</translation>
+    </message>
+    <message>
+        <source>Send to support</source>
+        <translation>Pošalji podršci</translation>
+    </message>
+    <message>
+        <source>Email diagnostics saves a file of what this page shows and opens your own mail app addressed to support@tinkernorth.com, with the file attached. Nothing is sent until you press Send.</source>
+        <translation>Pošalji dijagnostiku e-poštom sprema datoteku s onim što ova stranica prikazuje i otvara vašu aplikaciju za poštu s adresom support@tinkernorth.com i priloženom datotekom. Ništa se ne šalje dok ne pritisnete Pošalji.</translation>
+    </message>
+    <message>
+        <source>Email diagnostics</source>
+        <translation>Pošalji dijagnostiku e-poštom</translation>
+    </message>
+    <message>
+        <source>Save diagnostics</source>
+        <translation>Sačuvaj dijagnostiku</translation>
     </message>
     <message>
         <source>Radios</source>
@@ -2471,6 +2675,18 @@
         <translation>Inspektor kontrolera</translation>
     </message>
     <message>
+        <source>felt</source>
+        <translation>osjećeno</translation>
+    </message>
+    <message>
+        <source>not felt</source>
+        <translation>nije osjećeno</translation>
+    </message>
+    <message>
+        <source>Last test: %1 · %2 · %3</source>
+        <translation>Posljednji test: %1 · %2 · %3</translation>
+    </message>
+    <message>
         <source>%1%</source>
         <translation>%1 %</translation>
     </message>
@@ -2677,6 +2893,18 @@
     <message>
         <source>This controller has no rumble motors on the path it is on now.</source>
         <translation>Ovaj kontroler nema motore za vibraciju na putu na kojem je sada.</translation>
+    </message>
+    <message>
+        <source>Did it work?</source>
+        <translation>Je li radilo?</translation>
+    </message>
+    <message>
+        <source>Yes</source>
+        <translation>Da</translation>
+    </message>
+    <message>
+        <source>No</source>
+        <translation>Ne</translation>
     </message>
     <message>
         <source>Weak</source>
@@ -3796,6 +4024,14 @@
         <translation>Podatke o izdanju nije bilo moguće obraditi. Dish će pokušati ponovo automatski.</translation>
     </message>
     <message>
+        <source>Checking for controller updates…</source>
+        <translation>Provjera ažuriranja kontrolera…</translation>
+    </message>
+    <message>
+        <source>Controller list v%1 · last checked %2</source>
+        <translation>Lista kontrolera v%1 · posljednja provjera %2</translation>
+    </message>
+    <message>
         <source>Setup &amp; help</source>
         <translation>Postavljanje i pomoć</translation>
     </message>
@@ -3898,6 +4134,18 @@
     <message>
         <source>Open release page</source>
         <translation>Otvori stranicu izdanja</translation>
+    </message>
+    <message>
+        <source>Check for controller updates automatically</source>
+        <translation>Automatski provjeravaj ažuriranja kontrolera</translation>
+    </message>
+    <message>
+        <source>Ten seconds after it starts and every six hours, Dish asks dish.tinkernorth.com for a newer list of the controllers it recognises. The request carries no identifier; with this off, none is sent. See the privacy policy for details.</source>
+        <translation>Deset sekundi nakon pokretanja i svakih šest sati Dish pita dish.tinkernorth.com za noviju listu kontrolera koje prepoznaje. Zahtjev ne nosi nikakav identifikator; kada je ovo isključeno, ne šalje se nijedan. Detalji su u politici privatnosti.</translation>
+    </message>
+    <message>
+        <source>Check now</source>
+        <translation>Provjeri sada</translation>
     </message>
     <message>
         <source>About</source>

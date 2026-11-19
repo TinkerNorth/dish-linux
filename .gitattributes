@@ -1,0 +1,5 @@
+# The controller database is vendored byte for byte from dish.tinkernorth.com and checked against
+# the SHA-256 in its own manifest at every load: a checkout that normalised its line endings would
+# ship an app that refuses its bundled copy. Never normalised, never diffed as source.
+assets/controllers/** -text
+assets/controllers/** linguist-vendored=true

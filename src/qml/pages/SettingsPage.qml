@@ -67,6 +67,17 @@ Kit.Page {
         return Qt.formatDateTime(checked, Locale.ShortFormat);
     }
 
+    // ── Controller database ──────────────────────────────────────────────────
+    readonly property string controllerDbText: {
+        const db = App.controllerDb;
+        if (db.checking)
+            return qsTr("Checking for controller updates…");
+        const checked = db.lastCheckAtMs > 0
+            ? Qt.formatDateTime(new Date(db.lastCheckAtMs), Locale.ShortFormat)
+            : qsTr("never");
+        return qsTr("Controller list v%1 · last checked %2").arg(db.activeVersion).arg(checked);
+    }
+
     // var-typed: `shellApi` is a dynamic property, resolved at runtime.
     readonly property var shellView: StackView.view
     readonly property var shellApi: settingsPage.shellView ? settingsPage.shellView.shellApi : null
@@ -484,6 +495,40 @@ Kit.Page {
                             description: qsTr("Dish asks GitHub for the newest release at startup and every few hours. Only a standard web request is sent; see the privacy policy for details.")
                             checked: App.updateChecksEnabled
                             onToggled: (checked) => App.setUpdateChecksEnabled(checked)
+                        }
+                    }
+                }
+
+                Kit.Card {
+                    Layout.fillWidth: true
+                    contentItem: ColumnLayout {
+                        spacing: Tokens.s6
+
+                        Kit.LabeledSwitch {
+                            Layout.fillWidth: true
+                            label: qsTr("Check for controller updates automatically")
+                            description: qsTr("Ten seconds after it starts and every six hours, Dish asks dish.tinkernorth.com for a newer list of the controllers it recognises. The request carries no identifier; with this off, none is sent. See the privacy policy for details.")
+                            checked: App.controllerDbChecksEnabled
+                            onToggled: (checked) => App.setControllerDbChecksEnabled(checked)
+                        }
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: Tokens.s4
+
+                            Kit.OutlineButton {
+                                size: Kit.DishButton.Small
+                                text: qsTr("Check now")
+                                enabled: App.controllerDbChecksEnabled && !App.controllerDb.checking
+                                onClicked: App.checkControllerDbNow()
+                            }
+                            Label {
+                                Layout.fillWidth: true
+                                text: settingsPage.controllerDbText
+                                color: Theme.muted
+                                font.family: Tokens.monoFamily
+                                font.pixelSize: Tokens.textMeta
+                                wrapMode: Text.WordWrap
+                            }
                         }
                     }
                 }

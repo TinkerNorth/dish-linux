@@ -11,6 +11,12 @@
 #include "Input/GamepadInputProcessor.h"
 #include "composer/CatalogComposer.h"
 #include "composer/ConnectionsComposer.h"
+#include "composer/DiagnosticsBundle.h"
+#include "core/controllerdb/AttachedRecords.h"
+#include "core/controllerdb/ControllerCatalog.h"
+#include "core/controllerdb/IssueMatch.h"
+#include "core/diagnostics/PadTestOutcomes.h"
+#include "core/diagnostics/WriteVerdict.h"
 #include "core/input/StickHealth.h"
 #include "core/reducer/DiagnosticsLog.h"
 #include "core/reducer/FeedbackBench.h"
@@ -18,6 +24,7 @@
 #include "core/reducer/LatencyWindow.h"
 #include "core/reducer/ProtocolNegotiation.h"
 #include "core/reducer/SessionDiagnostics.h"
+#include "source/controllerdb/ControllerDbStore.h"
 
 #include <QString>
 #include <QVariantList>
@@ -25,6 +32,7 @@
 
 #include <cstdint>
 #include <optional>
+#include <string>
 #include <vector>
 
 namespace dish::net {
@@ -111,5 +119,37 @@ std::optional<reducer::BuzzMotor> buzzMotorFrom(const QString& token);
 
 // Oldest first, the order the recorder wrote them.
 QVariantList diagnosticsLogRows(const std::vector<reducer::DiagnosticsEvent>& events);
+
+// ── The controller database and the levels of Diagnostics ──────────────────
+
+// { bundledVersion, activeVersion, source, lastCheckAtMs, lastCheckResult, checking }. `source` is
+// `bundled` / `cache`; `lastCheckAtMs` is 0 and `lastCheckResult` "" before any check, else a
+// result token (`upToDate` / `updated` / `offline` / `invalid` / `off`).
+QVariantMap controllerDbRow(const source::controllerdb::ControllerDbStatus& status);
+
+// {} before the pad was written, else { route, reportId, ok, err, atMs }: `route`
+// `interruptOut` / `setReport`, `reportId` two hex digits, `err` a winerror.h name or "".
+QVariantMap writeVerdictRow(const std::optional<diagnostics::WriteVerdict>& verdict);
+
+// {} before any test, else { test, result, atMs }: `test` `rumble.weak` / `rumble.strong` /
+// `rumble.both`, `result` `worked` / `didNotWork`.
+QVariantMap testOutcomeRow(const std::optional<diagnostics::TestOutcome>& outcome);
+
+struct RecordCardInputs {
+    std::optional<controllerdb::AttachedIdentity> identity;
+    controllerdb::CatalogPtr catalog;
+    std::string locale = "en";
+    controllerdb::Transport transport = controllerdb::Transport::Usb;
+    controllerdb::HostFacts host;
+};
+
+// { matched } and, when matched, { recordId, name, hint, family, chip, inert, mismatches, issues }.
+// `chip` is `verified` / `guessed` / `flagged`; `issues` are { id, title, body } for the issues
+// that apply to this transport on this machine; the words come from the database's strings in the
+// person's language with the English fallback.
+QVariantMap controllerRecordRow(const RecordCardInputs& inputs);
+
+// A diagnosticsLog() row as the bundle's log takes it.
+composer::BundleLogEvent bundleLogEventOf(const QVariantMap& eventRow);
 
 } // namespace dish::qml

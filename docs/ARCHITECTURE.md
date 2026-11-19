@@ -70,7 +70,7 @@ layer together.
 | Folder | Role | May depend on | Qt? |
 |---|---|---|---|
 | `src/architecture/` | The kernel primitives | nothing | **No** |
-| `src/core/` | Pure domain: reducers and FSMs (`reducer/`), models (`model/`), the type catalog (`catalog/`), input math (`input/`), wire framing and session crypto (`wire/`), certificate trust-on-first-use pinning and address literals (`net/`), plus `AsyncState` | `architecture/` | **No** |
+| `src/core/` | Pure domain: reducers and FSMs (`reducer/`), models (`model/`), the type catalog (`catalog/`), input math (`input/`), wire framing and session crypto (`wire/`), certificate trust-on-first-use pinning and address literals (`net/`), the fleet's controller database records, index and check decisions (`controllerdb/`), the levels of Diagnostics and the bundle's JSON (`diagnostics/`), plus `AsyncState` | `architecture/` | **No** |
 | `src/source/` | `StateSource`s (owned reactive state) and Gateways (native IO boundary) | `core/`, `repository/` | yes (IO) |
 | `src/repository/` | Durable keyed storage over QSettings, dumb and synchronous | `core/` | yes (QSettings) |
 | `src/composer/` | Composers (pure derive), Controllers (side effects), Coordinators (command services) | `core/`, `source/`, `repository/` | yes (QObject) |

@@ -626,6 +626,22 @@ UsbGamepadManager::directTarget(int vendorId, int productId) const {
     return directTarget(reducer::DirectPadKey{vendorId, productId});
 }
 
+std::optional<UsbDeviceInfo>
+UsbGamepadManager::claimedDevice(const reducer::DirectPadKey& pad) const {
+    std::lock_guard<thread::TrackedMutex> lock(mtx_);
+    const auto claim = std::find_if(claims_.begin(), claims_.end(),
+                                    [&pad](const auto& entry) { return entry.second.pad == pad; });
+    if (claim == claims_.end()) { return std::nullopt; }
+    return claim->second.device;
+}
+
+std::optional<diagnostics::WriteVerdict>
+UsbGamepadManager::lastWrite(const reducer::DirectPadKey& pad) const {
+    const std::optional<DirectTarget> target = directTarget(pad);
+    if (!target.has_value() || target->worker == nullptr) { return std::nullopt; }
+    return target->worker->lastWrite();
+}
+
 bool UsbGamepadManager::isDirectClaimed(const reducer::DirectPadKey& pad) const {
     return directTarget(pad).has_value();
 }

@@ -105,6 +105,12 @@
   <!-- Kept in step with project(Dish VERSION ...); version-consistency.yml
        fails the PR that moves one without the other. -->
   <releases>
+    <release version="2.8.0" date="2026-11-19" type="stable">
+      <url type="details">https://github.com/TinkerNorth/dish-linux/releases/tag/2.8.0</url>
+      <description>
+        <p>Dish ships the controller list the whole Dish family now shares, 272 controllers, and checks dish.tinkernorth.com for a newer one ten seconds after it starts and every six hours, with no identifier; Settings turns the check off, and with it off nothing is asked. Each controller's Diagnostics card names the record it matched, whether that record is verified, any known issue for this computer, what the controller's descriptor showed against the record, and the last report Dish wrote to it. The controller inspector asks "Did it work?" after each rumble test. Email diagnostics saves a file of what the Diagnostics page shows and opens your own mail app addressed to support@tinkernorth.com with the file attached; nothing is sent until you press Send, and the file never holds pairing keys, addresses or the names of your hosts.</p>
+      </description>
+    </release>
     <release version="2.7.1" date="2026-11-19" type="stable">
       <url type="details">https://github.com/TinkerNorth/dish-linux/releases/tag/2.7.1</url>
       <description>

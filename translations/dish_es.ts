@@ -1518,6 +1518,14 @@
         <translation>Diagnóstico</translation>
     </message>
     <message>
+        <source>Your mail app has the message. Nothing is sent until you press Send.</source>
+        <translation>Tu app de correo tiene el mensaje. No se envía nada hasta que pulses Enviar.</translation>
+    </message>
+    <message>
+        <source>Your mail app opened without the file: attach the one the file manager shows.</source>
+        <translation>Tu aplicación de correo se abrió sin el archivo: adjunta el que muestra el gestor de archivos.</translation>
+    </message>
+    <message>
         <source>Controller inspector</source>
         <translation>Inspector de mando</translation>
     </message>
@@ -1828,6 +1836,174 @@
         <translation>Panel táctil hacia el host</translation>
     </message>
     <message>
+        <source>Verified</source>
+        <translation>Verificado</translation>
+    </message>
+    <message>
+        <source>Flagged</source>
+        <translation>Marcado</translation>
+    </message>
+    <message>
+        <source>Layout guessed</source>
+        <translation>Disposición adivinada</translation>
+    </message>
+    <message>
+        <source>No record for this controller</source>
+        <translation>No hay registro para este mando</translation>
+    </message>
+    <message>
+        <source>%1 (name and notes only on this PC)</source>
+        <translation>%1 (solo nombre y notas en este PC)</translation>
+    </message>
+    <message>
+        <source>nothing written yet</source>
+        <translation>aún no se ha escrito nada</translation>
+    </message>
+    <message>
+        <source>sent · report %1 · %2</source>
+        <translation>enviado · informe %1 · %2</translation>
+    </message>
+    <message>
+        <source>no error code</source>
+        <translation>sin código de error</translation>
+    </message>
+    <message>
+        <source>failed · report %1 · %2 · %3</source>
+        <translation>falló · informe %1 · %2 · %3</translation>
+    </message>
+    <message>
+        <source>weak rumble</source>
+        <translation>vibración suave</translation>
+    </message>
+    <message>
+        <source>strong rumble</source>
+        <translation>vibración fuerte</translation>
+    </message>
+    <message>
+        <source>both motors</source>
+        <translation>ambos motores</translation>
+    </message>
+    <message>
+        <source>felt</source>
+        <translation>se notó</translation>
+    </message>
+    <message>
+        <source>not felt</source>
+        <translation>no se notó</translation>
+    </message>
+    <message>
+        <source>%1 · %2 · %3</source>
+        <translation>%1 · %2 · %3</translation>
+    </message>
+    <message>
+        <source>Record</source>
+        <translation>Registro</translation>
+    </message>
+    <message>
+        <source>as the record expects</source>
+        <translation>como espera el registro</translation>
+    </message>
+    <message>
+        <source>Hardware check</source>
+        <translation>Comprobación del hardware</translation>
+    </message>
+    <message>
+        <source>Last write</source>
+        <translation>Última escritura</translation>
+    </message>
+    <message>
+        <source>Last test</source>
+        <translation>Última prueba</translation>
+    </message>
+    <message>
+        <source>up to date</source>
+        <translation>al día</translation>
+    </message>
+    <message>
+        <source>updated</source>
+        <translation>actualizada</translation>
+    </message>
+    <message>
+        <source>could not reach dish.tinkernorth.com</source>
+        <translation>no se pudo contactar con dish.tinkernorth.com</translation>
+    </message>
+    <message>
+        <source>the download did not verify</source>
+        <translation>la descarga no superó la verificación</translation>
+    </message>
+    <message>
+        <source>checks are off</source>
+        <translation>las comprobaciones están desactivadas</translation>
+    </message>
+    <message>
+        <source>%1 · downloaded</source>
+        <translation>%1 · descargada</translation>
+    </message>
+    <message>
+        <source>%1 · bundled</source>
+        <translation>%1 · incluida</translation>
+    </message>
+    <message>
+        <source>%1 · %2</source>
+        <translation>%1 · %2</translation>
+    </message>
+    <message>
+        <source>never</source>
+        <translation>nunca</translation>
+    </message>
+    <message>
+        <source>In use</source>
+        <translation>En uso</translation>
+    </message>
+    <message>
+        <source>Bundled</source>
+        <translation>Incluida</translation>
+    </message>
+    <message>
+        <source>Last check</source>
+        <translation>Última comprobación</translation>
+    </message>
+    <message>
+        <source>checking…</source>
+        <translation>comprobando…</translation>
+    </message>
+    <message>
+        <source>Dish %1 on %2</source>
+        <translation>Dish %1 en %2</translation>
+    </message>
+    <message>
+        <source>Controller database: %1</source>
+        <translation>Base de datos de mandos: %1</translation>
+    </message>
+    <message>
+        <source>no record</source>
+        <translation>sin registro</translation>
+    </message>
+    <message>
+        <source>%1: %2 · %3</source>
+        <translation>%1: %2 · %3</translation>
+    </message>
+    <message>
+        <source>Host %1: %2</source>
+        <translation>Host %1: %2</translation>
+    </message>
+    <message>
+        <source>The file holds this page and its log, never pairing keys, fingerprints, IP addresses, Wi-Fi names or PC names.</source>
+        <translation>El archivo contiene esta página y su registro, nunca claves de emparejamiento, huellas, direcciones IP, nombres de redes Wi-Fi ni nombres de PC.</translation>
+    </message>
+    <message>
+        <source>The diagnostics file could not be written, or a mail from the last one is still open.</source>
+        <translation>No se pudo escribir el archivo de diagnóstico, o un correo de la vez anterior sigue abierto.</translation>
+    </message>
+    <message>
+        <source>Diagnostics saved. The file manager shows its folder.</source>
+        <translation>Diagnóstico guardado. El gestor de archivos muestra su carpeta.</translation>
+    </message>
+    <message>
+        <source>The diagnostics file could not be written.</source>
+        <translation>No se pudo escribir el archivo de diagnóstico.</translation>
+    </message>
+    <message>
         <source>Not available</source>
         <translation>No disponible</translation>
     </message>
@@ -1902,6 +2078,34 @@
     <message>
         <source>Inspect input</source>
         <translation>Inspeccionar entrada</translation>
+    </message>
+    <message>
+        <source>Controller database</source>
+        <translation>Base de datos de mandos</translation>
+    </message>
+    <message>
+        <source>Check now</source>
+        <translation>Comprobar ahora</translation>
+    </message>
+    <message>
+        <source>Automatic controller checks are off in Settings, so Dish sends no request for the list.</source>
+        <translation>Las comprobaciones automáticas de mandos están desactivadas en Ajustes, así que Dish no envía ninguna petición de la lista.</translation>
+    </message>
+    <message>
+        <source>Send to support</source>
+        <translation>Enviar al soporte</translation>
+    </message>
+    <message>
+        <source>Email diagnostics saves a file of what this page shows and opens your own mail app addressed to support@tinkernorth.com, with the file attached. Nothing is sent until you press Send.</source>
+        <translation>Enviar diagnóstico por correo guarda un archivo con lo que muestra esta página y abre tu propia app de correo dirigida a support@tinkernorth.com, con el archivo adjunto. No se envía nada hasta que pulses Enviar.</translation>
+    </message>
+    <message>
+        <source>Email diagnostics</source>
+        <translation>Enviar diagnóstico por correo</translation>
+    </message>
+    <message>
+        <source>Save diagnostics</source>
+        <translation>Guardar diagnóstico</translation>
     </message>
     <message>
         <source>Radios</source>
@@ -2457,6 +2661,18 @@
         <translation>Inspector de mando</translation>
     </message>
     <message>
+        <source>felt</source>
+        <translation>se notó</translation>
+    </message>
+    <message>
+        <source>not felt</source>
+        <translation>no se notó</translation>
+    </message>
+    <message>
+        <source>Last test: %1 · %2 · %3</source>
+        <translation>Última prueba: %1 · %2 · %3</translation>
+    </message>
+    <message>
         <source>%1%</source>
         <translation>%1 %</translation>
     </message>
@@ -2663,6 +2879,18 @@
     <message>
         <source>This controller has no rumble motors on the path it is on now.</source>
         <translation>Este mando no tiene motores de vibración en la vía que usa ahora.</translation>
+    </message>
+    <message>
+        <source>Did it work?</source>
+        <translation>¿Ha funcionado?</translation>
+    </message>
+    <message>
+        <source>Yes</source>
+        <translation>Sí</translation>
+    </message>
+    <message>
+        <source>No</source>
+        <translation>No</translation>
     </message>
     <message>
         <source>Weak</source>
@@ -3777,6 +4005,14 @@
         <translation>No se pudo interpretar la información de la versión. Dish lo reintentará automáticamente.</translation>
     </message>
     <message>
+        <source>Checking for controller updates…</source>
+        <translation>Buscando actualizaciones de mandos…</translation>
+    </message>
+    <message>
+        <source>Controller list v%1 · last checked %2</source>
+        <translation>Lista de mandos v%1 · última comprobación %2</translation>
+    </message>
+    <message>
         <source>Setup &amp; help</source>
         <translation>Configuración y ayuda</translation>
     </message>
@@ -3879,6 +4115,18 @@
     <message>
         <source>Open release page</source>
         <translation>Abrir la página de la versión</translation>
+    </message>
+    <message>
+        <source>Check for controller updates automatically</source>
+        <translation>Buscar actualizaciones de mandos automáticamente</translation>
+    </message>
+    <message>
+        <source>Ten seconds after it starts and every six hours, Dish asks dish.tinkernorth.com for a newer list of the controllers it recognises. The request carries no identifier; with this off, none is sent. See the privacy policy for details.</source>
+        <translation>Diez segundos después de arrancar y cada seis horas, Dish pide a dish.tinkernorth.com una lista más reciente de los mandos que reconoce. La petición no lleva ningún identificador; con esto desactivado, no se envía ninguna. Consulta la política de privacidad para más detalles.</translation>
+    </message>
+    <message>
+        <source>Check now</source>
+        <translation>Comprobar ahora</translation>
     </message>
     <message>
         <source>About</source>

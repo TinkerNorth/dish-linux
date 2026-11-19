@@ -150,12 +150,14 @@ void readEndpointInfo(const std::string& ifaceDir, UsbDeviceInfo& info) {
     if (ifaceDir.empty()) { return; }
     DIR* dir = ::opendir(ifaceDir.c_str());
     if (dir == nullptr) { return; }
+    info.endpointsRead = true;
     while (dirent* entry = ::readdir(dir)) {
         const std::string name = entry->d_name;
         if (name.rfind("ep_", 0) != 0) { continue; }
         const auto addr = parseHex(name.substr(3));
         if (!addr) { continue; }
         if ((*addr & 0x80) != 0) {
+            info.endpointInAddress = *addr;
             std::string endpointDir = ifaceDir;
             endpointDir += "/";
             endpointDir += name;
@@ -166,6 +168,7 @@ void readEndpointInfo(const std::string& ifaceDir, UsbDeviceInfo& info) {
             if (const auto iv = parseHex(interval)) { info.endpointInInterval = *iv; }
         } else {
             info.hasOutEndpoint = true;
+            info.endpointOutAddress = *addr;
         }
     }
     ::closedir(dir);
@@ -209,6 +212,8 @@ std::vector<std::string> hidrawNodes() {
 struct ProbedNode {
     std::string node;
     std::string name;
+    std::string product;
+    std::string manufacturer;
     int vendorId = 0;
     int productId = 0;
     std::vector<std::uint8_t> descriptor;
@@ -240,7 +245,9 @@ std::optional<ProbedNode> probe(const std::string& hidrawName) {
     // and the longer string is contained in no endpoint name. It stays as the
     // fallback (the same hid->name string HIDIOCGRAWNAME copies out) for a
     // device with no readable product string.
-    probed.name = readSysfsLine(sysDir + "/../../product");
+    probed.product = readSysfsLine(sysDir + "/../../product");
+    probed.manufacturer = readSysfsLine(sysDir + "/../../manufacturer");
+    probed.name = probed.product;
     if (probed.name.empty()) { probed.name = detail::ueventValue(uevent, "HID_NAME"); }
     probed.vendorId = static_cast<std::uint16_t>(ids->vendorId);
     probed.productId = static_cast<std::uint16_t>(ids->productId);
@@ -368,6 +375,10 @@ std::vector<UsbDeviceInfo> HidrawGateway::enumerate() {
             info.interfaceNumber = *num;
         }
         readEndpointInfo(ifaceDir, info);
+        info.product = probed->product;
+        info.manufacturer = probed->manufacturer;
+        info.descriptorObserved = dish::controllerdb::observedFromReportDescriptor(
+            probed->descriptor.data(), probed->descriptor.size());
         info.hasImu = input::usbparse::parserHasImu(parser);
         info.devicePath = usbDeviceOf(hidrawName);
         out.push_back(std::move(info));

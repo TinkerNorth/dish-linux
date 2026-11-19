@@ -21,6 +21,7 @@
 #include "source/usb/OutputWorker.h"
 #include "source/usb/UsbDeviceGateway.h"
 
+#include "core/diagnostics/WriteVerdict.h"
 #include "core/input/UsbOutputReports.h"
 #include "core/reducer/DirectPadKey.h"
 #include "core/reducer/UsbPathMachine.h"
@@ -227,6 +228,11 @@ class UsbGamepadManager {
     };
     // Read-only snapshot, in key order.
     std::vector<DirectPad> directPads() const;
+
+    // Diagnostics: the device a claimed pad rides, as the gateway described it, and the last
+    // verdict of the claim's output worker. Empty for a pad with no claim.
+    std::optional<UsbDeviceInfo> claimedDevice(const reducer::DirectPadKey& pad) const;
+    std::optional<diagnostics::WriteVerdict> lastWrite(const reducer::DirectPadKey& pad) const;
 
   private:
     static int vpKey(int vendorId, int productId) {

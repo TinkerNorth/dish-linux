@@ -10,6 +10,7 @@
 
 #pragma once
 
+#include "core/controllerdb/ExpectCheck.h"
 #include "core/input/SteamTrackpads.h"
 #include "core/input/UsbOutputReports.h"
 #include "core/input/UsbReportParsers.h"
@@ -41,6 +42,16 @@ struct UsbDeviceInfo {
     // The physical device the pad rides, as the gateway names it: one name for every interface of
     // a device and another for each device of the same model, unchanged while it stays plugged in.
     std::string devicePath;
+    // The hardware facts Diagnostics and the bundle show (docs/diagnostics-bundle.md): the USB
+    // device's own product and manufacturer strings, the claimed interface's endpoint addresses
+    // as sysfs lists them (-1 where it has none, or sysfs was not read), and what its report
+    // descriptor declares, which is what the record's `expect` is checked against.
+    std::string product;
+    std::string manufacturer;
+    bool endpointsRead = false;
+    int endpointInAddress = -1;
+    int endpointOutAddress = -1;
+    dish::controllerdb::ObservedHardware descriptorObserved;
 
     int vpKey() const { return (vendorId << 16) | (productId & 0xFFFF); }
 };

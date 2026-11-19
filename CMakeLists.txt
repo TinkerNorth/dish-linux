@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.21)
 project(Dish
-    VERSION 2.7.1
+    VERSION 2.8.0
     DESCRIPTION "Dish Linux client for the Satellite gamepad-over-LAN protocol"
     # C for the vendored ENet fork (third_party/enet), the transport under the
     # Moonlight-host control stream.
@@ -197,6 +197,46 @@ set(DISH_CORE_SOURCES
     src/core/update/UpdateVersion.cpp
     src/core/update/UpdateManifest.h
     src/core/update/UpdateManifest.cpp
+    # The fleet's controller database (dish-website docs/controller-db.md): the records, the
+    # index, the strings fallback and every decision over them in core; the Qt JSON reader, the
+    # store and the network gateway at the source edge; the check's sequencing in composer.
+    src/core/controllerdb/ControllerRecord.h
+    src/core/controllerdb/Vocabulary.h
+    src/core/controllerdb/ControllerCatalog.h
+    src/core/controllerdb/ControllerCatalog.cpp
+    src/core/controllerdb/DirectModel.h
+    src/core/controllerdb/ExpectCheck.h
+    src/core/controllerdb/IssueMatch.h
+    src/core/controllerdb/DbFetch.h
+    src/core/controllerdb/AttachedRecords.h
+    src/source/controllerdb/ControllerDbJson.h
+    src/source/controllerdb/ControllerDbJson.cpp
+    src/source/controllerdb/ControllerDbStore.h
+    src/source/controllerdb/ControllerDbStore.cpp
+    src/source/controllerdb/ControllerDbGateway.h
+    src/source/controllerdb/ControllerDbGateway.cpp
+    src/source/store/ControllerDbPreferenceStore.h
+    src/composer/ControllerDbCoordinator.h
+    src/composer/ControllerDbCoordinator.cpp
+    # The bundled copy, :/controllers/v1, in dish_core beside the store that reads it.
+    resources/controllerdb.qrc
+    # Diagnostics at every level and the bundle by email (docs/diagnostics-bundle.md): the
+    # write verdict, the test outcomes, the mail decisions and the JSON writer in core, the
+    # bundle builder in composer, the xdg-email hand-off and the machine's identity at the system
+    # edge.
+    src/core/diagnostics/WriteVerdict.h
+    src/core/diagnostics/PadTestOutcomes.h
+    src/core/diagnostics/MailHandoff.h
+    src/core/diagnostics/HostIdentity.h
+    src/core/diagnostics/Json.h
+    src/core/diagnostics/Json.cpp
+    src/source/store/PadTestOutcomeStore.h
+    src/composer/DiagnosticsBundle.h
+    src/composer/DiagnosticsBundle.cpp
+    src/source/system/MachineIdentity.h
+    src/source/system/MachineIdentity.cpp
+    src/source/system/DiagnosticsHandoff.h
+    src/source/system/DiagnosticsHandoff.cpp
     src/core/reducer/RestOutcome.h
     src/core/reducer/Backoff.h
     src/core/reducer/BackgroundMode.h

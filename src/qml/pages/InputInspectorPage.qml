@@ -36,9 +36,46 @@ Kit.Page {
     property int revision: 0
     readonly property bool canBuzz: page.revision >= 0 && App.canTestRumble(page.slotId)
 
+    // The motor of the buzz awaiting "Did it work?", "" when none is.
+    property string pendingTest: ""
+    property int outcomeRevision: 0
+    readonly property var lastOutcome: page.outcomeRevision >= 0
+                                       ? App.lastTestOutcome(page.slotId) : ({})
+
     Connections {
         target: App
         function onStateChanged() { page.revision += 1; }
+        function onTestOutcomesChanged() { page.outcomeRevision += 1; }
+    }
+
+    function buzz(motor) {
+        App.testRumble(page.slotId, motor);
+        page.pendingTest = motor;
+    }
+
+    function answer(worked) {
+        App.recordTestOutcome(page.slotId, page.pendingTest, worked);
+        page.pendingTest = "";
+    }
+
+    function motorName(test) {
+        switch (test) {
+        case "rumble.weak":
+            return qsTr("Weak");
+        case "rumble.strong":
+            return qsTr("Strong");
+        }
+        return qsTr("Both");
+    }
+
+    function lastOutcomeText() {
+        if (page.lastOutcome.test === undefined)
+            return "";
+        const result = page.lastOutcome.result === "worked" ? qsTr("felt") : qsTr("not felt");
+        return qsTr("Last test: %1 · %2 · %3").arg(page.motorName(page.lastOutcome.test))
+                                               .arg(result)
+                                               .arg(Qt.formatTime(new Date(page.lastOutcome.atMs),
+                                                                  "HH:mm:ss"));
     }
 
     Component.onCompleted: App.startInputInspection(page.slotId)
@@ -420,18 +457,52 @@ Kit.Page {
                         Kit.OutlineButton {
                             size: Kit.DishButton.Small
                             text: qsTr("Weak")
-                            onClicked: App.testRumble(page.slotId, "weak")
+                            onClicked: page.buzz("weak")
                         }
                         Kit.OutlineButton {
                             size: Kit.DishButton.Small
                             text: qsTr("Strong")
-                            onClicked: App.testRumble(page.slotId, "strong")
+                            onClicked: page.buzz("strong")
                         }
                         Kit.OutlineButton {
                             size: Kit.DishButton.Small
                             text: qsTr("Both")
-                            onClicked: App.testRumble(page.slotId, "both")
+                            onClicked: page.buzz("both")
                         }
+                    }
+
+                    // The answer is the test's outcome: kept for this run and carried by the
+                    // diagnostics file.
+                    RowLayout {
+                        Layout.fillWidth: true
+                        visible: page.canBuzz && page.pendingTest.length > 0
+                        spacing: Tokens.s4
+
+                        Label {
+                            text: qsTr("Did it work?")
+                            color: Theme.onSurface
+                            font.pixelSize: Tokens.textSummary
+                        }
+                        Kit.OutlineButton {
+                            size: Kit.DishButton.Small
+                            text: qsTr("Yes")
+                            onClicked: page.answer(true)
+                        }
+                        Kit.OutlineButton {
+                            size: Kit.DishButton.Small
+                            text: qsTr("No")
+                            onClicked: page.answer(false)
+                        }
+                        Item { Layout.fillWidth: true }
+                    }
+
+                    Label {
+                        Layout.fillWidth: true
+                        visible: text.length > 0
+                        text: page.lastOutcomeText()
+                        color: Theme.muted
+                        font.pixelSize: Tokens.textMeta
+                        wrapMode: Text.WordWrap
                     }
                 }
             }

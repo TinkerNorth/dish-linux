@@ -250,6 +250,32 @@ or is dropped.
   C++ vends tokens and the QML words them. Android keeps its log in English as
   export material for bug reports.
 
+## 5a. Controller database and diagnostics (dish-website `docs/controller-db.md`, `docs/diagnostics-bundle.md`)
+
+Shipped in 2.8.0, the hand port of dish-windows#138, ⚠️ throughout until a
+hardware pass: the suite covers every decision, but no build of it has met a
+real pad or a real mail client yet. Where this client does not do what the
+contracts say, the row says so and why.
+
+| Contract item | Windows | Linux (this) |
+|---|---|---|
+| Bundled copy of dbVersion 1 (272 records), checked against its manifest at every load | ⚠️ `:/controllers/v1` | ⚠️ `:/controllers/v1`, compiled into `dish_core` (`resources/controllerdb.qrc`); `test_controller_db_bundled` reads it both through the resource and from `assets/controllers/v1`, which `.gitattributes` marks `-text` |
+| Index `identity.usb` / `identity.bluetooth` → record; cached copy in force only when its `dbVersion` is greater | ⚠️ | ⚠️ |
+| Check: 10 s after launch, every 6 h, `If-None-Match`, SHA-256 + size per file, schema 1, atomic swap | ⚠️ | ⚠️ the swap is a `current` file renamed over (`QSaveFile`) after the version's own folder under `~/.local/share/TinkerNorth/Dish/controllers/v1/` is written |
+| "Check for controller updates automatically" (default on) and "Check now" | ⚠️ | ⚠️ Settings → Updates, and "Check now" on the Diagnostics card too; both "Check now" buttons are disabled while the switch is off, and the coordinator refuses one regardless, so with it off no request leaves the machine. Default on in the Flatpak too, unlike the update check, which starts off there |
+| Compiled tables generated from the file, a test asserting they agree | ❌ deferred | ❌ deferred: `kKnownModels` and the fast-lane vendors (`HidrawGateway::isKnownFastLaneModel`) stay hand-written and `test_controller_db_bundled` requires each row to match its record (usb id, family, and for `hid` the mapping) and each fast-lane vendor to own a `verified` record |
+| Served records classify ids the compiled tables lack | ⚠️ decided, not applied to the claim | ⚠️ decided (`controllerdb::resolveDirectModel`, compiled first, then a live record, then the vendor guess; inert rows never apply) but **not applied to the claim**: `usbparse::parserForDevice` answers stateless call sites on the read, output and main threads (enumeration, the claim, the capability fold), and moving all of them onto one published snapshot is a hot-path change for its own PR. Until then a served row changes what the card and the bundle say, never how a pad decodes |
+| `requires` → inert (name and issues only), bundled row for the id stays in force | ⚠️ | ⚠️ `controllerdb::isInert`, `directRecordFor`. The Xbox families are inert here by construction: xpad binds those pads as evdev and publishes no hidraw node |
+| `expect.endpoints` at attach | ⚠️ HID report lengths | ⚠️ through the interface's report descriptor, which hidraw hands back: an Input main item stands for `endpoints.in` and an Output main item for `endpoints.out` (`controllerdb::observedFromReportDescriptor`). usbhid sends an output report over the interrupt OUT pipe when there is one and as SET_REPORT(Output) otherwise, so the descriptor's Output item is what a write needs, not the pipe itself. The real endpoint addresses, which sysfs lists, ride the bundle's `hardware.endpoints`. Checked on the Direct path only |
+| "Last write" (route, report id, ok, OS error, time) | ⚠️ Win32 code | ⚠️ from each claim's output worker through a seqlock. `route` is `interruptOut` for `write()` on the node and `setReport` for `HIDIOCSFEATURE`; which pipe usbhid used for a `write()` is not observable. `err` is the `errno` name (`EPIPE`, `ENODEV`, …, else `errno:<n>`); a short write is a failure with no code |
+| "Last feedback" (host to client) | ❌ | ❌ no desktop source records per-pad feedback arrivals yet; the bundle writes `null` |
+| Pad tests with "Did it work?" outcomes, last twenty, in memory | ⚠️ | ⚠️ `rumble.weak`, `rumble.strong`, `rumble.both` with `worked` / `didNotWork`, on the inspector's existing bench; the bundle contract's other tests (trigger pulse, lamp, tone, mic level, the stick tests) are not offered (§5 says why the other surfaces have no bench here) |
+| Issue shown while `open`, for this transport on this machine model | ⚠️ `windows` key | ⚠️ `fixed` and `wontfix` never show; the model is DMI's `sys_vendor` + `product_name` ("Linux PC" when unreadable, never the host name); an `os` map matches only through its `linux` key, read as the **kernel's** major version (a number, or a string such as `6.8`), because the contract names no Linux version and the kernel is the one every Linux machine has |
+| Diagnostics: bundled / active `dbVersion`, source, last check time and result, per controller record id, verification and mismatches | ⚠️ | ⚠️ |
+| Bundle `dish-diagnostics.v1` | ⚠️ | ⚠️ `path` is `direct` or `sdl`; `hardware` carries vid, pid, product, manufacturer (sysfs) and `endpoints` (sysfs addresses, `null` off the Direct path), and no `bcdDevice`, interfaces, descriptor hash or firmware; `capture` is always `null`; a host's `version` is `null` (the satellite reports none to this client) and only satellites are listed, not Moonlight hosts; `app.flavor` is `flatpak`, `appimage`, else `github` (a package or a source build) |
+| Email: file under the data folder, `xdg-email --attach --subject --body support@tinkernorth.com`, else `mailto:` and the folder revealed | ⚠️ MAPI | ⚠️ the file goes to `~/.local/share/TinkerNorth/Dish/diagnostics/`. `xdg-email` runs with one argv entry per argument, never through a shell; exit 0, or still running after 10 s (a mail client it started in the foreground), is the hand-off; any other exit, a crash, a start failure or no `xdg-email` on the PATH opens `mailto:` (cut at 2000 characters, at a whole character) and shows the folder through `QDesktopServices` (xdg-open, or the OpenURI portal in the Flatpak). A folder, not the file: xdg-open cannot select one. Decisions in `core/diagnostics/MailHandoff.h`, tested against a stand-in `xdg-email` |
+| Satellite's `/api/controllers/v1` mirror | – | – clients do not read it in schema 1 |
+
 ## 6. Android PRs since the diary stopped (2026-08-18 → 2026-09-20)
 
 | Android PR | Counterpart here | Disposition |

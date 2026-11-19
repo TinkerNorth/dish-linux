@@ -16,6 +16,8 @@
 #include "composer/ConnectionCoordinator.h"
 #include "composer/DiagnosticsRecorder.h"
 #include "composer/StreamingSlotCount.h"
+#include "core/controllerdb/Vocabulary.h"
+#include "core/diagnostics/MailHandoff.h"
 #include "UI/CrashReport.h"
 #include "core/catalog/BundledCatalog.h"
 #include "core/input/Deadzones.h"
@@ -47,6 +49,7 @@
 #include "source/store/ControllerTypeStore.h"
 #include "source/store/ThemePreferenceStore.h"
 #include "source/store/TouchpadModeStore.h"
+#include "source/system/DiagnosticsHandoff.h"
 #include "UI/Theme.h"
 #include "UI/licenses/LicenseManifest.h"
 
@@ -54,6 +57,7 @@
 #include <QClipboard>
 #include <QDesktopServices>
 #include <QGuiApplication>
+#include <QLocale>
 #include <QSet>
 #include <QStyleHints>
 #include <QTimer>
@@ -62,8 +66,12 @@
 #include <QWindow>
 
 #include <chrono>
+#include <cstdint>
 #include <map>
 #include <optional>
+#include <string>
+#include <string_view>
+#include <utility>
 #include <vector>
 
 #include "source/system/BluetoothRadioProbe.h"
@@ -475,6 +483,15 @@ AppViewModel::AppViewModel(dish::AppModel* model, QObject* parent)
     diagnosticsLogSub_ = model_->diagnosticsLog().subscribe(
         [this](const std::vector<reducer::DiagnosticsEvent>&) { emit diagnosticsLogChanged(); },
         false);
+    controllerDbSub_ = model_->controllerDbStatus().subscribe(
+        [this](const source::controllerdb::ControllerDbStatus&) { emit controllerDbChanged(); },
+        false);
+    controllerDbPrefsSub_ = model_->controllerDbPrefs()->state().subscribe(
+        [this](const source::ControllerDbPreferences&) { emit controllerDbChanged(); }, false);
+    outcomesSub_ = model_->padOutcomes()->state().subscribe(
+        [this](const source::PadTestOutcomeMap&) { emit testOutcomesChanged(); }, false);
+    QObject::connect(model_->diagnosticsHandoff(), &source::DiagnosticsHandoff::handedOff, this,
+                     &AppViewModel::diagnosticsMailHandedOff);
     // Idle until a page arms an inspection.
     inspectionTimer_ = new QTimer(this);
     inspectionTimer_->setInterval(kInspectionPollMs);
@@ -2055,6 +2072,215 @@ void AppViewModel::publishStickTest(std::int64_t nowMs) {
     if (next == stickTest_) { return; }
     stickTest_ = next;
     emit stickTestChanged();
+}
+
+// ── The controller database and the levels of Diagnostics ──────────────────
+
+namespace {
+
+// The database's strings in the language the app's translator was chosen for, else English.
+std::string stringsLocale() {
+    std::vector<std::string> languages;
+    for (const QString& language : QLocale().uiLanguages()) {
+        languages.push_back(language.toStdString());
+    }
+    return controllerdb::stringsLocaleFor(languages);
+}
+
+controllerdb::HostFacts hostFactsOf(const source::MachineIdentity& machine) {
+    return controllerdb::HostFacts{machine.model.toStdString(), machine.kernelMajor};
+}
+
+// How this copy was installed, as the bundle's `app.flavor` names it.
+std::string installFlavor() {
+    if (util::runningInFlatpak()) { return "flatpak"; }
+    if (qEnvironmentVariableIsSet("APPIMAGE")) { return "appimage"; }
+    return "github";
+}
+
+// A sysfs endpoint address, or none where the interface has no such endpoint.
+std::optional<std::uint8_t> endpointAddressOf(int address) {
+    constexpr int kNoEndpoint = -1;
+    if (address == kNoEndpoint) { return std::nullopt; }
+    return static_cast<std::uint8_t>(address);
+}
+
+composer::BundleControllerDb bundleDbOf(const source::controllerdb::ControllerDbStatus& status) {
+    composer::BundleControllerDb db;
+    db.bundledVersion = status.bundledVersion;
+    db.activeVersion = status.activeVersion;
+    db.source = status.source == controllerdb::DbSource::Cache ? "cache" : "bundled";
+    db.lastCheckAtMs = status.lastCheckAtMs;
+    if (status.lastCheckResult.has_value()) {
+        db.lastCheckResult = std::string(controllerdb::checkResultToken(*status.lastCheckResult));
+    }
+    return db;
+}
+
+} // namespace
+
+bool AppViewModel::controllerDbChecksEnabled() const {
+    return model_->controllerDbPrefs()->checksEnabled();
+}
+
+void AppViewModel::setControllerDbChecksEnabled(bool enabled) {
+    model_->controllerDbPrefs()->setChecksEnabled(enabled);
+}
+
+QVariantMap AppViewModel::controllerDb() const {
+    return controllerDbRow(model_->controllerDbStatus().value());
+}
+
+void AppViewModel::checkControllerDbNow() { model_->checkControllerDbNow(); }
+
+QString AppViewModel::machineModel() const { return model_->machine().model; }
+
+QString AppViewModel::osVersion() const { return model_->machine().os; }
+
+QVariantMap AppViewModel::controllerRecordFacts(const QString& slotId) const {
+    const models::ControllerSlot* slot = slotById(slotId);
+    RecordCardInputs inputs;
+    inputs.identity = model_->attachedIdentity(slotId);
+    inputs.catalog = model_->controllerCatalog();
+    inputs.locale = stringsLocale();
+    const bool overBluetooth = slot != nullptr && slot->bluetooth;
+    inputs.transport =
+        overBluetooth ? controllerdb::Transport::Bluetooth : controllerdb::Transport::Usb;
+    inputs.host = hostFactsOf(model_->machine());
+    QVariantMap row = controllerRecordRow(inputs);
+    row[QStringLiteral("lastWrite")] = writeVerdictRow(model_->lastDirectWrite(slotId));
+    row[QStringLiteral("lastTest")] =
+        testOutcomeRow(model_->padOutcomes()->lastFor(slotId.toStdString()));
+    return row;
+}
+
+void AppViewModel::recordTestOutcome(const QString& slotId, const QString& motor, bool worked) {
+    const std::optional<std::string> test = diagnostics::rumbleTestName(motor.toStdString());
+    if (!test.has_value()) { return; }
+    model_->padOutcomes()->record(
+        slotId.toStdString(),
+        diagnostics::TestOutcome{*test, std::string(diagnostics::outcomeResult(worked)),
+                                 QDateTime::currentMSecsSinceEpoch()});
+}
+
+QVariantMap AppViewModel::lastTestOutcome(const QString& slotId) const {
+    return testOutcomeRow(model_->padOutcomes()->lastFor(slotId.toStdString()));
+}
+
+QVariantList AppViewModel::diagnosticsControllers() const {
+    QVariantList out;
+    for (const models::ControllerSlot& slot : model_->state().slotList) {
+        QVariantMap row;
+        row[QStringLiteral("name")] = slot.name;
+        row[QStringLiteral("recordId")] = QString();
+        row[QStringLiteral("chip")] = QString();
+        const auto identity = model_->attachedIdentity(slot.id);
+        if (identity.has_value() && identity->record.has_value()) {
+            const controllerdb::ControllerRecord& record = *identity->record;
+            const std::string_view chip = controllerdb::verificationChipToken(record.verification);
+            row[QStringLiteral("recordId")] = QString::fromStdString(record.id);
+            row[QStringLiteral("chip")] =
+                QString::fromLatin1(chip.data(), static_cast<qsizetype>(chip.size()));
+        }
+        row[QStringLiteral("usbDirect")] = slot.usbDirect;
+        row[QStringLiteral("bluetooth")] = slot.bluetooth;
+        out.append(row);
+    }
+    return out;
+}
+
+// Every fact here is one the page already shows. Nothing that identifies a host (its name, its
+// address, its keys) is read at all, and the log's host labels go in only to be aliased.
+composer::BundleFacts AppViewModel::diagnosticsBundleFacts() const {
+    composer::BundleFacts facts;
+    facts.createdAtMs = QDateTime::currentMSecsSinceEpoch();
+    facts.appVersion = DISH_VERSION;
+    facts.flavor = installFlavor();
+    const source::MachineIdentity& machine = model_->machine();
+    facts.model = machine.model.toStdString();
+    facts.os = machine.os.toStdString();
+    facts.arch = machine.arch.toStdString();
+    facts.controllerDb = bundleDbOf(model_->controllerDbStatus().value());
+
+    for (const models::ControllerSlot& slot : model_->state().slotList) {
+        composer::BundleController c;
+        const auto identity = model_->attachedIdentity(slot.id);
+        if (identity.has_value() && identity->record.has_value()) {
+            c.record = identity->record->id;
+            c.verification =
+                std::string(controllerdb::verificationToken(identity->record->verification));
+            c.expectMismatch = identity->mismatches;
+        }
+        c.transport = slot.bluetooth ? "bluetooth" : "usb";
+        c.path = slot.usbDirect ? "direct" : "sdl";
+        c.hardware.vendorId = static_cast<std::uint16_t>(slot.vendorId);
+        c.hardware.productId = static_cast<std::uint16_t>(slot.productId);
+        const std::optional<source::usb::UsbDeviceInfo> device =
+            slot.usbDirect ? model_->directDeviceFor(slot.id) : std::nullopt;
+        if (device.has_value()) {
+            c.hardware.product = device->product;
+            c.hardware.manufacturer = device->manufacturer;
+            c.hardware.endpointsRead = device->endpointsRead;
+            c.hardware.endpointIn = endpointAddressOf(device->endpointInAddress);
+            c.hardware.endpointOut = endpointAddressOf(device->endpointOutAddress);
+            c.lastWrite = model_->lastDirectWrite(slot.id);
+        } else {
+            c.hardware.product = slot.name.toStdString();
+        }
+        c.outcomes = model_->padOutcomes()->outcomesFor(slot.id.toStdString());
+        facts.controllers.push_back(std::move(c));
+    }
+
+    for (const auto& link : model_->connections()->connections().value()) {
+        const auto* conn = model_->wifi()->get(QString::fromStdString(link.id));
+        const HostSessionFacts session =
+            conn != nullptr ? hostSessionFactsOf(*conn) : HostSessionFacts{};
+        composer::BundleHost host;
+        host.kind = "satellite";
+        host.protocol = session.live ? session.settledProtocol : 0;
+        host.link =
+            hostCardRow(link, session).value(QStringLiteral("chip")).toString().toStdString();
+        host.mic = session.audio.mic;
+        host.speaker = session.audio.speaker;
+        host.hapticAudio = session.audio.hapticAudio;
+        facts.hosts.push_back(std::move(host));
+        facts.hostLabels.push_back(link.label);
+    }
+
+    for (const QVariant& row : diagnosticsLogRows(model_->diagnosticsLog().value())) {
+        facts.log.push_back(bundleLogEventOf(row.toMap()));
+    }
+    return facts;
+}
+
+// Named for the person's local time, the way they will look for it in the folder.
+QString AppViewModel::writeDiagnosticsBundle() {
+    const std::string bundle = composer::buildDiagnosticsBundle(diagnosticsBundleFacts());
+    const QDateTime now = QDateTime::currentDateTime();
+    const diagnostics::CivilTime local{now.date().year(), now.date().month(),  now.date().day(),
+                                       now.time().hour(), now.time().minute(), now.time().second()};
+    const QString name = QString::fromStdString(diagnostics::bundleFileName(local));
+    return source::saveDiagnosticsFile(source::diagnosticsFolder(), name,
+                                       QByteArray::fromStdString(bundle));
+}
+
+QString AppViewModel::saveDiagnostics() {
+    const QString path = writeDiagnosticsBundle();
+    if (!path.isEmpty()) { model_->diagnosticsHandoff()->reveal(path); }
+    return path;
+}
+
+bool AppViewModel::emailDiagnostics(const QString& body) {
+    const QString path = writeDiagnosticsBundle();
+    if (path.isEmpty()) { return false; }
+    source::DiagnosticsMail mail;
+    mail.to = QString::fromLatin1(diagnostics::kSupportAddress.data(),
+                                  static_cast<qsizetype>(diagnostics::kSupportAddress.size()));
+    mail.subject = QString::fromStdString(
+        diagnostics::mailSubject(DISH_VERSION, model_->machine().model.toStdString()));
+    mail.body = body;
+    mail.attachmentPath = path;
+    return model_->diagnosticsHandoff()->send(mail);
 }
 
 } // namespace dish::qml

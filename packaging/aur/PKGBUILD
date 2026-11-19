@@ -31,7 +31,7 @@ depends=(
     'hicolor-icon-theme'
 )
 optdepends=(
-    'xdg-utils: open the release page from the update pill'
+    'xdg-utils: open the release page and hand diagnostics to your mail app'
 )
 # NOTE: deliberately no provides=/conflicts= on the bare name `dish`. An
 # unrelated AUR package already owns it (an interactive shell), so claiming

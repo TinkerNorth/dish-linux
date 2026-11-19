@@ -18,6 +18,7 @@ namespace dish::source::usb {
 // Windows HID stack it does not demand a fixed-length buffer, so the builder's length IS the
 // transfer length.
 bool FdReportWriter::write(const std::uint8_t* data, std::size_t len) {
+    lastError_ = 0;
     if (data == nullptr || len == 0 || fd_ < 0) { return false; }
     std::lock_guard<thread::TrackedMutex> lock(*writeMtx_);
     for (;;) {
@@ -29,7 +30,8 @@ bool FdReportWriter::write(const std::uint8_t* data, std::size_t len) {
         // can land on any thread.
         if (errno == EINTR) { continue; }
         // Silent: a feedback write is lossy telemetry, and a pad that has gone away is about to
-        // surface as a claim failure anyway.
+        // surface as a claim failure anyway. Kept for the write's verdict on Diagnostics.
+        lastError_ = static_cast<std::uint32_t>(errno);
         return false;
     }
 }
@@ -37,6 +39,7 @@ bool FdReportWriter::write(const std::uint8_t* data, std::size_t len) {
 // The ioctl takes a writable buffer, so the report is copied rather than cast; its length is the
 // transfer length, as a write's is. A signal is retried like the write's.
 FeatureWrite FdReportWriter::writeFeature(const std::uint8_t* data, std::size_t len) {
+    lastError_ = 0;
     std::array<std::uint8_t, 256> buf{};
     if (data == nullptr || len == 0 || len > buf.size() || fd_ < 0) {
         return FeatureWrite::Refused;
@@ -49,6 +52,7 @@ FeatureWrite FdReportWriter::writeFeature(const std::uint8_t* data, std::size_t 
             return FeatureWrite::Taken;
         }
         if (errno == EINTR) { continue; }
+        lastError_ = static_cast<std::uint32_t>(errno);
         return featureWriteOutcomeOf(errno);
     }
 }

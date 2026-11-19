@@ -32,6 +32,10 @@ class HidReportWriter {
     virtual FeatureWrite writeFeature(const std::uint8_t* /*data*/, std::size_t /*len*/) {
         return FeatureWrite::Refused;
     }
+    // errno after the last write or feature write that failed, 0 after one that went or a failure
+    // the kernel gave no code for (a short write). Read by the worker that just wrote, on its own
+    // thread.
+    virtual std::uint32_t lastError() const { return 0; }
 
   protected:
     HidReportWriter() = default;
@@ -81,10 +85,12 @@ class FdReportWriter final : public HidReportWriter {
 
     bool write(const std::uint8_t* data, std::size_t len) override;
     FeatureWrite writeFeature(const std::uint8_t* data, std::size_t len) override;
+    std::uint32_t lastError() const override { return lastError_; }
 
   private:
     const int fd_;
     thread::TrackedMutex* const writeMtx_;
+    std::uint32_t lastError_ = 0;
 };
 
 } // namespace dish::source::usb

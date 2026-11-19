@@ -16,6 +16,71 @@ the repos share a version number.
 
 ---
 
+## [2.8.0] - 2026-11-19
+
+### Added
+
+- **The fleet's controller database, bundled and kept current.** Dish ships
+  dbVersion 1 of the controller database the whole fleet now shares
+  (`dish.tinkernorth.com/controllers/v1/`, 272 controllers) as a Qt resource,
+  checked against its own manifest at every start. About ten seconds after
+  launch and every six hours while it runs, Dish asks for the manifest with
+  `If-None-Match`; only a newer version is downloaded, each file checked
+  against its SHA-256 and size, parsed, checked for schema 1 and then swapped
+  in atomically under `~/.local/share/TinkerNorth/Dish/controllers/v1/`. Any
+  failure keeps the list in force. A newer list applies to a controller at
+  its next attach.
+- **Settings: "Check for controller updates automatically"** (on by default,
+  the Flatpak included) and **"Check now"**, which is disabled while the
+  switch is off. With the switch off, no request for the list leaves the
+  machine. The request carries no identifier, no query and Qt's default
+  `User-Agent`.
+- **Each controller's record on the Diagnostics card.** The record it matched,
+  its name from the database's strings in your language (English where a
+  language has none), a chip for its verification state (Verified, Layout
+  guessed, Flagged), and any open issue for this transport on this PC model
+  and kernel, with its title and text.
+- **Hardware check at attach.** On the Direct path the record's `expect` is
+  compared with the interface's HID report descriptor (an Output item stands
+  for the OUT endpoint, an Input item for the IN one), and each mismatch is a
+  Diagnostics row and a line in the diagnostics file.
+- **"Last write" on a Direct controller's card**: the route, the report id,
+  whether the pad took it and the kernel's `errno` name when it did not,
+  recorded by the claim's output worker without a lock or an allocation.
+- **"Did it work?" after each rumble test** in the controller inspector. The
+  answer is kept per controller as `worked` or `didNotWork`, the last twenty,
+  for this run, and the last one shows on the inspector and the Diagnostics
+  card.
+- **A "Controller database" card on Diagnostics**: the bundled and active
+  versions, where the active one came from, the last check's time and
+  result, and "Check now".
+- **Email diagnostics and Save diagnostics.** Both write
+  `dish-diagnostics-dish-linux-<yyyyMMdd-HHmmss>.json` (the fleet's
+  `dish-diagnostics.v1` shape) under `~/.local/share/TinkerNorth/Dish/diagnostics/`.
+  Email runs `xdg-email --attach <file> --subject <s> --body <b>
+  support@tinkernorth.com`, which opens your own mail app with the
+  Diagnostics summary in your language and the file attached; where
+  `xdg-email` is missing or no mail app takes it, a `mailto:` link opens and
+  the file manager shows the folder. Nothing is sent until you press Send.
+  The file never holds pairing keys, certificate fingerprints, IP addresses,
+  Wi-Fi names, the names of your hosts or the machine's host name: hosts
+  appear as "Host 1", "Host 2", and the PC is named by its firmware's model,
+  or "Linux PC".
+
+### Changed
+
+- **PRIVACY.md** gains "Controller database updates" (2.5) and "Diagnostics by
+  email" (2.6), and its effective date moves to 2026-11-19.
+
+### Notes
+
+- The compiled Direct tables (`kKnownModels`, the fast-lane vendors) stay, and
+  a test now requires every row to match its database record. Served records
+  are classified for ids those tables lack, but the claim still takes its
+  parser from the compiled tables in this release (`tests/PARITY.md`).
+- No wire change.
+- Hand port of dish-windows#138.
+
 ## [2.7.1] - 2026-11-19
 
 ### Fixed
