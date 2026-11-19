@@ -2,10 +2,10 @@
 // Copyright (C) 2026 Dish contributors.
 //
 // The engine rules (core/audio/AudioEnginePolicy.h): the mic and speaker
-// eligibility truth tables, the exact-window reassembly of arbitrary capture
-// chunks, and the drained-queue cushion refill. These decide when a
-// microphone is OPEN, so the mic table is exhaustive: every one of the 32
-// fact combinations is pinned, not sampled.
+// eligibility truth tables, the descriptor's audio-cap table, the exact-window
+// reassembly of arbitrary capture chunks, and the drained-queue cushion refill.
+// These decide when a microphone is OPEN and what the host is promised, so the
+// tables are exhaustive: every fact combination is pinned, not sampled.
 
 #include "core/audio/AudioEnginePolicy.h"
 
@@ -15,6 +15,9 @@
 #include <numeric>
 #include <vector>
 
+using dish::audio::audioCapAdvertised;
+using dish::audio::AudioCapFacts;
+using dish::audio::audioCapFactsOf;
 using dish::audio::AudioSlotFacts;
 using dish::audio::FrameWindower;
 using dish::audio::micCaptureEligible;
@@ -50,6 +53,44 @@ TEST_CASE("speaker playout ignores mute but needs everything else", "[audio][pol
         INFO("bits " << bits);
         CHECK(speakerPlayoutEligible(f) == expected);
     }
+}
+
+TEST_CASE("an audio cap needs the route, the switch, the host's grant and no refusal",
+          "[audio][policy]") {
+    // The host streams, or lights the mute lamp, on the strength of the cap alone, so the cap is
+    // the promise the engines keep: every fact a voice or a capture needs that this end can know
+    // before the session is live, and no endpoint the audio stack refused to open.
+    for (int bits = 0; bits < 16; ++bits) {
+        AudioCapFacts f;
+        f.routeMatched = (bits & 1) != 0;
+        f.toggleOn = (bits & 2) != 0;
+        f.hostGrants = (bits & 4) != 0;
+        f.refused = (bits & 8) != 0;
+        const bool expected = f.routeMatched && f.toggleOn && f.hostGrants && !f.refused;
+        INFO("bits " << bits);
+        CHECK(audioCapAdvertised(f) == expected);
+    }
+}
+
+TEST_CASE("mute does not withdraw the mic cap", "[audio][policy]") {
+    // The lamp the host lights on CAP_MIC is the mute indicator, so a muted microphone is one the
+    // host must still be told about. The cap reads the capture's own facts with mute set aside:
+    // mute closes the capture and nothing else.
+    AudioSlotFacts capture;
+    capture.streaming = true;
+    capture.toggleOn = true;
+    capture.routeMatched = true;
+    capture.hostCarries = true;
+    capture.muted = true;
+    CHECK_FALSE(micCaptureEligible(capture));
+    CHECK(audioCapAdvertised(audioCapFactsOf(capture, /*refused=*/false)));
+    // The cap's facts are the capture's, one for one; only the refusal is its own.
+    const AudioCapFacts cap = audioCapFactsOf(capture, /*refused=*/true);
+    CHECK(cap.routeMatched);
+    CHECK(cap.toggleOn);
+    CHECK(cap.hostGrants);
+    CHECK(cap.refused);
+    CHECK_FALSE(audioCapAdvertised(cap));
 }
 
 TEST_CASE("the playout constants are the contract's cushion", "[audio][policy]") {

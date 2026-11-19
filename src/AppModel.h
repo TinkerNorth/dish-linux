@@ -41,6 +41,8 @@
 #include "core/reducer/HostAudioVerdict.h"
 #include "core/reducer/MicIndicatorState.h"
 #include "core/reducer/PollRateSampler.h"
+#include "core/audio/AudioEnginePolicy.h"
+#include "core/audio/AudioRefusal.h"
 #include "core/audio/PadAudioMatcher.h"
 #include "core/thread/TrackedMutex.h"
 #include "source/audio/MicCaptureEngine.h"
@@ -385,6 +387,11 @@ class AppModel : public QObject {
     bool anySessionLinking() const;
     void dropMuteForDepartedSlots();
     void onHubChanged();
+    // A connection's host grant for controller audio moved: every slot bound there re-folds its
+    // descriptor, since the three audio caps are folded from the grant. Queued behind the
+    // manager's signal, because the reset at teardown can land inside a rebuild and a bind
+    // rebuilds.
+    void onHostControllerAudioChanged(const QString& connId);
     void onBridgeDevicesChanged();
     // Puts standing Moonlight bindings back once their pads are on the slot list; queued, since a
     // bind rebuilds.
@@ -507,6 +514,25 @@ class AppModel : public QObject {
     // Null for a slot the engines have nothing to do with: unbound, Bluetooth, or bound to a
     // connection that has since gone.
     net::WifiConnection* audioConnectionFor(const models::ControllerSlot& s) const;
+    // The connection a slot is bound to; null for an unbound slot, or one whose connection has
+    // since gone.
+    net::WifiConnection* boundWifiConnection(const QString& slotId) const;
+
+    // The facts the engines' eligibility and the descriptor's caps both read, one function per
+    // direction, for a slot bound to `conn`: the session, the slot's switch, the route, the
+    // host's grant, and for the microphone its mute.
+    audio::AudioSlotFacts micFactsFor(const QString& slotId, const net::WifiConnection& conn) const;
+    audio::AudioSlotFacts speakerFactsFor(const QString& slotId,
+                                          const net::WifiConnection& conn) const;
+    audio::AudioSlotFacts hapticFactsFor(const QString& slotId,
+                                         const net::WifiConnection& conn) const;
+
+    // The three audio caps the hub folds at bind: audio::audioCapAdvertised over the direction's
+    // facts and the engine's standing refusal at the route's endpoint. A cap is a promise the
+    // host streams on alone, so each says only what this end will carry right now.
+    bool micCapAdvertised(const QString& slotId) const;
+    bool speakerCapAdvertised(const QString& slotId) const;
+    bool hapticAudioCapAdvertised(const QString& slotId) const;
 
     void collectMicForSlot(const models::ControllerSlot& s, net::WifiConnection& conn,
                            const audio::PadAudioRoute& route, AudioReconcile& out) const;
@@ -521,6 +547,9 @@ class AppModel : public QObject {
     // Re-attach a bound slot so its descriptor re-folds and re-PUTs (the hub's
     // capability fns re-run on bind). No-op for an unbound slot.
     void republishSlotCaps(const QString& slotId);
+    // The same, one event-loop turn later, for a caller inside rebuild: a bind rebuilds, and a
+    // rebuild inside a rebuild would publish a half-made state.
+    void republishSlotCapsLater(const audio::RefusedSlots& slotIds);
     // Every claimed Steam Controller gets the pick in force for its slot: idempotent
     // atomic stores, run on the scan tick, a pick change and a type change.
     void syncTrackpadPicks();

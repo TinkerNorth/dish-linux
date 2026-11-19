@@ -33,6 +33,7 @@
 #include "core/audio/AudioCodec.h"
 #include "core/audio/AudioEnginePolicy.h"
 #include "core/audio/AudioJitter.h"
+#include "core/audio/AudioRefusal.h"
 #include "core/model/Protocol.h"
 #include "core/thread/MpscQueue.h"
 #include "core/thread/TrackedMutex.h"
@@ -92,9 +93,13 @@ class SpeakerPlayoutEngine {
     SpeakerPlayoutEngine(SpeakerPlayoutEngine&&) = delete;
     SpeakerPlayoutEngine& operator=(SpeakerPlayoutEngine&&) = delete;
 
-    // Converge on exactly `targets` (main thread). A failed device open drops
-    // the voice; the next reconcile is the retry.
-    void reconcile(const std::vector<SpeakerVoiceTarget>& targets);
+    // Converge on exactly `targets` (main thread). An open the device refuses
+    // is recorded (core/audio/AudioRefusal.h) and not asked for again at that
+    // endpoint: the descriptor's cap follows the refusal, and a voice asked
+    // for on every reconcile would flap under a claim that says it plays. The
+    // slots whose refusal appeared or lapsed in this pass come back, so the
+    // caller can re-fold their descriptors.
+    dish::audio::RefusedSlots reconcile(const std::vector<SpeakerVoiceTarget>& targets);
 
     // One MSG_SPEAKER_AUDIO or MSG_HAPTIC_AUDIO frame, on the connection's
     // receive thread. The opus bytes are borrowed (the SatelliteClient message
@@ -109,17 +114,28 @@ class SpeakerPlayoutEngine {
 
     // The platform dropped a device: its voices close now, so a replug that
     // lands between two route resolves reopens on the fresh handle instead of
-    // writing to a dead one. Main thread.
-    void closeOnDevicesAbsent(const std::vector<std::string>& presentDevices);
+    // writing to a dead one, and its refusals leave with it, since the device
+    // enumerates afresh when it returns. The slots that lost a refusal come
+    // back. Main thread.
+    dish::audio::RefusedSlots closeOnDevicesAbsent(const std::vector<std::string>& presentDevices);
 
     // Whether a playback stream is open for the slot's lane right now
     // (UI/tests).
     bool playingFor(const std::string& slotId, PlayoutLane lane = PlayoutLane::Speaker) const;
 
+    // Whether the lane's open at this endpoint was refused and the refusal
+    // still stands, which is what takes the lane's cap off the descriptor.
+    // Main thread.
+    bool playbackRefused(const std::string& slotId, PlayoutLane lane, const std::string& deviceName,
+                         int channels) const;
+
   private:
     // reconcile's two halves. Both run under mtx_, which reconcile takes.
     void closeDepartedLocked(const std::vector<SpeakerVoiceTarget>& targets);
-    void openMissingLocked(const std::vector<SpeakerVoiceTarget>& targets);
+    void openMissingLocked(const std::vector<SpeakerVoiceTarget>& targets,
+                           dish::audio::RefusedSlots& moved);
+    // Every voice, at teardown.
+    void closeEverything();
 
     struct Voice {
         int handle = kNoAudioDevice;
@@ -173,6 +189,9 @@ class SpeakerPlayoutEngine {
     // per voice is nothing next to it.
     mutable thread::TrackedMutex mtx_{"playout.voices"};
     std::map<VoiceKey, std::unique_ptr<Voice>> voices_;
+    // Main thread only: written by reconcile and closeOnDevicesAbsent, read by
+    // the caps fold; deliver never looks at it.
+    dish::audio::AudioRefusalLedger refusals_;
 };
 
 } // namespace dish::source::audio

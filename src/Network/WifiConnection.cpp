@@ -112,11 +112,7 @@ void WifiConnection::teardownClient() {
     latencyOneWayMs_ = 0.0;
     latencySamples_ = 0;
     rekeyRequested_ = false;
-    // Session state, so the next session starts from the conservative "no
-    // audio" answer and waits for its own probe.
-    hostMic_ = false;
-    hostSpeaker_ = false;
-    hostHapticAudio_ = false;
+    resetHostControllerAudio();
     // A dropped session leaves no virtual pads applied, so streams must gate off
     // until the next PUT re-applies them.
     for (auto& [slotId, b] : slots_) { b.registered = false; }
@@ -445,9 +441,21 @@ void WifiConnection::setHostControllerAudio(bool mic, bool speaker, bool hapticA
     hostMic_ = mic;
     hostSpeaker_ = speaker;
     hostHapticAudio_ = hapticAudio;
-    // The capability table's host layer reads it, so a landed probe must
-    // re-render the rows.
+    // The descriptor's audio caps are folded from it, so the bound slots re-fold; the capability
+    // table's host layer reads it too, so the rows re-render.
+    emit hostControllerAudioChanged();
     emit changed();
+}
+
+// Session state, so the next session starts from the conservative "no audio" answer and waits for
+// its own probe. A grant that stood is a move like any other: the bound slots re-fold now, so the
+// next session's opening PUT carries no cap the host may have withdrawn meanwhile.
+void WifiConnection::resetHostControllerAudio() {
+    const bool wasGranting = hostMic_ || hostSpeaker_ || hostHapticAudio_;
+    hostMic_ = false;
+    hostSpeaker_ = false;
+    hostHapticAudio_ = false;
+    if (wasGranting) { emit hostControllerAudioChanged(); }
 }
 
 } // namespace dish::net

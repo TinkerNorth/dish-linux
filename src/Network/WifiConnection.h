@@ -234,7 +234,10 @@ class WifiConnection : public QObject {
     // have moved. Conservative by construction — false until a probe says yes,
     // and reset to false with the session, so a stale yes never outlives the
     // host that gave it. Read by the capability model's host layer for the
-    // mic/speaker rows only; every other feature keeps its catalog-fed answer.
+    // mic/speaker rows (every other feature keeps its catalog-fed answer) and
+    // folded into the descriptor's audio caps, which are promises the host
+    // streams on alone: a move, the reset included, announces itself on
+    // hostControllerAudioChanged so the bound slots re-fold and re-PUT.
     // `hapticAudio` is the host's haptics lane (protocol 3): false on a host
     // that predates it, which is also a host that never sends the stream.
     void setHostControllerAudio(bool mic, bool speaker, bool hapticAudio = false);
@@ -247,6 +250,11 @@ class WifiConnection : public QObject {
     // Kept separate from `changed` because that fans out into the hub and
     // AppModel rebuild cascade, which a 1 Hz cosmetic tick must not thrash.
     void telemetryChanged();
+    // The host's controller-audio grant moved (a probe said something new, or
+    // the session ended and reset it). Its own signal because `changed` fires
+    // for every state transition, and only a moved grant re-folds the slots'
+    // descriptors.
+    void hostControllerAudioChanged();
     void errorOccurred(const QString& message);
     // The manager converges it via PUT /api/connections/{id}/controllers/{idx}.
     void slotChanged(const QString& slotId);
@@ -314,6 +322,8 @@ class WifiConnection : public QObject {
     void applySteadyState(const SatelliteClient& c);
     void maybeRequestRekey(const SatelliteClient& c);
     void teardownClient();
+    // Back to the conservative "no audio" answer, announced when a grant stood.
+    void resetHostControllerAudio();
     void retireClient(std::shared_ptr<SatelliteClient> client);
 };
 

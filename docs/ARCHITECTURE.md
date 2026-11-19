@@ -471,7 +471,15 @@ The host's live verdict is a third layer: `WifiConnectionManager::probeHostAudio
 reads `GET /api/server/capabilities` after every session PUT and folds it via
 [`HostAudioVerdict`](../src/core/reducer/HostAudioVerdict.h) into per-session
 connection state — conservative "no audio" until a probe answers, reset with
-the session.
+the session. The descriptor's three audio caps read it too, with the route,
+the slot's switch and the engines' refusal ledger
+([`AudioRefusal`](../src/core/audio/AudioRefusal.h)), because a cap is a
+promise the host streams on alone (`audioCapAdvertised` in
+`AudioEnginePolicy`): a moved verdict, the reset at teardown included, raises
+`hostControllerAudioChanged`, which AppModel answers by re-binding the slots
+bound to that connection so their descriptors re-fold and re-PUT, and an open
+the audio stack refuses takes the lane's cap off until the endpoint changes or
+the device departs and returns, and is not asked for again meanwhile.
 
 The engines execute the pure rules in
 [`AudioEnginePolicy`](../src/core/audio/AudioEnginePolicy.h) and nothing else:

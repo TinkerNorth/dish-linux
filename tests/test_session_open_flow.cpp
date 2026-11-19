@@ -33,6 +33,7 @@
 using dish::net::ConnectIntent;
 using dish::net::SessionState;
 using dish::net::WifiConnection;
+using dish::net::WifiConnectionManager;
 using dish::reducer::ProtocolCompat;
 using dish::test::ManagerRig;
 using dish::test::PairingAnswer;
@@ -45,6 +46,10 @@ namespace {
 const QString kSessionPath = QStringLiteral("/api/connections");
 // The session grantingEverything hands out, where its release is addressed.
 const QString kGrantedSessionPath = QStringLiteral("/api/connections/c-1");
+const QString kCapabilitiesPath = QStringLiteral("/api/server/capabilities");
+// The one slot the audio case attaches, at the first controller index.
+const QString kSlot = QStringLiteral("sdl:1");
+const QString kSlotControllerPath = QStringLiteral("/api/connections/c-1/controllers/0");
 // Past the first silent retry's backoff (reducer::backoffDelayMs(1), one second), with room.
 constexpr int kPastFirstRetryMs = 2500;
 // Long enough for a request the manager should not have sent to reach the listener.
@@ -61,6 +66,20 @@ std::function<PairingAnswer(const SeenRequest&)> answeringSessions(int status, Q
         if (r.path == kSessionPath) { return PairingAnswer{status, body}; }
         return dish::test::grantingEverything(r);
     };
+}
+
+// A satellite whose probe grants the controller speaker and nothing else; everything else is
+// granted as grantingEverything grants it.
+PairingAnswer grantingTheSpeaker(const SeenRequest& r) {
+    if (r.path == kCapabilitiesPath) {
+        const QJsonObject controllerAudio{{QStringLiteral("enabled"), true},
+                                          {QStringLiteral("mic"), false},
+                                          {QStringLiteral("speaker"), true},
+                                          {QStringLiteral("hapticAudio"), false}};
+        return PairingAnswer{200,
+                             QJsonObject{{QStringLiteral("controllerAudio"), controllerAudio}}};
+    }
+    return dish::test::grantingEverything(r);
 }
 
 // With a key on file, a connect goes straight to the session PUT.
@@ -80,6 +99,33 @@ void liveByUser(ManagerRig& rig) {
     rig.listener.respond = dish::test::grantingEverything;
     keyed(rig);
     rig.wifi->connectTo(rig.server, ConnectIntent::UserInitiated);
+}
+
+// The per-controller PUTs the slot drew, in order.
+std::vector<SeenRequest> slotPuts(const ManagerRig& rig) {
+    std::vector<SeenRequest> puts;
+    for (const auto& r : rig.listener.requests()) {
+        const bool isTheSlot = r.path == kSlotControllerPath;
+        const bool isAPut = r.method == "PUT";
+        if (isTheSlot && isAPut) { puts.push_back(r); }
+    }
+    return puts;
+}
+
+bool claimsTheSpeaker(const SeenRequest& put) {
+    return put.body.value(QStringLiteral("caps"))
+        .toObject()
+        .value(QStringLiteral("speaker"))
+        .toBool();
+}
+
+// What AppModel does with a moved grant, reduced to one slot: re-fold the descriptor with the
+// grant's word on the speaker. The manager converges the rest on the controller's own route.
+void refoldSpeakerCap(WifiConnection& conn) {
+    conn.attachSlot(kSlot, dish::proto::kControllerTypeDualSense, /*hasLightbar=*/false,
+                    /*hasMotion=*/false, /*hasRumble=*/false, dish::proto::kTouchpadModeOff,
+                    /*hasTriggerEffects=*/false, /*hasPlayerLeds=*/false, /*hasMic=*/false,
+                    /*hasSpeaker=*/conn.hostSpeakerAvailable());
 }
 
 // How many times the granted session was handed back to the satellite.
@@ -141,6 +187,35 @@ TEST_CASE("session open: a grant goes live on the satellite's connection id, and
     // A fresh session reads the host's audio verdict again.
     CHECK(spinFor(
         [&] { return rig.listener.seen(QStringLiteral("/api/server/capabilities")) >= 1; }));
+}
+
+TEST_CASE("session open: a probe that grants the speaker re-sends the slot with CAP_SPEAKER",
+          "[wifi][session][audio]") {
+    // The audio caps are promises the probe gates: a slot bound before the probe answers goes to
+    // the satellite without the speaker, and the grant, when it lands, re-sends the controller on
+    // its own route with the cap. The fold that reads the grant is AppModel's; refoldSpeakerCap
+    // stands in for it on the manager's relay of the move.
+    ManagerRig rig;
+    REQUIRE(rig.listener.listening());
+    rig.listener.respond = grantingTheSpeaker;
+    keyed(rig);
+
+    rig.wifi->connectTo(rig.server, ConnectIntent::UserInitiated);
+    WifiConnection* conn = connection(rig);
+    REQUIRE(conn != nullptr);
+    refoldSpeakerCap(*conn);
+    QObject::connect(rig.wifi.get(), &WifiConnectionManager::hostControllerAudioChanged,
+                     rig.wifi.get(), [conn](const QString&) { refoldSpeakerCap(*conn); });
+
+    REQUIRE(spinFor([&] { return slotPuts(rig).size() >= 2; }));
+    const std::vector<SeenRequest> puts = slotPuts(rig);
+    // Before the grant: the slot the late-slot converge sent, without the cap.
+    CHECK_FALSE(claimsTheSpeaker(puts.front()));
+    // After it: the same controller, re-sent with the cap the grant allows.
+    CHECK(claimsTheSpeaker(puts.back()));
+    CHECK(conn->hostSpeakerAvailable());
+    CHECK_FALSE(conn->hostMicAvailable());
+    CHECK(rig.errors() == 0);
 }
 
 TEST_CASE("session open: material that does not decode never goes live, and is handed back",

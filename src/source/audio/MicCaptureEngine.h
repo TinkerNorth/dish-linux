@@ -32,6 +32,7 @@
 
 #include "core/audio/AudioCodec.h"
 #include "core/audio/AudioEnginePolicy.h"
+#include "core/audio/AudioRefusal.h"
 #include "source/audio/AudioDeviceGateway.h"
 
 #include <atomic>
@@ -70,17 +71,26 @@ class MicCaptureEngine {
 
     // Converge on exactly `targets`: open what is missing, close what is not
     // wanted (or whose device moved), leave the rest running. Main thread.
-    // An open the device refuses is dropped silently; the next reconcile —
-    // routes and claims re-trigger it — is the retry.
-    void reconcile(const std::vector<MicCaptureTarget>& targets);
+    // An open the device refuses is recorded (core/audio/AudioRefusal.h) and
+    // not asked for again at that endpoint: CAP_MIC follows the refusal, and a
+    // microphone asked for on every reconcile would flap under a claim that
+    // says it captures. The slots whose refusal appeared or lapsed in this
+    // pass come back, so the caller can re-fold their descriptors.
+    dish::audio::RefusedSlots reconcile(const std::vector<MicCaptureTarget>& targets);
 
     // The platform dropped a device: its capture closes now, so a replug that
     // lands between two route resolves reopens on the fresh handle instead of
-    // feeding a dead one. Main thread.
-    void closeOnDevicesAbsent(const std::vector<std::string>& presentDevices);
+    // feeding a dead one, and its refusals leave with it, since the device
+    // enumerates afresh when it returns. The slots that lost a refusal come
+    // back. Main thread.
+    dish::audio::RefusedSlots closeOnDevicesAbsent(const std::vector<std::string>& presentDevices);
 
     // Whether a capture device is open for the slot right now (UI/tests).
     bool capturingFor(const std::string& slotId) const;
+
+    // Whether the slot's open at this device was refused and the refusal still
+    // stands, which is what takes CAP_MIC off the descriptor. Main thread.
+    bool captureRefused(const std::string& slotId, const std::string& captureDeviceName) const;
 
   private:
     // Shared with the audio-thread callback via shared_ptr, so a close racing
@@ -116,13 +126,18 @@ class MicCaptureEngine {
     };
 
     void closeDeparted(const std::vector<MicCaptureTarget>& targets);
-    void openMissing(const std::vector<MicCaptureTarget>& targets);
+    void openMissing(const std::vector<MicCaptureTarget>& targets,
+                     dish::audio::RefusedSlots& moved);
+    // Every capture, at teardown.
+    void closeEverything();
 
     AudioDeviceGateway* gateway_;
     EncoderFactory encoderFactory_;
     std::map<std::string, Entry> entries_; // by slotId; main thread only
     // Where each slot's count resumes after a close; main thread only.
     std::map<std::string, std::uint16_t> nextSeqBySlot_;
+    // The opens the device refused; main thread only.
+    dish::audio::AudioRefusalLedger refusals_;
 };
 
 } // namespace dish::source::audio

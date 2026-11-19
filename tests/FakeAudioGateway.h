@@ -26,6 +26,9 @@ class FakeAudioGateway : public dish::source::audio::AudioDeviceGateway {
     std::map<std::string, int> playbackChannels;
     // Names that refuse to open.
     std::vector<std::string> refuse;
+    // Refuses this many opens, whatever the name, then opens again: a device
+    // that refused once and would take the next try.
+    int refuseNextOpens = 0;
 
     struct Capture {
         std::string name;
@@ -54,9 +57,7 @@ class FakeAudioGateway : public dish::source::audio::AudioDeviceGateway {
 
     int openCapture(const std::string& deviceName,
                     std::function<void(const std::int16_t*, std::size_t)> onSamples) override {
-        for (const auto& r : refuse) {
-            if (r == deviceName) { return dish::source::audio::kNoAudioDevice; }
-        }
+        if (refusesThisOpen(deviceName)) { return dish::source::audio::kNoAudioDevice; }
         const int handle = nextHandle_++;
         captures[handle] = Capture{deviceName, std::move(onSamples), true};
         return handle;
@@ -71,9 +72,7 @@ class FakeAudioGateway : public dish::source::audio::AudioDeviceGateway {
     }
 
     int openPlayback(const std::string& deviceName, int channels) override {
-        for (const auto& r : refuse) {
-            if (r == deviceName) { return dish::source::audio::kNoAudioDevice; }
-        }
+        if (refusesThisOpen(deviceName)) { return dish::source::audio::kNoAudioDevice; }
         const int handle = nextHandle_++;
         playbacks[handle] = Playback{deviceName, channels, {}, 0, true, false};
         return handle;
@@ -143,6 +142,17 @@ class FakeAudioGateway : public dish::source::audio::AudioDeviceGateway {
     void drain(int handle) { playbacks.at(handle).queuedBytes = 0; }
 
   private:
+    bool refusesThisOpen(const std::string& deviceName) {
+        if (refuseNextOpens > 0) {
+            refuseNextOpens--;
+            return true;
+        }
+        for (const auto& r : refuse) {
+            if (r == deviceName) { return true; }
+        }
+        return false;
+    }
+
     int nextHandle_ = 1;
 };
 
