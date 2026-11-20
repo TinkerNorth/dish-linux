@@ -237,6 +237,21 @@ set(DISH_CORE_SOURCES
     src/source/system/MachineIdentity.cpp
     src/source/system/DiagnosticsHandoff.h
     src/source/system/DiagnosticsHandoff.cpp
+    # The support report's second cut (docs/diagnostics-bundle.md, "Second cut"): the report's
+    # category, the host-snapshot decisions, the wire and lane counters and the PC's power and
+    # thermal facts in core, the snapshot collector in composer, the snapshot route's reader and the
+    # sysfs power and thermal read at the source edge.
+    src/core/diagnostics/ReportForm.h
+    src/core/diagnostics/HostSnapshot.h
+    src/core/diagnostics/WireCounters.h
+    src/core/diagnostics/PadLanes.h
+    src/core/diagnostics/DeviceFacts.h
+    src/composer/HostSnapshotCollector.h
+    src/composer/HostSnapshotCollector.cpp
+    src/source/http/ConnectionSnapshotGateway.h
+    src/source/http/ConnectionSnapshotGateway.cpp
+    src/source/system/PowerStatus.h
+    src/source/system/PowerStatus.cpp
     src/core/reducer/RestOutcome.h
     src/core/reducer/Backoff.h
     src/core/reducer/BackgroundMode.h
@@ -765,6 +780,7 @@ qt_add_qml_module(Dish
         src/qml/pages/ConfigureBindingPage.qml
         src/qml/pages/DiagnosticsPage.qml
         src/qml/pages/InputInspectorPage.qml
+        src/qml/pages/ReportProblemPage.qml
         src/qml/pages/MoonlightHostsPage.qml
         src/qml/pages/PairingDialog.qml
         src/qml/onboarding/OnboardingFlow.qml

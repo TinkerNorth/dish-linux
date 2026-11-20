@@ -86,6 +86,10 @@ class MoonlightManager : public QObject {
     // A uuid this subsystem knows: a remembered host, or one discovery found.
     bool knows(const QString& uuid) const;
     std::optional<MoonlightRow> row(const QString& uuid) const;
+    // The host's version as its last answered /serverinfo gave it ("7.1.431.-1"), for the support
+    // report; empty before one answered. Its state and PairStatus are not kept from that answer:
+    // over plaintext they describe an unpaired asker, not this client.
+    QString serverAppVersion(const QString& uuid) const;
 
     // Kicks a background mDNS scan; merges results into the discovered set.
     void startDiscovery();
@@ -219,6 +223,9 @@ class MoonlightManager : public QObject {
         bool paired = false;
         bool identityChanged = false;
         bool trustRejected = false;
+        // The host's own version from the last plaintext /serverinfo that answered, for the
+        // support report.
+        QString appVersion;
     };
 
     // The /applist read for one host.

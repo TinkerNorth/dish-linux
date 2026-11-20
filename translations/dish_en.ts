@@ -1518,14 +1518,6 @@
         <translation>Diagnostics</translation>
     </message>
     <message>
-        <source>Your mail app has the message. Nothing is sent until you press Send.</source>
-        <translation>Your mail app has the message. Nothing is sent until you press Send.</translation>
-    </message>
-    <message>
-        <source>Your mail app opened without the file: attach the one the file manager shows.</source>
-        <translation>Your mail app opened without the file: attach the one the file manager shows.</translation>
-    </message>
-    <message>
         <source>Controller inspector</source>
         <translation>Controller inspector</translation>
     </message>
@@ -1988,12 +1980,20 @@
         <translation>Host %1: %2</translation>
     </message>
     <message>
-        <source>The file holds this page and its log, never pairing keys, fingerprints, IP addresses, Wi-Fi names or PC names.</source>
-        <translation>The file holds this page and its log, never pairing keys, fingerprints, IP addresses, Wi-Fi names or PC names.</translation>
+        <source>The attached file holds this page and its log, each controller&apos;s input and output counts, Dish&apos;s own view of each session and what each Satellite says about it; it never holds pairing keys, certificate fingerprints, IP addresses, Wi-Fi names or the names of your PCs and devices.</source>
+        <translation>The attached file holds this page and its log, each controller&apos;s input and output counts, Dish&apos;s own view of each session and what each Satellite says about it; it never holds pairing keys, certificate fingerprints, IP addresses, Wi-Fi names or the names of your PCs and devices.</translation>
     </message>
     <message>
-        <source>The diagnostics file could not be written, or a mail from the last one is still open.</source>
-        <translation>The diagnostics file could not be written, or a mail from the last one is still open.</translation>
+        <source>Ask a question</source>
+        <translation>Ask a question</translation>
+    </message>
+    <message>
+        <source>Report a problem</source>
+        <translation>Report a problem</translation>
+    </message>
+    <message>
+        <source>Report a problem writes a file of what this page shows and what each Satellite says about its side, and opens your own mail app addressed to support@tinkernorth.com with the file attached. Nothing is sent until you click Send.</source>
+        <translation>Report a problem writes a file of what this page shows and what each Satellite says about its side, and opens your own mail app addressed to support@tinkernorth.com with the file attached. Nothing is sent until you click Send.</translation>
     </message>
     <message>
         <source>Diagnostics saved. The file manager shows its folder.</source>
@@ -2094,14 +2094,6 @@
     <message>
         <source>Send to support</source>
         <translation>Send to support</translation>
-    </message>
-    <message>
-        <source>Email diagnostics saves a file of what this page shows and opens your own mail app addressed to support@tinkernorth.com, with the file attached. Nothing is sent until you press Send.</source>
-        <translation>Email diagnostics saves a file of what this page shows and opens your own mail app addressed to support@tinkernorth.com, with the file attached. Nothing is sent until you press Send.</translation>
-    </message>
-    <message>
-        <source>Email diagnostics</source>
-        <translation>Email diagnostics</translation>
     </message>
     <message>
         <source>Save diagnostics</source>
@@ -3960,6 +3952,121 @@
     <message>
         <source>~2 min</source>
         <translation>~2 min</translation>
+    </message>
+</context>
+<context>
+    <name>ReportProblemPage</name>
+    <message>
+        <source>Ask a question</source>
+        <translation>Ask a question</translation>
+    </message>
+    <message>
+        <source>Report a problem</source>
+        <translation>Report a problem</translation>
+    </message>
+    <message>
+        <source>Controller not recognised</source>
+        <translation>Controller not recognised</translation>
+    </message>
+    <message>
+        <source>No rumble or feedback</source>
+        <translation>No rumble or feedback</translation>
+    </message>
+    <message>
+        <source>Connection or latency</source>
+        <translation>Connection or latency</translation>
+    </message>
+    <message>
+        <source>Audio</source>
+        <translation>Audio</translation>
+    </message>
+    <message>
+        <source>Something else</source>
+        <translation>Something else</translation>
+    </message>
+    <message>
+        <source>A question</source>
+        <translation>A question</translation>
+    </message>
+    <message>
+        <source>Your mail app has the message. Nothing is sent until you click Send.</source>
+        <translation>Your mail app has the message. Nothing is sent until you click Send.</translation>
+    </message>
+    <message>
+        <source>Your mail app opened without the file: attach the one the file manager shows.</source>
+        <translation>Your mail app opened without the file: attach the one the file manager shows.</translation>
+    </message>
+    <message>
+        <source>The diagnostics file could not be written, or a mail from the last one is still open.</source>
+        <translation>The diagnostics file could not be written, or a mail from the last one is still open.</translation>
+    </message>
+    <message>
+        <source>Ask us anything about Dish. Your question goes to support@tinkernorth.com from your own mail app, with a file of what Dish sees so we can answer for your setup.</source>
+        <translation>Ask us anything about Dish. Your question goes to support@tinkernorth.com from your own mail app, with a file of what Dish sees so we can answer for your setup.</translation>
+    </message>
+    <message>
+        <source>Tell us what went wrong. Dish writes a file of what it sees and opens your own mail app addressed to support@tinkernorth.com, with the file attached.</source>
+        <translation>Tell us what went wrong. Dish writes a file of what it sees and opens your own mail app addressed to support@tinkernorth.com, with the file attached.</translation>
+    </message>
+    <message>
+        <source>Category</source>
+        <translation>Category</translation>
+    </message>
+    <message>
+        <source>What happened, and what did you expect?</source>
+        <translation>What happened, and what did you expect?</translation>
+    </message>
+    <message>
+        <source>Controller</source>
+        <translation>Controller</translation>
+    </message>
+    <message>
+        <source>No particular controller</source>
+        <translation>No particular controller</translation>
+    </message>
+    <message>
+        <source>What the file holds</source>
+        <translation>What the file holds</translation>
+    </message>
+    <message>
+        <source>Your words and the category you picked.</source>
+        <translation>Your words and the category you picked.</translation>
+    </message>
+    <message>
+        <source>Dish&apos;s version, this PC&apos;s model and Linux version, its battery and power profile, and how hot it runs.</source>
+        <translation>Dish&apos;s version, this PC&apos;s model and Linux version, its battery and power profile, and how hot it runs.</translation>
+    </message>
+    <message>
+        <source>Each controller&apos;s identity, the path Dish reads it on, and what went in and out of it, as counts and last values.</source>
+        <translation>Each controller&apos;s identity, the path Dish reads it on, and what went in and out of it, as counts and last values.</translation>
+    </message>
+    <message>
+        <source>Each host&apos;s kind, version and link state, Dish&apos;s own view of each session, and what each Satellite says about it.</source>
+        <translation>Each host&apos;s kind, version and link state, Dish&apos;s own view of each session, and what each Satellite says about it.</translation>
+    </message>
+    <message>
+        <source>The controller database&apos;s state and this run&apos;s event log.</source>
+        <translation>The controller database&apos;s state and this run&apos;s event log.</translation>
+    </message>
+    <message>
+        <source>It never holds pairing keys, certificate fingerprints, IP addresses, Wi-Fi names or the names of your PCs and devices. Nothing is sent until you click Send in your mail app.</source>
+        <translation>It never holds pairing keys, certificate fingerprints, IP addresses, Wi-Fi names or the names of your PCs and devices. Nothing is sent until you click Send in your mail app.</translation>
+    </message>
+    <message>
+        <source>Asking each Satellite for its side of the session…</source>
+        <translation>Asking each Satellite for its side of the session…</translation>
+    </message>
+    <message>
+        <source>Continue in your mail app</source>
+        <translation>Continue in your mail app</translation>
+    </message>
+    <message>
+        <source>Hide file</source>
+        <translation>Hide file</translation>
+    </message>
+    <message>
+        <source>Preview file</source>
+        <translation>Preview file</translation>
     </message>
 </context>
 <context>

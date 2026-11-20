@@ -147,6 +147,7 @@ project it so the type picker can tell loading from empty from failed.
 | `controllerDb` | `map` | `controllerDbChanged` | `{ bundledVersion, activeVersion, source, lastCheckAtMs, lastCheckResult, checking }`. `source` is `bundled` / `cache`; `lastCheckAtMs` is `0` and `lastCheckResult` `""` before any check, else `upToDate` / `updated` / `offline` / `invalid` / `off`. |
 | `machineModel` | `string` | CONSTANT | This PC's model as the diagnostics file names it (DMI's `sys_vendor` and `product_name`), `Linux PC` when the firmware names none; never the host name. |
 | `osVersion` | `string` | CONSTANT | The distribution and kernel release, `Ubuntu 24.04.1 LTS (6.8.0-45-generic)`. |
+| `reportReady` | `bool` | `reportReadyChanged` | Every live Satellite has answered the snapshot request `prepareReport()` sent, or let it time out; until then "Preview file" and "Continue in your mail app" wait. |
 | `donateSponsorsUrl` | `string` | CONSTANT | GitHub Sponsors URL. |
 | `donateKofiUrl` | `string` | CONSTANT | Ko-fi URL. |
 | `donateBmacUrl` | `string` | CONSTANT | Buy Me a Coffee URL. |
@@ -219,7 +220,8 @@ Republished at the inspector's 33 ms poll while an inspection is armed (see
 | `diagnosticsLogChanged` | | The flight recorder logged something. Re-pull `diagnosticsLog()`. |
 | `controllerDbChanged` | | `controllerDb` or `controllerDbChecksEnabled` moved. |
 | `testOutcomesChanged` | | An answer to "Did it work?" was recorded. Re-pull `lastTestOutcome()` and `controllerRecordFacts()`. |
-| `diagnosticsMailHandedOff` | `bool viaMailClient` | After `emailDiagnostics`: `true` when the mail client took the message, `false` when the `mailto:` fallback opened and the file manager shows the folder to attach the file from. |
+| `reportReadyChanged` | | `reportReady` moved. |
+| `diagnosticsMailHandedOff` | `bool viaMailClient` | After `sendReport`: `true` when the mail client took the message, `false` when the `mailto:` fallback opened and the file manager shows the folder to attach the file from. |
 | `inputSnapshotChanged` | | `inputSnapshot` moved. |
 | `stickTestChanged` | | `stickTest` moved. |
 
@@ -462,9 +464,11 @@ every ack answer reads `unknown` until then.
 | `controllerRecordFacts(slotId)` | The record the slot's pad was matched to at its attach: `{ matched }` and, when matched, `{ recordId, name, hint, family, chip, inert, mismatches, issues }`, plus `{ lastWrite, lastTest }` for every slot. `chip` is `verified` / `guessed` / `flagged`; `inert` means only the name and the notes apply on this PC; `mismatches` are the expect check's lines in the contract's form; `issues` are `{ id, title, body }` for this transport on this PC model and kernel. `lastWrite` is `{}` or `{ route, reportId, ok, err, atMs }` (`interruptOut` / `setReport`, two hex digits, an `errno` name such as `EPIPE` or `""`), `lastTest` `{}` or `{ test, result, atMs }`. Words come from the database's strings in the UI language, English where it has none. Re-pull on `stateChanged`, `telemetryChanged` and `testOutcomesChanged`. |
 | `recordTestOutcome(slotId, motor, worked)` | The answer to "Did it work?" after `testRumble(slotId, motor)`: kept as `{ rumble.<motor>, worked / didNotWork, now }`, the last twenty per slot, for this run. |
 | `lastTestOutcome(slotId)` | `{}` before any answer, else `{ test, result, atMs }`. |
-| `diagnosticsControllers()` | One row per controller for the mail's summary: `{ name, recordId, chip, usbDirect, bluetooth }`, `recordId` and `chip` `""` for a pad no record lists. |
+| `diagnosticsControllers()` | One row per controller for the mail's summary and the report's controller picker: `{ slotId, name, recordId, chip, usbDirect, bluetooth }`, `recordId` and `chip` `""` for a pad no record lists. |
 | `saveDiagnostics()` | Writes `dish-diagnostics-dish-linux-<yyyyMMdd-HHmmss>.json` under `~/.local/share/TinkerNorth/Dish/diagnostics` and opens that folder in the file manager. Returns the path, `""` when it could not be written. |
-| `emailDiagnostics(body)` | Writes the same file, then runs `xdg-email` to open the person's mail app addressed to `support@tinkernorth.com` with `body` (the summary the page composed in the person's language) and the file attached, or the `mailto:` fallback where it cannot. `false` when the file could not be written or the last mail's `xdg-email` has not answered yet; `diagnosticsMailHandedOff` follows. |
+| `prepareReport()` | "Report a problem" / "Ask a question" opened: asks every live Satellite for its own snapshot of the session (`GET /api/connections/{id}/diagnostics`, two seconds at most) and reads the PC's power and thermal facts from sysfs. `reportReady` turns `true` when every answer is in. |
+| `reportPreview(category, text, slotId)` | The file as `sendReport` would write it, as text. `category` is `notRecognised` / `noFeedback` / `connection` / `audio` / `other` / `question`, `text` the person's words, `slotId` the controller it concerns or `""`. |
+| `sendReport(category, categoryWords, text, slotId, summary)` | Writes the file with the report in it, then runs `xdg-email` to open the person's mail app addressed to `support@tinkernorth.com` with the file attached, or the `mailto:` fallback where it cannot: subject `Dish support: <categoryWords> · Dish for Linux <version> on <model>`, body `text`, a blank line, then `summary` (the Diagnostics page's summary in the person's language). `false` when the file could not be written or the last mail's `xdg-email` has not answered yet; `diagnosticsMailHandedOff` follows. |
 | `startInputInspection(slotId)` | Arm the inspector on one slot: `inputSnapshot` and `stickTest` republish until `stopInputInspection()`. Arming another slot re-points it and drops the last slot's stick test. |
 | `stopInputInspection()` | Disarm. Call it when the page goes away. Safe when idle. |
 | `startStickTest(kind)` | `"drift"` (hands off the sticks for three seconds) or `"range"` (full circles for eight). Replaces the last result; ignored while nothing is armed. |

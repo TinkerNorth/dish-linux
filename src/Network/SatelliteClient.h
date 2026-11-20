@@ -8,6 +8,7 @@
 
 #pragma once
 
+#include "core/diagnostics/WireCounters.h"
 #include "core/model/Protocol.h"
 #include "core/reducer/LatencyWindow.h"
 #include "core/reducer/Reconcile.h"
@@ -430,6 +431,10 @@ class SatelliteClient {
     // The same window's round trips for the diagnostics page, emptied with it.
     reducer::LatencySummary latencySummary() const;
 
+    // What this session put on the wire and what came back, per message kind, for the support
+    // report. Counted by every sending thread and the receive thread with one relaxed add each.
+    diagnostics::WireCounts wireCounts() const { return wireCounters_.counts(); }
+
   private:
     // Test-only seam to park the send counter near exhaustion.
     friend class SatelliteClientTestAccess;
@@ -477,6 +482,8 @@ class SatelliteClient {
     // in counter order, which the satellite's replay guard requires.
     std::atomic<std::uint32_t> sendGate_{0};
     std::atomic<std::uint64_t> softDrops_{0};
+    // Hot path: a relaxed add per datagram sent and per message dispatched, never a lock.
+    diagnostics::WireCounters wireCounters_;
     // The receive thread's replay guard: the material generation it belongs to (high word) and the
     // last accepted counter (low word, 0 lets the first packet in). A re-key stores its own
     // generation with counter 0; only the receive thread advances it.

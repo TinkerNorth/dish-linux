@@ -128,8 +128,7 @@ TEST_CASE("test outcomes: the store keeps each slot's apart", "[diagnostics][out
     CHECK(store.outcomesFor("a").size() == kOutcomesKept);
 }
 
-TEST_CASE("mail: the subject and the attachment's name are the contract's", "[diagnostics][mail]") {
-    CHECK(mailSubject("2.8.0", "AYN Thor") == "Dish diagnostics: Dish for Linux 2.8.0 on AYN Thor");
+TEST_CASE("mail: the address and the attachment's name are the contract's", "[diagnostics][mail]") {
     CHECK(kSupportAddress == "support@tinkernorth.com");
     CHECK(bundleFileName(CivilTime{2026, 11, 19, 21, 4, 11}) ==
           "dish-diagnostics-dish-linux-20261119-210411.json");

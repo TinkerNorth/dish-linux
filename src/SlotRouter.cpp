@@ -199,7 +199,30 @@ SlotRouter::FeedbackRoute SlotRouter::liveRoute(const QString& slotId) const {
     }
     route.padIndex = deps_.processor->find(slotId.toStdString());
     route.rumbleOn = deps_.rumbleEnabled->isEnabled(slotId);
+    route.counters = countersFor(slotId);
     return route;
+}
+
+diagnostics::PadOutputCounters* SlotRouter::countersFor(const QString& slotId) const {
+    auto& slot = padCounters_[slotId];
+    if (slot == nullptr) { slot = std::make_unique<diagnostics::PadOutputCounters>(); }
+    return slot.get();
+}
+
+diagnostics::LaneSample SlotRouter::laneSample(const QString& slotId,
+                                               diagnostics::OutputLane lane) const {
+    const auto it = padCounters_.find(slotId);
+    if (it == padCounters_.end()) { return {}; }
+    return it->second->sample(lane);
+}
+
+void SlotRouter::recordLane(const FeedbackRoute& route, diagnostics::OutputLane lane,
+                            std::uint64_t packedValue) {
+    if (route.counters == nullptr) { return; }
+    const std::int64_t nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                   std::chrono::system_clock::now().time_since_epoch())
+                                   .count();
+    route.counters->record(lane, packedValue, nowMs);
 }
 
 // Inputs from the slots on screen, feedback from every binding: a bound slot the list does not
@@ -545,6 +568,7 @@ void SlotRouter::installFeedbackHandlers(net::WifiConnection& conn, const QStrin
 
 void SlotRouter::routeRumble(const FeedbackRoute& route, std::uint16_t strong, std::uint16_t weak,
                              std::uint16_t durationMs) {
+    recordLane(route, diagnostics::OutputLane::Rumble, diagnostics::packRumble(strong, weak));
     switch (route.target(reducer::FeedbackKind::Rumble)) {
     case reducer::FeedbackTarget::Standard:
         // The SDL thread actuates it from the pad's mailbox on its next cycle.
@@ -568,6 +592,7 @@ void SlotRouter::routeRumble(const FeedbackRoute& route, std::uint16_t strong, s
 
 void SlotRouter::routeLightbar(const FeedbackRoute& route, std::uint8_t r, std::uint8_t g,
                                std::uint8_t b) {
+    recordLane(route, diagnostics::OutputLane::Lightbar, diagnostics::packRgb(r, g, b));
     switch (route.target(reducer::FeedbackKind::Lightbar)) {
     case reducer::FeedbackTarget::Standard:
         if (route.padIndex.has_value()) {
@@ -590,6 +615,7 @@ void SlotRouter::routeTriggerEffects(
     const FeedbackRoute& route,
     const std::array<std::uint8_t, proto::kTriggerEffectBlockBytes>& left,
     const std::array<std::uint8_t, proto::kTriggerEffectBlockBytes>& right) {
+    recordLane(route, diagnostics::OutputLane::TriggerEffects, 0);
     switch (route.target(reducer::FeedbackKind::TriggerEffects)) {
     case reducer::FeedbackTarget::Standard:
         // The same report the Direct branch writes, built on the SDL thread and handed to SDL's
@@ -609,6 +635,7 @@ void SlotRouter::routeTriggerEffects(
 }
 
 void SlotRouter::routePlayerLeds(const FeedbackRoute& route, std::uint8_t ledMask) {
+    recordLane(route, diagnostics::OutputLane::PlayerLeds, ledMask);
     switch (route.target(reducer::FeedbackKind::PlayerLeds)) {
     case reducer::FeedbackTarget::Standard:
         if (route.padIndex.has_value()) { deps_.bridge->postPlayerLeds(*route.padIndex, ledMask); }
@@ -624,6 +651,7 @@ void SlotRouter::routePlayerLeds(const FeedbackRoute& route, std::uint8_t ledMas
 }
 
 void SlotRouter::routeMicLed(const FeedbackRoute& route, std::uint8_t state) {
+    recordLane(route, diagnostics::OutputLane::MicLed, state);
     switch (route.target(reducer::FeedbackKind::MicLed)) {
     case reducer::FeedbackTarget::Standard:
         if (route.padIndex.has_value()) { deps_.bridge->postMicLed(*route.padIndex, state); }

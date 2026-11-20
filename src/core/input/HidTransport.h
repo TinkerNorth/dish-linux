@@ -12,8 +12,11 @@
 
 #pragma once
 
+#include <cstdint>
+#include <filesystem>
 #include <fstream>
 #include <string>
+#include <system_error>
 #include <string_view>
 
 namespace dish::input {
@@ -56,6 +59,46 @@ inline bool isBluetoothHidDevicePath(std::string_view path) {
                                            "/device/device/uevent");
     }
     return false;
+}
+
+// Which Bluetooth link a HID device rides, for the support report's `bluetooth` block. Both links
+// put the device on BUS_BLUETOOTH; what tells them apart is who made it. The kernel's HIDP makes a
+// classic pad's HID device under its HCI connection (.../bluetooth/hci0/hci0:N/0005:...), while
+// BlueZ hands a HID-over-GATT pad to the kernel through uhid, so a BLE pad's HID device sits under
+// /sys/devices/virtual/misc/uhid/. Only this verdict leaves; the path and the HCI handle never do.
+enum class BluetoothLink : std::uint8_t { None, Classic, LowEnergy };
+
+// `hidDevicePath` is the HID device's sysfs directory with its links resolved.
+inline BluetoothLink bluetoothLinkOfHidDevice(bool busIsBluetooth, std::string_view hidDevicePath) {
+    if (!busIsBluetooth) { return BluetoothLink::None; }
+    const bool madeByUhid = hidDevicePath.find("/uhid/") != std::string_view::npos;
+    return madeByUhid ? BluetoothLink::LowEnergy : BluetoothLink::Classic;
+}
+
+namespace detail {
+
+inline BluetoothLink linkOfHidDirectory(const std::string& hidDirectory) {
+    std::error_code error;
+    const std::filesystem::path resolved = std::filesystem::canonical(hidDirectory, error);
+    if (error) { return BluetoothLink::None; }
+    const bool bluetooth = ueventSaysBluetooth(resolved.string() + "/uevent");
+    return bluetoothLinkOfHidDevice(bluetooth, resolved.string());
+}
+
+} // namespace detail
+
+// The same two node shapes isBluetoothHidDevicePath reads, under `sysRoot` ("/sys" outside a
+// test). A path that resolves to nothing has no link.
+inline BluetoothLink bluetoothLinkOfHidPath(std::string_view path,
+                                            const std::string& sysRoot = "/sys") {
+    if (const std::string hidraw = detail::nodeName(path, "/dev/hidraw"); !hidraw.empty()) {
+        return detail::linkOfHidDirectory(sysRoot + "/class/hidraw/hidraw" + hidraw + "/device");
+    }
+    if (const std::string event = detail::nodeName(path, "/dev/input/event"); !event.empty()) {
+        return detail::linkOfHidDirectory(sysRoot + "/class/input/event" + event +
+                                          "/device/device");
+    }
+    return BluetoothLink::None;
 }
 
 } // namespace dish::input

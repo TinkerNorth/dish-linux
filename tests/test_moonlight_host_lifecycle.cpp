@@ -599,6 +599,24 @@ TEST_CASE("a probe that is answered settles the trust the row states", "[moonlig
     CHECK(manager.row(uuid)->trust == moonlight::HostTrust::Paired);
 }
 
+TEST_CASE("the support report's host version is the one the last answered serverinfo gave",
+          "[moonlight][lifecycle][report]") {
+    InfoHost fixture(serverInfo(QStringLiteral("host-uuid"), /*pairStatus=*/1));
+    REQUIRE(fixture.listening());
+
+    auto settings = test::makeSharedSettings();
+    repository::MoonlightHostRepository repo(settings);
+    repo.upsert(hostAt(fixture));
+    MoonlightManager manager(settings);
+    const QString uuid = QStringLiteral("host-uuid");
+
+    // Nothing has answered yet, so nothing is claimed.
+    CHECK(manager.serverAppVersion(uuid).isEmpty());
+    REQUIRE(probeAndSettle(manager, uuid));
+    CHECK(manager.serverAppVersion(uuid) == QStringLiteral("7.1.431"));
+    CHECK(manager.serverAppVersion(QStringLiteral("someone-else")).isEmpty());
+}
+
 TEST_CASE("a host that answers with a different uuid is a different machine",
           "[moonlight][lifecycle][h4]") {
     // The stored certificate anchors a MACHINE. A box reset or replaced behind

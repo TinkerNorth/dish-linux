@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 // Copyright (C) 2026 Dish contributors.
 //
-// The Linux end of "Save diagnostics" and "Email diagnostics"
+// The Linux end of "Save diagnostics" and "Report a problem"
 // (docs/diagnostics-bundle.md, "The mail"): the bundle is written under the
 // app's data folder ($XDG_DATA_HOME/TinkerNorth/Dish/diagnostics), then handed
 // to the person's own mail client with

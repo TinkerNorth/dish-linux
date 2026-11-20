@@ -1518,14 +1518,6 @@
         <translation>Diagnose</translation>
     </message>
     <message>
-        <source>Your mail app has the message. Nothing is sent until you press Send.</source>
-        <translation>Deine Mail-App hat die Nachricht. Nichts wird gesendet, bis du auf Senden klickst.</translation>
-    </message>
-    <message>
-        <source>Your mail app opened without the file: attach the one the file manager shows.</source>
-        <translation>Ihre Mail-App wurde ohne die Datei geöffnet: Hängen Sie die an, die der Dateimanager zeigt.</translation>
-    </message>
-    <message>
         <source>Controller inspector</source>
         <translation>Controller-Inspektor</translation>
     </message>
@@ -1988,12 +1980,20 @@
         <translation>Host %1: %2</translation>
     </message>
     <message>
-        <source>The file holds this page and its log, never pairing keys, fingerprints, IP addresses, Wi-Fi names or PC names.</source>
-        <translation>Die Datei enthält diese Seite und ihr Protokoll, niemals Kopplungsschlüssel, Fingerabdrücke, IP-Adressen, WLAN-Namen oder PC-Namen.</translation>
+        <source>The attached file holds this page and its log, each controller&apos;s input and output counts, Dish&apos;s own view of each session and what each Satellite says about it; it never holds pairing keys, certificate fingerprints, IP addresses, Wi-Fi names or the names of your PCs and devices.</source>
+        <translation>Die angehängte Datei enthält diese Seite und ihr Protokoll, die Ein- und Ausgabezähler jedes Controllers, Dishs eigene Sicht auf jede Sitzung und was jeder Satellit darüber sagt; sie enthält nie Kopplungsschlüssel, Zertifikat-Fingerabdrücke, IP-Adressen, WLAN-Namen oder die Namen deiner PCs und Geräte.</translation>
     </message>
     <message>
-        <source>The diagnostics file could not be written, or a mail from the last one is still open.</source>
-        <translation>Die Diagnosedatei konnte nicht geschrieben werden, oder eine Mail vom letzten Mal ist noch offen.</translation>
+        <source>Ask a question</source>
+        <translation>Eine Frage stellen</translation>
+    </message>
+    <message>
+        <source>Report a problem</source>
+        <translation>Ein Problem melden</translation>
+    </message>
+    <message>
+        <source>Report a problem writes a file of what this page shows and what each Satellite says about its side, and opens your own mail app addressed to support@tinkernorth.com with the file attached. Nothing is sent until you click Send.</source>
+        <translation>Ein Problem melden schreibt eine Datei mit dem, was diese Seite zeigt und was jeder Satellit über seine Seite sagt, und öffnet deine eigene Mail-App an support@tinkernorth.com, mit der Datei im Anhang. Nichts wird gesendet, bis du auf Senden klickst.</translation>
     </message>
     <message>
         <source>Diagnostics saved. The file manager shows its folder.</source>
@@ -2094,14 +2094,6 @@
     <message>
         <source>Send to support</source>
         <translation>An den Support senden</translation>
-    </message>
-    <message>
-        <source>Email diagnostics saves a file of what this page shows and opens your own mail app addressed to support@tinkernorth.com, with the file attached. Nothing is sent until you press Send.</source>
-        <translation>Diagnose per E-Mail speichert eine Datei mit dem, was diese Seite zeigt, und öffnet deine eigene Mail-App an support@tinkernorth.com, mit der Datei im Anhang. Nichts wird gesendet, bis du auf Senden klickst.</translation>
-    </message>
-    <message>
-        <source>Email diagnostics</source>
-        <translation>Diagnose per E-Mail</translation>
     </message>
     <message>
         <source>Save diagnostics</source>
@@ -3960,6 +3952,121 @@
     <message>
         <source>The code changes if the Satellite screen was refreshed.</source>
         <translation>Der Code ändert sich, wenn der Bildschirm des Satelliten aktualisiert wurde.</translation>
+    </message>
+</context>
+<context>
+    <name>ReportProblemPage</name>
+    <message>
+        <source>Ask a question</source>
+        <translation>Eine Frage stellen</translation>
+    </message>
+    <message>
+        <source>Report a problem</source>
+        <translation>Ein Problem melden</translation>
+    </message>
+    <message>
+        <source>Controller not recognised</source>
+        <translation>Controller nicht erkannt</translation>
+    </message>
+    <message>
+        <source>No rumble or feedback</source>
+        <translation>Keine Vibration oder Rückmeldung</translation>
+    </message>
+    <message>
+        <source>Connection or latency</source>
+        <translation>Verbindung oder Latenz</translation>
+    </message>
+    <message>
+        <source>Audio</source>
+        <translation>Audio</translation>
+    </message>
+    <message>
+        <source>Something else</source>
+        <translation>Etwas anderes</translation>
+    </message>
+    <message>
+        <source>A question</source>
+        <translation>Eine Frage</translation>
+    </message>
+    <message>
+        <source>Your mail app has the message. Nothing is sent until you click Send.</source>
+        <translation>Deine Mail-App hat die Nachricht. Nichts wird gesendet, bis du auf Senden klickst.</translation>
+    </message>
+    <message>
+        <source>Your mail app opened without the file: attach the one the file manager shows.</source>
+        <translation>Ihre Mail-App wurde ohne die Datei geöffnet: Hängen Sie die an, die der Dateimanager zeigt.</translation>
+    </message>
+    <message>
+        <source>The diagnostics file could not be written, or a mail from the last one is still open.</source>
+        <translation>Die Diagnosedatei konnte nicht geschrieben werden, oder eine Mail vom letzten Mal ist noch offen.</translation>
+    </message>
+    <message>
+        <source>Ask us anything about Dish. Your question goes to support@tinkernorth.com from your own mail app, with a file of what Dish sees so we can answer for your setup.</source>
+        <translation>Frag uns alles zu Dish. Deine Frage geht aus deiner eigenen Mail-App an support@tinkernorth.com, mit einer Datei dessen, was Dish sieht, damit wir für dein Setup antworten können.</translation>
+    </message>
+    <message>
+        <source>Tell us what went wrong. Dish writes a file of what it sees and opens your own mail app addressed to support@tinkernorth.com, with the file attached.</source>
+        <translation>Sag uns, was schiefgelaufen ist. Dish schreibt eine Datei dessen, was es sieht, und öffnet deine eigene Mail-App an support@tinkernorth.com, mit der Datei im Anhang.</translation>
+    </message>
+    <message>
+        <source>Category</source>
+        <translation>Kategorie</translation>
+    </message>
+    <message>
+        <source>What happened, and what did you expect?</source>
+        <translation>Was ist passiert, und was hast du erwartet?</translation>
+    </message>
+    <message>
+        <source>Controller</source>
+        <translation>Controller</translation>
+    </message>
+    <message>
+        <source>No particular controller</source>
+        <translation>Kein bestimmter Controller</translation>
+    </message>
+    <message>
+        <source>What the file holds</source>
+        <translation>Was die Datei enthält</translation>
+    </message>
+    <message>
+        <source>Your words and the category you picked.</source>
+        <translation>Deine Worte und die Kategorie, die du gewählt hast.</translation>
+    </message>
+    <message>
+        <source>Dish&apos;s version, this PC&apos;s model and Linux version, its battery and power profile, and how hot it runs.</source>
+        <translation>Die Version von Dish, das Modell dieses PCs und die Linux-Version, sein Akku und Energieprofil und wie heiß er läuft.</translation>
+    </message>
+    <message>
+        <source>Each controller&apos;s identity, the path Dish reads it on, and what went in and out of it, as counts and last values.</source>
+        <translation>Die Identität jedes Controllers, der Weg, über den Dish ihn liest, und was hinein- und herausging, als Zähler und letzte Werte.</translation>
+    </message>
+    <message>
+        <source>Each host&apos;s kind, version and link state, Dish&apos;s own view of each session, and what each Satellite says about it.</source>
+        <translation>Art, Version und Verbindungsstatus jedes Hosts, Dishs eigene Sicht auf jede Sitzung und was jeder Satellit darüber sagt.</translation>
+    </message>
+    <message>
+        <source>The controller database&apos;s state and this run&apos;s event log.</source>
+        <translation>Den Stand der Controller-Datenbank und das Ereignisprotokoll dieses Laufs.</translation>
+    </message>
+    <message>
+        <source>It never holds pairing keys, certificate fingerprints, IP addresses, Wi-Fi names or the names of your PCs and devices. Nothing is sent until you click Send in your mail app.</source>
+        <translation>Sie enthält nie Kopplungsschlüssel, Zertifikat-Fingerabdrücke, IP-Adressen, WLAN-Namen oder die Namen deiner PCs und Geräte. Nichts wird gesendet, bis du in deiner Mail-App auf Senden klickst.</translation>
+    </message>
+    <message>
+        <source>Asking each Satellite for its side of the session…</source>
+        <translation>Jeder Satellit wird nach seiner Seite der Sitzung gefragt…</translation>
+    </message>
+    <message>
+        <source>Continue in your mail app</source>
+        <translation>In deiner Mail-App fortfahren</translation>
+    </message>
+    <message>
+        <source>Hide file</source>
+        <translation>Datei ausblenden</translation>
+    </message>
+    <message>
+        <source>Preview file</source>
+        <translation>Datei ansehen</translation>
     </message>
 </context>
 <context>

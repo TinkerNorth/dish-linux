@@ -7,6 +7,7 @@
 #include "GamepadInputProcessor.h"
 #include "JoystickMapping.h"
 #include "core/input/DirtySet.h"
+#include "core/input/HidTransport.h"
 #include "core/input/OutputMailbox.h"
 #include "core/input/UsbOutputReports.h"
 #include "core/input/PumpPacing.h"
@@ -94,6 +95,9 @@ class SDLGamepadBridge : public QObject {
         // False when SDL reports no path, which leaves
         // the wired presentation in place and so fails safe.
         bool bluetooth = false;
+        // Which Bluetooth link the same node rides (sysfs: HIDP or uhid), for the support report;
+        // only the verdict leaves, never the node or the HCI connection it hangs off.
+        dish::input::BluetoothLink bluetoothLink = dish::input::BluetoothLink::None;
         // GUID plus the serial where the driver exposes one (a Sony pad's is its
         // Bluetooth address), so a standing binding follows the pad and not the
         // order pads were plugged.

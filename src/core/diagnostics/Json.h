@@ -2,8 +2,8 @@
 // Copyright (C) 2026 Dish contributors.
 //
 // The smallest JSON writer the diagnostics bundle needs: null, booleans,
-// integers, strings, arrays and objects whose keys keep the order they were
-// set in, printed with two-space indentation. Write-only and Qt-free, so the
+// integers, fractions, strings, arrays and objects whose keys keep the order
+// they were set in, printed with two-space indentation. Write-only and Qt-free, so the
 // bundle builder stays host-testable and the Linux port can take it as is.
 
 #pragma once
@@ -20,13 +20,16 @@ namespace dish::diagnostics {
 
 class Json {
   public:
-    enum class Kind : std::uint8_t { Null, Bool, Integer, String, Array, Object };
+    enum class Kind : std::uint8_t { Null, Bool, Integer, Double, String, Array, Object };
 
     Json() = default;
     Json(std::nullptr_t) {}
     Json(bool value) : kind_(Kind::Bool), bool_(value) {}
     Json(int value) : kind_(Kind::Integer), integer_(value) {}
     Json(std::int64_t value) : kind_(Kind::Integer), integer_(value) {}
+    // Written to three decimal places, the precision a millisecond figure needs; a value that is
+    // not finite is written as null, which JSON has in place of NaN.
+    Json(double value) : kind_(Kind::Double), double_(value) {}
     Json(std::string value) : kind_(Kind::String), string_(std::move(value)) {}
     Json(std::string_view value) : kind_(Kind::String), string_(value) {}
     Json(const char* value) : kind_(Kind::String), string_(value) {}
@@ -51,6 +54,9 @@ class Json {
     const std::vector<Json>& items() const { return items_; }
     const std::string& stringValue() const { return string_; }
     std::int64_t integerValue() const { return integer_; }
+    double doubleValue() const { return double_; }
+    // An object's keys, in the order they were first set.
+    const std::vector<std::string>& keys() const { return keys_; }
     bool boolValue() const { return bool_; }
 
     std::string dump() const;
@@ -62,6 +68,7 @@ class Json {
     Kind kind_ = Kind::Null;
     bool bool_ = false;
     std::int64_t integer_ = 0;
+    double double_ = 0.0;
     std::string string_;
     // An array's items, or an object's values beside their keys.
     std::vector<Json> items_;

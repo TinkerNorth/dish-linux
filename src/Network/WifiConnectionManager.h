@@ -115,6 +115,11 @@ class WifiConnectionManager : public QObject {
 
     QList<models::RememberedWifi> remembered() const { return store_->remembered(); }
 
+    // The support report's GET of one live session's own snapshot, through the same pin gate and
+    // proof as every session route, within `timeoutMs`. False, and no request, when the link is not
+    // live or holds no key: the caller then has nothing to wait for.
+    bool fetchConnectionDiagnostics(const QString& id, int timeoutMs, HTTPClient::RawCb cb);
+
   signals:
     void poolChanged();
     // Kept separate from poolChanged so the hub and AppModel rebuild cascade never

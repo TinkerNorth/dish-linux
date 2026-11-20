@@ -9,6 +9,10 @@
 // anywhere in the file.
 
 #include "composer/DiagnosticsBundle.h"
+#include "core/diagnostics/Json.h"
+#include "core/diagnostics/PadLanes.h"
+#include "core/diagnostics/WireCounters.h"
+#include "core/model/Protocol.h"
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -27,6 +31,9 @@ using dish::composer::BundleController;
 using dish::composer::BundleFacts;
 using dish::composer::BundleHost;
 using dish::composer::BundleLogEvent;
+using dish::diagnostics::Json;
+using dish::diagnostics::OutputLane;
+using dish::diagnostics::SnapshotError;
 
 namespace {
 
@@ -74,6 +81,7 @@ struct BundleFixture {
         host.speaker = true;
         facts.hosts.push_back(host);
         facts.hostLabels.push_back(kHostName);
+        facts.hostAddresses.push_back(kHostAddress);
 
         facts.log.push_back(
             BundleLogEvent{1795122100000, "linkAppeared", kHostName, true, "", {"", "connected"}});
@@ -115,6 +123,9 @@ TEST_CASE("diagnostics bundle: hosts are aliases, in the log as in the host list
     CHECK(host[QStringLiteral("link")].toString() == QStringLiteral("connected"));
     CHECK(host[QStringLiteral("grants")].toObject()[QStringLiteral("speaker")].toBool());
     CHECK(host[QStringLiteral("version")].isNull());
+    CHECK(host[QStringLiteral("session")].isNull());
+    CHECK(host[QStringLiteral("snapshot")].isNull());
+    CHECK(host[QStringLiteral("snapshotError")].isNull());
 
     const QJsonArray log = root[QStringLiteral("log")].toArray();
     REQUIRE(log.size() == 4);
@@ -213,4 +224,314 @@ TEST_CASE("diagnostics bundle: the flavor names how this copy was installed",
     fixture.facts.flavor = "flatpak";
     const QJsonObject app = fixture.parsed()[QStringLiteral("app")].toObject();
     CHECK(app[QStringLiteral("flavor")].toString() == QStringLiteral("flatpak"));
+}
+
+// ── Second cut: the report, both ends of each host, every path ─────────────
+
+namespace {
+
+// A host's own snapshot as Satellite would send it, carrying the two things a careless build
+// might leave in: this host's name and its address.
+Json carelessSnapshot() {
+    Json satellite = Json::object();
+    satellite.set("version", "2.3.0");
+    satellite.set("note", std::string("served by ") + kHostName + " at " + kHostAddress);
+    Json snapshot = Json::object();
+    snapshot.set("format", "satellite-connection-diagnostics.v1");
+    snapshot.set("satellite", std::move(satellite));
+    snapshot.set(kHostAddress, true);
+    return snapshot;
+}
+
+dish::composer::BundleCapabilities cachedCapabilities() {
+    dish::composer::BundleCapabilities caps;
+    caps.serverVersion = "2.2.0";
+    caps.protocol = 4;
+    caps.backends = {{"hidmaestro", true, true, true}, {"vigem", true, false, false}};
+    caps.controllerAudio = dish::composer::BundleControllerAudio{true, false, true, false};
+    caps.catalogVersion = 2;
+    return caps;
+}
+
+dish::composer::BundleSession liveSession() {
+    dish::composer::BundleSession session;
+    dish::composer::BundleSessionSlot slot;
+    slot.index = 0;
+    slot.record = "sony-dualsense";
+    slot.requestedType = "dualsense";
+    slot.appliedType = "dualsense";
+    slot.backend = "hidmaestro";
+    slot.result = "ok";
+    slot.touchpadMode = "ds4";
+    session.controllerSlots.push_back(slot);
+    session.ack = dish::composer::BundleAck{true, 1, 12, 0x0001};
+    session.rtt = dish::composer::BundleRtt{2.1, 4.8, 120};
+    dish::diagnostics::WireCounters counters;
+    for (int i = 0; i < 3; ++i) { counters.countSent(dish::proto::kMsgInput); }
+    counters.countReceived(dish::proto::kMsgRumble);
+    session.wire = counters.counts();
+    return session;
+}
+
+} // namespace
+
+TEST_CASE("diagnostics bundle: the person's report goes in first", "[diagnostics][bundle]") {
+    BundleFixture fixture;
+    fixture.facts.report =
+        dish::composer::BundleReport{"noFeedback", "Returnal never rumbles.", "sony-dualsense"};
+    const QJsonObject root = fixture.parsed();
+    const QJsonObject report = root[QStringLiteral("report")].toObject();
+    CHECK(report[QStringLiteral("category")].toString() == QStringLiteral("noFeedback"));
+    CHECK(report[QStringLiteral("text")].toString() == QStringLiteral("Returnal never rumbles."));
+    CHECK(report[QStringLiteral("controller")].toString() == QStringLiteral("sony-dualsense"));
+    const std::string bundle = buildDiagnosticsBundle(fixture.facts);
+    CHECK(bundle.find("\"report\"") < bundle.find("\"app\""));
+}
+
+TEST_CASE("diagnostics bundle: a report about no controller says null", "[diagnostics][bundle]") {
+    BundleFixture fixture;
+    fixture.facts.report = dish::composer::BundleReport{"question", "How do I pair?", std::nullopt};
+    const QJsonObject report = fixture.parsed()[QStringLiteral("report")].toObject();
+    CHECK(report[QStringLiteral("controller")].isNull());
+    CHECK_FALSE(BundleFixture().parsed().contains(QStringLiteral("report")));
+}
+
+TEST_CASE("diagnostics bundle: the session as this client saw it", "[diagnostics][bundle]") {
+    BundleFixture fixture;
+    fixture.facts.hosts[0].session = liveSession();
+    const QJsonObject session = fixture.parsed()[QStringLiteral("hosts")]
+                                    .toArray()[0]
+                                    .toObject()[QStringLiteral("session")]
+                                    .toObject();
+    const QJsonObject slot = session[QStringLiteral("slots")].toArray()[0].toObject();
+    CHECK(slot[QStringLiteral("index")].toInt() == 0);
+    CHECK(slot[QStringLiteral("record")].toString() == QStringLiteral("sony-dualsense"));
+    CHECK(slot[QStringLiteral("requestedType")].toString() == QStringLiteral("dualsense"));
+    CHECK(slot[QStringLiteral("appliedType")].toString() == QStringLiteral("dualsense"));
+    CHECK(slot[QStringLiteral("backend")].toString() == QStringLiteral("hidmaestro"));
+    CHECK(slot[QStringLiteral("result")].toString() == QStringLiteral("ok"));
+    CHECK(slot[QStringLiteral("touchpadMode")].toString() == QStringLiteral("ds4"));
+    const QJsonObject ack = session[QStringLiteral("ack")].toObject();
+    CHECK(ack[QStringLiteral("backendAvailable")].toBool());
+    CHECK(ack[QStringLiteral("activeControllers")].toInt() == 1);
+    CHECK(ack[QStringLiteral("epoch")].toInt() == 12);
+    CHECK(ack[QStringLiteral("activeBitmap")].toString() == QStringLiteral("0001"));
+    const QJsonObject rtt = session[QStringLiteral("rtt")].toObject();
+    CHECK(rtt[QStringLiteral("p50Ms")].toDouble() == 2.1);
+    CHECK(rtt[QStringLiteral("p99Ms")].toDouble() == 4.8);
+    CHECK(rtt[QStringLiteral("samples")].toInt() == 120);
+    const QJsonObject sent = session[QStringLiteral("sent")].toObject();
+    CHECK(sent[QStringLiteral("input")].toInteger() == 3);
+    CHECK(sent[QStringLiteral("mic")].toInteger() == 0);
+    const QJsonObject received = session[QStringLiteral("received")].toObject();
+    CHECK(received[QStringLiteral("rumble")].toInteger() == 1);
+    CHECK(received.contains(QStringLiteral("sessionClose")));
+}
+
+TEST_CASE("diagnostics bundle: before the first ack and the first round trip, nulls",
+          "[diagnostics][bundle]") {
+    BundleFixture fixture;
+    dish::composer::BundleSession session;
+    session.controllerSlots.push_back(dish::composer::BundleSessionSlot{});
+    fixture.facts.hosts[0].session = session;
+    const QJsonObject parsed = fixture.parsed()[QStringLiteral("hosts")]
+                                   .toArray()[0]
+                                   .toObject()[QStringLiteral("session")]
+                                   .toObject();
+    CHECK(parsed[QStringLiteral("ack")].isNull());
+    CHECK(parsed[QStringLiteral("rtt")].isNull());
+    CHECK(parsed[QStringLiteral("sent")].isNull());
+    const QJsonObject slot = parsed[QStringLiteral("slots")].toArray()[0].toObject();
+    CHECK(slot[QStringLiteral("index")].isNull());
+    CHECK(slot[QStringLiteral("appliedType")].isNull());
+}
+
+TEST_CASE("diagnostics bundle: a Satellite's own snapshot is embedded, scrubbed of its name",
+          "[diagnostics][bundle]") {
+    BundleFixture fixture;
+    fixture.facts.hosts[0].hostSnapshot = carelessSnapshot();
+    fixture.facts.hosts[0].capabilities = cachedCapabilities();
+    const std::string bundle = buildDiagnosticsBundle(fixture.facts);
+    CHECK(bundle.find(kHostName) == std::string::npos);
+    CHECK(bundle.find(kHostAddress) == std::string::npos);
+    const QJsonObject host = fixture.parsed()[QStringLiteral("hosts")].toArray()[0].toObject();
+    const QJsonObject snapshot = host[QStringLiteral("snapshot")].toObject();
+    CHECK(snapshot[QStringLiteral("format")].toString() ==
+          QStringLiteral("satellite-connection-diagnostics.v1"));
+    CHECK(snapshot[QStringLiteral("satellite")].toObject()[QStringLiteral("note")].toString() ==
+          QStringLiteral("served by Host 1 at Host 1"));
+    CHECK(snapshot[QStringLiteral("Host 1")].toBool());
+    CHECK(host[QStringLiteral("snapshotError")].isNull());
+}
+
+TEST_CASE("diagnostics bundle: an older Satellite is described from what this client fetched",
+          "[diagnostics][bundle]") {
+    BundleFixture fixture;
+    fixture.facts.hosts[0].capabilities = cachedCapabilities();
+    fixture.facts.hosts[0].snapshotError = SnapshotError::OlderSatellite;
+    const QJsonObject host = fixture.parsed()[QStringLiteral("hosts")].toArray()[0].toObject();
+    CHECK(host[QStringLiteral("snapshotError")].toString() == QStringLiteral("olderSatellite"));
+    CHECK(host[QStringLiteral("version")].toString() == QStringLiteral("2.2.0"));
+    const QJsonObject snapshot = host[QStringLiteral("snapshot")].toObject();
+    CHECK(snapshot[QStringLiteral("format")].toString() ==
+          QStringLiteral("satellite-capabilities"));
+    CHECK(snapshot[QStringLiteral("serverVersion")].toString() == QStringLiteral("2.2.0"));
+    CHECK(snapshot[QStringLiteral("protocol")].toArray() == QJsonArray{1, 4});
+    const QJsonArray backends = snapshot[QStringLiteral("backends")].toArray();
+    REQUIRE(backends.size() == 2);
+    CHECK(backends[0].toObject()[QStringLiteral("id")].toString() == QStringLiteral("hidmaestro"));
+    CHECK_FALSE(backends[1].toObject()[QStringLiteral("available")].toBool());
+    const QJsonObject audio = snapshot[QStringLiteral("controllerAudio")].toObject();
+    CHECK(audio[QStringLiteral("enabled")].toBool());
+    CHECK(audio[QStringLiteral("speaker")].toBool());
+    CHECK(snapshot[QStringLiteral("catalogVersion")].toInt() == 2);
+}
+
+TEST_CASE("diagnostics bundle: an unreachable Satellite with nothing cached says so and no more",
+          "[diagnostics][bundle]") {
+    BundleFixture fixture;
+    fixture.facts.hosts[0].snapshotError = SnapshotError::Timeout;
+    const QJsonObject host = fixture.parsed()[QStringLiteral("hosts")].toArray()[0].toObject();
+    CHECK(host[QStringLiteral("snapshotError")].toString() == QStringLiteral("timeout"));
+    CHECK(host[QStringLiteral("snapshot")].isNull());
+}
+
+TEST_CASE("diagnostics bundle: a Moonlight host carries its serverinfo words and no name",
+          "[diagnostics][bundle]") {
+    BundleFixture fixture;
+    BundleHost moonlight;
+    moonlight.kind = "moonlight";
+    moonlight.link = "streaming";
+    moonlight.grantsKnown = false;
+    moonlight.moonlight = dish::composer::BundleMoonlightInfo{"7.1.431.-1", "busy", 1};
+    fixture.facts.hosts.push_back(moonlight);
+    fixture.facts.hostLabels.push_back(kSecondHost);
+    fixture.facts.hostAddresses.push_back("10.0.0.7");
+    const std::string bundle = buildDiagnosticsBundle(fixture.facts);
+    CHECK(bundle.find(kSecondHost) == std::string::npos);
+    CHECK(bundle.find("10.0.0.7") == std::string::npos);
+    const QJsonObject host = fixture.parsed()[QStringLiteral("hosts")].toArray()[1].toObject();
+    CHECK(host[QStringLiteral("alias")].toString() == QStringLiteral("Host 2"));
+    CHECK(host[QStringLiteral("kind")].toString() == QStringLiteral("moonlight"));
+    CHECK(host[QStringLiteral("grants")].isNull());
+    CHECK(host[QStringLiteral("protocol")].isNull());
+    const QJsonObject snapshot = host[QStringLiteral("snapshot")].toObject();
+    CHECK(snapshot[QStringLiteral("format")].toString() == QStringLiteral("moonlight-serverinfo"));
+    CHECK(snapshot[QStringLiteral("appVersion")].toString() == QStringLiteral("7.1.431.-1"));
+    CHECK(snapshot[QStringLiteral("state")].toString() == QStringLiteral("busy"));
+    CHECK(snapshot[QStringLiteral("pairStatus")].toInt() == 1);
+    CHECK(host[QStringLiteral("snapshotError")].isNull());
+}
+
+TEST_CASE("diagnostics bundle: each controller's input and every output lane",
+          "[diagnostics][bundle]") {
+    BundleFixture fixture;
+    BundleController& pad = fixture.facts.controllers[0];
+    dish::composer::BundleInput input;
+    input.frames = 12345;
+    input.rateHz = 250;
+    input.last = dish::composer::BundleInputState{0x1000, 0, -1, 2, 3, 4, 255, 0x00000001};
+    pad.input = input;
+    dish::composer::BundleOutput output;
+    output.rumble.target = "directUsb";
+    output.rumble.sample = {12, dish::diagnostics::packRumble(32768, 0), 1763586000000};
+    output.lightbar.target = "directUsb";
+    output.lightbar.sample = {2, dish::diagnostics::packRgb(0, 0, 255), 1763586000001};
+    output.playerLeds.target = "none";
+    output.playerLeds.sample = {1, 0x01, 1763586000002};
+    output.triggerEffects.target = "directUsb";
+    output.micLed.target = "directUsb";
+    output.micLed.sample = {1, 2, 1763586000003};
+    output.speaker = dish::composer::BundleVoice{dish::diagnostics::VoiceState::Open, true};
+    output.haptics = dish::composer::BundleVoice{dish::diagnostics::VoiceState::Refused, true};
+    pad.output = output;
+
+    const QJsonObject parsed =
+        fixture.parsed()[QStringLiteral("controllers")].toArray()[0].toObject();
+    const QJsonObject in = parsed[QStringLiteral("input")].toObject();
+    CHECK(in[QStringLiteral("frames")].toInteger() == 12345);
+    CHECK(in[QStringLiteral("rateHz")].toInt() == 250);
+    const QJsonObject last = in[QStringLiteral("last")].toObject();
+    CHECK(last[QStringLiteral("buttons")].toString() == QStringLiteral("1000"));
+    CHECK(last[QStringLiteral("ly")].toInt() == -1);
+    CHECK(last[QStringLiteral("rt")].toInt() == 255);
+    CHECK(last[QStringLiteral("ext")].toString() == QStringLiteral("00000001"));
+
+    const QJsonObject out = parsed[QStringLiteral("output")].toObject();
+    const QJsonObject rumble = out[QStringLiteral("rumble")].toObject();
+    CHECK(rumble[QStringLiteral("count")].toInteger() == 12);
+    CHECK(rumble[QStringLiteral("target")].toString() == QStringLiteral("directUsb"));
+    CHECK(rumble[QStringLiteral("last")].toObject()[QStringLiteral("strong")].toInt() == 32768);
+    CHECK(rumble[QStringLiteral("last")].toObject()[QStringLiteral("atMs")].toInteger() ==
+          1763586000000);
+    CHECK(rumble[QStringLiteral("lastWrite")].toObject()[QStringLiteral("route")].toString() ==
+          QStringLiteral("interruptOut"));
+    CHECK(out[QStringLiteral("triggerRumble")].isNull());
+    CHECK(out[QStringLiteral("lightbar")]
+              .toObject()[QStringLiteral("last")]
+              .toObject()[QStringLiteral("b")]
+              .toInt() == 255);
+    CHECK(out[QStringLiteral("playerLeds")]
+              .toObject()[QStringLiteral("last")]
+              .toObject()[QStringLiteral("mask")]
+              .toString() == QStringLiteral("01"));
+    const QJsonObject triggers = out[QStringLiteral("triggerEffects")].toObject();
+    CHECK(triggers[QStringLiteral("count")].toInteger() == 0);
+    CHECK(triggers[QStringLiteral("last")].isNull());
+    CHECK(out[QStringLiteral("micLed")]
+              .toObject()[QStringLiteral("last")]
+              .toObject()[QStringLiteral("state")]
+              .toInt() == 2);
+    const QJsonObject speaker = out[QStringLiteral("speaker")].toObject();
+    CHECK(speaker[QStringLiteral("voice")].toString() == QStringLiteral("open"));
+    CHECK(speaker[QStringLiteral("device")].toString() == QStringLiteral("pad"));
+    CHECK(speaker[QStringLiteral("frames")].isNull());
+    CHECK(out[QStringLiteral("haptics")].toObject()[QStringLiteral("voice")].toString() ==
+          QStringLiteral("refused"));
+}
+
+TEST_CASE("diagnostics bundle: a path that cannot know says null", "[diagnostics][bundle]") {
+    BundleFixture fixture;
+    BundleController bare;
+    bare.transport = "bluetooth";
+    bare.path = "sdl";
+    bare.bluetooth = dish::composer::BundleBluetooth{"ble", "le"};
+    bare.output = dish::composer::BundleOutput{};
+    fixture.facts.controllers = {bare};
+    const QJsonObject pad = fixture.parsed()[QStringLiteral("controllers")].toArray()[0].toObject();
+    CHECK(pad[QStringLiteral("input")].isNull());
+    const QJsonObject out = pad[QStringLiteral("output")].toObject();
+    CHECK(out[QStringLiteral("rumble")].toObject()[QStringLiteral("last")].isNull());
+    CHECK(out[QStringLiteral("rumble")].toObject()[QStringLiteral("lastWrite")].isNull());
+    CHECK(out[QStringLiteral("speaker")].isNull());
+    const QJsonObject bluetooth = pad[QStringLiteral("bluetooth")].toObject();
+    CHECK(bluetooth[QStringLiteral("profile")].toString() == QStringLiteral("ble"));
+    CHECK(bluetooth[QStringLiteral("transportLayer")].toString() == QStringLiteral("le"));
+    CHECK(BundleFixture()
+              .parsed()[QStringLiteral("controllers")]
+              .toArray()[0]
+              .toObject()[QStringLiteral("bluetooth")]
+              .isNull());
+}
+
+TEST_CASE("diagnostics bundle: the PC's battery, power saver and thermal state, and no Wi-Fi",
+          "[diagnostics][bundle]") {
+    BundleFixture fixture;
+    fixture.facts.power.battery = dish::diagnostics::BatteryFacts{42, true};
+    fixture.facts.power.powerSave = false;
+    fixture.facts.thermal = dish::diagnostics::ThermalState::Serious;
+    const QJsonObject device = fixture.parsed()[QStringLiteral("device")].toObject();
+    const QJsonObject battery = device[QStringLiteral("battery")].toObject();
+    CHECK(battery[QStringLiteral("level")].toInt() == 42);
+    CHECK(battery[QStringLiteral("charging")].toBool());
+    CHECK(device[QStringLiteral("powerSave")].toBool() == false);
+    CHECK(device[QStringLiteral("powerSave")].isBool());
+    CHECK(device[QStringLiteral("thermal")].toString() == QStringLiteral("serious"));
+    CHECK(device[QStringLiteral("wifi")].isNull());
+    CHECK(device.contains(QStringLiteral("usbHost")));
+    CHECK(device[QStringLiteral("usbHost")].isNull());
+    const QJsonObject desktop = BundleFixture().parsed()[QStringLiteral("device")].toObject();
+    CHECK(desktop[QStringLiteral("battery")].isNull());
+    CHECK(desktop[QStringLiteral("powerSave")].isNull());
+    CHECK(desktop[QStringLiteral("thermal")].isNull());
 }

@@ -1528,14 +1528,6 @@
         <translation>Dijagnostika</translation>
     </message>
     <message>
-        <source>Your mail app has the message. Nothing is sent until you press Send.</source>
-        <translation>Vaša aplikacija za poštu ima poruku. Ništa se ne šalje dok ne pritisnete Pošalji.</translation>
-    </message>
-    <message>
-        <source>Your mail app opened without the file: attach the one the file manager shows.</source>
-        <translation>Vaša aplikacija za poštu se otvorila bez datoteke: priložite onu koju prikazuje upravitelj datoteka.</translation>
-    </message>
-    <message>
         <source>Controller inspector</source>
         <translation>Inspektor kontrolera</translation>
     </message>
@@ -2000,12 +1992,20 @@
         <translation>Host %1: %2</translation>
     </message>
     <message>
-        <source>The file holds this page and its log, never pairing keys, fingerprints, IP addresses, Wi-Fi names or PC names.</source>
-        <translation>Datoteka sadrži ovu stranicu i njen dnevnik, nikada ključeve uparivanja, otiske, IP adrese, nazive Wi-Fi mreža ni nazive računara.</translation>
+        <source>The attached file holds this page and its log, each controller&apos;s input and output counts, Dish&apos;s own view of each session and what each Satellite says about it; it never holds pairing keys, certificate fingerprints, IP addresses, Wi-Fi names or the names of your PCs and devices.</source>
+        <translation>Priložena datoteka sadrži ovu stranicu i njen dnevnik, brojače ulaza i izlaza svakog kontrolera, Dishov pogled na svaku sesiju i ono što svaki Satelit o njoj kaže; nikada ne sadrži ključeve uparivanja, otiske certifikata, IP adrese, imena Wi-Fi mreža niti imena vaših računara i uređaja.</translation>
     </message>
     <message>
-        <source>The diagnostics file could not be written, or a mail from the last one is still open.</source>
-        <translation>Datoteka dijagnostike nije mogla biti upisana ili je pošta od prošlog puta još otvorena.</translation>
+        <source>Ask a question</source>
+        <translation>Postavite pitanje</translation>
+    </message>
+    <message>
+        <source>Report a problem</source>
+        <translation>Prijavite problem</translation>
+    </message>
+    <message>
+        <source>Report a problem writes a file of what this page shows and what each Satellite says about its side, and opens your own mail app addressed to support@tinkernorth.com with the file attached. Nothing is sent until you click Send.</source>
+        <translation>Prijavite problem upisuje datoteku s onim što ova stranica prikazuje i onim što svaki Satelit kaže o svojoj strani, i otvara vašu aplikaciju za poštu naslovljenu na support@tinkernorth.com s priloženom datotekom. Ništa se ne šalje dok ne kliknete Pošalji.</translation>
     </message>
     <message>
         <source>Diagnostics saved. The file manager shows its folder.</source>
@@ -2106,14 +2106,6 @@
     <message>
         <source>Send to support</source>
         <translation>Pošalji podršci</translation>
-    </message>
-    <message>
-        <source>Email diagnostics saves a file of what this page shows and opens your own mail app addressed to support@tinkernorth.com, with the file attached. Nothing is sent until you press Send.</source>
-        <translation>Pošalji dijagnostiku e-poštom sprema datoteku s onim što ova stranica prikazuje i otvara vašu aplikaciju za poštu s adresom support@tinkernorth.com i priloženom datotekom. Ništa se ne šalje dok ne pritisnete Pošalji.</translation>
-    </message>
-    <message>
-        <source>Email diagnostics</source>
-        <translation>Pošalji dijagnostiku e-poštom</translation>
     </message>
     <message>
         <source>Save diagnostics</source>
@@ -3979,6 +3971,121 @@
     <message>
         <source>The code changes if the Satellite screen was refreshed.</source>
         <translation>Kod se mijenja ako je ekran na satelitu osvježen.</translation>
+    </message>
+</context>
+<context>
+    <name>ReportProblemPage</name>
+    <message>
+        <source>Ask a question</source>
+        <translation>Postavite pitanje</translation>
+    </message>
+    <message>
+        <source>Report a problem</source>
+        <translation>Prijavite problem</translation>
+    </message>
+    <message>
+        <source>Controller not recognised</source>
+        <translation>Kontroler nije prepoznat</translation>
+    </message>
+    <message>
+        <source>No rumble or feedback</source>
+        <translation>Nema vibracije ni povratne reakcije</translation>
+    </message>
+    <message>
+        <source>Connection or latency</source>
+        <translation>Veza ili kašnjenje</translation>
+    </message>
+    <message>
+        <source>Audio</source>
+        <translation>Zvuk</translation>
+    </message>
+    <message>
+        <source>Something else</source>
+        <translation>Nešto drugo</translation>
+    </message>
+    <message>
+        <source>A question</source>
+        <translation>Pitanje</translation>
+    </message>
+    <message>
+        <source>Your mail app has the message. Nothing is sent until you click Send.</source>
+        <translation>Vaša aplikacija za poštu ima poruku. Ništa se ne šalje dok ne kliknete Pošalji.</translation>
+    </message>
+    <message>
+        <source>Your mail app opened without the file: attach the one the file manager shows.</source>
+        <translation>Vaša aplikacija za poštu se otvorila bez datoteke: priložite onu koju prikazuje upravitelj datoteka.</translation>
+    </message>
+    <message>
+        <source>The diagnostics file could not be written, or a mail from the last one is still open.</source>
+        <translation>Datoteka dijagnostike nije mogla biti upisana ili je pošta od prošlog puta još otvorena.</translation>
+    </message>
+    <message>
+        <source>Ask us anything about Dish. Your question goes to support@tinkernorth.com from your own mail app, with a file of what Dish sees so we can answer for your setup.</source>
+        <translation>Pitajte nas bilo šta o Dishu. Vaše pitanje ide na support@tinkernorth.com iz vaše aplikacije za poštu, s datotekom onoga što Dish vidi, kako bismo odgovorili za vašu postavku.</translation>
+    </message>
+    <message>
+        <source>Tell us what went wrong. Dish writes a file of what it sees and opens your own mail app addressed to support@tinkernorth.com, with the file attached.</source>
+        <translation>Recite nam šta je pošlo po zlu. Dish upisuje datoteku onoga što vidi i otvara vašu aplikaciju za poštu naslovljenu na support@tinkernorth.com, s priloženom datotekom.</translation>
+    </message>
+    <message>
+        <source>Category</source>
+        <translation>Kategorija</translation>
+    </message>
+    <message>
+        <source>What happened, and what did you expect?</source>
+        <translation>Šta se desilo i šta ste očekivali?</translation>
+    </message>
+    <message>
+        <source>Controller</source>
+        <translation>Kontroler</translation>
+    </message>
+    <message>
+        <source>No particular controller</source>
+        <translation>Nijedan određeni kontroler</translation>
+    </message>
+    <message>
+        <source>What the file holds</source>
+        <translation>Šta datoteka sadrži</translation>
+    </message>
+    <message>
+        <source>Your words and the category you picked.</source>
+        <translation>Vaše riječi i kategorija koju ste odabrali.</translation>
+    </message>
+    <message>
+        <source>Dish&apos;s version, this PC&apos;s model and Linux version, its battery and power profile, and how hot it runs.</source>
+        <translation>Verzija Disha, model ovog računara i verzija Linuxa, njegova baterija i profil napajanja te koliko se zagrijava.</translation>
+    </message>
+    <message>
+        <source>Each controller&apos;s identity, the path Dish reads it on, and what went in and out of it, as counts and last values.</source>
+        <translation>Identitet svakog kontrolera, putanja kojom ga Dish čita i šta je ušlo i izašlo iz njega, kao brojevi i posljednje vrijednosti.</translation>
+    </message>
+    <message>
+        <source>Each host&apos;s kind, version and link state, Dish&apos;s own view of each session, and what each Satellite says about it.</source>
+        <translation>Vrsta, verzija i stanje veze svakog hosta, Dishov pogled na svaku sesiju i ono što svaki Satelit o njoj kaže.</translation>
+    </message>
+    <message>
+        <source>The controller database&apos;s state and this run&apos;s event log.</source>
+        <translation>Stanje baze kontrolera i dnevnik događaja ovog pokretanja.</translation>
+    </message>
+    <message>
+        <source>It never holds pairing keys, certificate fingerprints, IP addresses, Wi-Fi names or the names of your PCs and devices. Nothing is sent until you click Send in your mail app.</source>
+        <translation>Nikada ne sadrži ključeve uparivanja, otiske certifikata, IP adrese, imena Wi-Fi mreža niti imena vaših računara i uređaja. Ništa se ne šalje dok ne kliknete Pošalji u svojoj aplikaciji za poštu.</translation>
+    </message>
+    <message>
+        <source>Asking each Satellite for its side of the session…</source>
+        <translation>Pitamo svaki Satelit za njegovu stranu sesije…</translation>
+    </message>
+    <message>
+        <source>Continue in your mail app</source>
+        <translation>Nastavite u aplikaciji za poštu</translation>
+    </message>
+    <message>
+        <source>Hide file</source>
+        <translation>Sakrij datoteku</translation>
+    </message>
+    <message>
+        <source>Preview file</source>
+        <translation>Pregled datoteke</translation>
     </message>
 </context>
 <context>

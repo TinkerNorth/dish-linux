@@ -4,7 +4,10 @@
 #include "core/diagnostics/Json.h"
 
 #include <array>
+#include <cmath>
 #include <cstddef>
+#include <cstdint>
+#include <string>
 #include <utility>
 
 namespace dish::diagnostics {
@@ -56,6 +59,28 @@ void appendEscaped(std::string& out, char ch) {
         return;
     }
     out.push_back(ch);
+}
+
+// Thousandths in integer arithmetic, so no C locale (which can make the point a comma) and no
+// printf rounding mode reaches the file; trailing zeros and a bare point are dropped.
+std::string fractionText(double value) {
+    if (!std::isfinite(value)) { return "null"; }
+    constexpr std::int64_t kScale = 1000;
+    constexpr int kPlaces = 3;
+    const auto scaled =
+        static_cast<std::int64_t>(std::llround(value * static_cast<double>(kScale)));
+    const bool negative = scaled < 0;
+    const std::int64_t magnitude = negative ? -scaled : scaled;
+    std::string fraction = std::to_string(magnitude % kScale);
+    fraction.insert(fraction.begin(), static_cast<std::size_t>(kPlaces) - fraction.size(), '0');
+    while (!fraction.empty() && fraction.back() == '0') { fraction.pop_back(); }
+    std::string text = negative ? "-" : "";
+    text += std::to_string(magnitude / kScale);
+    if (!fraction.empty()) {
+        text.push_back('.');
+        text += fraction;
+    }
+    return text;
 }
 
 } // namespace
@@ -112,6 +137,9 @@ void Json::write(std::string& out, int depth) const {
         return;
     case Kind::Integer:
         out += std::to_string(integer_);
+        return;
+    case Kind::Double:
+        out += fractionText(double_);
         return;
     case Kind::String:
         out += jsonQuoted(string_);

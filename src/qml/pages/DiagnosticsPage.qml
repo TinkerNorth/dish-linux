@@ -50,14 +50,6 @@ Kit.Page {
         function onStateChanged() { page.revision += 1; }
         function onDiagnosticsLogChanged() { page.logRevision += 1; }
         function onTestOutcomesChanged() { page.revision += 1; }
-        function onDiagnosticsMailHandedOff(viaMailClient) {
-            if (!page.shellApi)
-                return;
-            page.shellApi.toast(viaMailClient
-                                ? qsTr("Your mail app has the message. Nothing is sent until you press Send.")
-                                : qsTr("Your mail app opened without the file: attach the one the file manager shows."),
-                                viaMailClient ? "success" : "warning");
-        }
     }
 
     readonly property var hosts: page.revision >= 0 ? App.diagnosticsHosts() : []
@@ -430,15 +422,18 @@ Kit.Page {
             lines.push(qsTr("Host %1: %2").arg(h + 1).arg(linkWords.chipText(page.hosts[h].chip)));
         }
         lines.push("");
-        lines.push(qsTr("The file holds this page and its log, never pairing keys, fingerprints, IP addresses, Wi-Fi names or PC names."));
+        lines.push(qsTr("The attached file holds this page and its log, each controller's input and output counts, Dish's own view of each session and what each Satellite says about it; it never holds pairing keys, certificate fingerprints, IP addresses, Wi-Fi names or the names of your PCs and devices."));
         return lines.join("\n");
     }
 
-    function emailDiagnostics() {
-        if (App.emailDiagnostics(page.summaryText()))
+    // "Report a problem" and "Ask a question" are one page in two categories.
+    function openReport(category) {
+        if (!page.shellApi)
             return;
-        if (page.shellApi)
-            page.shellApi.toast(qsTr("The diagnostics file could not be written, or a mail from the last one is still open."), "error");
+        page.shellApi.pushDetail(Qt.resolvedUrl("ReportProblemPage.qml"),
+                                 category === "question" ? qsTr("Ask a question")
+                                                         : qsTr("Report a problem"),
+                                 { category: category, summary: page.summaryText() });
     }
 
     function saveDiagnostics() {
@@ -823,7 +818,7 @@ Kit.Page {
 
                     Label {
                         Layout.fillWidth: true
-                        text: qsTr("Email diagnostics saves a file of what this page shows and opens your own mail app addressed to support@tinkernorth.com, with the file attached. Nothing is sent until you press Send.")
+                        text: qsTr("Report a problem writes a file of what this page shows and what each Satellite says about its side, and opens your own mail app addressed to support@tinkernorth.com with the file attached. Nothing is sent until you click Send.")
                         color: Theme.muted
                         font.pixelSize: Tokens.textMeta
                         wrapMode: Text.WordWrap
@@ -835,8 +830,13 @@ Kit.Page {
 
                         Kit.KitButton {
                             size: Kit.DishButton.Small
-                            text: qsTr("Email diagnostics")
-                            onClicked: page.emailDiagnostics()
+                            text: qsTr("Report a problem")
+                            onClicked: page.openReport("other")
+                        }
+                        Kit.OutlineButton {
+                            size: Kit.DishButton.Small
+                            text: qsTr("Ask a question")
+                            onClicked: page.openReport("question")
                         }
                         Kit.OutlineButton {
                             size: Kit.DishButton.Small

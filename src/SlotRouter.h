@@ -6,6 +6,7 @@
 #include "Input/GamepadInputProcessor.h"
 #include "Network/SatelliteClient.h"
 #include "core/audio/PadAudioMatcher.h"
+#include "core/diagnostics/PadLanes.h"
 #include "core/input/UsbReportParsers.h"
 #include "core/reducer/FeedbackRouting.h"
 #include "core/thread/GraceEpoch.h"
@@ -168,6 +169,11 @@ class SlotRouter final : public input::GamepadInputProcessor::InputSink {
     // pad's routed battery), sent from the published table under the publishers' lock.
     void sendBattery(const QString& slotId, std::uint8_t level, std::uint8_t status);
 
+    // GUI thread: what came out of one slot's pad, lane by lane, for the support report: every
+    // host message and every bench actuation the router handed it, whatever the lane's target.
+    // Kept for the router's lifetime, so a route table may point at it.
+    diagnostics::LaneSample laneSample(const QString& slotId, diagnostics::OutputLane lane) const;
+
     // Feedback the receive threads routed to a pad, for the harness.
     std::uint64_t rumblesRouted() const { return rumblesRouted_.load(std::memory_order_relaxed); }
     std::uint64_t lightbarsRouted() const {
@@ -200,6 +206,8 @@ class SlotRouter final : public input::GamepadInputProcessor::InputSink {
         // The SDL pad's mailbox, for the Standard path.
         std::optional<DeviceIndex> padIndex;
         bool rumbleOn = true;
+        // The slot's lane counters, which outlive every table: recorded on the receive thread.
+        diagnostics::PadOutputCounters* counters = nullptr;
 
         reducer::FeedbackTarget target(reducer::FeedbackKind kind) const {
             return targets[static_cast<std::size_t>(kind)];
@@ -250,6 +258,11 @@ class SlotRouter final : public input::GamepadInputProcessor::InputSink {
     void routeMicLed(const FeedbackRoute& route, std::uint8_t state);
     // The GUI's own actuation: the same routing over a route built live for the one slot.
     FeedbackRoute liveRoute(const QString& slotId) const;
+    // GUI thread: the slot's counters, made on first use and never dropped.
+    diagnostics::PadOutputCounters* countersFor(const QString& slotId) const;
+    // Hot path: one relaxed add and two relaxed stores, never a lock or an allocation.
+    static void recordLane(const FeedbackRoute& route, diagnostics::OutputLane lane,
+                           std::uint64_t packedValue);
 
     const Dependencies deps_;
     Grace grace_;
@@ -263,6 +276,10 @@ class SlotRouter final : public input::GamepadInputProcessor::InputSink {
     // The matcher's answer, written and read on the GUI thread.
     mutable thread::TrackedMutex audioRoutesMtx_{"app.audioRoutes"};
     std::map<int, audio::PadAudioRoute> padAudioRoutes_;
+    // GUI thread only, like the tables it fills, so no lock: the receive threads reach a slot's
+    // counters through the route they already hold, and an entry is never dropped while the router
+    // lives, so that pointer cannot dangle.
+    mutable std::map<QString, std::unique_ptr<diagnostics::PadOutputCounters>> padCounters_;
     std::atomic<std::uint64_t> rumblesRouted_{0};
     std::atomic<std::uint64_t> lightbarsRouted_{0};
     // Written on the GUI thread, read by the input threads and the Moonlight control threads.

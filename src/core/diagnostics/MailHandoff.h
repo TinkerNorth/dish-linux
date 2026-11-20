@@ -25,16 +25,6 @@ inline constexpr std::string_view kSupportAddress = "support@tinkernorth.com";
 inline constexpr std::string_view kAppName = "dish-linux";
 inline constexpr std::string_view kAppDisplayName = "Dish for Linux";
 
-inline std::string mailSubject(std::string_view version, std::string_view model) {
-    std::string subject = "Dish diagnostics: ";
-    subject += kAppDisplayName;
-    subject += " ";
-    subject += version;
-    subject += " on ";
-    subject += model;
-    return subject;
-}
-
 struct CivilTime {
     int year = 1970;
     int month = 1;

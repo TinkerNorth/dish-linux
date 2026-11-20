@@ -27,6 +27,7 @@
 #include <array>
 #include <atomic>
 #include <chrono>
+#include <cstddef>
 #include <cstdint>
 #include <cstring>
 #include <optional>
@@ -519,4 +520,35 @@ TEST_CASE("receiveLoop survives a full-size datagram end to end", "[audio][wire]
     lb.client.stopReceiveLoop();
     REQUIRE(got.load() == 1);
     CHECK(gotLen.load() == proto::kAudioWireMaxOpusBytes);
+}
+
+// ── The support report's wire counts ───────────────────────────────────────
+
+TEST_CASE("the session counts what it sent by kind, and only what left", "[audio][wire][report]") {
+    LoopbackClient lb;
+    const std::vector<std::uint8_t> opus{0xAA, 0xBB};
+    REQUIRE(lb.client.sendMicAudio(0, 1, opus.data(), opus.size()));
+    lb.client.sendReport(0, 0x1000, 0, 0, 0, 0, 0, 0, 0);
+    lb.client.sendReport(0, 0x1000, 0, 0, 0, 0, 0, 0, 0);
+    // Refused before the wire: an empty mic packet is malformed by contract.
+    CHECK_FALSE(lb.client.sendMicAudio(0, 2, opus.data(), 0));
+    const auto counts = lb.client.wireCounts();
+    CHECK(counts.sent[static_cast<std::size_t>(dish::diagnostics::SentKind::Mic)] == 1);
+    CHECK(counts.sent[static_cast<std::size_t>(dish::diagnostics::SentKind::Input)] == 2);
+    CHECK(counts.sent[static_cast<std::size_t>(dish::diagnostics::SentKind::Motion)] == 0);
+}
+
+TEST_CASE("the session counts what it received by kind, a malformed frame included",
+          "[audio][wire][report]") {
+    SatelliteClient c;
+    c.setConnectionParams(kToken, key32(0xA5), proto::kProtocolVersion);
+    const std::vector<std::uint8_t> opus{0xAA};
+    const auto speaker = serverPacket(0x0013, audioBody(1, 1, opus), /*counter=*/1);
+    SatelliteClientTestAccess::processIncoming(c, speaker.data(), speaker.size());
+    const auto bad = serverPacket(0x0015, audioBody(1, 2, {}), /*counter=*/2);
+    SatelliteClientTestAccess::processIncoming(c, bad.data(), bad.size());
+    const auto counts = c.wireCounts();
+    CHECK(counts.received[static_cast<std::size_t>(dish::diagnostics::ReceivedKind::Speaker)] == 1);
+    CHECK(counts.received[static_cast<std::size_t>(dish::diagnostics::ReceivedKind::Haptic)] == 1);
+    CHECK(counts.received[static_cast<std::size_t>(dish::diagnostics::ReceivedKind::Rumble)] == 0);
 }

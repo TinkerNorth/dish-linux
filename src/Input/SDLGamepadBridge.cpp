@@ -252,6 +252,8 @@ void SDLGamepadBridge::onControllerAdded(const SDL_Event& ev) {
     // not-Bluetooth, which fails safe to the wired presentation.
     const char* devPath = SDL_GameControllerPath(gc);
     d.bluetooth = devPath != nullptr && dish::input::isBluetoothHidDevicePath(devPath);
+    d.bluetoothLink = devPath != nullptr ? dish::input::bluetoothLinkOfHidPath(devPath)
+                                         : dish::input::BluetoothLink::None;
     d.identity = padIdentity(js);
     pad->shadow.seed(gc);
 
@@ -309,6 +311,8 @@ void SDLGamepadBridge::onJoystickAdded(const SDL_Event& ev) {
     d.productId = SDL_JoystickGetProduct(js);
     const char* devPath = SDL_JoystickPath(js);
     d.bluetooth = devPath != nullptr && dish::input::isBluetoothHidDevicePath(devPath);
+    d.bluetoothLink = devPath != nullptr ? dish::input::bluetoothLinkOfHidPath(devPath)
+                                         : dish::input::BluetoothLink::None;
     d.hasRumble = SDL_JoystickHasRumble(js) == SDL_TRUE;
     d.isRawJoystick = true;
     d.identity = padIdentity(js);

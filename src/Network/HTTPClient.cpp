@@ -20,8 +20,6 @@ namespace dish::net {
 
 namespace {
 
-constexpr int kTimeoutMs = 5000;
-
 // VerifyNone only stops the handshake refusing the self-signed certificate before the pin verifier
 // has seen it; the verifier is the real gate.
 QSslConfiguration satelliteTls() {
@@ -81,14 +79,14 @@ HTTPClient::RawReply HTTPClient::rawReplyOf(const http::HttpResult& result, bool
 void HTTPClient::perform(const QString& url, const QByteArray& method, const QByteArray& body,
                          const QString& deviceId, const QString& hmacProof,
                          const QString& acceptLanguage, const QString& ifNoneMatch,
-                         std::function<void(const RawReply&)> done) {
+                         std::function<void(const RawReply&)> done, int timeoutMs) {
     http::HttpRequest request{
         .url = QUrl(url),
         .method = method,
         .headers = satelliteHeaders(deviceId, hmacProof, acceptLanguage, ifNoneMatch),
         .body = body,
         .tls = satelliteTls(),
-        .timeoutMs = kTimeoutMs};
+        .timeoutMs = timeoutMs};
     // The pin is checked on the TLS `encrypted` edge, and a refusal there leaves no status and no
     // body, so the mismatch rides out beside the reply or it would read as a dropped connection.
     const auto pinMismatch = std::make_shared<bool>(false);
@@ -140,6 +138,22 @@ void HTTPClient::getSession(const QString& ip, int port, const QString& connecti
         view.reachable = r.reachable;
         cb(view);
     });
+}
+
+void HTTPClient::getConnectionDiagnostics(const QString& ip, int port, const QString& connectionId,
+                                          const QString& deviceId, const QString& hmacProof,
+                                          int timeoutMs, RawCb cb) {
+    const QString url = QStringLiteral("https://%1:%2/api/connections/%3/diagnostics")
+                            .arg(ip)
+                            .arg(port)
+                            .arg(connectionId);
+    perform(
+        url, "GET", {}, deviceId, hmacProof, {}, {},
+        [cb = std::move(cb)](const RawReply& r) {
+            const bool timedOut = r.failure == reducer::TransportFailure::TimedOut;
+            cb(r.status, timedOut, r.body);
+        },
+        timeoutMs);
 }
 
 void HTTPClient::deleteSession(const QString& ip, int port, const QString& connectionId,
