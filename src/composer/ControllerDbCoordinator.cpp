@@ -146,7 +146,7 @@ void ControllerDbCoordinator::onFile(const cdbsrc::DbReply& reply) {
         finish(cdb::CheckResult::Invalid);
         return;
     }
-    download_.files.emplace(qtText(promised.path), reply.body);
+    download_.files.insert(qtText(promised.path), reply.body);
     ++nextFile_;
     fetchNextFile();
 }

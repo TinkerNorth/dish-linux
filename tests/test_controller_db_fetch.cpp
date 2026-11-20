@@ -23,6 +23,7 @@
 #include <QSettings>
 #include <QTemporaryDir>
 
+#include <cstddef>
 #include <cstdint>
 #include <initializer_list>
 #include <map>
@@ -84,13 +85,13 @@ DbReply ok(const QByteArray& body, const QByteArray& etag = {}) { return {false,
 DbFiles republished(const DbFiles& bundled, int dbVersion) {
     DbFiles out = bundled;
     QJsonDocument records =
-        QJsonDocument::fromJson(bundled.files.at(QStringLiteral("controllers.json")));
+        QJsonDocument::fromJson(bundled.files.value(QStringLiteral("controllers.json")));
     QJsonObject root = records.object();
     root[QStringLiteral("dbVersion")] = dbVersion;
     out.files[QStringLiteral("controllers.json")] =
         QJsonDocument(root).toJson(QJsonDocument::Compact);
     QJsonObject files;
-    for (const auto& [path, bytes] : out.files) {
+    for (const auto& [path, bytes] : out.files.asKeyValueRange()) {
         QJsonObject entry;
         entry[QStringLiteral("sha256")] = QString::fromLatin1(
             QCryptographicHash::hash(bytes, QCryptographicHash::Sha256).toHex());
@@ -121,7 +122,9 @@ struct CheckRig {
 
     void serve(const DbFiles& files, const QByteArray& etag = "\"v2\"") {
         port.replies[QStringLiteral("manifest.json")] = ok(files.manifest, etag);
-        for (const auto& [path, bytes] : files.files) { port.replies[path] = ok(bytes); }
+        for (const auto& [path, bytes] : files.files.asKeyValueRange()) {
+            port.replies[path] = ok(bytes);
+        }
     }
     std::optional<CheckResult> lastResult() const { return store.state().value().lastCheckResult; }
 };
@@ -282,7 +285,7 @@ TEST_CASE("controller db check: a newer database is fetched, verified and put in
     rig.serve(v2);
     rig.coordinator.checkNow();
 
-    CHECK(rig.port.requested.size() == 1 + v2.files.size());
+    CHECK(rig.port.requested.size() == 1 + static_cast<std::size_t>(v2.files.size()));
     CHECK(rig.lastResult() == std::optional<CheckResult>(CheckResult::Updated));
     const auto status = rig.store.state().value();
     CHECK(status.activeVersion == 2);
@@ -329,11 +332,11 @@ TEST_CASE("controller db check: records that disagree with the manifest's versio
     // A manifest announcing 2 over records that still say 1, every digest honest.
     DbFiles lying = republished(bundled, 2);
     lying.files[QStringLiteral("controllers.json")] =
-        bundled.files.at(QStringLiteral("controllers.json"));
+        bundled.files.value(QStringLiteral("controllers.json"));
     QJsonObject manifest = QJsonDocument::fromJson(lying.manifest).object();
     QJsonObject files = manifest[QStringLiteral("files")].toObject();
     QJsonObject entry;
-    const QByteArray records = lying.files.at(QStringLiteral("controllers.json"));
+    const QByteArray records = lying.files.value(QStringLiteral("controllers.json"));
     entry[QStringLiteral("sha256")] =
         QString::fromLatin1(QCryptographicHash::hash(records, QCryptographicHash::Sha256).toHex());
     entry[QStringLiteral("bytes")] = static_cast<qint64>(records.size());

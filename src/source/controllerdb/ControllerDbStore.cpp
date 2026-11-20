@@ -76,7 +76,7 @@ bool everyFileAsPromised(const cdb::DbManifest& manifest, const DbFiles& files) 
     for (const cdb::ManifestFile& promised : manifest.files) {
         const auto it = files.files.find(pathOf(promised.path));
         if (it == files.files.end()) { return false; }
-        const QByteArray& bytes = it->second;
+        const QByteArray& bytes = it.value();
         if (!cdb::fileMatches(promised, sha256Hex(bytes), bytes.size())) { return false; }
     }
     return true;
@@ -88,7 +88,7 @@ std::optional<std::map<std::string, cdb::StringsTable>> stringsOf(const cdb::DbM
     for (const cdb::ManifestFile& promised : manifest.files) {
         const std::optional<std::string> locale = stringsLocaleOf(promised.path);
         if (!locale.has_value()) { continue; }
-        auto parsed = parseStringsTable(files.files.at(pathOf(promised.path)));
+        auto parsed = parseStringsTable(files.files.value(pathOf(promised.path)));
         auto* table = std::get_if<cdb::StringsTable>(&parsed);
         if (table == nullptr) { return std::nullopt; }
         out.emplace(*locale, std::move(*table));
@@ -110,7 +110,7 @@ DbFiles readDbFolder(const QString& dir) {
     for (const std::string_view path : cdb::kDbFilePaths) {
         const QString full = dir + QLatin1Char('/') + pathOf(path);
         if (!QFile::exists(full)) { continue; }
-        out.files.emplace(pathOf(path), readWhole(full));
+        out.files.insert(pathOf(path), readWhole(full));
     }
     return out;
 }
@@ -121,7 +121,7 @@ cdb::CatalogPtr catalogFromFiles(const DbFiles& files, cdb::DbSource source) {
     if (manifest == nullptr || !cdb::manifestIsUsable(*manifest)) { return nullptr; }
     if (!everyFileAsPromised(*manifest, files)) { return nullptr; }
 
-    auto parsedDb = parseControllerDb(files.files.at(pathOf(cdb::kRecordsPath)));
+    auto parsedDb = parseControllerDb(files.files.value(pathOf(cdb::kRecordsPath)));
     auto* db = std::get_if<cdb::ControllerDb>(&parsedDb);
     if (db == nullptr || !cdb::recordsMatchManifest(*db, *manifest)) { return nullptr; }
 
@@ -164,7 +164,7 @@ bool ControllerDbStore::commit(const DbFiles& files, const cdb::CatalogPtr& cata
     if (!writeWhole(folder + QLatin1Char('/') + pathOf(cdb::kManifestPath), files.manifest)) {
         return false;
     }
-    for (const auto& [path, bytes] : files.files) {
+    for (const auto& [path, bytes] : files.files.asKeyValueRange()) {
         if (!writeWhole(folder + QLatin1Char('/') + path, bytes)) { return false; }
     }
     if (!writeWhole(cacheRoot_ + QLatin1Char('/') + QLatin1String(kCurrentFile),

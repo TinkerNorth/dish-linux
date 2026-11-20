@@ -182,7 +182,7 @@ TEST_CASE("bundled controller db: the DualSense is a live verified record with i
 TEST_CASE("bundled controller db: a tampered file fails the manifest and is not used",
           "[controllerdb][bundled]") {
     auto files = readDbFolder(QStringLiteral(DISH_CONTROLLER_DB_DIR));
-    REQUIRE(files.files.count(QStringLiteral("strings/de.json")) == 1U);
+    REQUIRE(files.files.contains(QStringLiteral("strings/de.json")));
     files.files[QStringLiteral("strings/de.json")].append(' ');
     CHECK(catalogFromFiles(files, DbSource::Bundled) == nullptr);
 }

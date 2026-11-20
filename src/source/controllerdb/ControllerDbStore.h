@@ -22,6 +22,7 @@
 #include "source/store/ControllerDbPreferenceStore.h"
 
 #include <QByteArray>
+#include <QMap>
 #include <QString>
 
 #include <cstdint>
@@ -45,10 +46,11 @@ struct ControllerDbStatus {
     bool operator==(const ControllerDbStatus&) const = default;
 };
 
-// One database's files as they came: the manifest's bytes and each data file's by its path.
+// One database's files as they came: the manifest's bytes and each data file's by its path. A
+// QMap, whose move cannot throw: MSVC's std::map allocates its sentinel when it is moved.
 struct DbFiles {
     QByteArray manifest;
-    std::map<QString, QByteArray> files;
+    QMap<QString, QByteArray> files;
 };
 
 inline constexpr const char* kBundledDbDir = ":/controllers/v1";
