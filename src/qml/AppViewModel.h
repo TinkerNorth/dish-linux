@@ -18,9 +18,18 @@
 #include "core/reducer/UpdateMachine.h"
 #include "qml/ConnectionListModel.h"
 #include "qml/SlotListModel.h"
+#include "composer/ConnectionsComposer.h"
+#include "composer/DiagnosticsBundle.h"
+#include "composer/HostSnapshotCollector.h"
+#include "core/diagnostics/ReportCapture.h"
+#include "core/diagnostics/UsbDescriptors.h"
+#include "source/http/ConnectionSnapshotGateway.h"
+#include "source/controllerdb/ControllerDbStore.h"
 #include "source/store/BackgroundPreferenceStore.h"
+#include "source/store/ControllerDbPreferenceStore.h"
 #include "source/store/CrashReportingStore.h"
 #include "source/store/OnboardingPreferenceStore.h"
+#include "source/store/PadTestOutcomeStore.h"
 #include "source/store/ThemePreferenceStore.h"
 #include "source/store/UiPreferenceStore.h"
 #include "source/store/UpdatePreferenceStore.h"
@@ -33,6 +42,10 @@
 #include <QVariantMap>
 
 #include <functional>
+#include <map>
+#include <memory>
+#include <optional>
+#include <vector>
 
 class QTimer;
 
@@ -40,6 +53,14 @@ namespace dish {
 class AppModel;
 struct MainUiState;
 } // namespace dish
+
+namespace dish::net {
+class WifiConnection;
+} // namespace dish::net
+
+namespace dish::source::moon {
+struct MoonlightRow;
+} // namespace dish::source::moon
 
 namespace dish::qml {
 
@@ -217,6 +238,23 @@ class AppViewModel : public QObject {
     Q_PROPERTY(QDateTime updateLastCheck READ updateLastCheck NOTIFY updateChanged)
     Q_PROPERTY(bool updateChecksEnabled READ updateChecksEnabled WRITE setUpdateChecksEnabled NOTIFY
                    updatePrefsChanged)
+
+    // ── Controller database (docs/controller-db.md section 6) ────────────────
+    // "Check for controller updates automatically", default on.
+    Q_PROPERTY(bool controllerDbChecksEnabled READ controllerDbChecksEnabled WRITE
+                   setControllerDbChecksEnabled NOTIFY controllerDbChanged)
+    // qml/DiagnosticsMaps.h's controllerDbRow.
+    Q_PROPERTY(QVariantMap controllerDb READ controllerDb NOTIFY controllerDbChanged)
+    // The machine as the diagnostics bundle names it: "AYN Thor", "Ubuntu 24.04.1 LTS
+    // (6.8.0-45-generic)".
+    Q_PROPERTY(QString machineModel READ machineModel CONSTANT)
+    Q_PROPERTY(QString osVersion READ osVersion CONSTANT)
+    // "Report a problem" (docs/diagnostics-bundle.md, "Second cut"): true once every live
+    // Satellite has answered the snapshot request prepareReport sent, or let it time out.
+    Q_PROPERTY(bool reportReady READ reportReady NOTIFY reportReadyChanged)
+    // "Capture this controller" (docs/diagnostics-bundle.md, Capture): { slotId, state }, state one
+    // of `idle`, `capturing`, `captured`, `failed`, for the pad last asked for.
+    Q_PROPERTY(QVariantMap controllerCapture READ controllerCapture NOTIFY controllerCaptureChanged)
 
     // ── Diagnostics: the input inspector ─────────────────────────────────────
     // Republished at the poll rate while an inspection is armed; the shapes are
@@ -613,6 +651,49 @@ class AppViewModel : public QObject {
     QVariantMap inputSnapshot() const { return inputSnapshot_; }
     QVariantMap stickTest() const { return stickTest_; }
 
+    // ── The controller database and the levels of Diagnostics ────────────────
+    bool controllerDbChecksEnabled() const;
+    Q_INVOKABLE void setControllerDbChecksEnabled(bool enabled);
+    QVariantMap controllerDb() const;
+    // One check now; nothing leaves the PC while the switch is off.
+    Q_INVOKABLE void checkControllerDbNow();
+    QString machineModel() const;
+    QString osVersion() const;
+    // The slot's record facts (DiagnosticsMaps' controllerRecordRow) plus `lastWrite`, the Direct
+    // claim's last write verdict (writeVerdictRow). Re-pull on stateChanged and telemetryChanged.
+    Q_INVOKABLE QVariantMap controllerRecordFacts(const QString& slotId) const;
+    // The answer to "Did it work?" after a test buzz on `motor` ("weak" / "strong" / "both").
+    Q_INVOKABLE void recordTestOutcome(const QString& slotId, const QString& motor, bool worked);
+    // testOutcomeRow of the slot's last answer; {} before any.
+    Q_INVOKABLE QVariantMap lastTestOutcome(const QString& slotId) const;
+    // One row per controller for the mail's summary and the report's picker: { slotId, name,
+    // recordId, chip, usbDirect, bluetooth }, `recordId` "" and `chip` "" for a pad no record
+    // lists.
+    Q_INVOKABLE QVariantList diagnosticsControllers() const;
+    // Writes the bundle under the app's data folder and shows that folder in the file manager.
+    // The file's path, or "" when it could not be written.
+    Q_INVOKABLE QString saveDiagnostics();
+    // ── Report a problem ─────────────────────────────────────────────────────
+    bool reportReady() const { return reportReady_; }
+    // Asks every live Satellite for its own snapshot of the session, two seconds at most, and
+    // reads the PC's power and thermal facts; reportReady turns true when the answers are in.
+    Q_INVOKABLE void prepareReport();
+    // The file as it would be written: `category` a token (`notRecognised` / `noFeedback` /
+    // `connection` / `audio` / `other` / `question`), `text` the person's words, `slotId` the
+    // controller it concerns or "".
+    Q_INVOKABLE QString reportPreview(const QString& category, const QString& text,
+                                      const QString& slotId) const;
+    // Writes the file, then opens the person's mail client addressed to support: the subject names
+    // `categoryWords` (the category in their language), the body is `text` then `summary`. False
+    // when the file could not be written or the last mail's xdg-email has not answered yet.
+    Q_INVOKABLE bool sendReport(const QString& category, const QString& categoryWords,
+                                const QString& text, const QString& slotId, const QString& summary);
+    // A Direct pad's descriptors and its next twenty input reports, taken while it lies still,
+    // kept for this run and written only into a report about that pad. False for a pad Dish does
+    // not read directly, or while a capture is running.
+    Q_INVOKABLE bool captureController(const QString& slotId);
+    QVariantMap controllerCapture() const;
+
   signals:
     // Folds AppModel's stateChanged and the coordinator's connectionsChanged.
     void stateChanged();
@@ -683,6 +764,13 @@ class AppViewModel : public QObject {
     void diagnosticsLogChanged();
     void inputSnapshotChanged();
     void stickTestChanged();
+    void controllerDbChanged();
+    void testOutcomesChanged();
+    // After sendReport: true when xdg-email handed it to the mail client, false when the mailto:
+    // fallback opened and the file manager shows the file to attach.
+    void diagnosticsMailHandedOff(bool viaMailClient);
+    void reportReadyChanged();
+    void controllerCaptureChanged();
 
   private:
     void onStateChanged();
@@ -826,6 +914,47 @@ class AppViewModel : public QObject {
     QVariantMap inputSnapshot_;
     QVariantMap stickTest_;
     arch::Observable<std::vector<reducer::DiagnosticsEvent>>::Subscription diagnosticsLogSub_;
+
+    // The bundle's facts, gathered from what the page shows and what each host said, and the file
+    // it is written to.
+    // `reportSlotId` is the controller the report names, the only one whose capture rides.
+    composer::BundleFacts diagnosticsBundleFacts(std::optional<composer::BundleReport> report,
+                                                 const QString& reportSlotId = QString()) const;
+    std::optional<diagnostics::Json> captureFor(const QString& slotId,
+                                                const QString& reportSlotId) const;
+    std::optional<composer::BundleReport> reportOf(const QString& category, const QString& text,
+                                                   const QString& slotId) const;
+    composer::BundleController bundleControllerOf(const models::ControllerSlot& slot) const;
+    std::optional<composer::BundleOutput> bundleOutputOf(const models::ControllerSlot& slot) const;
+    composer::BundleHost bundleSatelliteOf(const composer::ConnectionRow& link) const;
+    composer::BundleSession bundleSessionOf(const net::WifiConnection& conn) const;
+    composer::BundleHost bundleMoonlightOf(const source::moon::MoonlightRow& row) const;
+    QString writeDiagnosticsBundle(const composer::BundleFacts& facts);
+    void onHostSnapshots(int generation, composer::HostSnapshots snapshots);
+    // The gateway before the collector, which holds it by reference and must go first.
+    std::unique_ptr<source::ConnectionSnapshotGateway> snapshotGateway_;
+    std::unique_ptr<composer::HostSnapshotCollector> snapshotCollector_;
+    composer::HostSnapshots hostSnapshots_;
+    diagnostics::PowerFacts power_;
+    std::optional<diagnostics::ThermalState> thermal_;
+    bool reportReady_ = false;
+    // A preparation answered after a newer one started is not the one on screen.
+    int reportGeneration_ = 0;
+    // The capture in progress, polled until its reports are in, and the captures taken this run.
+    struct StoredCapture {
+        diagnostics::UsbHardwareFacts hardware;
+        std::vector<diagnostics::RestReport> reports;
+    };
+    void onCaptureTick();
+    void finishCapture(diagnostics::CaptureProgress progress);
+    QTimer* captureTimer_ = nullptr;
+    QString captureSlotId_;
+    int capturePolls_ = 0;
+    std::optional<diagnostics::CaptureProgress> captureProgress_;
+    std::map<QString, StoredCapture> captures_;
+    arch::Observable<source::controllerdb::ControllerDbStatus>::Subscription controllerDbSub_;
+    arch::Observable<source::ControllerDbPreferences>::Subscription controllerDbPrefsSub_;
+    arch::Observable<source::PadTestOutcomeMap>::Subscription outcomesSub_;
 };
 
 } // namespace dish::qml

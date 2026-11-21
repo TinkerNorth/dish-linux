@@ -1090,9 +1090,26 @@ void WifiConnectionManager::probeHostAudio(const QString& id,
             auto* c = connections_.value(id, nullptr);
             if (c == nullptr || c->state() != SessionState::Live) { return; }
             if (!caps.reachable || caps.httpStatus < 200 || caps.httpStatus > 299) { return; }
+            c->setLastCapabilities(caps);
             const auto verdict = reducer::resolveHostControllerAudio(caps);
             c->setHostControllerAudio(verdict.mic, verdict.speaker, verdict.hapticAudio);
         });
+}
+
+bool WifiConnectionManager::fetchConnectionDiagnostics(const QString& id, int timeoutMs,
+                                                       HTTPClient::RawCb cb) {
+    const WifiConnection* conn = connections_.value(id, nullptr);
+    if (conn == nullptr) { return false; }
+    const bool live =
+        conn->state() == SessionState::Live || conn->state() == SessionState::Faltering;
+    const auto connId = conn->connectionId();
+    if (!live || !connId.has_value()) { return false; }
+    const auto creds = credentialsFor(id);
+    if (!creds.has_value()) { return false; }
+    const models::DiscoveredServer server = conn->server();
+    http_->getConnectionDiagnostics(server.ip, server.httpPort, *connId, deviceId_, creds->proof,
+                                    timeoutMs, std::move(cb));
+    return true;
 }
 
 void WifiConnectionManager::syncSlot(const QString& id, const QString& slotId) {

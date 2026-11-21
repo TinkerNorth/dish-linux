@@ -143,7 +143,31 @@ class WifiConnection : public QObject {
         // Protocol 4: the pad sources the extended-buttons word.
         bool hasExtendedButtons = false;
         bool registered = false;
+        // What the host's last apply said for this slot's index: the type it materialised and its
+        // result word. Empty before any apply named the index.
+        std::optional<int> appliedType;
+        QString applyResult;
     };
+
+    // One slot of the session as the support report reads it: what this client asked for and
+    // what the host applied.
+    struct SlotReport {
+        QString slotId;
+        int controllerIndex = 0;
+        int requestedType = proto::kControllerTypeXbox;
+        std::optional<int> appliedType;
+        QString applyResult;
+        std::uint8_t touchpadMode = proto::kTouchpadModeOff;
+    };
+    std::vector<SlotReport> slotReports() const;
+
+    // What GET /api/server/capabilities last answered for this host, kept past the session so the
+    // support report can describe a host that has no diagnostics route of its own. Empty before
+    // any probe was answered.
+    const std::optional<models::CapabilitiesDto>& lastCapabilities() const {
+        return lastCapabilities_;
+    }
+    void setLastCapabilities(const models::CapabilitiesDto& caps) { lastCapabilities_ = caps; }
 
     // ── Protocol version, per satellite ─────────────────────────────────────
     //
@@ -310,6 +334,7 @@ class WifiConnection : public QObject {
     bool hostMic_ = false;
     bool hostSpeaker_ = false;
     bool hostHapticAudio_ = false;
+    std::optional<models::CapabilitiesDto> lastCapabilities_;
 
     models::ControllerDescriptor descriptorOf(const SlotBinding& b) const;
     int lowestFreeIndex() const;

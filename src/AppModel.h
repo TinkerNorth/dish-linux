@@ -14,6 +14,7 @@
 #include "Util/Sandbox.h"
 #include "architecture/Observable.h"
 #include "composer/CatalogComposer.h"
+#include "composer/ControllerDbCoordinator.h"
 #include "composer/BackgroundCoordinator.h"
 #include "composer/ConnectionCoordinator.h"
 #include "composer/CrashReportingBackend.h"
@@ -42,17 +43,25 @@
 #include "core/reducer/MicIndicatorState.h"
 #include "core/reducer/PollRateSampler.h"
 #include "core/audio/AudioEnginePolicy.h"
+#include "core/controllerdb/AttachedRecords.h"
+#include "core/controllerdb/ControllerCatalog.h"
+#include "core/controllerdb/PadModel.h"
+#include "core/diagnostics/ReportCapture.h"
+#include "core/diagnostics/WriteVerdict.h"
 #include "core/audio/AudioRefusal.h"
 #include "core/audio/PadAudioMatcher.h"
 #include "core/thread/TrackedMutex.h"
 #include "source/audio/MicCaptureEngine.h"
 #include "source/audio/SdlAudioGateway.h"
 #include "source/audio/SpeakerPlayoutEngine.h"
+#include "source/controllerdb/ControllerDbGateway.h"
+#include "source/controllerdb/ControllerDbStore.h"
 #include "source/input/ControllerActivitySource.h"
 #include "source/inputrate/InputRateStore.h"
 #include "source/http/SatelliteCatalogRepository.h"
 #include "source/notification/DesktopNotifier.h"
 #include "source/store/BackgroundPreferenceStore.h"
+#include "source/store/ControllerDbPreferenceStore.h"
 #include "source/store/ControllerTypeStore.h"
 #include "source/store/CrashReportingStore.h"
 #include "source/store/JoystickRemapStore.h"
@@ -63,11 +72,14 @@
 #include "source/store/RumbleEnabledStore.h"
 #include "source/store/SlotSwitches.h"
 #include "source/store/OnboardingPreferenceStore.h"
+#include "source/store/PadTestOutcomeStore.h"
 #include "source/store/TouchpadModeStore.h"
 #include "source/store/TrackpadPickStore.h"
 #include "source/store/ThemePreferenceStore.h"
 #include "source/store/UpdatePreferenceStore.h"
 #include "source/store/UsbPathPreferenceStore.h"
+#include "source/system/DiagnosticsHandoff.h"
+#include "source/system/MachineIdentity.h"
 #include "source/system/SleepMonitor.h"
 #include "source/system/ThreadPriority.h"
 #include "source/system/WakeInhibitor.h"
@@ -311,6 +323,37 @@ class AppModel : public QObject {
     // Linux. The lifecycle is owned here.
     source::usb::UsbGamepadManager* usbManager() { return usbManager_.get(); }
 
+    // ── The controller database and the levels of Diagnostics ───────────────
+    // The switch and the last check's bookkeeping; the database in force and what Diagnostics
+    // shows about it (docs/controller-db.md section 6.7); one check on "Check now".
+    source::ControllerDbPreferenceStore* controllerDbPrefs() { return &controllerDbPrefs_; }
+    const arch::Observable<source::controllerdb::ControllerDbStatus>& controllerDbStatus() const {
+        return controllerDbStore_->state();
+    }
+    controllerdb::CatalogPtr controllerCatalog() const { return controllerDbStore_->active(); }
+    void checkControllerDbNow() { controllerDbCoordinator_->checkNow(); }
+    // The record a slot's pad was matched to at its attach, with the expect mismatches found then.
+    // Empty for an unknown slot.
+    std::optional<controllerdb::AttachedIdentity> attachedIdentity(const QString& slotId) const;
+    // "Capture this controller" for a Direct slot: arms its claim's capture, and what it kept so
+    // far on the read loop's clock. False, and nothing, for a slot with no live claim.
+    bool armDirectCapture(const QString& slotId);
+    std::vector<diagnostics::CapturedReport> directCapturedReports(const QString& slotId) const;
+    // A Direct slot's device as the gateway described it, and its claim's last write verdict.
+    std::optional<source::usb::UsbDeviceInfo> directDeviceFor(const QString& slotId) const;
+    std::optional<diagnostics::WriteVerdict> lastDirectWrite(const QString& slotId) const;
+    // The answers to "Did it work?" after each pad test, this run only.
+    source::PadTestOutcomeStore* padOutcomes() { return &padOutcomes_; }
+    const source::MachineIdentity& machine() const { return machine_; }
+    source::DiagnosticsHandoff* diagnosticsHandoff() { return diagnosticsHandoff_; }
+    // The support report's second cut: each pad's lanes and the targets they go to, its voices, and
+    // the catalog cached per satellite. GUI thread.
+    const SlotRouter* router() const { return router_.get(); }
+    const source::audio::SpeakerPlayoutEngine& speakerEngine() const { return speakerEngine_; }
+    std::optional<models::CatalogDto> cachedCatalog(const QString& connectionId) const {
+        return catalogRepo_.cached(connectionId);
+    }
+
     // The Moonlight-host subsystem: discovery, pairing, sessions. Sits beside
     // the satellite wifi() pool as a sibling; the UI drives it through here.
     source::moon::MoonlightManager* moonlight() { return moonlight_; }
@@ -367,6 +410,9 @@ class AppModel : public QObject {
     // cross-reference fills in what a binding adds, and the two republish* push the result to the
     // input threads and the power inhibitor.
     using DirectPads = std::vector<source::usb::UsbGamepadManager::DirectPad>;
+    controllerdb::PadModel pinnedModelOf(const reducer::DirectPadKey& pad) const;
+    controllerdb::PadModel pinnedModelOf(int vendorId, int productId) const;
+    bool directLayoutKnown(int vendorId, int productId) const;
     std::set<std::string>
     hideSdlTwinsOfClaimedPads(const DirectPads& pads,
                               const QList<input::SDLGamepadBridge::Device>& sdlDevices);
@@ -592,6 +638,12 @@ class AppModel : public QObject {
     // The Diagnostics bench's buzzes, so a stop ends only the buzz it was set for.
     reducer::TestBuzzTickets buzzTickets_;
     input::GamepadInputProcessor processor_;
+    // What each gateway resolves a pad's model through when the pad attaches (the hidraw gateway's
+    // scan, the SDL thread's attach): the database in force and the bundled copy, replaced whole
+    // when the database changes. Before every gateway, so it outlives their threads.
+    controllerdb::PadModelResolver padModels_;
+    controllerdb::CatalogPtr padModelsActive_;
+    void refreshPadModels();
     input::SDLGamepadBridge* bridge_;
     FeatureSettings* featureSettings_;
     QTimer* autoReconnectTimer_;
@@ -810,6 +862,21 @@ class AppModel : public QObject {
     // Every report and every feedback message, routed from the table republishRouting() hands
     // it. Made in the constructor once the USB manager exists.
     std::unique_ptr<SlotRouter> router_;
+
+    // The controller database (docs/controller-db.md section 6). The store and the gateway are
+    // made in the constructor body; the coordinator is deleted first in the destructor, because it
+    // talks to both and holds a subscription to the preference store.
+    source::ControllerDbPreferenceStore controllerDbPrefs_;
+    std::unique_ptr<source::controllerdb::ControllerDbStore> controllerDbStore_;
+    std::unique_ptr<source::controllerdb::HttpControllerDbGateway> controllerDbGateway_;
+    composer::ControllerDbCoordinator* controllerDbCoordinator_ = nullptr;
+    arch::Observable<source::controllerdb::ControllerDbStatus>::Subscription controllerDbSub_;
+    // Refreshed at every rebuild: a pad keeps what it was matched to until it leaves.
+    controllerdb::AttachedIdentities attachedIdentities_;
+    void refreshAttachedIdentities();
+    source::PadTestOutcomeStore padOutcomes_;
+    source::MachineIdentity machine_;
+    source::DiagnosticsHandoff* diagnosticsHandoff_ = nullptr;
 };
 
 } // namespace dish

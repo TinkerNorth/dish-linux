@@ -16,6 +16,16 @@
 #include "composer/ConnectionCoordinator.h"
 #include "composer/DiagnosticsRecorder.h"
 #include "composer/StreamingSlotCount.h"
+#include "core/controllerdb/Vocabulary.h"
+#include "core/diagnostics/DeviceFacts.h"
+#include "core/diagnostics/HostSnapshot.h"
+#include "core/diagnostics/MailHandoff.h"
+#include "core/diagnostics/PadLanes.h"
+#include "core/diagnostics/ReportForm.h"
+#include "core/input/HidTransport.h"
+#include "core/model/Protocol.h"
+#include "core/reducer/FeedbackRouting.h"
+#include "core/reducer/SessionDiagnostics.h"
 #include "UI/CrashReport.h"
 #include "core/catalog/BundledCatalog.h"
 #include "core/input/Deadzones.h"
@@ -47,6 +57,16 @@
 #include "source/store/ControllerTypeStore.h"
 #include "source/store/ThemePreferenceStore.h"
 #include "source/store/TouchpadModeStore.h"
+#include "core/diagnostics/ReportCapture.h"
+#include "core/diagnostics/UsbDescriptors.h"
+#include "core/diagnostics/UsbHost.h"
+#include "core/input/BluetoothServices.h"
+#include "source/system/BluetoothLinkReader.h"
+#include "source/system/DiagnosticsHandoff.h"
+#include "source/system/PowerStatus.h"
+#include "source/usb/UsbSysfs.h"
+#include "source/audio/SpeakerPlayoutEngine.h"
+#include "SlotRouter.h"
 #include "UI/Theme.h"
 #include "UI/licenses/LicenseManifest.h"
 
@@ -54,6 +74,7 @@
 #include <QClipboard>
 #include <QDesktopServices>
 #include <QGuiApplication>
+#include <QLocale>
 #include <QSet>
 #include <QStyleHints>
 #include <QTimer>
@@ -61,9 +82,14 @@
 #include <QVariantMap>
 #include <QWindow>
 
+#include <array>
 #include <chrono>
+#include <cstdint>
 #include <map>
 #include <optional>
+#include <string>
+#include <string_view>
+#include <utility>
 #include <vector>
 
 #include "source/system/BluetoothRadioProbe.h"
@@ -306,6 +332,9 @@ constexpr int kApplyTickMs = 250;
 // The input inspector's poll: about thirty readings a second, the rate
 // dish-android's inspector draws at.
 constexpr int kInspectionPollMs = 33;
+// "Capture this controller" asks the claim for what it kept this often, this many times.
+constexpr int kCapturePollMs = 100;
+constexpr int kCapturePolls = 20;
 
 // The stick tests' clock. Monotonic, so a wall-clock step cannot end a capture.
 std::int64_t steadyNowMs() {
@@ -321,6 +350,14 @@ std::optional<source::moon::MoonlightRow> moonlightRowFor(dish::AppModel* model,
         if (row.uuid == hostId) { return row; }
     }
     return std::nullopt;
+}
+
+// The support report's GET of one live session's snapshot; a link that could not be asked answers
+// at once with nothing, so the collector is never left waiting for it.
+void fetchSnapshotThrough(dish::AppModel* model, const QString& connectionKey, int timeoutMs,
+                          const source::ConnectionSnapshotGateway::RawReply& reply) {
+    const bool asked = model->wifi()->fetchConnectionDiagnostics(connectionKey, timeoutMs, reply);
+    if (!asked) { reply(0, false, QByteArray()); }
 }
 
 } // namespace
@@ -475,10 +512,29 @@ AppViewModel::AppViewModel(dish::AppModel* model, QObject* parent)
     diagnosticsLogSub_ = model_->diagnosticsLog().subscribe(
         [this](const std::vector<reducer::DiagnosticsEvent>&) { emit diagnosticsLogChanged(); },
         false);
+    controllerDbSub_ = model_->controllerDbStatus().subscribe(
+        [this](const source::controllerdb::ControllerDbStatus&) { emit controllerDbChanged(); },
+        false);
+    controllerDbPrefsSub_ = model_->controllerDbPrefs()->state().subscribe(
+        [this](const source::ControllerDbPreferences&) { emit controllerDbChanged(); }, false);
+    outcomesSub_ = model_->padOutcomes()->state().subscribe(
+        [this](const source::PadTestOutcomeMap&) { emit testOutcomesChanged(); }, false);
+    QObject::connect(model_->diagnosticsHandoff(), &source::DiagnosticsHandoff::handedOff, this,
+                     &AppViewModel::diagnosticsMailHandedOff);
+    snapshotGateway_ = std::make_unique<source::ConnectionSnapshotGateway>(
+        [model = model_](const QString& key, int timeoutMs,
+                         const source::ConnectionSnapshotGateway::RawReply& reply) {
+            fetchSnapshotThrough(model, key, timeoutMs, reply);
+        });
+    snapshotCollector_ = std::make_unique<composer::HostSnapshotCollector>(*snapshotGateway_);
     // Idle until a page arms an inspection.
     inspectionTimer_ = new QTimer(this);
     inspectionTimer_->setInterval(kInspectionPollMs);
     QObject::connect(inspectionTimer_, &QTimer::timeout, this, &AppViewModel::onInspectionTick);
+    // Idle until the report page asks for a capture.
+    captureTimer_ = new QTimer(this);
+    captureTimer_->setInterval(kCapturePollMs);
+    QObject::connect(captureTimer_, &QTimer::timeout, this, &AppViewModel::onCaptureTick);
 
     onStateChanged();
     onConnectionsChanged();
@@ -2055,6 +2111,611 @@ void AppViewModel::publishStickTest(std::int64_t nowMs) {
     if (next == stickTest_) { return; }
     stickTest_ = next;
     emit stickTestChanged();
+}
+
+// ── The controller database and the levels of Diagnostics ──────────────────
+
+namespace {
+
+// The database's strings in the language the app's translator was chosen for, else English.
+std::string stringsLocale() {
+    std::vector<std::string> languages;
+    for (const QString& language : QLocale().uiLanguages()) {
+        languages.push_back(language.toStdString());
+    }
+    return controllerdb::stringsLocaleFor(languages);
+}
+
+controllerdb::HostFacts hostFactsOf(const source::MachineIdentity& machine) {
+    return controllerdb::HostFacts{machine.model.toStdString(), machine.kernelMajor};
+}
+
+// How this copy was installed, as the bundle's `app.flavor` names it.
+std::string installFlavor() {
+    if (util::runningInFlatpak()) { return "flatpak"; }
+    if (qEnvironmentVariableIsSet("APPIMAGE")) { return "appimage"; }
+    return "github";
+}
+
+// A sysfs endpoint address, or none where the interface has no such endpoint.
+std::optional<std::uint8_t> endpointAddressOf(int address) {
+    constexpr int kNoEndpoint = -1;
+    if (address == kNoEndpoint) { return std::nullopt; }
+    return static_cast<std::uint8_t>(address);
+}
+
+composer::BundleControllerDb bundleDbOf(const source::controllerdb::ControllerDbStatus& status) {
+    composer::BundleControllerDb db;
+    db.bundledVersion = status.bundledVersion;
+    db.activeVersion = status.activeVersion;
+    db.source = status.source == controllerdb::DbSource::Cache ? "cache" : "bundled";
+    db.lastCheckAtMs = status.lastCheckAtMs;
+    if (status.lastCheckResult.has_value()) {
+        db.lastCheckResult = std::string(controllerdb::checkResultToken(*status.lastCheckResult));
+    }
+    return db;
+}
+
+} // namespace
+
+bool AppViewModel::controllerDbChecksEnabled() const {
+    return model_->controllerDbPrefs()->checksEnabled();
+}
+
+void AppViewModel::setControllerDbChecksEnabled(bool enabled) {
+    model_->controllerDbPrefs()->setChecksEnabled(enabled);
+}
+
+QVariantMap AppViewModel::controllerDb() const {
+    return controllerDbRow(model_->controllerDbStatus().value());
+}
+
+void AppViewModel::checkControllerDbNow() { model_->checkControllerDbNow(); }
+
+QString AppViewModel::machineModel() const { return model_->machine().model; }
+
+QString AppViewModel::osVersion() const { return model_->machine().os; }
+
+QVariantMap AppViewModel::controllerRecordFacts(const QString& slotId) const {
+    const models::ControllerSlot* slot = slotById(slotId);
+    RecordCardInputs inputs;
+    inputs.identity = model_->attachedIdentity(slotId);
+    inputs.catalog = model_->controllerCatalog();
+    inputs.locale = stringsLocale();
+    const bool overBluetooth = slot != nullptr && slot->bluetooth;
+    inputs.transport =
+        overBluetooth ? controllerdb::Transport::Bluetooth : controllerdb::Transport::Usb;
+    inputs.host = hostFactsOf(model_->machine());
+    QVariantMap row = controllerRecordRow(inputs);
+    row[QStringLiteral("lastWrite")] = writeVerdictRow(model_->lastDirectWrite(slotId));
+    row[QStringLiteral("lastTest")] =
+        testOutcomeRow(model_->padOutcomes()->lastFor(slotId.toStdString()));
+    return row;
+}
+
+void AppViewModel::recordTestOutcome(const QString& slotId, const QString& motor, bool worked) {
+    const std::optional<std::string> test = diagnostics::rumbleTestName(motor.toStdString());
+    if (!test.has_value()) { return; }
+    model_->padOutcomes()->record(
+        slotId.toStdString(),
+        diagnostics::TestOutcome{*test, std::string(diagnostics::outcomeResult(worked)),
+                                 QDateTime::currentMSecsSinceEpoch()});
+}
+
+QVariantMap AppViewModel::lastTestOutcome(const QString& slotId) const {
+    return testOutcomeRow(model_->padOutcomes()->lastFor(slotId.toStdString()));
+}
+
+QVariantList AppViewModel::diagnosticsControllers() const {
+    QVariantList out;
+    for (const models::ControllerSlot& slot : model_->state().slotList) {
+        QVariantMap row;
+        row[QStringLiteral("slotId")] = slot.id;
+        row[QStringLiteral("name")] = slot.name;
+        row[QStringLiteral("recordId")] = QString();
+        row[QStringLiteral("chip")] = QString();
+        const auto identity = model_->attachedIdentity(slot.id);
+        if (identity.has_value() && identity->record.has_value()) {
+            const controllerdb::ControllerRecord& record = *identity->record;
+            const std::string_view chip = controllerdb::verificationChipToken(record.verification);
+            row[QStringLiteral("recordId")] = QString::fromStdString(record.id);
+            row[QStringLiteral("chip")] =
+                QString::fromLatin1(chip.data(), static_cast<qsizetype>(chip.size()));
+        }
+        row[QStringLiteral("usbDirect")] = slot.usbDirect;
+        row[QStringLiteral("bluetooth")] = slot.bluetooth;
+        out.append(row);
+    }
+    return out;
+}
+
+namespace {
+
+// The wire's controller type as the satellite's own catalog names it ("dualsense"), or its number
+// while no catalog is cached for the host.
+std::string controllerTypeName(const std::optional<models::CatalogDto>& catalog, int type) {
+    if (catalog.has_value()) {
+        for (const auto& known : catalog->controllerTypes) {
+            if (known.id == type && !known.slug.isEmpty()) { return known.slug.toStdString(); }
+        }
+    }
+    return std::to_string(type);
+}
+
+std::optional<std::string> nonEmpty(const QString& text) {
+    if (text.isEmpty()) { return std::nullopt; }
+    return text.toStdString();
+}
+
+composer::BundleCapabilities
+bundleCapabilitiesOf(const models::CapabilitiesDto& caps,
+                     const std::optional<models::CatalogDto>& catalog) {
+    composer::BundleCapabilities out;
+    out.serverVersion = caps.serverVersion.toStdString();
+    out.protocol = caps.protocolVersion;
+    for (const auto& backend : caps.backends) {
+        out.backends.push_back(composer::BundleCapabilitiesBackend{
+            backend.id.toStdString(), backend.supported, backend.available, backend.audio});
+    }
+    if (caps.hasControllerAudioBlock) {
+        out.controllerAudio = composer::BundleControllerAudio{
+            caps.controllerAudioEnabled, caps.controllerAudioMic, caps.controllerAudioSpeaker,
+            caps.controllerAudioHapticAudio};
+    }
+    if (catalog.has_value()) { out.catalogVersion = catalog->catalogVersion; }
+    return out;
+}
+
+std::optional<composer::BundleAck> bundleAckOf(const net::SatelliteClient& client) {
+    if (!reducer::ackArrived(client.serverEpoch())) { return std::nullopt; }
+    return composer::BundleAck{
+        client.backendAvailable() > 0, static_cast<int>(client.activeControllerCount()),
+        static_cast<int>(client.serverEpoch()), static_cast<std::uint16_t>(client.serverBitmap())};
+}
+
+std::optional<composer::BundleRtt> bundleRttOf(const net::SatelliteClient& client) {
+    const reducer::LatencySummary latency = client.latencySummary();
+    if (latency.samples <= 0) { return std::nullopt; }
+    return composer::BundleRtt{latency.rttP50Ms, latency.rttP99Ms, latency.samples};
+}
+
+composer::BundleInputState
+bundleInputStateOf(const input::GamepadInputProcessor::DeviceState& state) {
+    return composer::BundleInputState{state.wButtons, state.lx, state.ly, state.rx,
+                                      state.ry,       state.lt, state.rt, state.extButtons};
+}
+
+// The OS's own Bluetooth HID reads every Bluetooth pad here, so the profile is always `hid`; the
+// link is sysfs's for a HIDP pad and BlueZ's for one that uhid made, null where neither says.
+composer::BundleBluetooth bundleBluetoothOf(const input::SDLGamepadBridge::Device& pad) {
+    const input::TransportLayer layer =
+        source::readTransportLayer(pad.bluetoothOrigin, pad.hidNode);
+    return composer::BundleBluetooth{"hid", std::string(input::transportLayerToken(layer))};
+}
+
+// The Direct path's view of the pad's own descriptors, read when the gateway first saw it.
+void addDescriptorFacts(composer::BundleHardware& hw, const diagnostics::UsbHardwareFacts& facts) {
+    hw.bcdDevice = facts.bcdDevice;
+    if (!facts.raw.configuration.empty()) { hw.interfaces = facts.interfaces; }
+    hw.descriptorSha256 = diagnostics::rawDescriptorsSha256(facts);
+}
+
+// Below 2.3.0 by the version its capabilities reported: it has no diagnostics route, and a 404
+// from it would say nothing a 404 from 2.3.0 does not.
+bool satelliteIsOlder(const net::WifiConnection& conn) {
+    const auto& caps = conn.lastCapabilities();
+    return caps.has_value() && diagnostics::isOlderSatellite(caps->serverVersion.toStdString());
+}
+
+// A Moonlight binding's emulated-device pick, in the words its picker stores.
+std::string moonlightDeviceName(int deviceType) {
+    switch (deviceType) {
+    case moonproto::kControllerTypeXbox:
+        return "xbox";
+    case moonproto::kControllerTypePs:
+        return "playStation";
+    case moonproto::kControllerTypeNintendo:
+        return "nintendo";
+    default:
+        return "auto";
+    }
+}
+
+struct LaneRow {
+    diagnostics::OutputLane lane;
+    reducer::FeedbackKind kind;
+    composer::BundleLane composer::BundleOutput::* field;
+};
+
+constexpr std::array<LaneRow, 5> kLaneRows{{
+    {diagnostics::OutputLane::Rumble, reducer::FeedbackKind::Rumble,
+     &composer::BundleOutput::rumble},
+    {diagnostics::OutputLane::Lightbar, reducer::FeedbackKind::Lightbar,
+     &composer::BundleOutput::lightbar},
+    {diagnostics::OutputLane::PlayerLeds, reducer::FeedbackKind::PlayerLeds,
+     &composer::BundleOutput::playerLeds},
+    {diagnostics::OutputLane::TriggerEffects, reducer::FeedbackKind::TriggerEffects,
+     &composer::BundleOutput::triggerEffects},
+    {diagnostics::OutputLane::MicLed, reducer::FeedbackKind::MicLed,
+     &composer::BundleOutput::micLed},
+}};
+
+} // namespace
+
+std::optional<composer::BundleOutput>
+AppViewModel::bundleOutputOf(const models::ControllerSlot& slot) const {
+    const SlotRouter* router = model_->router();
+    if (router == nullptr) { return std::nullopt; }
+    const reducer::SlotFeedbackInputs feedback = router->feedbackInputs(slot.id);
+    composer::BundleOutput output;
+    for (const LaneRow& row : kLaneRows) {
+        const reducer::FeedbackTarget target = reducer::resolveFeedbackTarget(feedback, row.kind);
+        const diagnostics::LaneSample sample = router->laneSample(slot.id, row.lane);
+        output.*row.field =
+            composer::BundleLane{std::string(diagnostics::feedbackTargetToken(target)), sample};
+    }
+    const audio::PadAudioRoute route = router->audioRouteForSlot(slot.id);
+    const std::string slotId = slot.id.toStdString();
+    const auto& engine = model_->speakerEngine();
+    if (route.speaker) {
+        const bool playing = engine.playingFor(slotId, source::audio::PlayoutLane::Speaker);
+        const bool refused =
+            engine.playbackRefused(slotId, source::audio::PlayoutLane::Speaker,
+                                   route.playbackDeviceName, route.playbackChannels);
+        output.speaker = composer::BundleVoice{diagnostics::voiceStateOf(playing, refused), true};
+    }
+    if (route.haptics) {
+        const bool playing = engine.playingFor(slotId, source::audio::PlayoutLane::Haptic);
+        const bool refused =
+            engine.playbackRefused(slotId, source::audio::PlayoutLane::Haptic,
+                                   route.playbackDeviceName, route.playbackChannels);
+        output.haptics = composer::BundleVoice{diagnostics::voiceStateOf(playing, refused), true};
+    }
+    return output;
+}
+
+// Every fact here is one the page already shows, or a count the app keeps for it. A pad's device
+// path is read only for the Bluetooth link it names.
+composer::BundleController
+AppViewModel::bundleControllerOf(const models::ControllerSlot& slot) const {
+    composer::BundleController c;
+    const auto identity = model_->attachedIdentity(slot.id);
+    if (identity.has_value() && identity->record.has_value()) {
+        c.record = identity->record->id;
+        c.verification =
+            std::string(controllerdb::verificationToken(identity->record->verification));
+        c.expectMismatch = identity->mismatches;
+    }
+    c.transport = slot.bluetooth ? "bluetooth" : "usb";
+    c.path = slot.usbDirect ? "direct" : "sdl";
+    c.hardware.vendorId = static_cast<std::uint16_t>(slot.vendorId);
+    c.hardware.productId = static_cast<std::uint16_t>(slot.productId);
+    const std::optional<source::usb::UsbDeviceInfo> device =
+        slot.usbDirect ? model_->directDeviceFor(slot.id) : std::nullopt;
+    if (device.has_value()) {
+        c.hardware.product = device->product;
+        c.hardware.manufacturer = device->manufacturer;
+        c.hardware.endpointsRead = device->endpointsRead;
+        c.hardware.endpointIn = endpointAddressOf(device->endpointInAddress);
+        c.hardware.endpointOut = endpointAddressOf(device->endpointOutAddress);
+        addDescriptorFacts(c.hardware, device->hardware);
+        c.lastWrite = model_->lastDirectWrite(slot.id);
+    } else {
+        c.hardware.product = slot.name.toStdString();
+    }
+    c.outcomes = model_->padOutcomes()->outcomesFor(slot.id.toStdString());
+
+    const std::string deviceId = slot.id.toStdString();
+    composer::BundleInput padInput;
+    padInput.frames = model_->processor()->inputCounters(deviceId).gamepadEvents;
+    padInput.rateHz = slot.liveRates.gamepadHz;
+    const auto seen = model_->processor()->inspect(deviceId);
+    if (seen.wire.has_value()) { padInput.last = bundleInputStateOf(*seen.wire); }
+    c.input = padInput;
+    c.output = bundleOutputOf(slot);
+
+    const input::SDLGamepadBridge* bridge = model_->bridge();
+    if (slot.bluetooth && bridge != nullptr) {
+        for (const auto& pad : bridge->devices()) {
+            if (pad.id == slot.id) { c.bluetooth = bundleBluetoothOf(pad); }
+        }
+    }
+    return c;
+}
+
+composer::BundleSession AppViewModel::bundleSessionOf(const net::WifiConnection& conn) const {
+    const std::optional<models::CatalogDto> catalog = model_->cachedCatalog(conn.id());
+    const auto& caps = conn.lastCapabilities();
+    composer::BundleSession session;
+    for (const auto& report : conn.slotReports()) {
+        composer::BundleSessionSlot slot;
+        slot.index = report.controllerIndex;
+        const auto identity = model_->attachedIdentity(report.slotId);
+        if (identity.has_value() && identity->record.has_value()) {
+            slot.record = identity->record->id;
+        }
+        slot.requestedType = controllerTypeName(catalog, report.requestedType);
+        if (report.appliedType.has_value()) {
+            slot.appliedType = controllerTypeName(catalog, *report.appliedType);
+        }
+        if (caps.has_value()) { slot.backend = nonEmpty(caps->backendId); }
+        slot.result = nonEmpty(report.applyResult);
+        slot.touchpadMode = std::string(proto::touchpadModeName(report.touchpadMode));
+        session.controllerSlots.push_back(std::move(slot));
+    }
+    const auto client = conn.client();
+    if (client) {
+        session.ack = bundleAckOf(*client);
+        session.rtt = bundleRttOf(*client);
+        session.wire = client->wireCounts();
+    }
+    return session;
+}
+
+composer::BundleHost AppViewModel::bundleSatelliteOf(const composer::ConnectionRow& link) const {
+    const QString id = QString::fromStdString(link.id);
+    const auto* conn = model_->wifi()->get(id);
+    const HostSessionFacts session =
+        conn != nullptr ? hostSessionFactsOf(*conn) : HostSessionFacts{};
+    composer::BundleHost host;
+    host.kind = "satellite";
+    host.protocol = session.live ? session.settledProtocol : 0;
+    host.link = hostCardRow(link, session).value(QStringLiteral("chip")).toString().toStdString();
+    host.mic = session.audio.mic;
+    host.speaker = session.audio.speaker;
+    host.hapticAudio = session.audio.hapticAudio;
+    if (conn != nullptr) {
+        host.session = bundleSessionOf(*conn);
+        const auto& caps = conn->lastCapabilities();
+        if (caps.has_value()) {
+            host.capabilities = bundleCapabilitiesOf(*caps, model_->cachedCatalog(id));
+        }
+    }
+    // An older Satellite is never asked; a link not asked otherwise (not live, or no report
+    // prepared) has nothing from the host itself.
+    if (conn != nullptr && satelliteIsOlder(*conn)) {
+        host.snapshotError = diagnostics::SnapshotError::OlderSatellite;
+        return host;
+    }
+    host.snapshotError = diagnostics::SnapshotError::Offline;
+    const auto answered = hostSnapshots_.find(link.id);
+    if (answered != hostSnapshots_.end()) {
+        host.snapshotError = answered->second.error;
+        host.hostSnapshot = answered->second.snapshot;
+    }
+    return host;
+}
+
+composer::BundleHost AppViewModel::bundleMoonlightOf(const source::moon::MoonlightRow& row) const {
+    composer::BundleHost host;
+    host.kind = "moonlight";
+    host.link = std::string(moonlight::hostPhaseToken(row.phase));
+    host.grantsKnown = false;
+    composer::BundleMoonlightInfo info;
+    info.appVersion = nonEmpty(model_->moonlight()->serverAppVersion(row.uuid));
+    host.version = info.appVersion;
+    host.moonlight = info;
+    composer::BundleSession session;
+    for (const QString& slotId : model_->moonlight()->boundSlots(row.uuid)) {
+        composer::BundleSessionSlot slot;
+        const auto identity = model_->attachedIdentity(slotId);
+        if (identity.has_value() && identity->record.has_value()) {
+            slot.record = identity->record->id;
+        }
+        const auto standing = model_->moonlight()->standingBinding(slotId);
+        const int deviceType = standing.has_value() ? standing->controllerType : row.controllerType;
+        slot.requestedType = moonlightDeviceName(deviceType);
+        session.controllerSlots.push_back(std::move(slot));
+    }
+    host.session = std::move(session);
+    return host;
+}
+
+// Nothing that identifies a host (its name, its address, its keys) is written: the labels and
+// addresses go in only to be aliased in the log and scrubbed from a host's own snapshot.
+// Only the capture of the controller the report names enters the file.
+std::optional<diagnostics::Json> AppViewModel::captureFor(const QString& slotId,
+                                                          const QString& reportSlotId) const {
+    if (reportSlotId.isEmpty() || slotId != reportSlotId) { return std::nullopt; }
+    const auto kept = captures_.find(slotId);
+    if (kept == captures_.end()) { return std::nullopt; }
+    return diagnostics::captureJson(kept->second.hardware, kept->second.reports);
+}
+
+composer::BundleFacts
+AppViewModel::diagnosticsBundleFacts(std::optional<composer::BundleReport> report,
+                                     const QString& reportSlotId) const {
+    composer::BundleFacts facts;
+    facts.createdAtMs = QDateTime::currentMSecsSinceEpoch();
+    facts.report = std::move(report);
+    facts.appVersion = DISH_VERSION;
+    facts.flavor = installFlavor();
+    const source::MachineIdentity& machine = model_->machine();
+    facts.model = machine.model.toStdString();
+    facts.os = machine.os.toStdString();
+    facts.arch = machine.arch.toStdString();
+    facts.power = power_;
+    facts.thermal = thermal_;
+    facts.usbHost = diagnostics::usbHostOf(source::usb::countRootHubs());
+    facts.controllerDb = bundleDbOf(model_->controllerDbStatus().value());
+
+    for (const models::ControllerSlot& slot : model_->state().slotList) {
+        composer::BundleController c = bundleControllerOf(slot);
+        c.capture = captureFor(slot.id, reportSlotId);
+        facts.controllers.push_back(std::move(c));
+    }
+    for (const auto& link : model_->connections()->connections().value()) {
+        facts.hosts.push_back(bundleSatelliteOf(link));
+        facts.hostLabels.push_back(link.label);
+        facts.hostAddresses.push_back(link.ip);
+    }
+    for (const auto& row : model_->moonlight()->rows()) {
+        if (!row.paired) { continue; }
+        facts.hosts.push_back(bundleMoonlightOf(row));
+        facts.hostLabels.push_back(row.name.toStdString());
+        facts.hostAddresses.push_back(row.address.toStdString());
+    }
+    for (const QVariant& row : diagnosticsLogRows(model_->diagnosticsLog().value())) {
+        facts.log.push_back(bundleLogEventOf(row.toMap()));
+    }
+    return facts;
+}
+
+// Named for the person's local time, the way they will look for it in the folder.
+QString AppViewModel::writeDiagnosticsBundle(const composer::BundleFacts& facts) {
+    const std::string bundle = composer::buildDiagnosticsBundle(facts);
+    const QDateTime now = QDateTime::currentDateTime();
+    const diagnostics::CivilTime local{now.date().year(), now.date().month(),  now.date().day(),
+                                       now.time().hour(), now.time().minute(), now.time().second()};
+    const QString name = QString::fromStdString(diagnostics::bundleFileName(local));
+    return source::saveDiagnosticsFile(source::diagnosticsFolder(), name,
+                                       QByteArray::fromStdString(bundle));
+}
+
+QString AppViewModel::saveDiagnostics() {
+    const QString path = writeDiagnosticsBundle(diagnosticsBundleFacts(std::nullopt));
+    if (!path.isEmpty()) { model_->diagnosticsHandoff()->reveal(path); }
+    return path;
+}
+
+// ── Capture this controller ─────────────────────────────────────────────────
+
+namespace {
+
+std::string_view captureStateToken(const std::optional<diagnostics::CaptureProgress>& progress) {
+    if (!progress.has_value()) { return "idle"; }
+    switch (*progress) {
+    case diagnostics::CaptureProgress::Capturing:
+        return "capturing";
+    case diagnostics::CaptureProgress::Captured:
+        return "captured";
+    case diagnostics::CaptureProgress::Failed:
+        return "failed";
+    }
+    return "idle";
+}
+
+} // namespace
+
+bool AppViewModel::captureController(const QString& slotId) {
+    const bool running = captureProgress_ == diagnostics::CaptureProgress::Capturing;
+    if (running || !model_->armDirectCapture(slotId)) { return false; }
+    captureSlotId_ = slotId;
+    capturePolls_ = 0;
+    captureProgress_ = diagnostics::CaptureProgress::Capturing;
+    captureTimer_->start();
+    emit controllerCaptureChanged();
+    return true;
+}
+
+QVariantMap AppViewModel::controllerCapture() const {
+    const std::string_view state = captureStateToken(captureProgress_);
+    QVariantMap row;
+    row[QStringLiteral("slotId")] = captureSlotId_;
+    row[QStringLiteral("state")] =
+        QString::fromLatin1(state.data(), static_cast<qsizetype>(state.size()));
+    return row;
+}
+
+// Twenty polls a tenth of a second apart, as dish-android's capturer waits: a pad that streams
+// fills its twenty slots well inside that, and one that reports only on change has sent what it
+// will at rest.
+void AppViewModel::onCaptureTick() {
+    ++capturePolls_;
+    const std::size_t kept = model_->directCapturedReports(captureSlotId_).size();
+    const bool live = model_->directDeviceFor(captureSlotId_).has_value();
+    const diagnostics::CaptureProgress progress =
+        diagnostics::captureProgress(kept, capturePolls_, kCapturePolls, live);
+    if (progress == diagnostics::CaptureProgress::Capturing) { return; }
+    finishCapture(progress);
+}
+
+void AppViewModel::finishCapture(diagnostics::CaptureProgress progress) {
+    captureTimer_->stop();
+    captureProgress_ = progress;
+    const std::optional<source::usb::UsbDeviceInfo> device =
+        model_->directDeviceFor(captureSlotId_);
+    if (progress == diagnostics::CaptureProgress::Captured && device.has_value()) {
+        captures_[captureSlotId_] =
+            StoredCapture{device->hardware,
+                          diagnostics::restReportsOf(model_->directCapturedReports(captureSlotId_),
+                                                     diagnostics::captureClockMs(),
+                                                     QDateTime::currentMSecsSinceEpoch())};
+    } else {
+        captures_.erase(captureSlotId_);
+        captureProgress_ = diagnostics::CaptureProgress::Failed;
+    }
+    emit controllerCaptureChanged();
+}
+
+// ── Report a problem ────────────────────────────────────────────────────────
+
+void AppViewModel::prepareReport() {
+    const int generation = ++reportGeneration_;
+    power_ = source::readPowerFacts();
+    thermal_ = source::readThermalState();
+    if (reportReady_) {
+        reportReady_ = false;
+        emit reportReadyChanged();
+    }
+    std::vector<std::string> live;
+    for (const auto& link : model_->connections()->connections().value()) {
+        const auto* conn = model_->wifi()->get(QString::fromStdString(link.id));
+        const bool askable = conn != nullptr && conn->client() && !satelliteIsOlder(*conn);
+        if (askable) { live.push_back(link.id); }
+    }
+    snapshotCollector_->collect(live, [this, generation](composer::HostSnapshots snapshots) {
+        onHostSnapshots(generation, std::move(snapshots));
+    });
+}
+
+void AppViewModel::onHostSnapshots(int generation, composer::HostSnapshots snapshots) {
+    if (generation != reportGeneration_) { return; }
+    hostSnapshots_ = std::move(snapshots);
+    reportReady_ = true;
+    emit reportReadyChanged();
+}
+
+std::optional<composer::BundleReport>
+AppViewModel::reportOf(const QString& category, const QString& text, const QString& slotId) const {
+    const auto known = diagnostics::reportCategoryFromToken(category.toStdString());
+    const diagnostics::ReportCategory picked = known.value_or(diagnostics::ReportCategory::Other);
+    composer::BundleReport report;
+    report.category = std::string(diagnostics::reportCategoryToken(picked));
+    report.text = text.trimmed().toStdString();
+    const models::ControllerSlot* slot = slotId.isEmpty() ? nullptr : slotById(slotId);
+    if (slot != nullptr) {
+        const auto identity = model_->attachedIdentity(slot->id);
+        const std::optional<std::string> record =
+            identity.has_value() && identity->record.has_value()
+                ? std::optional<std::string>(identity->record->id)
+                : std::nullopt;
+        report.controller = diagnostics::reportControllerOf(record, slot->name.toStdString());
+    }
+    return report;
+}
+
+QString AppViewModel::reportPreview(const QString& category, const QString& text,
+                                    const QString& slotId) const {
+    const std::string bundle = composer::buildDiagnosticsBundle(
+        diagnosticsBundleFacts(reportOf(category, text, slotId), slotId));
+    return QString::fromStdString(bundle);
+}
+
+bool AppViewModel::sendReport(const QString& category, const QString& categoryWords,
+                              const QString& text, const QString& slotId, const QString& summary) {
+    const QString path =
+        writeDiagnosticsBundle(diagnosticsBundleFacts(reportOf(category, text, slotId), slotId));
+    if (path.isEmpty()) { return false; }
+    source::DiagnosticsMail mail;
+    mail.to = QString::fromLatin1(diagnostics::kSupportAddress.data(),
+                                  static_cast<qsizetype>(diagnostics::kSupportAddress.size()));
+    mail.subject = QString::fromStdString(diagnostics::reportSubject(
+        categoryWords.toStdString(), DISH_VERSION, model_->machine().model.toStdString()));
+    mail.body = QString::fromStdString(
+        diagnostics::reportMailBody(text.toStdString(), summary.toStdString()));
+    mail.attachmentPath = path;
+    return model_->diagnosticsHandoff()->send(mail);
 }
 
 } // namespace dish::qml

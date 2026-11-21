@@ -10,7 +10,7 @@
 //
 // The claimable set is derived from the code, not restated here: the table is
 // walked directly and the vendor-wide lanes are found by scanning the id space
-// through parserForDevice + isKnownFastLaneModel, so a new lane fails this test
+// through parserForDevice + controllerdb::vendorFastLane, so a new lane fails this test
 // rather than passing a list someone forgot to update.
 //
 // KNOWN GAP, deliberately not gated: parserForDevice returns GenericHid for any
@@ -22,7 +22,11 @@
 // the designed outcome, not a regression this test can catch.
 
 #include "core/input/UsbReportParsers.h"
-#include "source/usb/HidrawGateway.h"
+#include "core/controllerdb/DirectModel.h"
+#include "core/controllerdb/PadModel.h"
+#include "source/controllerdb/ControllerDbStore.h"
+
+#include <QString>
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -37,7 +41,6 @@
 using dish::input::usbparse::HidParser;
 using dish::input::usbparse::kKnownModels;
 using dish::input::usbparse::parserForDevice;
-using dish::source::usb::HidrawGateway;
 
 namespace {
 
@@ -182,9 +185,31 @@ std::optional<int> ruleVendorId(const Rule& rule) {
 
 // True when the code hands this vid:pid a decoder, or auto-claims it Direct,
 // without the model appearing in kKnownModels.
-bool claimedByVendorLane(const HidrawGateway& gateway, int vid, int pid) {
-    return gateway.isKnownFastLaneModel(vid, pid) ||
+bool claimedByVendorLane(int vid, int pid) {
+    return dish::controllerdb::vendorFastLane(vid) ||
            parserForDevice(vid, pid) != HidParser::GenericHid;
+}
+
+dish::controllerdb::CatalogPtr bundledCatalog() {
+    return dish::source::controllerdb::catalogFromFiles(
+        dish::source::controllerdb::readDbFolder(QStringLiteral(DISH_CONTROLLER_DB_DIR)),
+        dish::controllerdb::DbSource::Bundled);
+}
+
+// Whether a live record of the bundled database lists the product a rule names, which the Direct
+// path then decodes by the record's family.
+bool bundledRecordNames(const Rule& rule) {
+    const auto catalog = bundledCatalog();
+    if (catalog == nullptr || rule.product.empty()) { return false; }
+    for (const auto& record : catalog->db().records) {
+        if (dish::controllerdb::isInert(record)) { continue; }
+        for (const auto& id : record.usb) {
+            if (sameId(rule.vendor, id.vendorId) && sameId(rule.product, id.productId)) {
+                return true;
+            }
+        }
+    }
+    return false;
 }
 
 } // namespace
@@ -208,11 +233,10 @@ TEST_CASE("udev rules cover every vendor the code claims without a table row", "
         for (const auto& model : kKnownModels) { REQUIRE(model.pid != pid); }
     }
 
-    const HidrawGateway gateway;
     bool foundVendorLane = false;
     for (int vid = 0; vid <= 0xFFFF; vid++) {
         for (const int pid : kUnlistedPids) {
-            if (!claimedByVendorLane(gateway, vid, pid)) { continue; }
+            if (!claimedByVendorLane(vid, pid)) { continue; }
             INFO("vendor " << idText(vid) << " claims unlisted product " << idText(pid));
             CHECK(coversWholeVendor(rules, vid));
             foundVendorLane = true;
@@ -220,6 +244,25 @@ TEST_CASE("udev rules cover every vendor the code claims without a table row", "
     }
     // A scan that found nothing would pass the loop above vacuously.
     CHECK(foundVendorLane);
+}
+
+TEST_CASE("udev rules cover every bundled record the Direct path decodes", "[udev]") {
+    const auto rules = readRules();
+    REQUIRE_FALSE(rules.empty());
+    const auto catalog = bundledCatalog();
+    REQUIRE(catalog != nullptr);
+    int runnable = 0;
+    for (const auto& record : catalog->db().records) {
+        if (dish::controllerdb::isInert(record)) { continue; }
+        for (const auto& id : record.usb) {
+            INFO(record.id << " " << idText(id.vendorId) << ":" << idText(id.productId));
+            CHECK(covers(rules, id.vendorId, id.productId));
+            ++runnable;
+        }
+    }
+    // dbVersion 1's ids the Direct path runs here: every family but the Xbox ones, the N64 pad,
+    // the Stadia pad and the Bluetooth LE Steam Controller.
+    CHECK(runnable == 70);
 }
 
 TEST_CASE("udev rules grant access with ids spelled the way sysfs publishes them", "[udev]") {
@@ -292,17 +335,17 @@ TEST_CASE("udev rules naming a model the code never claims only warn", "[udev]")
     // claims grants access to a node Dish never opens, which costs nothing and
     // is how a pad gets packaged one release ahead of its parser. Failing on it
     // would make the rules file lag the code instead of lead it.
-    const HidrawGateway gateway;
     for (const Rule& rule : rules) {
         const auto vid = ruleVendorId(rule);
         bool claimed = false;
         for (const int pid : kUnlistedPids) {
-            claimed = claimed || (vid.has_value() && claimedByVendorLane(gateway, *vid, pid));
+            claimed = claimed || (vid.has_value() && claimedByVendorLane(*vid, pid));
         }
         for (const auto& model : kKnownModels) {
             if (!sameId(rule.vendor, model.vid)) { continue; }
             claimed = claimed || rule.product.empty() || sameId(rule.product, model.pid);
         }
+        claimed = claimed || bundledRecordNames(rule);
         if (claimed) { continue; }
         WARN("rules line " << rule.line << " covers " << rule.vendor << ":"
                            << (rule.product.empty() ? std::string("*") : rule.product)

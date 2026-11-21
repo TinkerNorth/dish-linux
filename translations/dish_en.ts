@@ -1828,6 +1828,182 @@
         <translation>Touchpad on the wire</translation>
     </message>
     <message>
+        <source>Verified</source>
+        <translation>Verified</translation>
+    </message>
+    <message>
+        <source>Flagged</source>
+        <translation>Flagged</translation>
+    </message>
+    <message>
+        <source>Layout guessed</source>
+        <translation>Layout guessed</translation>
+    </message>
+    <message>
+        <source>No record for this controller</source>
+        <translation>No record for this controller</translation>
+    </message>
+    <message>
+        <source>%1 (name and notes only on this PC)</source>
+        <translation>%1 (name and notes only on this PC)</translation>
+    </message>
+    <message>
+        <source>nothing written yet</source>
+        <translation>nothing written yet</translation>
+    </message>
+    <message>
+        <source>sent · report %1 · %2</source>
+        <translation>sent · report %1 · %2</translation>
+    </message>
+    <message>
+        <source>no error code</source>
+        <translation>no error code</translation>
+    </message>
+    <message>
+        <source>failed · report %1 · %2 · %3</source>
+        <translation>failed · report %1 · %2 · %3</translation>
+    </message>
+    <message>
+        <source>weak rumble</source>
+        <translation>weak rumble</translation>
+    </message>
+    <message>
+        <source>strong rumble</source>
+        <translation>strong rumble</translation>
+    </message>
+    <message>
+        <source>both motors</source>
+        <translation>both motors</translation>
+    </message>
+    <message>
+        <source>felt</source>
+        <translation>felt</translation>
+    </message>
+    <message>
+        <source>not felt</source>
+        <translation>not felt</translation>
+    </message>
+    <message>
+        <source>%1 · %2 · %3</source>
+        <translation>%1 · %2 · %3</translation>
+    </message>
+    <message>
+        <source>Record</source>
+        <translation>Record</translation>
+    </message>
+    <message>
+        <source>as the record expects</source>
+        <translation>as the record expects</translation>
+    </message>
+    <message>
+        <source>Hardware check</source>
+        <translation>Hardware check</translation>
+    </message>
+    <message>
+        <source>Last write</source>
+        <translation>Last write</translation>
+    </message>
+    <message>
+        <source>Last test</source>
+        <translation>Last test</translation>
+    </message>
+    <message>
+        <source>up to date</source>
+        <translation>up to date</translation>
+    </message>
+    <message>
+        <source>updated</source>
+        <translation>updated</translation>
+    </message>
+    <message>
+        <source>could not reach dish.tinkernorth.com</source>
+        <translation>could not reach dish.tinkernorth.com</translation>
+    </message>
+    <message>
+        <source>the download did not verify</source>
+        <translation>the download did not verify</translation>
+    </message>
+    <message>
+        <source>checks are off</source>
+        <translation>checks are off</translation>
+    </message>
+    <message>
+        <source>%1 · downloaded</source>
+        <translation>%1 · downloaded</translation>
+    </message>
+    <message>
+        <source>%1 · bundled</source>
+        <translation>%1 · bundled</translation>
+    </message>
+    <message>
+        <source>%1 · %2</source>
+        <translation>%1 · %2</translation>
+    </message>
+    <message>
+        <source>never</source>
+        <translation>never</translation>
+    </message>
+    <message>
+        <source>In use</source>
+        <translation>In use</translation>
+    </message>
+    <message>
+        <source>Bundled</source>
+        <translation>Bundled</translation>
+    </message>
+    <message>
+        <source>Last check</source>
+        <translation>Last check</translation>
+    </message>
+    <message>
+        <source>checking…</source>
+        <translation>checking…</translation>
+    </message>
+    <message>
+        <source>Dish %1 on %2</source>
+        <translation>Dish %1 on %2</translation>
+    </message>
+    <message>
+        <source>Controller database: %1</source>
+        <translation>Controller database: %1</translation>
+    </message>
+    <message>
+        <source>no record</source>
+        <translation>no record</translation>
+    </message>
+    <message>
+        <source>%1: %2 · %3</source>
+        <translation>%1: %2 · %3</translation>
+    </message>
+    <message>
+        <source>Host %1: %2</source>
+        <translation>Host %1: %2</translation>
+    </message>
+    <message>
+        <source>The attached file holds this page and its log, each controller&apos;s input and output counts, Dish&apos;s own view of each session and what each Satellite says about it; it never holds pairing keys, certificate fingerprints, IP addresses, Wi-Fi names or the names of your PCs and devices.</source>
+        <translation>The attached file holds this page and its log, each controller&apos;s input and output counts, Dish&apos;s own view of each session and what each Satellite says about it; it never holds pairing keys, certificate fingerprints, IP addresses, Wi-Fi names or the names of your PCs and devices.</translation>
+    </message>
+    <message>
+        <source>Ask a question</source>
+        <translation>Ask a question</translation>
+    </message>
+    <message>
+        <source>Report a problem</source>
+        <translation>Report a problem</translation>
+    </message>
+    <message>
+        <source>Report a problem writes a file of what this page shows and what each Satellite says about its side, and opens your own mail app addressed to support@tinkernorth.com with the file attached. Nothing is sent until you click Send.</source>
+        <translation>Report a problem writes a file of what this page shows and what each Satellite says about its side, and opens your own mail app addressed to support@tinkernorth.com with the file attached. Nothing is sent until you click Send.</translation>
+    </message>
+    <message>
+        <source>Diagnostics saved. The file manager shows its folder.</source>
+        <translation>Diagnostics saved. The file manager shows its folder.</translation>
+    </message>
+    <message>
+        <source>The diagnostics file could not be written.</source>
+        <translation>The diagnostics file could not be written.</translation>
+    </message>
+    <message>
         <source>Not available</source>
         <translation>Not available</translation>
     </message>
@@ -1902,6 +2078,26 @@
     <message>
         <source>Inspect input</source>
         <translation>Inspect input</translation>
+    </message>
+    <message>
+        <source>Controller database</source>
+        <translation>Controller database</translation>
+    </message>
+    <message>
+        <source>Check now</source>
+        <translation>Check now</translation>
+    </message>
+    <message>
+        <source>Automatic controller checks are off in Settings, so Dish sends no request for the list.</source>
+        <translation>Automatic controller checks are off in Settings, so Dish sends no request for the list.</translation>
+    </message>
+    <message>
+        <source>Send to support</source>
+        <translation>Send to support</translation>
+    </message>
+    <message>
+        <source>Save diagnostics</source>
+        <translation>Save diagnostics</translation>
     </message>
     <message>
         <source>Radios</source>
@@ -2457,6 +2653,18 @@
         <translation>Controller inspector</translation>
     </message>
     <message>
+        <source>felt</source>
+        <translation>felt</translation>
+    </message>
+    <message>
+        <source>not felt</source>
+        <translation>not felt</translation>
+    </message>
+    <message>
+        <source>Last test: %1 · %2 · %3</source>
+        <translation>Last test: %1 · %2 · %3</translation>
+    </message>
+    <message>
         <source>%1%</source>
         <translation>%1%</translation>
     </message>
@@ -2663,6 +2871,18 @@
     <message>
         <source>This controller has no rumble motors on the path it is on now.</source>
         <translation>This controller has no rumble motors on the path it is on now.</translation>
+    </message>
+    <message>
+        <source>Did it work?</source>
+        <translation>Did it work?</translation>
+    </message>
+    <message>
+        <source>Yes</source>
+        <translation>Yes</translation>
+    </message>
+    <message>
+        <source>No</source>
+        <translation>No</translation>
     </message>
     <message>
         <source>Weak</source>
@@ -3735,6 +3955,145 @@
     </message>
 </context>
 <context>
+    <name>ReportProblemPage</name>
+    <message>
+        <source>Ask a question</source>
+        <translation>Ask a question</translation>
+    </message>
+    <message>
+        <source>Report a problem</source>
+        <translation>Report a problem</translation>
+    </message>
+    <message>
+        <source>Controller not recognised</source>
+        <translation>Controller not recognised</translation>
+    </message>
+    <message>
+        <source>No rumble or feedback</source>
+        <translation>No rumble or feedback</translation>
+    </message>
+    <message>
+        <source>Connection or latency</source>
+        <translation>Connection or latency</translation>
+    </message>
+    <message>
+        <source>Audio</source>
+        <translation>Audio</translation>
+    </message>
+    <message>
+        <source>Something else</source>
+        <translation>Something else</translation>
+    </message>
+    <message>
+        <source>A question</source>
+        <translation>A question</translation>
+    </message>
+    <message>
+        <source>Recording its reports. Leave the controller untouched…</source>
+        <translation>Recording its reports. Leave the controller untouched…</translation>
+    </message>
+    <message>
+        <source>Captured: the file now holds this controller&apos;s descriptors and the reports it sent while it lay still.</source>
+        <translation>Captured: the file now holds this controller&apos;s descriptors and the reports it sent while it lay still.</translation>
+    </message>
+    <message>
+        <source>The capture did not finish: Dish no longer reads this controller directly.</source>
+        <translation>The capture did not finish: Dish no longer reads this controller directly.</translation>
+    </message>
+    <message>
+        <source>Dish can add this controller&apos;s USB descriptors and twenty reports taken while it lies still. Put it down, leave it untouched, then capture.</source>
+        <translation>Dish can add this controller&apos;s USB descriptors and twenty reports taken while it lies still. Put it down, leave it untouched, then capture.</translation>
+    </message>
+    <message>
+        <source>Your mail app has the message. Nothing is sent until you click Send.</source>
+        <translation>Your mail app has the message. Nothing is sent until you click Send.</translation>
+    </message>
+    <message>
+        <source>Your mail app opened without the file: attach the one the file manager shows.</source>
+        <translation>Your mail app opened without the file: attach the one the file manager shows.</translation>
+    </message>
+    <message>
+        <source>The diagnostics file could not be written, or a mail from the last one is still open.</source>
+        <translation>The diagnostics file could not be written, or a mail from the last one is still open.</translation>
+    </message>
+    <message>
+        <source>Ask us anything about Dish. Your question goes to support@tinkernorth.com from your own mail app, with a file of what Dish sees so we can answer for your setup.</source>
+        <translation>Ask us anything about Dish. Your question goes to support@tinkernorth.com from your own mail app, with a file of what Dish sees so we can answer for your setup.</translation>
+    </message>
+    <message>
+        <source>Tell us what went wrong. Dish writes a file of what it sees and opens your own mail app addressed to support@tinkernorth.com, with the file attached.</source>
+        <translation>Tell us what went wrong. Dish writes a file of what it sees and opens your own mail app addressed to support@tinkernorth.com, with the file attached.</translation>
+    </message>
+    <message>
+        <source>Category</source>
+        <translation>Category</translation>
+    </message>
+    <message>
+        <source>What happened, and what did you expect?</source>
+        <translation>What happened, and what did you expect?</translation>
+    </message>
+    <message>
+        <source>Controller</source>
+        <translation>Controller</translation>
+    </message>
+    <message>
+        <source>No particular controller</source>
+        <translation>No particular controller</translation>
+    </message>
+    <message>
+        <source>Capture this controller</source>
+        <translation>Capture this controller</translation>
+    </message>
+    <message>
+        <source>What the file holds</source>
+        <translation>What the file holds</translation>
+    </message>
+    <message>
+        <source>Your words and the category you picked.</source>
+        <translation>Your words and the category you picked.</translation>
+    </message>
+    <message>
+        <source>Dish&apos;s version, this PC&apos;s model and Linux version, its battery and power profile, and how hot it runs.</source>
+        <translation>Dish&apos;s version, this PC&apos;s model and Linux version, its battery and power profile, and how hot it runs.</translation>
+    </message>
+    <message>
+        <source>Each controller&apos;s identity, the path Dish reads it on, and what went in and out of it, as counts and last values.</source>
+        <translation>Each controller&apos;s identity, the path Dish reads it on, and what went in and out of it, as counts and last values.</translation>
+    </message>
+    <message>
+        <source>Each host&apos;s kind, version and link state, Dish&apos;s own view of each session, and what each Satellite says about it.</source>
+        <translation>Each host&apos;s kind, version and link state, Dish&apos;s own view of each session, and what each Satellite says about it.</translation>
+    </message>
+    <message>
+        <source>The controller database&apos;s state and this run&apos;s event log.</source>
+        <translation>The controller database&apos;s state and this run&apos;s event log.</translation>
+    </message>
+    <message>
+        <source>For a controller you captured: its USB descriptors and the reports it sent while it lay still.</source>
+        <translation>For a controller you captured: its USB descriptors and the reports it sent while it lay still.</translation>
+    </message>
+    <message>
+        <source>It never holds pairing keys, certificate fingerprints, IP addresses, Wi-Fi names or the names of your PCs and devices. Nothing is sent until you click Send in your mail app.</source>
+        <translation>It never holds pairing keys, certificate fingerprints, IP addresses, Wi-Fi names or the names of your PCs and devices. Nothing is sent until you click Send in your mail app.</translation>
+    </message>
+    <message>
+        <source>Asking each Satellite for its side of the session…</source>
+        <translation>Asking each Satellite for its side of the session…</translation>
+    </message>
+    <message>
+        <source>Continue in your mail app</source>
+        <translation>Continue in your mail app</translation>
+    </message>
+    <message>
+        <source>Hide file</source>
+        <translation>Hide file</translation>
+    </message>
+    <message>
+        <source>Preview file</source>
+        <translation>Preview file</translation>
+    </message>
+</context>
+<context>
     <name>SettingsPage</name>
     <message>
         <source>Settings</source>
@@ -3775,6 +4134,14 @@
     <message>
         <source>The release information didn&apos;t parse. Dish will retry automatically.</source>
         <translation>The release information didn&apos;t parse. Dish will retry automatically.</translation>
+    </message>
+    <message>
+        <source>Checking for controller updates…</source>
+        <translation>Checking for controller updates…</translation>
+    </message>
+    <message>
+        <source>Controller list v%1 · last checked %2</source>
+        <translation>Controller list v%1 · last checked %2</translation>
     </message>
     <message>
         <source>Setup &amp; help</source>
@@ -3893,6 +4260,22 @@
         <translation>Open release page</translation>
     </message>
     <message>
+        <source>Dish asks GitHub for the newest release at startup and every few hours. Only a standard web request is sent; see the privacy policy for details. In the Flatpak it starts off, because Flathub delivers the updates.</source>
+        <translation>Dish asks GitHub for the newest release at startup and every few hours. Only a standard web request is sent; see the privacy policy for details. In the Flatpak it starts off, because Flathub delivers the updates.</translation>
+    </message>
+    <message>
+        <source>Check for controller updates automatically</source>
+        <translation>Check for controller updates automatically</translation>
+    </message>
+    <message>
+        <source>Ten seconds after it starts and every six hours, Dish asks dish.tinkernorth.com for a newer list of the controllers it recognises. The request carries no identifier; with this off, none is sent. See the privacy policy for details.</source>
+        <translation>Ten seconds after it starts and every six hours, Dish asks dish.tinkernorth.com for a newer list of the controllers it recognises. The request carries no identifier; with this off, none is sent. See the privacy policy for details.</translation>
+    </message>
+    <message>
+        <source>Check now</source>
+        <translation>Check now</translation>
+    </message>
+    <message>
         <source>About</source>
         <translation>About</translation>
     </message>
@@ -3995,10 +4378,6 @@
     <message>
         <source>Check for updates automatically</source>
         <translation>Check for updates automatically</translation>
-    </message>
-    <message>
-        <source>Dish asks GitHub for the newest release at startup and every few hours. Only a standard web request is sent; see the privacy policy for details.</source>
-        <translation>Dish asks GitHub for the newest release at startup and every few hours. Only a standard web request is sent; see the privacy policy for details.</translation>
     </message>
     <message>
         <source>Checking connects to github.com and sends no account data.</source>

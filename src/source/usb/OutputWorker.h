@@ -9,12 +9,15 @@
 #include "core/input/OutputMailbox.h"
 #include "core/input/UsbOutputReports.h"
 #include "core/input/UsbReportParsers.h"
+#include "core/thread/Seqlock.h"
 #include "core/thread/WorkerWake.h"
+#include "core/diagnostics/WriteVerdict.h"
 
 #include <array>
 #include <atomic>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <thread>
 
 namespace dish::source::usb {
@@ -77,6 +80,10 @@ class OutputWorker {
     std::uint64_t writes() const { return writes_.load(std::memory_order_acquire); }
     std::uint64_t failedWrites() const { return failedWrites_.load(std::memory_order_acquire); }
 
+    // The last report's verdict (the client-to-pad level of Diagnostics), any thread. Empty
+    // before the first write, and while a write's verdict is being stored (try again).
+    std::optional<diagnostics::WriteVerdict> lastWrite() const;
+
   private:
     using Clock = input::OutputCadence::Clock;
 
@@ -103,6 +110,9 @@ class OutputWorker {
     void writeReport(const std::uint8_t* report, std::size_t n);
     void writeFeatureReport(const std::uint8_t* report, std::size_t n);
     void countWrite(bool wrote);
+    // The worker thread's only writer of the verdict: a seqlock write, no lock, no allocation.
+    void recordVerdict(diagnostics::WriteRoute route, const std::uint8_t* report, std::size_t n,
+                       bool ok);
     std::uint8_t nextSeq();
 
     const input::usbparse::HidParser parser_;
@@ -126,6 +136,8 @@ class OutputWorker {
     std::uint16_t rumbleWeak_ = 0;
     std::atomic<std::uint64_t> writes_{0};
     std::atomic<std::uint64_t> failedWrites_{0};
+    thread::Seqlock verdictLock_;
+    thread::AtomicWords<diagnostics::WriteVerdict> verdict_;
     std::thread thread_;
 };
 

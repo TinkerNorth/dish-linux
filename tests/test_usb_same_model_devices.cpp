@@ -13,6 +13,8 @@
 
 #include "QSettingsFixture.h"
 
+#include "PinnedModels.h"
+
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/generators/catch_generators.hpp>
 
@@ -56,7 +58,7 @@ UsbDeviceInfo dualSenseOn(const std::string& port) {
     d.productId = kDualSense;
     d.name = "DualSense Wireless Controller";
     d.devicePath = port;
-    return d;
+    return dish::test::pinnedWithoutDatabase({d}).front();
 }
 
 // A receiver with a controller on each of its slots.
@@ -71,7 +73,7 @@ std::vector<UsbDeviceInfo> receiverOn(const std::string& port, int productId, in
         d.devicePath = port;
         pads.push_back(d);
     }
-    return pads;
+    return dish::test::pinnedWithoutDatabase(pads);
 }
 
 std::string modelKeyOf(int vendorId, int productId) {
@@ -101,7 +103,9 @@ class SameModelGateway : public UsbDeviceGateway {
     bool fastLane = false;
     int nextSyntheticId = -1000;
 
-    std::vector<UsbDeviceInfo> enumerate() override { return devices; }
+    std::vector<UsbDeviceInfo> enumerate() override {
+        return dish::test::pinnedWithoutDatabase(devices, fastLane);
+    }
     ClaimResult claim(const UsbDeviceInfo& device,
                       std::function<void(const UsbReport&)> /*onReport*/) override {
         ++attemptsOn[device.devicePath];
@@ -113,9 +117,6 @@ class SameModelGateway : public UsbDeviceGateway {
         return ClaimResult::success(syntheticId);
     }
     void releaseClaim(int syntheticId) override { released.push_back(syntheticId); }
-    bool isKnownFastLaneModel(int /*vendorId*/, int /*productId*/) const override {
-        return fastLane;
-    }
     bool isClaimAlive(int syntheticId) const override {
         const auto it = opened.find(syntheticId);
         return it != opened.end() && !wasReleased(syntheticId) && stillEnumerates(it->second);

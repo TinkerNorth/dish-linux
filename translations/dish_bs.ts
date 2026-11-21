@@ -1840,6 +1840,182 @@
         <translation>Dodirna ploča prema hostu</translation>
     </message>
     <message>
+        <source>Verified</source>
+        <translation>Provjereno</translation>
+    </message>
+    <message>
+        <source>Flagged</source>
+        <translation>Označeno</translation>
+    </message>
+    <message>
+        <source>Layout guessed</source>
+        <translation>Raspored pogođen</translation>
+    </message>
+    <message>
+        <source>No record for this controller</source>
+        <translation>Nema zapisa za ovaj kontroler</translation>
+    </message>
+    <message>
+        <source>%1 (name and notes only on this PC)</source>
+        <translation>%1 (samo ime i napomene na ovom računaru)</translation>
+    </message>
+    <message>
+        <source>nothing written yet</source>
+        <translation>još ništa nije upisano</translation>
+    </message>
+    <message>
+        <source>sent · report %1 · %2</source>
+        <translation>poslano · izvještaj %1 · %2</translation>
+    </message>
+    <message>
+        <source>no error code</source>
+        <translation>nema koda greške</translation>
+    </message>
+    <message>
+        <source>failed · report %1 · %2 · %3</source>
+        <translation>neuspjelo · izvještaj %1 · %2 · %3</translation>
+    </message>
+    <message>
+        <source>weak rumble</source>
+        <translation>slaba vibracija</translation>
+    </message>
+    <message>
+        <source>strong rumble</source>
+        <translation>jaka vibracija</translation>
+    </message>
+    <message>
+        <source>both motors</source>
+        <translation>oba motora</translation>
+    </message>
+    <message>
+        <source>felt</source>
+        <translation>osjećeno</translation>
+    </message>
+    <message>
+        <source>not felt</source>
+        <translation>nije osjećeno</translation>
+    </message>
+    <message>
+        <source>%1 · %2 · %3</source>
+        <translation>%1 · %2 · %3</translation>
+    </message>
+    <message>
+        <source>Record</source>
+        <translation>Zapis</translation>
+    </message>
+    <message>
+        <source>as the record expects</source>
+        <translation>kako zapis očekuje</translation>
+    </message>
+    <message>
+        <source>Hardware check</source>
+        <translation>Provjera hardvera</translation>
+    </message>
+    <message>
+        <source>Last write</source>
+        <translation>Posljednji upis</translation>
+    </message>
+    <message>
+        <source>Last test</source>
+        <translation>Posljednji test</translation>
+    </message>
+    <message>
+        <source>up to date</source>
+        <translation>ažurno</translation>
+    </message>
+    <message>
+        <source>updated</source>
+        <translation>ažurirano</translation>
+    </message>
+    <message>
+        <source>could not reach dish.tinkernorth.com</source>
+        <translation>dish.tinkernorth.com nije dostupan</translation>
+    </message>
+    <message>
+        <source>the download did not verify</source>
+        <translation>preuzimanje nije prošlo provjeru</translation>
+    </message>
+    <message>
+        <source>checks are off</source>
+        <translation>provjere su isključene</translation>
+    </message>
+    <message>
+        <source>%1 · downloaded</source>
+        <translation>%1 · preuzeto</translation>
+    </message>
+    <message>
+        <source>%1 · bundled</source>
+        <translation>%1 · ugrađeno</translation>
+    </message>
+    <message>
+        <source>%1 · %2</source>
+        <translation>%1 · %2</translation>
+    </message>
+    <message>
+        <source>never</source>
+        <translation>nikada</translation>
+    </message>
+    <message>
+        <source>In use</source>
+        <translation>U upotrebi</translation>
+    </message>
+    <message>
+        <source>Bundled</source>
+        <translation>Ugrađeno</translation>
+    </message>
+    <message>
+        <source>Last check</source>
+        <translation>Posljednja provjera</translation>
+    </message>
+    <message>
+        <source>checking…</source>
+        <translation>provjera…</translation>
+    </message>
+    <message>
+        <source>Dish %1 on %2</source>
+        <translation>Dish %1 na %2</translation>
+    </message>
+    <message>
+        <source>Controller database: %1</source>
+        <translation>Baza kontrolera: %1</translation>
+    </message>
+    <message>
+        <source>no record</source>
+        <translation>nema zapisa</translation>
+    </message>
+    <message>
+        <source>%1: %2 · %3</source>
+        <translation>%1: %2 · %3</translation>
+    </message>
+    <message>
+        <source>Host %1: %2</source>
+        <translation>Host %1: %2</translation>
+    </message>
+    <message>
+        <source>The attached file holds this page and its log, each controller&apos;s input and output counts, Dish&apos;s own view of each session and what each Satellite says about it; it never holds pairing keys, certificate fingerprints, IP addresses, Wi-Fi names or the names of your PCs and devices.</source>
+        <translation>Priložena datoteka sadrži ovu stranicu i njen dnevnik, brojače ulaza i izlaza svakog kontrolera, Dishov pogled na svaku sesiju i ono što svaki Satelit o njoj kaže; nikada ne sadrži ključeve uparivanja, otiske certifikata, IP adrese, imena Wi-Fi mreža niti imena vaših računara i uređaja.</translation>
+    </message>
+    <message>
+        <source>Ask a question</source>
+        <translation>Postavite pitanje</translation>
+    </message>
+    <message>
+        <source>Report a problem</source>
+        <translation>Prijavite problem</translation>
+    </message>
+    <message>
+        <source>Report a problem writes a file of what this page shows and what each Satellite says about its side, and opens your own mail app addressed to support@tinkernorth.com with the file attached. Nothing is sent until you click Send.</source>
+        <translation>Prijavite problem upisuje datoteku s onim što ova stranica prikazuje i onim što svaki Satelit kaže o svojoj strani, i otvara vašu aplikaciju za poštu naslovljenu na support@tinkernorth.com s priloženom datotekom. Ništa se ne šalje dok ne kliknete Pošalji.</translation>
+    </message>
+    <message>
+        <source>Diagnostics saved. The file manager shows its folder.</source>
+        <translation>Dijagnostika je sačuvana. Upravitelj datoteka prikazuje njenu mapu.</translation>
+    </message>
+    <message>
+        <source>The diagnostics file could not be written.</source>
+        <translation>Datoteka dijagnostike nije mogla biti upisana.</translation>
+    </message>
+    <message>
         <source>Not available</source>
         <translation>Nije dostupan</translation>
     </message>
@@ -1914,6 +2090,26 @@
     <message>
         <source>Inspect input</source>
         <translation>Pregledaj unos</translation>
+    </message>
+    <message>
+        <source>Controller database</source>
+        <translation>Baza kontrolera</translation>
+    </message>
+    <message>
+        <source>Check now</source>
+        <translation>Provjeri sada</translation>
+    </message>
+    <message>
+        <source>Automatic controller checks are off in Settings, so Dish sends no request for the list.</source>
+        <translation>Automatske provjere kontrolera su isključene u Postavkama, pa Dish ne šalje nikakav zahtjev za listu.</translation>
+    </message>
+    <message>
+        <source>Send to support</source>
+        <translation>Pošalji podršci</translation>
+    </message>
+    <message>
+        <source>Save diagnostics</source>
+        <translation>Sačuvaj dijagnostiku</translation>
     </message>
     <message>
         <source>Radios</source>
@@ -2471,6 +2667,18 @@
         <translation>Inspektor kontrolera</translation>
     </message>
     <message>
+        <source>felt</source>
+        <translation>osjećeno</translation>
+    </message>
+    <message>
+        <source>not felt</source>
+        <translation>nije osjećeno</translation>
+    </message>
+    <message>
+        <source>Last test: %1 · %2 · %3</source>
+        <translation>Posljednji test: %1 · %2 · %3</translation>
+    </message>
+    <message>
         <source>%1%</source>
         <translation>%1 %</translation>
     </message>
@@ -2677,6 +2885,18 @@
     <message>
         <source>This controller has no rumble motors on the path it is on now.</source>
         <translation>Ovaj kontroler nema motore za vibraciju na putu na kojem je sada.</translation>
+    </message>
+    <message>
+        <source>Did it work?</source>
+        <translation>Je li radilo?</translation>
+    </message>
+    <message>
+        <source>Yes</source>
+        <translation>Da</translation>
+    </message>
+    <message>
+        <source>No</source>
+        <translation>Ne</translation>
     </message>
     <message>
         <source>Weak</source>
@@ -3754,6 +3974,145 @@
     </message>
 </context>
 <context>
+    <name>ReportProblemPage</name>
+    <message>
+        <source>Ask a question</source>
+        <translation>Postavite pitanje</translation>
+    </message>
+    <message>
+        <source>Report a problem</source>
+        <translation>Prijavite problem</translation>
+    </message>
+    <message>
+        <source>Controller not recognised</source>
+        <translation>Kontroler nije prepoznat</translation>
+    </message>
+    <message>
+        <source>No rumble or feedback</source>
+        <translation>Nema vibracije ni povratne reakcije</translation>
+    </message>
+    <message>
+        <source>Connection or latency</source>
+        <translation>Veza ili kašnjenje</translation>
+    </message>
+    <message>
+        <source>Audio</source>
+        <translation>Zvuk</translation>
+    </message>
+    <message>
+        <source>Something else</source>
+        <translation>Nešto drugo</translation>
+    </message>
+    <message>
+        <source>A question</source>
+        <translation>Pitanje</translation>
+    </message>
+    <message>
+        <source>Recording its reports. Leave the controller untouched…</source>
+        <translation>Snimaju se njegovi izvještaji. Ne dirajte kontroler…</translation>
+    </message>
+    <message>
+        <source>Captured: the file now holds this controller&apos;s descriptors and the reports it sent while it lay still.</source>
+        <translation>Snimljeno: datoteka sada sadrži deskriptore ovog kontrolera i izvještaje koje je poslao dok je mirovao.</translation>
+    </message>
+    <message>
+        <source>The capture did not finish: Dish no longer reads this controller directly.</source>
+        <translation>Snimanje nije završeno: Dish više ne čita ovaj kontroler direktno.</translation>
+    </message>
+    <message>
+        <source>Dish can add this controller&apos;s USB descriptors and twenty reports taken while it lies still. Put it down, leave it untouched, then capture.</source>
+        <translation>Dish može dodati USB deskriptore ovog kontrolera i dvadeset izvještaja snimljenih dok miruje. Odložite ga, ne dirajte ga, pa snimite.</translation>
+    </message>
+    <message>
+        <source>Your mail app has the message. Nothing is sent until you click Send.</source>
+        <translation>Vaša aplikacija za poštu ima poruku. Ništa se ne šalje dok ne kliknete Pošalji.</translation>
+    </message>
+    <message>
+        <source>Your mail app opened without the file: attach the one the file manager shows.</source>
+        <translation>Vaša aplikacija za poštu se otvorila bez datoteke: priložite onu koju prikazuje upravitelj datoteka.</translation>
+    </message>
+    <message>
+        <source>The diagnostics file could not be written, or a mail from the last one is still open.</source>
+        <translation>Datoteka dijagnostike nije mogla biti upisana ili je pošta od prošlog puta još otvorena.</translation>
+    </message>
+    <message>
+        <source>Ask us anything about Dish. Your question goes to support@tinkernorth.com from your own mail app, with a file of what Dish sees so we can answer for your setup.</source>
+        <translation>Pitajte nas bilo šta o Dishu. Vaše pitanje ide na support@tinkernorth.com iz vaše aplikacije za poštu, s datotekom onoga što Dish vidi, kako bismo odgovorili za vašu postavku.</translation>
+    </message>
+    <message>
+        <source>Tell us what went wrong. Dish writes a file of what it sees and opens your own mail app addressed to support@tinkernorth.com, with the file attached.</source>
+        <translation>Recite nam šta je pošlo po zlu. Dish upisuje datoteku onoga što vidi i otvara vašu aplikaciju za poštu naslovljenu na support@tinkernorth.com, s priloženom datotekom.</translation>
+    </message>
+    <message>
+        <source>Category</source>
+        <translation>Kategorija</translation>
+    </message>
+    <message>
+        <source>What happened, and what did you expect?</source>
+        <translation>Šta se desilo i šta ste očekivali?</translation>
+    </message>
+    <message>
+        <source>Controller</source>
+        <translation>Kontroler</translation>
+    </message>
+    <message>
+        <source>No particular controller</source>
+        <translation>Nijedan određeni kontroler</translation>
+    </message>
+    <message>
+        <source>Capture this controller</source>
+        <translation>Snimi ovaj kontroler</translation>
+    </message>
+    <message>
+        <source>What the file holds</source>
+        <translation>Šta datoteka sadrži</translation>
+    </message>
+    <message>
+        <source>Your words and the category you picked.</source>
+        <translation>Vaše riječi i kategorija koju ste odabrali.</translation>
+    </message>
+    <message>
+        <source>Dish&apos;s version, this PC&apos;s model and Linux version, its battery and power profile, and how hot it runs.</source>
+        <translation>Verzija Disha, model ovog računara i verzija Linuxa, njegova baterija i profil napajanja te koliko se zagrijava.</translation>
+    </message>
+    <message>
+        <source>Each controller&apos;s identity, the path Dish reads it on, and what went in and out of it, as counts and last values.</source>
+        <translation>Identitet svakog kontrolera, putanja kojom ga Dish čita i šta je ušlo i izašlo iz njega, kao brojevi i posljednje vrijednosti.</translation>
+    </message>
+    <message>
+        <source>Each host&apos;s kind, version and link state, Dish&apos;s own view of each session, and what each Satellite says about it.</source>
+        <translation>Vrsta, verzija i stanje veze svakog hosta, Dishov pogled na svaku sesiju i ono što svaki Satelit o njoj kaže.</translation>
+    </message>
+    <message>
+        <source>The controller database&apos;s state and this run&apos;s event log.</source>
+        <translation>Stanje baze kontrolera i dnevnik događaja ovog pokretanja.</translation>
+    </message>
+    <message>
+        <source>For a controller you captured: its USB descriptors and the reports it sent while it lay still.</source>
+        <translation>Za kontroler koji ste snimili: njegove USB deskriptore i izvještaje koje je poslao dok je mirovao.</translation>
+    </message>
+    <message>
+        <source>It never holds pairing keys, certificate fingerprints, IP addresses, Wi-Fi names or the names of your PCs and devices. Nothing is sent until you click Send in your mail app.</source>
+        <translation>Nikada ne sadrži ključeve uparivanja, otiske certifikata, IP adrese, imena Wi-Fi mreža niti imena vaših računara i uređaja. Ništa se ne šalje dok ne kliknete Pošalji u svojoj aplikaciji za poštu.</translation>
+    </message>
+    <message>
+        <source>Asking each Satellite for its side of the session…</source>
+        <translation>Pitamo svaki Satelit za njegovu stranu sesije…</translation>
+    </message>
+    <message>
+        <source>Continue in your mail app</source>
+        <translation>Nastavite u aplikaciji za poštu</translation>
+    </message>
+    <message>
+        <source>Hide file</source>
+        <translation>Sakrij datoteku</translation>
+    </message>
+    <message>
+        <source>Preview file</source>
+        <translation>Pregled datoteke</translation>
+    </message>
+</context>
+<context>
     <name>SettingsPage</name>
     <message>
         <source>Settings</source>
@@ -3794,6 +4153,14 @@
     <message>
         <source>The release information didn&apos;t parse. Dish will retry automatically.</source>
         <translation>Podatke o izdanju nije bilo moguće obraditi. Dish će pokušati ponovo automatski.</translation>
+    </message>
+    <message>
+        <source>Checking for controller updates…</source>
+        <translation>Provjera ažuriranja kontrolera…</translation>
+    </message>
+    <message>
+        <source>Controller list v%1 · last checked %2</source>
+        <translation>Lista kontrolera v%1 · posljednja provjera %2</translation>
     </message>
     <message>
         <source>Setup &amp; help</source>
@@ -3898,6 +4265,22 @@
     <message>
         <source>Open release page</source>
         <translation>Otvori stranicu izdanja</translation>
+    </message>
+    <message>
+        <source>Dish asks GitHub for the newest release at startup and every few hours. Only a standard web request is sent; see the privacy policy for details. In the Flatpak it starts off, because Flathub delivers the updates.</source>
+        <translation>Dish pri pokretanju i svakih nekoliko sati pita GitHub za najnovije izdanje. Šalje se samo običan web zahtjev; detalje potražite u politici privatnosti. U Flatpaku je isključeno na početku, jer ažuriranja isporučuje Flathub.</translation>
+    </message>
+    <message>
+        <source>Check for controller updates automatically</source>
+        <translation>Automatski provjeravaj ažuriranja kontrolera</translation>
+    </message>
+    <message>
+        <source>Ten seconds after it starts and every six hours, Dish asks dish.tinkernorth.com for a newer list of the controllers it recognises. The request carries no identifier; with this off, none is sent. See the privacy policy for details.</source>
+        <translation>Deset sekundi nakon pokretanja i svakih šest sati Dish pita dish.tinkernorth.com za noviju listu kontrolera koje prepoznaje. Zahtjev ne nosi nikakav identifikator; kada je ovo isključeno, ne šalje se nijedan. Detalji su u politici privatnosti.</translation>
+    </message>
+    <message>
+        <source>Check now</source>
+        <translation>Provjeri sada</translation>
     </message>
     <message>
         <source>About</source>
@@ -4014,10 +4397,6 @@
     <message>
         <source>Check for updates automatically</source>
         <translation>Automatski provjeravaj ažuriranja</translation>
-    </message>
-    <message>
-        <source>Dish asks GitHub for the newest release at startup and every few hours. Only a standard web request is sent; see the privacy policy for details.</source>
-        <translation>Dish pri pokretanju i svakih nekoliko sati pita GitHub za najnovije izdanje. Šalje se samo standardni web zahtjev; detalje potražite u politici privatnosti.</translation>
     </message>
     <message>
         <source>Checking connects to github.com and sends no account data.</source>

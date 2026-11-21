@@ -15,6 +15,8 @@
 
 #include "QSettingsFixture.h"
 
+#include "PinnedModels.h"
+
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/generators/catch_generators.hpp>
 
@@ -165,7 +167,9 @@ class ReceiverGateway : public UsbDeviceGateway {
     std::map<int, std::shared_ptr<SlotWrites>> writesOf;
     int nextSyntheticId = -1000;
 
-    std::vector<UsbDeviceInfo> enumerate() override { return devices; }
+    std::vector<UsbDeviceInfo> enumerate() override {
+        return dish::test::pinnedWithoutDatabase(devices, false);
+    }
     ClaimResult claim(const UsbDeviceInfo& device,
                       std::function<void(const UsbReport&)> onReport) override {
         claimedInterfaces.push_back(device.interfaceNumber);
@@ -198,7 +202,6 @@ class ReceiverGateway : public UsbDeviceGateway {
 
   public:
     void releaseClaim(int syntheticId) override { released.push_back(syntheticId); }
-    bool isKnownFastLaneModel(int /*vendorId*/, int /*productId*/) const override { return false; }
     bool isClaimAlive(int syntheticId) const override {
         return std::find(released.begin(), released.end(), syntheticId) == released.end();
     }

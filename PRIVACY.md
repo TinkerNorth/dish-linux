@@ -1,6 +1,6 @@
 # Dish for Linux: Privacy Policy
 
-**Effective date:** 2026-11-13.
+**Effective date:** 2026-11-20.
 **Canonical copy:** this file, at
 [`https://github.com/TinkerNorth/dish-linux/blob/main/PRIVACY.md`](https://github.com/TinkerNorth/dish-linux/blob/main/PRIVACY.md).
 The app links to it from Help, and the privacy index on
@@ -24,12 +24,19 @@ do not read one as describing the other.
   Controller input goes from your machine, over your own network, to the
   host you paired with. It does not stream to any TinkerNorth-operated
   server. TinkerNorth does not operate a server for Dish at all.
-- **Two things can leave your machine**, and you can turn both off: an
-  update check against GitHub, described in section 2.4, and, when the app
+- **Three things can leave your machine on their own**, and you can turn
+  each one off: an update check against GitHub, on by default except in the
+  Flatpak, where it starts off, described in section 2.4; a
+  check for a newer list of the controllers Dish recognises, against
+  `dish.tinkernorth.com`, described in section 2.5; and, when the app
   crashes, one crash report to Sentry, described in section 3. There is no
   analytics SDK, no telemetry, no advertising identifier, no usage reporting
-  and no account. The update check asks GitHub for one file and sends no
-  identifier with the request.
+  and no account. Both checks ask for files and send no identifier with the
+  request.
+- **Report a problem** (section 2.6) happens only when you click *Report a
+  problem* or *Ask a question*: Dish saves a file and opens your own mail app
+  with it attached, addressed to `support@tinkernorth.com`. Nothing is sent
+  until you click Send in your mail app.
 - Crash diagnostics are always written to your own disk, at
   `$XDG_STATE_HOME/dish/crash.log` (`~/.local/state/dish/crash.log` by
   default). With *Share crash reports* on (the default), an official build
@@ -82,12 +89,30 @@ own bookkeeping. None of them is transmitted anywhere.
 
 | Setting | Holds | Used for |
 |---|---|---|
-| `updates_check_enabled` | Boolean, default `true` | The *Check for updates automatically* switch. When off, the app makes no update-related network request at all. |
+| `updates_check_enabled` | Boolean, default `true`, `false` in the Flatpak | The *Check for updates automatically* switch. When off, the app makes no update-related network request at all. |
 | `updates_skipped_version` | A version string, default empty | The one version you pressed *Skip this version* on, so it stops being offered |
 | `updates_last_check_utc_ms` | Timestamp | Not checking more than once an hour at startup |
 
 There is no downloaded-update folder, because Dish for Linux never downloads or
 installs an update; see section 2.4.
+
+Five more values in the same file cover the controller database check
+described in section 2.5. None of them is transmitted anywhere either; the
+ETag is the value the server itself handed back, and goes back to it only as
+the `If-None-Match` of the next check.
+
+| Setting | Holds | Used for |
+|---|---|---|
+| `controller_db_check_enabled` | Boolean, default `true` | The *Check for controller updates automatically* switch. When off, the app makes no request for the controller list at all. |
+| `controller_db_last_check_utc_ms`, `controller_db_last_check_result` | Timestamp and a word (`upToDate`, `updated`, `offline`, `invalid`, `off`) | Showing on the Diagnostics page when the last check ran and how it ended |
+| `controller_db_manifest_etag`, `controller_db_manifest_etag_version` | The server's ETag for the manifest, and the list version it belongs to | Asking "anything newer?" without downloading the manifest again |
+
+A newer controller list, when one has been downloaded, is kept under
+`~/.local/share/TinkerNorth/Dish/controllers/v1/` (in the Flatpak, under
+`~/.var/app/com.tinkernorth.Dish/data/`): the list, its strings in six
+languages and the manifest they came with. A diagnostics file you save or
+send is kept under `~/.local/share/TinkerNorth/Dish/diagnostics/` until you
+delete it (section 2.6).
 
 The app also **reads** (never writes) the XDG desktop portals for your
 light/dark preference and your reduced-motion preference, and reads
@@ -102,8 +127,13 @@ the satellite you bound the controller to:
   battery level and charging state, read from `/sys/class/power_supply` (a
   system battery only, never a peripheral's), so that a controller reports the
   lower of its battery and the computer's, or the computer's when the
-  controller has none. A computer without a battery adds nothing.
+  controller has none. A computer without a battery adds nothing. The
+  computer's level and charging state also go into a support report you send
+  (section 2.6).
 - Raw HID reports read from a controller in USB-direct mode.
+- Your answers to *Did it work?* after a rumble test, the last twenty per
+  controller, kept until the app quits and written out only into a
+  diagnostics file you save or send (section 2.6).
 
 The app reads input from connected game controllers, through SDL2 and, in
 USB-direct mode, by reading raw HID input reports itself. It also writes back to
@@ -168,17 +198,21 @@ There is no TinkerNorth server for this app to talk to. The one thing that
 reaches us is a crash report, through Sentry, and only if you leave *Share
 crash reports* on.
 
-Two things leave your network by default, and you can turn both off. The
-update check described in **section 2.4** goes to GitHub: a plain HTTPS
-request for a file on the public releases page, with no identifier. A crash
-report, described in **section 3**, goes to Sentry, which processes it for
-us, and only when the app has actually crashed.
+Three things leave your network by default, two in the Flatpak, where the
+update check starts off; you can turn each one off.
+The update check described in **section 2.4** goes to GitHub: a plain HTTPS
+request for a file on the public releases page, with no identifier. The
+controller database check described in **section 2.5** goes to
+`dish.tinkernorth.com`, the same way. A crash report, described in
+**section 3**, goes to Sentry, which processes it for us, and only when the
+app has actually crashed. A fourth, the support report in **section 2.6**,
+never leaves on its own: you send it from your own mail app.
 
 Beyond those there is no analytics library, no error tracking beyond the
-crash report, and no advertising identifier. Apart from the updater and the
-crash reporter, the only component in the app that makes an outbound HTTPS
-request is the satellite API client, and it only ever addresses the IP of a
-satellite you selected.
+crash report, and no advertising identifier. Apart from the updater, the
+controller database check and the crash reporter, the only component in the
+app that makes an outbound HTTPS request is the satellite API client, and it
+only ever addresses the IP of a satellite you selected.
 
 The other way this app causes a request to a TinkerNorth or third-party
 address is if you click a link, which hands the URL to your default browser
@@ -196,9 +230,9 @@ these URLs.
 
 ### 2.4 Update check (GitHub)
 
-When *Check for updates automatically* is on, which is the default, the app
-sends an HTTPS `GET` to `github.com` for the file `latest.json` attached to the
-newest release of this project. GitHub answers with a redirect to its own
+When *Check for updates automatically* is on, which is the default everywhere
+but the Flatpak, the app sends an HTTPS `GET` to `github.com` for the file
+`latest.json` attached to the newest release of this project. GitHub answers with a redirect to its own
 download CDN, so the request finishes against
 `objects.githubusercontent.com`. The file is about a kilobyte of JSON: a version number, a minimum supported
 version, and a link to the release notes.
@@ -223,9 +257,159 @@ shows a pill linking to the release page and stops. That one `GET` for
 
 **Turning it off.** *Check for updates automatically* is the master switch. Off
 means the app makes no update-related network request of any kind, arms no
-timer, and creates no network stack for it.
+timer, and creates no network stack for it. In the Flatpak the switch starts
+off, because Flathub delivers the app's updates itself; turned on there, it
+works as described above.
 
 The settings behind that switch are in section 2.1.
+
+### 2.5 Controller database updates
+
+Dish ships with a list of the controllers it recognises: their USB and
+Bluetooth ids, how each one talks, and the known issues its Diagnostics card
+shows. So that a newly supported controller does not wait for an app release,
+the app checks for a newer list. About ten seconds after launch, and then every
+six hours while it runs, it fetches a small manifest from
+`https://dish.tinkernorth.com/controllers/v1/` that names the newest version.
+Only when that version is newer than the one the app has does it fetch the
+rest: the controller list and its text in each language. These files are data,
+never code. The app checks each one's size and SHA-256 checksum against the
+manifest before using it, and keeps the copy it has when anything does not
+match. A newer list is stored in the folder named in section 2.1 and applies
+to a controller the next time it is plugged in.
+
+`dish.tinkernorth.com` is an Amazon S3 bucket behind Amazon CloudFront,
+operated for TinkerNorth by Amazon Web Services. The requests carry no
+identifier, no cookie and no query, and use Qt's default `User-Agent`, not the
+update check's `Dish/<version>` one. The only header the app adds is
+`If-None-Match`, carrying the ETag the server gave the last time, so an
+unchanged manifest is not sent again. What the host's access logs can see is
+what any web server sees: the IP address the request came from, and the time.
+We use those logs as we use the rest of the website's: for capacity planning
+and abuse detection only.
+
+*Check for controller updates automatically* in Settings, on by default, turns
+the check off. With it off, no request for the controller list leaves your
+machine, and the app keeps using the copy it has. *Check now* runs one check
+when you click it, and is disabled while the switch is off. Every build makes
+this check, the Flatpak from Flathub included, where the update check in
+section 2.4 starts off: Flathub delivers the app, not the controller list. It
+is separate from the update check, and turning one off leaves the other alone.
+
+### 2.6 Report a problem
+
+The Diagnostics page (Settings, then *Diagnostics…*) has *Report a problem*,
+*Ask a question* and *Save diagnostics*. The first two open the same page in
+a different category: you pick what it is about (a controller not
+recognised, no rumble or feedback, connection or latency, audio, something
+else, or a question), write what happened and what you expected, and may name
+the controller it concerns. The page lists in plain words what the file will
+hold, *Preview file* shows you the file itself, and *Continue in your mail
+app* writes `dish-diagnostics-dish-linux-<date>-<time>.json` under
+`~/.local/share/TinkerNorth/Dish/diagnostics/` (in the Flatpak, under the
+app's own `~/.var/app/com.tinkernorth.Dish/data/`) and runs your desktop's
+`xdg-email` to open your own mail app with a new message to
+`support@tinkernorth.com`. The subject is `Dish support: <the category, in
+your language> · Dish for Linux <version> on <PC model>`; the body is your
+own words first, then a summary of the Diagnostics page in your language; the
+file is attached. When `xdg-email` is not installed or no mail app takes the
+message, a `mailto:` link opens with the same subject and body and your file
+manager shows the folder for you to attach the file. *Save diagnostics*
+writes the same file without a report and opens that folder in your file
+manager. Nothing is sent by the app: the mail leaves only when you click Send
+in your mail app, and you can read or edit it before you do. If you send it,
+TinkerNorth receives it at that address and uses it only to answer you and
+fix what it shows.
+
+**Your own words.** What you write and the category you pick go into the
+mail and into the file as `report`, with the database record or product name
+of the controller you named. Dish does not read, check or keep them anywhere
+else; they exist only in the file and in the mail you send.
+
+**The Satellite connection snapshot.** When the page opens, Dish asks each
+Satellite it has a live session with, version 2.3.0 or later, for that
+session's own account of itself: one request to
+`GET /api/connections/<id>/diagnostics` on the PC you paired with, over the
+same encrypted, pinned connection and pairing proof every session request
+uses, given up after two seconds. Nothing goes anywhere else, and nothing is
+asked of a Satellite older than 2.3.0, which has no such route; for that one,
+and for any that does not answer, the file holds what Dish already had from
+it (its version, protocol, backends and audio switches) and says why. The
+snapshot holds that Satellite's version, platform and uptime, its virtual
+controller backends and their driver versions, each virtual pad of this
+session (the type asked for and the one made, its features, its touchpad mode,
+and how many reports went in and out of it), the audio switches it grants, its
+message counters, the state of its own controller list, and this connection's
+lines of its log. Satellite removes from it every machine name, every other
+client's name and address and every secret, and names your device "this
+connection"; Dish then replaces that host's name and address with its alias
+wherever either still appears. A Moonlight host (Sunshine, Apollo, Wolf) is
+not asked anything: the file holds the version its last answer to Dish gave.
+
+**What the file holds.** Your report, as above; the app's version and how it
+was installed (Flatpak, AppImage or a package); this PC's model as its
+firmware names it (`/sys/class/dmi/id/sys_vendor` and `product_name`, "Linux
+PC" where the firmware names none; never the machine's host name), the
+distribution, the kernel version and the processor architecture; its battery
+level and whether it is charging (`/sys/class/power_supply`, a system battery
+only), whether the platform's power profile is the low-power one
+(`/sys/firmware/acpi/platform_profile`), and how hot it runs against its own
+thermal trip points (`/sys/class/thermal`: nominal, fair, serious or
+critical); the controller database's bundled and active versions and the time
+and result of its last check; for each controller, the database record it
+matched, that record's verification state, its transport (USB or Bluetooth)
+and path (Direct or SDL), whether a Bluetooth link is classic or low energy
+(see below), its USB vendor and product ids, its release number
+(`bcdDevice`), the product and manufacturer strings it reports, its USB
+interfaces (number, class, subclass, protocol) with each one's endpoints
+(address, type, packet size, interval), the addresses of the endpoints Dish
+reads and writes, a SHA-256 checksum of its USB descriptors, any
+mismatch between the record and what Dish saw, how many input reports it sent
+and at what rate, the last one (the buttons, sticks and triggers at that moment), for each kind of
+output (rumble, light bar, player lights, trigger effects, mute lamp) how
+many reached it, where they went and the last value with its time, whether
+its speaker and haptics streams are open, the last report Dish wrote to it
+(the report id, whether it went through and the kernel's error name when it
+did not), and your answers to *Did it work?* after a rumble test; for each
+paired Satellite or Moonlight host, an alias ("Host 1", "Host 2"), its kind
+and version, the protocol version the session settled on, its link state and
+which controller-audio directions it grants, Dish's own view of the session
+(each controller slot, the last heartbeat's facts, round trip times, and how
+many messages of each kind went each way) and the snapshot above; and this
+run's event log of hosts and controllers appearing, changing state, binding
+and leaving, with every host named only by its alias.
+
+**Whether this PC has a USB host controller.** The file says whether Linux
+lists at least one USB root hub under `/sys/bus/usb/devices` (one per host
+controller), as `true` or `false`, and nothing about the devices on it.
+
+**A controller you capture.** For a controller Dish reads directly, the report
+page offers *Capture this controller*. Dish then keeps the next twenty input
+reports the controller sends, with the time each arrived, while you leave it
+untouched, and reads its USB descriptors from sysfs (`descriptors`, the raw
+device and configuration descriptors), its manufacturer and product strings
+and its HID report descriptor. Nothing is read from the controller's serial
+number. The capture stays in memory for this run and goes into the file only
+when your report names that controller; it never includes anything you press
+afterwards.
+
+**The Bluetooth link, a question on this PC.** For a Bluetooth controller the
+kernel's own Bluetooth stack made, the link is classic, from sysfs alone. For
+one that BlueZ hands to the kernel itself (every low energy pad, and from
+BlueZ 5.73 classic ones too), Dish reads the controller's Bluetooth address
+from sysfs and asks BlueZ on this PC, over the system D-Bus, which HID
+service the paired device lists: classic HID, or HID over GATT. The question
+never leaves your machine, the address is used for that one question and is
+never kept or written, and when BlueZ cannot answer the file says the link is
+not known.
+
+**What it never holds.** Pairing keys, pairing secrets, certificate
+fingerprints, IP addresses, Bluetooth addresses, Wi-Fi names, the names of
+your hosts, PCs and devices, the machine's host name, this install's
+`deviceId`, a controller's serial number, a stream of your controller input
+(only the counts and the last report, and the twenty reports of a controller
+you captured, taken at rest), and anything from a controller's microphone or
+speaker.
 
 ---
 
@@ -339,6 +523,13 @@ SDL.
 - **Stop the update check.** Settings, Updates, *Check for updates
   automatically*. Off means no update-related request leaves your machine, at
   any time, for any reason.
+- **Stop the controller database check.** Settings, Updates, *Check for
+  controller updates automatically*. Off means no request for the controller
+  list leaves your machine; the app keeps the list it has.
+- **Delete the controller list and diagnostics files.**
+  `~/.local/share/TinkerNorth/Dish/controllers/` and
+  `~/.local/share/TinkerNorth/Dish/diagnostics/` can go at any time; the app
+  falls back to the list it shipped with.
 - **Uninstall.** However you installed it: your package manager, `flatpak
   uninstall`, or removing the files a `cmake --install` placed. Your settings,
   pairings and crash log are deliberately left behind so that reinstalling
@@ -360,16 +551,20 @@ SDL.
 ## 6. Children's privacy
 
 Dish is suitable for general audiences. The app collects nothing from anyone,
-of any age, beyond the crash report described in section 3, so there is no
-children's data for us to hold. If you believe that is wrong in some way we
-have not anticipated, contact `privacy@tinkernorth.com`.
+of any age, beyond the crash report described in section 3 and a support
+report you choose to send (section 2.6), so there is no children's data for us
+to hold. If you believe that is wrong in some way we have not anticipated,
+contact `privacy@tinkernorth.com`.
 
 ---
 
 ## 7. International transfers
 
 Crash reports, when enabled, are stored by Sentry in the United States
-(section 3). The update check goes to GitHub, also in the United States.
+(section 3). The update check goes to GitHub, also in the United States. The
+controller database check goes to `dish.tinkernorth.com`, served by Amazon
+CloudFront from the edge location nearest you. A support report you choose
+to send travels through your own mail provider to `support@tinkernorth.com`.
 Nothing else leaves your machine to us.
 
 ---

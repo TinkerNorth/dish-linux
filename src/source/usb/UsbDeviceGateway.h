@@ -10,6 +10,10 @@
 
 #pragma once
 
+#include "core/controllerdb/ExpectCheck.h"
+#include "core/controllerdb/PadModel.h"
+#include "core/diagnostics/ReportCapture.h"
+#include "core/diagnostics/UsbDescriptors.h"
 #include "core/input/SteamTrackpads.h"
 #include "core/input/UsbOutputReports.h"
 #include "core/input/UsbReportParsers.h"
@@ -41,8 +45,23 @@ struct UsbDeviceInfo {
     // The physical device the pad rides, as the gateway names it: one name for every interface of
     // a device and another for each device of the same model, unchanged while it stays plugged in.
     std::string devicePath;
+    // The hardware facts Diagnostics and the bundle show (docs/diagnostics-bundle.md): the USB
+    // device's own product and manufacturer strings, and the claimed interface's endpoint
+    // addresses as sysfs lists them (-1 where it has none, or sysfs was not read), which are what
+    // the record's `expect` is checked against.
+    std::string product;
+    std::string manufacturer;
+    bool endpointsRead = false;
+    int endpointInAddress = -1;
+    int endpointOutAddress = -1;
+    // Read once, when the gateway first enumerated the pad, and carried unchanged while it stays:
+    // the model it resolved to, which every later decision about the pad reads, and its
+    // descriptors.
+    dish::controllerdb::PadModel model;
+    diagnostics::UsbHardwareFacts hardware;
 
     int vpKey() const { return (vendorId << 16) | (productId & 0xFFFF); }
+    dish::controllerdb::ObservedHardware observedEndpoints() const;
 };
 
 // The result of opening + claiming a device's interface and bringing up its
@@ -143,8 +162,17 @@ struct UsbReport {
 inline bool isTheClaimedPad(const std::string& nodeDevice, int nodeInterface,
                             const UsbDeviceInfo& device) {
     if (nodeDevice != device.devicePath) { return false; }
-    if (!input::usbparse::isReceiver(device.vendorId, device.productId)) { return true; }
+    if (!device.model.isReceiver()) { return true; }
     return nodeInterface == device.interfaceNumber;
+}
+
+// The claimed interface's endpoints, as Android's expect check reads them; nothing where sysfs
+// was not read.
+inline dish::controllerdb::ObservedHardware UsbDeviceInfo::observedEndpoints() const {
+    constexpr int kNoEndpoint = -1;
+    if (!endpointsRead) { return dish::controllerdb::ObservedHardware{}; }
+    return dish::controllerdb::ObservedHardware{endpointInAddress != kNoEndpoint,
+                                                endpointOutAddress != kNoEndpoint};
 }
 
 inline UsbReport padLinkReport(PadLinkEvent event) {
@@ -174,10 +202,6 @@ class UsbDeviceGateway {
     // Stop the read loop and release the interface for a claimed synthetic id.
     // Idempotent; a no-op for an unknown id.
     virtual void releaseClaim(int syntheticId) = 0;
-
-    // Whether the model is a verified "fast-lane" pad worth auto-claiming Direct
-    // (DualSense/DS4/Switch Pro/8BitDo families).
-    virtual bool isKnownFastLaneModel(int vendorId, int productId) const = 0;
 
     // Whether the claim's read loop is still running. False once the device has
     // left the bus, which a re-enumerating pad does without ever leaving
@@ -224,6 +248,15 @@ class UsbDeviceGateway {
     // The claim's OUT reports for its output worker. The default writes through
     // writeOutputReport; a gateway with the handle at hand returns a writer on it.
     virtual std::unique_ptr<HidReportWriter> openReportWriter(int syntheticId);
+
+    // "Capture this controller": the claim's read loop keeps its next input reports, as they
+    // arrive, then stops keeping them. False for an unknown id, or one already capturing. Default
+    // no-op, so fakes that never capture need no override.
+    virtual bool armCapture(int /*syntheticId*/) { return false; }
+    // What the claim's capture kept so far, on the loop's clock (steadyClockMs).
+    virtual std::vector<diagnostics::CapturedReport> capturedReports(int /*syntheticId*/) const {
+        return {};
+    }
 };
 
 // writeOutputReport, as a writer.

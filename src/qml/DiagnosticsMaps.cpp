@@ -5,9 +5,12 @@
 
 #include "Network/WifiConnection.h"
 #include "core/input/InputReadout.h"
+#include "core/controllerdb/Vocabulary.h"
 #include "core/model/Protocol.h"
 #include "qml/AppSettingsMaps.h"
 #include "qml/RenderTokens.h"
+
+#include <QStringList>
 
 #include <array>
 #include <string_view>
@@ -477,6 +480,119 @@ QVariantList diagnosticsLogRows(const std::vector<reducer::DiagnosticsEvent>& ev
     QVariantList out;
     for (const auto& event : events) { out.append(eventRow(event)); }
     return out;
+}
+
+namespace {
+
+QString qtText(std::string_view text) {
+    return QString::fromUtf8(text.data(), static_cast<qsizetype>(text.size()));
+}
+
+QVariantList issueRows(const controllerdb::ControllerRecord& record,
+                       const RecordCardInputs& inputs) {
+    QVariantList out;
+    for (const controllerdb::Issue& issue :
+         controllerdb::applicableIssues(record, inputs.transport, inputs.host)) {
+        QVariantMap row;
+        row[QStringLiteral("id")] = qtText(issue.id);
+        row[QStringLiteral("title")] =
+            qtText(inputs.catalog->text(controllerdb::issueTitleKey(issue.id), inputs.locale));
+        row[QStringLiteral("body")] =
+            qtText(inputs.catalog->text(controllerdb::issueBodyKey(issue.id), inputs.locale));
+        out.append(row);
+    }
+    return out;
+}
+
+QStringList textList(const std::vector<std::string>& texts) {
+    QStringList out;
+    for (const std::string& text : texts) { out.append(QString::fromStdString(text)); }
+    return out;
+}
+
+} // namespace
+
+QVariantMap controllerDbRow(const source::controllerdb::ControllerDbStatus& status) {
+    QVariantMap row;
+    row[QStringLiteral("bundledVersion")] = status.bundledVersion;
+    row[QStringLiteral("activeVersion")] = status.activeVersion;
+    const bool fromCache = status.source == controllerdb::DbSource::Cache;
+    row[QStringLiteral("source")] = fromCache ? QStringLiteral("cache") : QStringLiteral("bundled");
+    row[QStringLiteral("lastCheckAtMs")] = static_cast<qint64>(status.lastCheckAtMs);
+    row[QStringLiteral("lastCheckResult")] =
+        status.lastCheckResult.has_value()
+            ? qtText(controllerdb::checkResultToken(*status.lastCheckResult))
+            : QString();
+    row[QStringLiteral("checking")] = status.checking;
+    return row;
+}
+
+QVariantMap writeVerdictRow(const std::optional<diagnostics::WriteVerdict>& verdict) {
+    if (!verdict.has_value()) { return {}; }
+    QVariantMap row;
+    row[QStringLiteral("route")] = qtText(diagnostics::writeRouteToken(verdict->route));
+    row[QStringLiteral("reportId")] =
+        QString::fromStdString(diagnostics::reportIdText(verdict->reportId));
+    row[QStringLiteral("ok")] = verdict->ok;
+    row[QStringLiteral("err")] = QString::fromStdString(diagnostics::osErrorName(verdict->osError));
+    row[QStringLiteral("atMs")] = static_cast<qint64>(verdict->atMs);
+    return row;
+}
+
+QVariantMap testOutcomeRow(const std::optional<diagnostics::TestOutcome>& outcome) {
+    if (!outcome.has_value()) { return {}; }
+    QVariantMap row;
+    row[QStringLiteral("test")] = QString::fromStdString(outcome->test);
+    row[QStringLiteral("result")] = QString::fromStdString(outcome->result);
+    row[QStringLiteral("atMs")] = static_cast<qint64>(outcome->atMs);
+    return row;
+}
+
+QVariantMap controllerRecordRow(const RecordCardInputs& inputs) {
+    QVariantMap row;
+    row[QStringLiteral("matched")] = false;
+    if (inputs.catalog == nullptr || !inputs.identity.has_value()) { return row; }
+    if (!inputs.identity->record.has_value()) { return row; }
+    row[QStringLiteral("matched")] = true;
+    const controllerdb::ControllerRecord& record = *inputs.identity->record;
+    const controllerdb::ControllerCatalog& catalog = *inputs.catalog;
+    row[QStringLiteral("recordId")] = QString::fromStdString(record.id);
+    row[QStringLiteral("name")] =
+        qtText(catalog.text(controllerdb::controllerNameKey(record.id), inputs.locale));
+    row[QStringLiteral("hint")] =
+        qtText(catalog.text(controllerdb::controllerHintKey(record.id), inputs.locale));
+    row[QStringLiteral("family")] =
+        qtText(catalog.text(controllerdb::familyNameKey(record.family), inputs.locale));
+    row[QStringLiteral("chip")] = qtText(controllerdb::verificationChipToken(record.verification));
+    row[QStringLiteral("inert")] = inputs.identity->inert;
+    row[QStringLiteral("mismatches")] = textList(inputs.identity->mismatches);
+    row[QStringLiteral("issues")] = issueRows(record, inputs);
+    return row;
+}
+
+composer::BundleLogEvent bundleLogEventOf(const QVariantMap& eventRow) {
+    composer::BundleLogEvent event;
+    event.atMs = eventRow.value(QStringLiteral("atMs")).toLongLong();
+    const QString kind = eventRow.value(QStringLiteral("kind")).toString();
+    event.kind = kind.toStdString();
+    event.subject = eventRow.value(QStringLiteral("subject")).toString().toStdString();
+    event.subjectIsHost = kind.startsWith(QLatin1String("link"));
+    const QString path = eventRow.value(QStringLiteral("path")).toString();
+    const QString failure = eventRow.value(QStringLiteral("failure")).toString();
+    if (event.subjectIsHost) {
+        event.details = {eventRow.value(QStringLiteral("from")).toString().toStdString(),
+                         eventRow.value(QStringLiteral("to")).toString().toStdString()};
+    } else if (kind == QLatin1String("padAttached")) {
+        event.details = {path.toStdString()};
+    } else if (kind == QLatin1String("padDirectFailed")) {
+        event.details = {failure.toStdString()};
+    }
+    const bool bindingEvent =
+        kind == QLatin1String("padBound") || kind == QLatin1String("padUnbound");
+    if (bindingEvent) {
+        event.host = eventRow.value(QStringLiteral("host")).toString().toStdString();
+    }
+    return event;
 }
 
 } // namespace dish::qml

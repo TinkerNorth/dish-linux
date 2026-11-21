@@ -16,6 +16,166 @@ the repos share a version number.
 
 ---
 
+## [2.8.0] - 2026-11-19
+
+### Added
+
+- **The fleet's controller database, bundled and kept current.** Dish ships
+  dbVersion 1 of the controller database the whole fleet now shares
+  (`dish.tinkernorth.com/controllers/v1/`, 272 controllers) as a Qt resource,
+  checked against its own manifest at every start. About ten seconds after
+  launch and every six hours while it runs, Dish asks for the manifest with
+  `If-None-Match`; only a newer version is downloaded, each file checked
+  against its SHA-256 and size, parsed, checked for schema 1 and then swapped
+  in atomically under `~/.local/share/TinkerNorth/Dish/controllers/v1/`. Any
+  failure keeps the list in force. A newer list applies to a controller at
+  its next attach.
+- **Settings: "Check for controller updates automatically"** (on by default,
+  the Flatpak included) and **"Check now"**, which is disabled while the
+  switch is off. With the switch off, no request for the list leaves the
+  machine. The request carries no identifier, no query and Qt's default
+  `User-Agent`.
+- **Each controller's record on the Diagnostics card.** The record it matched,
+  its name from the database's strings in your language (English where a
+  language has none), a chip for its verification state (Verified, Layout
+  guessed, Flagged), and any open issue for this transport on this PC model
+  and kernel, with its title and text.
+- **A served record drives how a Direct pad decodes.** The gateway that first
+  enumerates a pad resolves its model once, at attach: the compiled tables
+  first, then the database row in force for its id, then the vendor
+  fallback. The model (family, button order, init kind, whether it goes
+  Direct by itself, a receiver's slots, extended buttons, Steam trackpads,
+  whether releasing it brings back a framework gamepad) is pinned on the
+  pad's record, and the capability solve, the claim, the read loop, the
+  output worker, the health judgement and the SDL path's effect builders all
+  read it, so a newer list applies at a pad's next attach and never under a
+  pad in use. A row that needs a family or op this build lacks leaves the
+  bundled row for its id in force; a `flagged` row gives way to a bundled one
+  too. The resolver is an immutable snapshot of the active and bundled
+  catalogs that the app swaps whole when the list changes.
+- **Hardware check at attach.** On the Direct path the record's `expect` is
+  compared with the claimed interface's endpoints as sysfs lists them, as
+  dish-android does, and each mismatch is a Diagnostics row and a line in the
+  diagnostics file.
+- **The pad's hardware in the file.** A Direct pad's `hardware` gains its
+  `bcdDevice`, every USB interface (number, alternate setting, class,
+  subclass, protocol) with its endpoints (address, type, packet size,
+  interval), parsed from sysfs's `descriptors`, and `descriptorSha256`, the
+  SHA-256 of those raw descriptors as the bus delivered them (the device
+  descriptor, then every configuration), which dish-android's
+  `getRawDescriptors()` gives byte for byte. Never its serial number.
+- **Capture this controller.** For a pad Dish reads directly, Report a
+  problem can capture it: the read loop keeps its next twenty input reports
+  with their arrival times, in slots fixed with the claim, then disarms
+  itself, and the file's `capture` (format `usb-descriptors-v1`) carries them
+  with the hex of the pad's 18-byte device descriptor and of every
+  configuration, its manufacturer and product strings by role
+  (`{ "manufacturer", "product" }`, never the serial number) and its report
+  descriptor (`source: os`: sysfs serves the kernel's copy, after the HID
+  driver's `report_fixup`). Only the capture of the controller the report
+  names enters the file.
+- **`usbHost` measured.** `device.usbHost` is `true` when Linux lists a root
+  hub `usbN` under `/sys/bus/usb/devices`, `false` when it lists none, `null`
+  when that directory cannot be read.
+- **"Last write" on a Direct controller's card**: the route, the report id,
+  whether the pad took it and the kernel's `errno` name when it did not,
+  recorded by the claim's output worker without a lock or an allocation.
+- **"Did it work?" after each rumble test** in the controller inspector. The
+  answer is kept per controller as `worked` or `didNotWork`, the last twenty,
+  for this run, and the last one shows on the inspector and the Diagnostics
+  card.
+- **A "Controller database" card on Diagnostics**: the bundled and active
+  versions, where the active one came from, the last check's time and
+  result, and "Check now".
+- **Report a problem and Ask a question.** The Diagnostics page's way to
+  support is now a report: pick what it is about (controller not recognised,
+  no rumble or feedback, connection or latency, audio, something else, or a
+  question), write what happened and what you expected, and name the
+  controller it concerns (an attached one is picked for you). The page says
+  in plain words what the file will hold and what it never holds, *Preview
+  file* shows the file itself, and *Continue in your mail app* writes
+  `dish-diagnostics-dish-linux-<yyyyMMdd-HHmmss>.json` (the fleet's
+  `dish-diagnostics.v1` shape) under `~/.local/share/TinkerNorth/Dish/diagnostics/`
+  and runs `xdg-email --attach <file> --subject <s> --body <b>
+  support@tinkernorth.com`, subject `Dish support: <category> · Dish for
+  Linux <version> on <PC model>` (the prefix stays English so the mailbox can
+  sort on it), your words first and the Diagnostics summary after, the file
+  attached; where `xdg-email` is missing or no mail app takes it, a `mailto:`
+  link opens and the file manager shows the folder. *Save diagnostics* writes
+  the same file without a report. Nothing is sent until you click Send.
+- **Both ends of every host in the file.** While the report page is open,
+  each live Satellite of 2.3.0 or later is asked for its own account of the
+  session (`GET /api/connections/{id}/diagnostics`, over the session's pinned
+  HTTPS and proof, two seconds at most) and the answer is embedded with that
+  host's name and address replaced by its alias wherever they appear. An
+  older Satellite, told by the version its capabilities reported, is not
+  asked: the file carries what Dish already fetched from it and says
+  `olderSatellite`; one that cannot answer says `offline`, `timeout`,
+  `unauthorized`, `unknownConnection` or `badReply`. A paired Moonlight host
+  is listed too, with the version its serverinfo gave. Every host also
+  carries Dish's own view of the session: each controller slot (record, type
+  asked for and applied, backend, apply result, touchpad mode), the last
+  heartbeat ack, the round-trip percentiles and how many messages of each
+  kind went each way.
+- **Every controller path, input and output.** Each controller in the file
+  carries its input frames, rate and last report, and per output lane
+  (rumble, light bar, player lights, trigger effects, mute lamp) how many
+  reached it, where they went (`directUsb`, `framework`, `none`) and the last
+  value with its time; its speaker and haptics streams' state; and for a
+  Bluetooth pad whether the link is classic or low energy, never its address:
+  classic when the kernel's HIDP made its HID device under an HCI connection,
+  and for a device BlueZ made through uhid, whichever HID service BlueZ's
+  `org.bluez.Device1.UUIDs` lists for the address in its `HID_UNIQ` (0x1124
+  classic, 0x1812 low energy, both or neither not known). BlueZ 5.73 and later
+  hand classic pads to uhid too, so uhid alone no longer means low energy.
+- **The PC's battery, power profile and thermal state** in the file: the
+  system battery from `/sys/class/power_supply`, power saving from
+  `/sys/firmware/acpi/platform_profile`, and `nominal` / `fair` / `serious` /
+  `critical` from the thermal zones' trip points. Wi-Fi facts are not read
+  (`tests/PARITY.md`).
+- The file never holds pairing keys, certificate fingerprints, IP addresses,
+  Bluetooth addresses, Wi-Fi names, the names of your PCs and devices or the
+  machine's host name: hosts appear as "Host 1", "Host 2", and the PC is
+  named by its firmware's model, or "Linux PC".
+
+### Changed
+
+- **PRIVACY.md** gains "Controller database updates" (2.5) and "Report a
+  problem" (2.6), which describes your own words in the report and the
+  Satellite connection snapshot, what each holds and never holds, the
+  question to BlueZ (asked on this PC, over the system D-Bus), the USB host
+  fact, the pad's descriptors and a controller you capture. The update check
+  is described as on by default everywhere but the Flatpak, where it starts
+  off, in the summary, in 2.1, in 2.4, in Settings and in the metainfo. Its
+  effective date moves to 2026-11-20.
+- **Direct by itself for the verified pads the list names.** The thirteen
+  third-party DualShock 4 pads dbVersion 1 marks verified with the rule
+  `auto` (Hori, Nacon, Razer and others) now go Direct without a pick and
+  decode as a DualShock 4; the 51 ids the list runs that the compiled tables
+  lack decode by their record's family, and `054c:05c5`, an imported record
+  with the rule `optIn`, waits for a pick where the Sony fast lane claimed it
+  before. `packaging/udev/70-dish-hidraw.rules` grants the 47 of those ids no
+  vendor line already covered, and a test holds the rules to every bundled
+  record the Direct path runs.
+
+### Notes
+
+- The compiled Direct tables (`kKnownModels`, the fast-lane vendors) stay, and
+  a test requires every row to match its database record; they answer first,
+  and a served row only adds an id they lack.
+- Hot path: the session counts each message kind it sends and receives, and
+  the router counts each pad's output lanes, with relaxed atomics only; no
+  thread on the input, USB, receive or mic path takes a new lock. A Direct
+  pad's read loop now loads one word per report that holds both its running
+  flag and the capture's armed flag (relaxed, where it was a sequentially
+  consistent load of the running flag alone), and a report is copied only
+  while a capture is armed. The SDL path's effect builders read the family
+  pinned at attach instead of looking it up per output command. A pad's
+  model is resolved at attach only: on the SDL thread that is one acquire
+  load of the resolver's snapshot pointer, no lock.
+- No wire change. The snapshot route is a new REST call to Satellite 2.3.0.
+- Hand port of dish-windows#138.
+
 ## [2.7.1] - 2026-11-19
 
 ### Fixed

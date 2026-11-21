@@ -382,6 +382,7 @@ void MoonlightManager::onPlainServerInfo(const QString& uuid, const ProbeTarget&
         finishProbe(uuid);
         return;
     }
+    result.appVersion = QString::fromStdString(info->appVersion);
     result.identityChanged =
         moonlight::hostIdentityChanged(target.rememberedUuid.toStdString(), info->uuid);
     if (!target.remembered || result.identityChanged) {
@@ -421,6 +422,12 @@ void MoonlightManager::onTlsServerInfo(const QString& uuid, const QString& addre
     qCInfo(lcMoon) << "probe of" << address << "over TLS: paired" << verdict.paired << "HTTP"
                    << status;
     finishProbe(uuid);
+}
+
+QString MoonlightManager::serverAppVersion(const QString& uuid) const {
+    const auto it = probes_.constFind(uuid);
+    if (it == probes_.constEnd()) { return {}; }
+    return it->appVersion;
 }
 
 // PLAINTEXT FIRST, for reachability and identity only. Its PairStatus is not an answer about

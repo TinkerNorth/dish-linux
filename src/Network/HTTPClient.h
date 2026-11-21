@@ -51,6 +51,9 @@ class HTTPClient : public QObject {
     using AckCb = std::function<void(int httpStatus, bool reachable, const QString& code)>;
     // A pairing reply, with the mismatch beside it for the same reason as SessionCb's.
     using PairCb = std::function<void(const models::PairResponse&, bool pinMismatch)>;
+    // A body handed over undecoded: the status (0 when nothing answered), whether the request's
+    // own deadline passed first, and the bytes.
+    using RawCb = std::function<void(int httpStatus, bool timedOut, const QByteArray& body)>;
 
     // Declarative upsert: `controllers` must be the WHOLE desired set, not a
     // delta. `mouseControl` is always false today (no touchpad-mouse UI) but the
@@ -99,6 +102,14 @@ class HTTPClient : public QObject {
     void unpair(const QString& ip, int port, const QString& deviceId, const QString& hmacProof,
                 AckCb cb);
 
+    // GET /api/connections/{id}/diagnostics — the session's own snapshot for the support report
+    // (Satellite 2.3.0 and later; an older one answers 404), within `timeoutMs` rather than the
+    // control plane's five seconds, over the same pin gate and proof headers as the session
+    // routes.
+    void getConnectionDiagnostics(const QString& ip, int port, const QString& connectionId,
+                                  const QString& deviceId, const QString& hmacProof, int timeoutMs,
+                                  RawCb cb);
+
     // GET /api/server/capabilities — unauthenticated backend health.
     void getCapabilities(const QString& ip, int port, CapabilitiesCb cb);
 
@@ -124,7 +135,10 @@ class HTTPClient : public QObject {
 
     void perform(const QString& url, const QByteArray& method, const QByteArray& body,
                  const QString& deviceId, const QString& hmacProof, const QString& acceptLanguage,
-                 const QString& ifNoneMatch, std::function<void(const RawReply&)> done);
+                 const QString& ifNoneMatch, std::function<void(const RawReply&)> done,
+                 int timeoutMs = kTimeoutMs);
+
+    static constexpr int kTimeoutMs = 5000;
 
     PinVerifier pinVerifier_;
 };

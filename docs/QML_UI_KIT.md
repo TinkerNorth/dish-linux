@@ -95,6 +95,7 @@ meaning anything.
 | `RadioMark` | `Rectangle` | `selected`. The selection mark inside `SelectRow` and `OptionCard`. |
 | `SliderRow` | `ColumnLayout` | `label`, `value`, `minValue`, `maxValue`, `valueText`, read-only `displayValue`, `moved(int)` **and** `committed(int)`. Push live on `moved`, persist on `committed`. The readout defaults to a percentage; format `displayValue` into `valueText` for any other unit, because a drag breaks the inbound `value` binding. |
 | `KitTextField` | `TextField` | Plus `hasError` and `errorText`: an error message beneath the field, and an `Accessible.description`. |
+| `KitTextArea` | `TextArea` | KitTextField's multi-line sibling: the same frame and focus ring, word wrap, three lines tall at rest and growing with its text. The support report's own words. |
 | `StatusDot` | `Rectangle` | `token` → `"success"` / `"warning"` / `"primary"` / `"error"` / `"muted"`. 10 px with a 1 px darker ring: at 8 px flat, success and warning are a coin flip for a low-vision user, and the ring gives the dot an edge independent of its fill. Never drawn without its chip. |
 | `CapabilityChip` | `Rectangle` | `text`, `tone ∈ Present \| Absent \| Low \| Ok \| Warn \| Neutral`. Always renders: an absent capability is drawn, never hidden. |
 | `Eyebrow` | `Text` | `mutedTone`. The mono, tracked, uppercase micro-label. |

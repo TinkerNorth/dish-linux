@@ -270,6 +270,21 @@ set(DISH_TEST_SOURCES
     test_diagnostics_log.cpp
     test_diagnostics_recorder.cpp
     test_diagnostics_maps.cpp
+    # The controller database and diagnostics at every level.
+    test_controller_db_core.cpp
+    test_pad_model.cpp
+    test_usb_hardware.cpp
+    test_usb_served_models.cpp
+    test_controller_db_json.cpp
+    test_controller_db_bundled.cpp
+    test_controller_db_fetch.cpp
+    test_controller_record_rows.cpp
+    test_diagnostics_levels.cpp
+    test_diagnostics_bundle.cpp
+    test_diagnostics_handoff.cpp
+    # The support report: the report, both ends of each host, every path.
+    test_support_report.cpp
+    test_connection_snapshot_gateway.cpp
     test_feedback_bench.cpp)
 
 add_executable(DishTests ${DISH_TEST_SOURCES})
@@ -286,6 +301,12 @@ target_include_directories(DishTests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../tool
 # DishTests links — so the test reads the source file by absolute path instead.
 target_compile_definitions(DishTests PRIVATE
     DISH_LICENSES_JSON_PATH="${CMAKE_CURRENT_SOURCE_DIR}/../assets/licenses/licenses.json")
+
+# The bundled controller database is a resource of dish_core too, and test_controller_db_bundled
+# reads it both ways: through :/controllers/v1, and from the vendored folder the resource is built
+# from, which a tampering case copies and edits.
+target_compile_definitions(DishTests PRIVATE
+    DISH_CONTROLLER_DB_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../assets/controllers/v1")
 
 # tests/MoonlightFakeHost.h stands up a real ENet listener, so a session can be
 # driven all the way to Streaming and the requests it does or does not make are

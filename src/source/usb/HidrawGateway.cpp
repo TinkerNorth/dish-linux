@@ -5,6 +5,7 @@
 
 #include "core/input/UsbOutputReports.h"
 #include "source/system/ThreadPriority.h"
+#include "source/usb/UsbSysfs.h"
 
 #include <linux/hidraw.h>
 #include <linux/input.h>
@@ -21,6 +22,7 @@
 #include <charconv>
 #include <cstdio>
 #include <cstring>
+#include <filesystem>
 #include <fstream>
 #include <iterator>
 #include <optional>
@@ -38,14 +40,6 @@ constexpr std::uint32_t kBusUsb = BUS_USB;
 // here. The VID is skipped anyway so a Microsoft HID peripheral that does
 // publish a gamepad collection is never fought over.
 constexpr int kVidMicrosoft = 0x045E;
-
-// Fast-lane vendors worth auto-claiming Direct: Sony, Nintendo, 8BitDo. Models
-// from the known-model table (PDP Switch pads, the Steam Controller) are
-// reached only through an explicit Direct pick — the Steam Controller claim
-// reconfigures a device its owner may be using as a desktop mouse.
-constexpr int kVidSony = 0x054C;
-constexpr int kVidNintendo = 0x057E;
-constexpr int kVid8BitDo = 0x2DC8;
 
 // Long enough that an idle pad costs almost nothing, short enough that a
 // release observes running=false promptly.
@@ -122,9 +116,25 @@ int interfaceNumberOf(const std::string& hidrawName) {
 
 // Whether the node carries a pad: every node does but a Steam Controller receiver's keyboard,
 // comms and pogo-pin interfaces, whose pads ride its slots only.
-bool nodeCarriesPad(const std::string& hidrawName, int vendorId, int productId) {
-    if (!input::usbparse::isReceiver(vendorId, productId)) { return true; }
-    return input::usbparse::interfaceCarriesPad(vendorId, productId, interfaceNumberOf(hidrawName));
+bool nodeCarriesPad(const std::string& hidrawName, const dish::controllerdb::PadModel& model) {
+    if (!model.isReceiver()) { return true; }
+    return model.receiverSlots().holds(interfaceNumberOf(hidrawName));
+}
+
+// The kernel's name for the node's HID device, 0003:054C:0CE6.0007: its sequence number is new
+// each time the kernel adds the device, so it names one attach. The node's own name stands in
+// where sysfs has no link to read.
+std::string attachNameOf(const std::string& hidrawName) {
+    std::error_code error;
+    const std::filesystem::path device =
+        std::filesystem::canonical("/sys/class/hidraw/" + hidrawName + "/device", error);
+    if (error) { return hidrawName; }
+    return device.filename().string();
+}
+
+// The USB device directory a node belongs to: every interface of a device sits under it.
+std::string usbDeviceDirOf(const std::string& hidrawName) {
+    return "/sys/class/hidraw/" + hidrawName + "/device/../..";
 }
 
 // The USB device a hidraw node belongs to, by its bus and the chain of ports it is plugged into
@@ -150,12 +160,14 @@ void readEndpointInfo(const std::string& ifaceDir, UsbDeviceInfo& info) {
     if (ifaceDir.empty()) { return; }
     DIR* dir = ::opendir(ifaceDir.c_str());
     if (dir == nullptr) { return; }
+    info.endpointsRead = true;
     while (dirent* entry = ::readdir(dir)) {
         const std::string name = entry->d_name;
         if (name.rfind("ep_", 0) != 0) { continue; }
         const auto addr = parseHex(name.substr(3));
         if (!addr) { continue; }
         if ((*addr & 0x80) != 0) {
+            info.endpointInAddress = *addr;
             std::string endpointDir = ifaceDir;
             endpointDir += "/";
             endpointDir += name;
@@ -166,6 +178,7 @@ void readEndpointInfo(const std::string& ifaceDir, UsbDeviceInfo& info) {
             if (const auto iv = parseHex(interval)) { info.endpointInInterval = *iv; }
         } else {
             info.hasOutEndpoint = true;
+            info.endpointOutAddress = *addr;
         }
     }
     ::closedir(dir);
@@ -209,6 +222,8 @@ std::vector<std::string> hidrawNodes() {
 struct ProbedNode {
     std::string node;
     std::string name;
+    std::string product;
+    std::string manufacturer;
     int vendorId = 0;
     int productId = 0;
     std::vector<std::uint8_t> descriptor;
@@ -240,7 +255,9 @@ std::optional<ProbedNode> probe(const std::string& hidrawName) {
     // and the longer string is contained in no endpoint name. It stays as the
     // fallback (the same hid->name string HIDIOCGRAWNAME copies out) for a
     // device with no readable product string.
-    probed.name = readSysfsLine(sysDir + "/../../product");
+    probed.product = readSysfsLine(sysDir + "/../../product");
+    probed.manufacturer = readSysfsLine(sysDir + "/../../manufacturer");
+    probed.name = probed.product;
     if (probed.name.empty()) { probed.name = detail::ueventValue(uevent, "HID_NAME"); }
     probed.vendorId = static_cast<std::uint16_t>(ids->vendorId);
     probed.productId = static_cast<std::uint16_t>(ids->productId);
@@ -336,48 +353,77 @@ HidrawGateway::~HidrawGateway() {
     }
 }
 
-bool HidrawGateway::isKnownFastLaneModel(int vendorId, int /*productId*/) const {
-    return vendorId == kVidSony || vendorId == kVidNintendo || vendorId == kVid8BitDo;
+namespace {
+
+// One admitted node as the scan hands it up, with what its attach pinned.
+UsbDeviceInfo deviceInfoOf(const std::string& hidrawName, const ProbedNode& probed,
+                           const dish::controllerdb::PadModel& model,
+                           const diagnostics::UsbHardwareFacts& hardware) {
+    UsbDeviceInfo info;
+    info.vendorId = probed.vendorId;
+    info.productId = probed.productId;
+    if (model.compiledName != nullptr) {
+        info.name = model.compiledName;
+    } else {
+        info.name = probed.name.empty() ? probed.node : probed.name;
+    }
+    const std::string ifaceDir = usbInterfaceDir(hidrawName);
+    if (const auto num = parseHex(readSysfsLine(ifaceDir + "/bInterfaceNumber"))) {
+        info.interfaceNumber = *num;
+    }
+    readEndpointInfo(ifaceDir, info);
+    info.product = probed.product;
+    info.manufacturer = probed.manufacturer;
+    info.model = model;
+    info.hardware = hardware;
+    info.hasImu = input::usbparse::parserHasImu(model.parser);
+    info.devicePath = usbDeviceOf(hidrawName);
+    return info;
 }
 
+} // namespace
+
+const diagnostics::UsbHardwareFacts&
+HidrawGateway::hardwareFor(const std::string& attach, const std::string& hidrawName,
+                           const std::vector<std::uint8_t>& descriptor) {
+    const auto read = hardware_.find(attach);
+    if (read != hardware_.end()) { return read->second; }
+    diagnostics::UsbHardwareFacts facts =
+        readUsbHardware(usbDeviceDirOf(hidrawName), interfaceNumberOf(hidrawName), descriptor);
+    return hardware_.emplace(attach, std::move(facts)).first->second;
+}
+
+// Each node's model is the one its attach pinned: a database that lands while a pad stays
+// changes neither its admission nor anything decided about it after, until it comes back.
 std::vector<UsbDeviceInfo> HidrawGateway::enumerate() {
     std::vector<UsbDeviceInfo> out;
+    std::vector<std::string> seen;
     for (const std::string& hidrawName : hidrawNodes()) {
         const auto probed = probe(hidrawName);
         if (!probed) { continue; }
         if (probed->vendorId == kVidMicrosoft) { continue; }
-
-        const auto parser = input::usbparse::parserForDevice(probed->vendorId, probed->productId);
-        if (!detail::admitsParser(probed->descriptor.data(), probed->descriptor.size(), parser)) {
+        const std::string attach = attachNameOf(hidrawName);
+        seen.push_back(attach);
+        const dish::controllerdb::PadModel& model =
+            pins_.pinFor(attach, probed->vendorId, probed->productId, resolver_);
+        if (!detail::admitsParser(probed->descriptor.data(), probed->descriptor.size(),
+                                  model.parser)) {
             continue;
         }
-        if (!nodeCarriesPad(hidrawName, probed->vendorId, probed->productId)) { continue; }
-
-        UsbDeviceInfo info;
-        info.vendorId = probed->vendorId;
-        info.productId = probed->productId;
-        const auto* model = input::usbparse::lookupKnownModel(info.vendorId, info.productId);
-        if (model != nullptr) {
-            info.name = model->name;
-        } else {
-            info.name = probed->name.empty() ? probed->node : probed->name;
-        }
-
-        const std::string ifaceDir = usbInterfaceDir(hidrawName);
-        if (const auto num = parseHex(readSysfsLine(ifaceDir + "/bInterfaceNumber"))) {
-            info.interfaceNumber = *num;
-        }
-        readEndpointInfo(ifaceDir, info);
-        info.hasImu = input::usbparse::parserHasImu(parser);
-        info.devicePath = usbDeviceOf(hidrawName);
-        out.push_back(std::move(info));
+        if (!nodeCarriesPad(hidrawName, model)) { continue; }
+        out.push_back(deviceInfoOf(hidrawName, *probed, model,
+                                   hardwareFor(attach, hidrawName, probed->descriptor)));
     }
+    pins_.keepOnly(seen);
+    std::erase_if(hardware_, [&seen](const auto& entry) {
+        return std::find(seen.begin(), seen.end(), entry.first) == seen.end();
+    });
     return out;
 }
 
 ClaimResult HidrawGateway::claim(const UsbDeviceInfo& device,
                                  std::function<void(const UsbReport&)> onReport) {
-    const auto parser = input::usbparse::parserForDevice(device.vendorId, device.productId);
+    const auto parser = device.model.parser;
 
     // enumerate() returned descriptors, not handles, so the claim re-finds the
     // node by VID:PID and device and owns the open. A model can expose several collections
@@ -425,7 +471,7 @@ ClaimResult HidrawGateway::claim(const UsbDeviceInfo& device,
     // SDL's InitDevice and hid-steam's probe start a receiver; the answer is its
     // controller's connect or disconnect event, on the read loop.
     const bool isSteam2015 = parser == input::usbparse::HidParser::SteamController;
-    const bool receiverSlot = input::usbparse::isReceiver(device.vendorId, device.productId);
+    const bool receiverSlot = device.model.isReceiver();
     auto claimed = std::make_unique<Claimed>();
     if (isSteam2015 && receiverSlot) {
         FdReportWriter writer(fd, &claimed->writeMtx);
@@ -455,12 +501,11 @@ ClaimResult HidrawGateway::claim(const UsbDeviceInfo& device,
         // wherever the collection declares real usages; the guess stays as the
         // fallback for a descriptor we cannot parse.
         input::usbhid::parseReportDescriptor(descriptor.data(), descriptor.size(), claimed->layout);
-        // From the model catalog, not the descriptor, which the parse above just
-        // reset to the western order.
-        claimed->layout.order =
-            input::usbparse::buttonOrderForDevice(device.vendorId, device.productId);
+        // From the pinned model, not the descriptor, which the parse above just reset to the
+        // western order.
+        claimed->layout.order = device.model.order;
     }
-    claimed->running.store(true);
+    claimed->loop.start();
     Claimed* raw = claimed.get();
     {
         std::lock_guard<thread::TrackedMutex> lock(mtx_);
@@ -524,7 +569,8 @@ bool HidrawGateway::setTrackpadPick(int syntheticId, input::usbparse::TrackpadPi
 
 // Plain C++ on its own thread, no Qt and no allocation per report: the read buffer and the
 // ParsedReport scratch live on this stack and are reused every iteration, and the decoders are
-// pure functions over them that mutate the device's stick auto-range state in place.
+// pure functions over them that mutate the device's stick auto-range state in place. The loop's
+// word is loaded once per report; a capture armed while the read waited keeps the next one.
 void HidrawGateway::readLoop(Claimed* c) {
     const thread::ScopedThreadRole role(thread::ThreadRole::UsbReader);
     if (priority_ != nullptr) { priority_->request(thread::ThreadRole::UsbReader); }
@@ -533,7 +579,9 @@ void HidrawGateway::readLoop(Claimed* c) {
     pfd.fd = c->fd;
     pfd.events = POLLIN;
 
-    while (c->running.load()) {
+    for (;;) {
+        const std::uint8_t word = c->loop.load();
+        if (!diagnostics::ReadLoopWord::running(word)) { break; }
         std::size_t len = 0;
         const ReadOutcome outcome = readOneReport(pfd, buf, len);
         if (outcome == ReadOutcome::Stop) { break; }
@@ -541,6 +589,9 @@ void HidrawGateway::readLoop(Claimed* c) {
         c->completions.fetch_add(1);
 
         const std::uint8_t* data = buf.data();
+        if (diagnostics::ReadLoopWord::capturing(word)) {
+            c->capture.offer(c->loop, data, len, diagnostics::captureClockMs());
+        }
         if (input::usbparse::parserHasWirelessEvents(c->parser) &&
             handleSteamWirelessEvent(c, data, len)) {
             continue;
@@ -569,7 +620,7 @@ void HidrawGateway::releaseClaim(int syntheticId) {
         claimed = std::move(it->second);
         claimed_.erase(it);
     }
-    claimed->running.store(false);
+    claimed->loop.stop();
     if (claimed->reader.joinable()) { claimed->reader.join(); }
     // The settings the pad held of ours came off it when the manager stopped the claim's output
     // worker, before this; nothing is written to the pad here.
@@ -577,6 +628,20 @@ void HidrawGateway::releaseClaim(int syntheticId) {
         ::close(claimed->fd);
         claimed->fd = -1;
     }
+}
+
+bool HidrawGateway::armCapture(int syntheticId) {
+    std::lock_guard<thread::TrackedMutex> lock(mtx_);
+    const auto it = claimed_.find(syntheticId);
+    if (it == claimed_.end()) { return false; }
+    return it->second->capture.arm(it->second->loop);
+}
+
+std::vector<diagnostics::CapturedReport> HidrawGateway::capturedReports(int syntheticId) const {
+    std::lock_guard<thread::TrackedMutex> lock(mtx_);
+    const auto it = claimed_.find(syntheticId);
+    if (it == claimed_.end()) { return {}; }
+    return it->second->capture.kept();
 }
 
 bool HidrawGateway::isClaimAlive(int syntheticId) const {

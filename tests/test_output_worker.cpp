@@ -8,6 +8,7 @@
 #include "source/usb/HidReportWriter.h"
 #include "source/usb/OutputWorker.h"
 
+#include "core/diagnostics/WriteVerdict.h"
 #include "core/input/UsbReportParsers.h"
 #include "core/thread/TrackedMutex.h"
 
@@ -22,6 +23,7 @@
 #include <cstdint>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <thread>
 #include <vector>
 
@@ -509,4 +511,95 @@ TEST_CASE("the fd writer reports a feature write the node refuses", "[output-wor
     CHECK(writer.writeFeature(nullptr, report.size()) == FeatureWrite::Refused);
     FdReportWriter closed(-1, &writeMtx);
     CHECK(closed.writeFeature(report.data(), report.size()) == FeatureWrite::Refused);
+}
+
+TEST_CASE("the fd writer keeps the errno of the write that failed", "[output-worker][hid]") {
+    PipePad pipe;
+    dish::thread::TrackedMutex writeMtx{"hid.write"};
+    const std::array<std::uint8_t, 3> report{0x05, 0x11, 0x22};
+    // The pipe's read end takes no write, the way a node opened for reading would not.
+    FdReportWriter readOnly(pipe.pad(), &writeMtx);
+    CHECK_FALSE(readOnly.write(report.data(), report.size()));
+    CHECK(readOnly.lastError() == static_cast<std::uint32_t>(EBADF));
+    SECTION("a feature report the node is no hidraw for") {
+        FdReportWriter writer(pipe.node(), &writeMtx);
+        CHECK(writer.writeFeature(report.data(), report.size()) == FeatureWrite::Refused);
+        CHECK(writer.lastError() == static_cast<std::uint32_t>(ENOTTY));
+        SECTION("a write that goes clears it") {
+            CHECK(writer.write(report.data(), report.size()));
+            CHECK(writer.lastError() == 0U);
+        }
+    }
+    SECTION("a call refused before the kernel saw it has no code") {
+        CHECK_FALSE(readOnly.write(nullptr, report.size()));
+        CHECK(readOnly.lastError() == 0U);
+    }
+}
+
+namespace {
+
+// A pad that refuses every report the way an unplugged one does.
+class RefusingWriter final : public HidReportWriter {
+  public:
+    bool write(const std::uint8_t* /*data*/, std::size_t /*len*/) override { return false; }
+    std::uint32_t lastError() const override { return kDeviceGone; }
+
+    static constexpr std::uint32_t kDeviceGone = ENODEV;
+};
+
+std::optional<dish::diagnostics::WriteVerdict> waitForVerdict(const OutputWorker& worker) {
+    const auto deadline = std::chrono::steady_clock::now() + 3s;
+    while (std::chrono::steady_clock::now() < deadline) {
+        if (const auto verdict = worker.lastWrite()) { return verdict; }
+        std::this_thread::sleep_for(1ms);
+    }
+    return std::nullopt;
+}
+
+} // namespace
+
+TEST_CASE("a worker that has written nothing has no verdict", "[output-worker][diagnostics]") {
+    SlowPad pad;
+    OutputWorker worker(std::make_unique<SlowWriter>(pad), HidParser::DualSense);
+    CHECK_FALSE(worker.lastWrite().has_value());
+    worker.stop();
+}
+
+TEST_CASE("the last write's verdict names its route, report id and outcome",
+          "[output-worker][diagnostics]") {
+    SlowPad pad;
+    OutputWorker worker(std::make_unique<SlowWriter>(pad), HidParser::DualSense);
+    worker.postRumble(0x4000, 0);
+    REQUIRE(waitFor(pad, 1));
+    const auto verdict = waitForVerdict(worker);
+    REQUIRE(verdict.has_value());
+    CHECK(verdict->route == dish::diagnostics::WriteRoute::InterruptOut);
+    CHECK(verdict->reportId == pad.got().front()[0]);
+    CHECK(verdict->ok);
+    CHECK(verdict->osError == 0U);
+    CHECK(verdict->atMs > 0);
+    worker.stop();
+}
+
+TEST_CASE("a refused write keeps the kernel's errno", "[output-worker][diagnostics]") {
+    OutputWorker worker(std::make_unique<RefusingWriter>(), HidParser::DualSense);
+    worker.postRumble(0x4000, 0);
+    const auto verdict = waitForVerdict(worker);
+    REQUIRE(verdict.has_value());
+    CHECK_FALSE(verdict->ok);
+    CHECK(verdict->osError == RefusingWriter::kDeviceGone);
+    CHECK(dish::diagnostics::osErrorName(verdict->osError) == "ENODEV");
+    CHECK(worker.failedWrites() >= 1U);
+    worker.abandon();
+}
+
+TEST_CASE("a feature write's verdict is a SET_REPORT", "[output-worker][diagnostics]") {
+    SlowPad pad;
+    OutputWorker worker(std::make_unique<SlowWriter>(pad), HidParser::SteamTriton);
+    REQUIRE(waitForFeatures(pad, 1));
+    const auto verdict = waitForVerdict(worker);
+    REQUIRE(verdict.has_value());
+    CHECK(verdict->route == dish::diagnostics::WriteRoute::SetReport);
+    CHECK(verdict->ok);
+    worker.stop();
 }

@@ -34,6 +34,7 @@
 #include "source/usb/UsbGamepadManager.h"
 
 #include "FakeAudioGateway.h"
+#include "PinnedModels.h"
 #include "FakePairingListener.h"
 #include "QSettingsFixture.h"
 
@@ -358,7 +359,7 @@ class FakeDualSenseGateway : public source::usb::UsbDeviceGateway {
         d.name = "DualSense Wireless Controller";
         d.hasOutEndpoint = true;
         d.hasImu = true;
-        return {d};
+        return dish::test::pinnedWithoutDatabase({d}, true);
     }
 
     source::usb::ClaimResult
@@ -369,7 +370,6 @@ class FakeDualSenseGateway : public source::usb::UsbDeviceGateway {
     }
 
     void releaseClaim(int /*syntheticId*/) override {}
-    bool isKnownFastLaneModel(int /*vendorId*/, int /*productId*/) const override { return true; }
     bool isClaimAlive(int /*syntheticId*/) const override { return true; }
     std::int64_t completionCount(int /*syntheticId*/) const override { return 0; }
     std::int64_t decodedCount(int /*syntheticId*/) const override { return 0; }

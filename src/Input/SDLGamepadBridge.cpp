@@ -85,7 +85,22 @@ QString padIdentity(SDL_Joystick* js) {
     return out;
 }
 
+// The node and who made its HID device, read once at attach. The node stays in this process.
+void noteBluetoothOrigin(SDLGamepadBridge::Device& d, const char* devPath) {
+    if (devPath == nullptr) { return; }
+    d.hidNode = devPath;
+    d.bluetoothOrigin = dish::input::bluetoothOriginOfHidPath(devPath);
+}
+
 } // namespace
+
+// The family a pad's USB identity resolves to through the database in force when it attaches.
+usbparse::HidParser SDLGamepadBridge::resolvedFamily(int vendorId, int productId) const {
+    if (resolver_ == nullptr) {
+        return controllerdb::modelWithoutDatabase(vendorId, productId).parser;
+    }
+    return resolver_->resolve(vendorId, productId).parser;
+}
 
 SDLGamepadBridge::SDLGamepadBridge(GamepadInputProcessor* processor, QObject* parent)
     : QObject(parent), processor_(processor) {}
@@ -252,6 +267,8 @@ void SDLGamepadBridge::onControllerAdded(const SDL_Event& ev) {
     // not-Bluetooth, which fails safe to the wired presentation.
     const char* devPath = SDL_GameControllerPath(gc);
     d.bluetooth = devPath != nullptr && dish::input::isBluetoothHidDevicePath(devPath);
+    noteBluetoothOrigin(d, devPath);
+    d.parser = resolvedFamily(d.vendorId, d.productId);
     d.identity = padIdentity(js);
     pad->shadow.seed(gc);
 
@@ -309,6 +326,8 @@ void SDLGamepadBridge::onJoystickAdded(const SDL_Event& ev) {
     d.productId = SDL_JoystickGetProduct(js);
     const char* devPath = SDL_JoystickPath(js);
     d.bluetooth = devPath != nullptr && dish::input::isBluetoothHidDevicePath(devPath);
+    noteBluetoothOrigin(d, devPath);
+    d.parser = resolvedFamily(d.vendorId, d.productId);
     d.hasRumble = SDL_JoystickHasRumble(js) == SDL_TRUE;
     d.isRawJoystick = true;
     d.identity = padIdentity(js);
@@ -691,10 +710,10 @@ void SDLGamepadBridge::applyOutput(Pad& pad, const OutputMailbox::Taken& taken) 
         SDL_GameControllerRumble(pad.gc, s.strong, s.weak, s.durationMs);
     }
     if ((taken.kinds & output::kLightbar) != 0) { SDL_GameControllerSetLED(pad.gc, s.r, s.g, s.b); }
-    // The family from the pad's USB identity, which a Bluetooth pad reports too. The builders
-    // answer 0 for any family without the surface, and the router only sends a DualSense here.
-    const usbparse::HidParser parser =
-        usbparse::parserForDevice(pad.device.vendorId, pad.device.productId);
+    // The family pinned at attach from the pad's USB identity, which a Bluetooth pad reports too.
+    // The builders answer 0 for any family without the surface, and the router only sends a
+    // DualSense here.
+    const usbparse::HidParser parser = pad.device.parser;
     std::array<std::uint8_t, usbout::kMaxOutputReportBytes> report{};
     if ((taken.kinds & output::kTriggerEffects) != 0) {
         sendEffect(pad,

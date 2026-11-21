@@ -5,6 +5,7 @@
 
 #include "core/thread/TrackedMutex.h"
 
+#include <chrono>
 #include <optional>
 #include <utility>
 
@@ -131,11 +132,41 @@ void OutputWorker::countWrite(bool wrote) {
 }
 
 void OutputWorker::writeReport(const std::uint8_t* report, std::size_t n) {
-    countWrite(n != 0 && writer_->write(report, n));
+    if (n == 0) {
+        countWrite(false);
+        return;
+    }
+    const bool wrote = writer_->write(report, n);
+    countWrite(wrote);
+    recordVerdict(diagnostics::WriteRoute::InterruptOut, report, n, wrote);
 }
 
 void OutputWorker::writeFeatureReport(const std::uint8_t* report, std::size_t n) {
-    countWrite(n != 0 && writer_->writeFeature(report, n) == FeatureWrite::Taken);
+    if (n == 0) {
+        countWrite(false);
+        return;
+    }
+    const bool wrote = writer_->writeFeature(report, n) == FeatureWrite::Taken;
+    countWrite(wrote);
+    recordVerdict(diagnostics::WriteRoute::SetReport, report, n, wrote);
+}
+
+void OutputWorker::recordVerdict(diagnostics::WriteRoute route, const std::uint8_t* report,
+                                 std::size_t n, bool ok) {
+    const auto now = std::chrono::system_clock::now().time_since_epoch();
+    const auto atMs = std::chrono::duration_cast<std::chrono::milliseconds>(now).count();
+    const diagnostics::WriteVerdict verdict =
+        diagnostics::verdictOf(route, report, n, ok, writer_->lastError(), atMs);
+    verdictLock_.beginWrite();
+    verdict_.store(verdict);
+    verdictLock_.endWrite();
+}
+
+std::optional<diagnostics::WriteVerdict> OutputWorker::lastWrite() const {
+    diagnostics::WriteVerdict copy{};
+    const bool whole = verdictLock_.read([this, &copy] { copy = verdict_.load(); });
+    if (!whole || !copy.written) { return std::nullopt; }
+    return copy;
 }
 
 // A rumble write, the host's or the cadence's repeat of it, starts the pad's repeat clock over.
@@ -212,6 +243,7 @@ OutputWorker::ConfigWrite OutputWorker::writeConfig(input::usbparse::SteamConfig
         }
         const bool took = writeFeatureWithRetry(*writer_, report.data(), n, attempts);
         countWrite(took);
+        recordVerdict(diagnostics::WriteRoute::SetReport, report.data(), n, took);
         if (!took) { return outcome; }
         ++outcome.taken;
     }

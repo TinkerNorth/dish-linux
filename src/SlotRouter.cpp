@@ -9,6 +9,7 @@
 #include "Network/ConnectionHub.h"
 #include "Network/WifiConnection.h"
 #include "Network/WifiConnectionManager.h"
+#include "core/controllerdb/PadModel.h"
 #include "core/input/UsbOutputReports.h"
 #include "core/reducer/BindingPresence.h"
 #include "core/reducer/DirectPadKey.h"
@@ -72,17 +73,22 @@ const SlotRouter::MicRoute* SlotRouter::RouteTable::micFor(const std::string& sl
     return nullptr;
 }
 
-// A synthetic id packs its own (vid, pid), so the parser family IS the hardware truth for what the
-// claim decodes: no device list is consulted.
-SlotRouter::SlotHardware SlotRouter::syntheticHardware(int vendorId, int productId) {
-    const auto parser = input::usbparse::parserForDevice(vendorId, productId);
+// The model the pad's attach pinned is the hardware truth for what its claim decodes, the same one
+// the claim, its read loop and its output worker read. A pad the manager does not track answers
+// from the compiled tables, the model an attach with no database pins.
+SlotRouter::SlotHardware SlotRouter::syntheticHardware(const reducer::DirectPadKey& pad) const {
+    const std::optional<controllerdb::PadModel> pinned =
+        deps_.usbManager != nullptr ? deps_.usbManager->modelFor(pad) : std::nullopt;
+    const controllerdb::PadModel model =
+        pinned.value_or(controllerdb::modelWithoutDatabase(pad.vendorId, pad.productId));
+    const auto parser = model.parser;
     SlotHardware hw;
     hw.usbDirect = true;
     hw.hasMotion = input::usbparse::parserHasImu(parser);
     hw.hasTouchpad = input::usbparse::parserHasTouchpad(parser);
     hw.hasRumble = input::usbparse::parserHasRumble(parser);
-    hw.hasExtendedButtons = input::usbparse::modelHasExtendedButtons(vendorId, productId);
-    hw.steamTrackpads = input::usbparse::modelSteamTrackpads(vendorId, productId);
+    hw.hasExtendedButtons = model.extendedButtons;
+    hw.steamTrackpads = model.steamTrackpads;
     // The Direct path has an OUT report path, so a claimed pad answers for its real actuators.
     // Whether it can drive them right now is the router's call (the claim has to be live).
     hw.hasLightbar = input::usbout::parserHasLightbar(parser);
@@ -101,7 +107,8 @@ SlotRouter::SlotHardware SlotRouter::sdlHardware(const QString& slotId) const {
         hw.hasTouchpad = d.hasTouchpad;
         hw.hasRumble = d.hasRumble;
         hw.hasExtendedButtons = d.hasExtendedButtons;
-        const auto parser = input::usbparse::parserForDevice(d.vendorId, d.productId);
+        // The family the bridge pinned at the pad's attach, which its effect builders read too.
+        const auto parser = d.parser;
         applyOutputActuators(hw, parser);
         // SDL_GameControllerSendEffect lands only in SDL's own HIDAPI drivers; XInput, DirectInput
         // and evdev refuse it. SDL names no driver, but it reports a DualSense's lightbar only from
@@ -119,7 +126,7 @@ SlotRouter::SlotHardware SlotRouter::slotHardware(const QString& slotId) const {
     // The synthetic id is checked first because it can never collide with an "sdl:N" id.
     const auto pad = reducer::parseDirectSlotId(slotId.toStdString());
     if (pad.has_value() && reducer::isPadIdentity(std::make_pair(pad->vendorId, pad->productId))) {
-        return syntheticHardware(pad->vendorId, pad->productId);
+        return syntheticHardware(*pad);
     }
     return sdlHardware(slotId);
 }
@@ -199,7 +206,30 @@ SlotRouter::FeedbackRoute SlotRouter::liveRoute(const QString& slotId) const {
     }
     route.padIndex = deps_.processor->find(slotId.toStdString());
     route.rumbleOn = deps_.rumbleEnabled->isEnabled(slotId);
+    route.counters = countersFor(slotId);
     return route;
+}
+
+diagnostics::PadOutputCounters* SlotRouter::countersFor(const QString& slotId) const {
+    auto& slot = padCounters_[slotId];
+    if (slot == nullptr) { slot = std::make_unique<diagnostics::PadOutputCounters>(); }
+    return slot.get();
+}
+
+diagnostics::LaneSample SlotRouter::laneSample(const QString& slotId,
+                                               diagnostics::OutputLane lane) const {
+    const auto it = padCounters_.find(slotId);
+    if (it == padCounters_.end()) { return {}; }
+    return it->second->sample(lane);
+}
+
+void SlotRouter::recordLane(const FeedbackRoute& route, diagnostics::OutputLane lane,
+                            std::uint64_t packedValue) {
+    if (route.counters == nullptr) { return; }
+    const std::int64_t nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                   std::chrono::system_clock::now().time_since_epoch())
+                                   .count();
+    route.counters->record(lane, packedValue, nowMs);
 }
 
 // Inputs from the slots on screen, feedback from every binding: a bound slot the list does not
@@ -545,6 +575,7 @@ void SlotRouter::installFeedbackHandlers(net::WifiConnection& conn, const QStrin
 
 void SlotRouter::routeRumble(const FeedbackRoute& route, std::uint16_t strong, std::uint16_t weak,
                              std::uint16_t durationMs) {
+    recordLane(route, diagnostics::OutputLane::Rumble, diagnostics::packRumble(strong, weak));
     switch (route.target(reducer::FeedbackKind::Rumble)) {
     case reducer::FeedbackTarget::Standard:
         // The SDL thread actuates it from the pad's mailbox on its next cycle.
@@ -568,6 +599,7 @@ void SlotRouter::routeRumble(const FeedbackRoute& route, std::uint16_t strong, s
 
 void SlotRouter::routeLightbar(const FeedbackRoute& route, std::uint8_t r, std::uint8_t g,
                                std::uint8_t b) {
+    recordLane(route, diagnostics::OutputLane::Lightbar, diagnostics::packRgb(r, g, b));
     switch (route.target(reducer::FeedbackKind::Lightbar)) {
     case reducer::FeedbackTarget::Standard:
         if (route.padIndex.has_value()) {
@@ -590,6 +622,7 @@ void SlotRouter::routeTriggerEffects(
     const FeedbackRoute& route,
     const std::array<std::uint8_t, proto::kTriggerEffectBlockBytes>& left,
     const std::array<std::uint8_t, proto::kTriggerEffectBlockBytes>& right) {
+    recordLane(route, diagnostics::OutputLane::TriggerEffects, 0);
     switch (route.target(reducer::FeedbackKind::TriggerEffects)) {
     case reducer::FeedbackTarget::Standard:
         // The same report the Direct branch writes, built on the SDL thread and handed to SDL's
@@ -609,6 +642,7 @@ void SlotRouter::routeTriggerEffects(
 }
 
 void SlotRouter::routePlayerLeds(const FeedbackRoute& route, std::uint8_t ledMask) {
+    recordLane(route, diagnostics::OutputLane::PlayerLeds, ledMask);
     switch (route.target(reducer::FeedbackKind::PlayerLeds)) {
     case reducer::FeedbackTarget::Standard:
         if (route.padIndex.has_value()) { deps_.bridge->postPlayerLeds(*route.padIndex, ledMask); }
@@ -624,6 +658,7 @@ void SlotRouter::routePlayerLeds(const FeedbackRoute& route, std::uint8_t ledMas
 }
 
 void SlotRouter::routeMicLed(const FeedbackRoute& route, std::uint8_t state) {
+    recordLane(route, diagnostics::OutputLane::MicLed, state);
     switch (route.target(reducer::FeedbackKind::MicLed)) {
     case reducer::FeedbackTarget::Standard:
         if (route.padIndex.has_value()) { deps_.bridge->postMicLed(*route.padIndex, state); }

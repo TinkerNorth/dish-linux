@@ -21,6 +21,7 @@
 #include "source/usb/OutputWorker.h"
 #include "source/usb/UsbDeviceGateway.h"
 
+#include "core/diagnostics/WriteVerdict.h"
 #include "core/input/UsbOutputReports.h"
 #include "core/reducer/DirectPadKey.h"
 #include "core/reducer/UsbPathMachine.h"
@@ -228,6 +229,22 @@ class UsbGamepadManager {
     // Read-only snapshot, in key order.
     std::vector<DirectPad> directPads() const;
 
+    // Diagnostics: the device a claimed pad rides, as the gateway described it, and the last
+    // verdict of the claim's output worker. Empty for a pad with no claim.
+    std::optional<UsbDeviceInfo> claimedDevice(const reducer::DirectPadKey& pad) const;
+    std::optional<diagnostics::WriteVerdict> lastWrite(const reducer::DirectPadKey& pad) const;
+
+    // The model a tracked pad's attach pinned, which every question about the pad reads; by
+    // model, its first tracked device's. Empty for a pad the manager does not track.
+    std::optional<dish::controllerdb::PadModel> modelFor(const reducer::DirectPadKey& pad) const;
+    std::optional<dish::controllerdb::PadModel> modelOf(int vendorId, int productId) const;
+
+    // "Capture this controller", for a pad with a live claim: false when it has none or is
+    // capturing already. The reports come back on the read loop's clock.
+    bool armCapture(const reducer::DirectPadKey& pad);
+    std::vector<diagnostics::CapturedReport>
+    capturedReports(const reducer::DirectPadKey& pad) const;
+
   private:
     static int vpKey(int vendorId, int productId) {
         return (vendorId << 16) | (productId & 0xFFFF);
@@ -245,9 +262,11 @@ class UsbGamepadManager {
         bool linked = false;
     };
 
-    // Resolve a device's desired path from its model's stored pick and fast-lane
-    // verdict and its own prior failure (the pure resolvePathChoice policy).
-    reducer::PathChoice resolvePath(const reducer::DirectPadKey& device) const;
+    // Resolve a device's desired path from its model's stored pick, the pinned model's verdict on
+    // going Direct by itself, and its own prior failure (the pure resolvePathChoice policy).
+    reducer::PathChoice resolvePath(const reducer::DirectPadKey& device, bool autoClaims) const;
+    const dish::controllerdb::PadModel* deviceModel(const reducer::DirectPadKey& device) const;
+    bool autoClaimsOf(const reducer::DirectPadKey& device) const;
 
     // The key a scanned device goes by (reducer::deviceKeyOf): the one it is
     // tracked under, or a new one on the first unit of its model no tracked

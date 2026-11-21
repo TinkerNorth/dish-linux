@@ -32,6 +32,7 @@
 #include <set>
 #include <string>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 
 #include <QDateTime>
@@ -408,6 +409,28 @@ AppModel::AppModel(std::unique_ptr<source::WakeInhibitor> inhibitor, QObject* pa
         controllerActivity_.sampleAt(steadyNowMs());
     });
 
+    // The database in force before the first rebuild matches a pad to it. Loading reads the
+    // bundled resource and the cache, about half a megabyte; the first network check is ten
+    // seconds after start().
+    controllerDbStore_ = std::make_unique<source::controllerdb::ControllerDbStore>(
+        &controllerDbPrefs_, QString::fromLatin1(source::controllerdb::kBundledDbDir),
+        source::controllerdb::controllerDbCacheRoot());
+    controllerDbStore_->load();
+    // Before the first scan and before the SDL thread starts: a pad that attaches reads the
+    // database in force then, and keeps that model while it stays.
+    refreshPadModels();
+    usbGateway_->setModelResolver(&padModels_);
+    bridge_->setModelResolver(&padModels_);
+    controllerDbSub_ = controllerDbStore_->state().subscribe(
+        [this](const source::controllerdb::ControllerDbStatus&) { refreshPadModels(); },
+        /*emitCurrent=*/false);
+    controllerDbGateway_ = std::make_unique<source::controllerdb::HttpControllerDbGateway>();
+    controllerDbCoordinator_ =
+        new composer::ControllerDbCoordinator(controllerDbStore_.get(), &controllerDbPrefs_,
+                                              controllerDbGateway_.get(), &wallClockMs, this);
+    machine_ = source::readMachineIdentity();
+    diagnosticsHandoff_ = new source::DiagnosticsHandoff(this);
+
     rebuild();
 }
 
@@ -440,6 +463,9 @@ AppModel::~AppModel() {
     motionSwitchSub_ = arch::Observable<source::MotionEnabledMap>::Subscription{};
     usbManager_.reset();
     usbGateway_.reset();
+    // Before the gateway and the store it talks to, which are members and go first otherwise.
+    delete controllerDbCoordinator_;
+    controllerDbCoordinator_ = nullptr;
 }
 
 void AppModel::installRumbleHandlers() {
@@ -599,6 +625,8 @@ void AppModel::start() {
     // Last: the janitor pass and the staged-update scan are disk IO, and the
     // first check is 15 s out, so nothing here delays the first frame.
     updateChecker_.start();
+    // Ten seconds out, then every six hours; nothing at all while its switch is off.
+    controllerDbCoordinator_->start();
     // A one-shot Moonlight scan beside the satellite discovery, so any
     // GameStream host on the LAN shows up in the connections list.
     moonlight_->startDiscovery();
@@ -967,8 +995,7 @@ void AppModel::appendSdlSlots(const QList<input::SDLGamepadBridge::Device>& sdlD
         s.capabilities.hasTouchpad = d.hasTouchpad;
         s.capabilities.hasRumble = d.hasRumble;
         // Only meaningful on the Direct path, and a Bluetooth pad has none.
-        s.verifiedModel = !d.bluetooth && usbGateway_ != nullptr &&
-                          usbGateway_->isKnownFastLaneModel(d.vendorId, d.productId);
+        s.verifiedModel = !d.bluetooth && directLayoutKnown(d.vendorId, d.productId);
         s.capabilities.batteryLevel = d.batteryLevel;
         s.capabilities.batteryStatus = d.batteryStatus;
         // Only a raw joystick decodes through the remappable mapJoystick path;
@@ -979,6 +1006,26 @@ void AppModel::appendSdlSlots(const QList<input::SDLGamepadBridge::Device>& sdlD
         presentPads.push_back({d.id.toStdString(), d.vendorId, d.productId});
         next.append(s);
     }
+}
+
+// The model a tracked pad's attach pinned. A pad the manager no longer tracks answers from the
+// compiled tables, the model an attach with no database pins.
+controllerdb::PadModel AppModel::pinnedModelOf(const reducer::DirectPadKey& pad) const {
+    const std::optional<controllerdb::PadModel> pinned =
+        usbManager_ != nullptr ? usbManager_->modelFor(pad) : std::nullopt;
+    return pinned.value_or(controllerdb::modelWithoutDatabase(pad.vendorId, pad.productId));
+}
+
+controllerdb::PadModel AppModel::pinnedModelOf(int vendorId, int productId) const {
+    const std::optional<controllerdb::PadModel> pinned =
+        usbManager_ != nullptr ? usbManager_->modelOf(vendorId, productId) : std::nullopt;
+    return pinned.value_or(controllerdb::modelWithoutDatabase(vendorId, productId));
+}
+
+// Whether the Direct path knows a Standard pad's report layout: its pinned model's verdict where
+// the hidraw gateway tracks the pad, the vendor's fast lane where it does not.
+bool AppModel::directLayoutKnown(int vendorId, int productId) const {
+    return pinnedModelOf(vendorId, productId).autoClaims;
 }
 
 void AppModel::appendDirectSlots(const std::map<int, reducer::UsbController>& controllers,
@@ -998,7 +1045,8 @@ void AppModel::appendDirectSlots(const std::map<int, reducer::UsbController>& co
         s.name = QString::fromStdString(c.name);
         s.vendorId = c.vendorId;
         s.productId = c.productId;
-        const auto parser = input::usbparse::parserForDevice(c.vendorId, c.productId);
+        const controllerdb::PadModel model = pinnedModelOf(pad.key);
+        const auto parser = model.parser;
         s.capabilities.hasMotion = input::usbparse::parserHasImu(parser);
         s.capabilities.hasLightbar = false;
         // The raw-HID decoder reads the DS4 / DualSense touch block directly, so
@@ -1008,8 +1056,7 @@ void AppModel::appendDirectSlots(const std::map<int, reducer::UsbController>& co
         // for a Direct claim, but the capability table's input layer still says
         // the hardware exists so the refusal lands on the Link row.
         s.capabilities.hasRumble = input::usbparse::parserHasRumble(parser);
-        s.verifiedModel =
-            usbGateway_ != nullptr && usbGateway_->isKnownFastLaneModel(c.vendorId, c.productId);
+        s.verifiedModel = model.autoClaims;
         s.usbDirect = true;
         s.liveRates.directPollHz = usbPollRateHz_.value(s.id, 0);
         // The pad's own charge from its IN report; unknown until the first
@@ -1037,7 +1084,8 @@ void AppModel::appendAwaitingClaimSlots(const std::map<int, reducer::UsbControll
     // id (reducer::directSlotId); a receiver's pads take their slots' ids, so
     // its card carries no binding, and it stays while none of them is connected.
     for (const auto& [key, c] : controllers) {
-        const bool receiver = input::usbparse::isReceiver(c.vendorId, c.productId);
+        const controllerdb::PadModel model = pinnedModelOf(c.vendorId, c.productId);
+        const bool receiver = model.isReceiver();
         const auto card =
             reducer::modelCardFor(c, listsPadOfModel(pads, c.vendorId, c.productId), receiver);
         if (!card.has_value()) { continue; }
@@ -1048,7 +1096,7 @@ void AppModel::appendAwaitingClaimSlots(const std::map<int, reducer::UsbControll
         s.name = QString::fromStdString(c.name);
         s.vendorId = c.vendorId;
         s.productId = c.productId;
-        const auto parser = input::usbparse::parserForDevice(c.vendorId, c.productId);
+        const auto parser = model.parser;
         s.capabilities.hasMotion = input::usbparse::parserHasImu(parser);
         s.capabilities.hasTouchpad = input::usbparse::parserHasTouchpad(parser);
         s.capabilities.hasRumble = input::usbparse::parserHasRumble(parser);
@@ -1184,6 +1232,7 @@ void AppModel::rebuild() {
     reconcileAudioEngines();
 
     diagnosticsRecorder_.observeSlots(state_.slotList);
+    refreshAttachedIdentities();
     emit stateChanged();
 
     // Rides the same rebuild the Live transition triggered; the reducer's edge guard makes the
@@ -1356,7 +1405,7 @@ void AppModel::resolveAudioRoutes() {
         // belongs to the OS on both paths. Bluetooth pads never get a record
         // (the gateway skips them), so nothing here can name a BT pad.
         if (!c.usbPresent) { continue; }
-        const auto parser = input::usbparse::parserForDevice(c.vendorId, c.productId);
+        const auto parser = pinnedModelOf(c.vendorId, c.productId).parser;
         pads.push_back(audio::AudioPadCandidate{c.vendorId, c.productId, c.name,
                                                 input::usbparse::parserHasUsbAudio(parser),
                                                 input::usbparse::parserHasHapticLanes(parser)});
@@ -1857,6 +1906,80 @@ void AppModel::prewarmCatalogs() {
                 }
             });
     }
+}
+
+// A database that lands is a new snapshot for the next attach; a pad already attached keeps the
+// model it was pinned to. Only a new active catalog is installed, not every status change.
+void AppModel::refreshPadModels() {
+    if (controllerDbStore_ == nullptr) { return; }
+    const controllerdb::CatalogPtr active = controllerDbStore_->active();
+    const bool sameDatabase = padModelsActive_ != nullptr && active == padModelsActive_;
+    if (sameDatabase) { return; }
+    padModelsActive_ = active;
+    padModels_.install(active, controllerDbStore_->bundled());
+}
+
+// A pad is matched once, when its slot appears: a database that lands later applies at its next
+// attach. Only the Direct path observes the hardware, so only a Direct slot is checked.
+void AppModel::refreshAttachedIdentities() {
+    const controllerdb::CatalogPtr catalog =
+        controllerDbStore_ != nullptr ? controllerDbStore_->active() : nullptr;
+    if (catalog == nullptr) {
+        attachedIdentities_.clear();
+        return;
+    }
+    std::vector<controllerdb::PadAttach> present;
+    for (const auto& slot : state_.slotList) {
+        const bool identified = slot.vendorId != 0 || slot.productId != 0;
+        if (!identified) { continue; }
+        controllerdb::PadAttach pad;
+        pad.slotId = slot.id.toStdString();
+        pad.id = controllerdb::DeviceId{static_cast<std::uint16_t>(slot.vendorId),
+                                        static_cast<std::uint16_t>(slot.productId)};
+        pad.bluetooth = slot.bluetooth;
+        if (slot.usbDirect) {
+            const std::optional<source::usb::UsbDeviceInfo> device = directDeviceFor(slot.id);
+            if (device.has_value()) { pad.observed = device->observedEndpoints(); }
+        }
+        present.push_back(std::move(pad));
+    }
+    attachedIdentities_ = controllerdb::reconcileAttached(attachedIdentities_, present, *catalog);
+}
+
+std::optional<controllerdb::AttachedIdentity>
+AppModel::attachedIdentity(const QString& slotId) const {
+    const auto it = attachedIdentities_.find(slotId.toStdString());
+    if (it == attachedIdentities_.end()) { return std::nullopt; }
+    return it->second;
+}
+
+std::optional<source::usb::UsbDeviceInfo> AppModel::directDeviceFor(const QString& slotId) const {
+    const std::optional<reducer::DirectPadKey> pad =
+        reducer::parseDirectSlotId(slotId.toStdString());
+    if (!pad.has_value() || usbManager_ == nullptr) { return std::nullopt; }
+    return usbManager_->claimedDevice(*pad);
+}
+
+bool AppModel::armDirectCapture(const QString& slotId) {
+    const std::optional<reducer::DirectPadKey> pad =
+        reducer::parseDirectSlotId(slotId.toStdString());
+    if (!pad.has_value() || usbManager_ == nullptr) { return false; }
+    return usbManager_->armCapture(*pad);
+}
+
+std::vector<diagnostics::CapturedReport>
+AppModel::directCapturedReports(const QString& slotId) const {
+    const std::optional<reducer::DirectPadKey> pad =
+        reducer::parseDirectSlotId(slotId.toStdString());
+    if (!pad.has_value() || usbManager_ == nullptr) { return {}; }
+    return usbManager_->capturedReports(*pad);
+}
+
+std::optional<diagnostics::WriteVerdict> AppModel::lastDirectWrite(const QString& slotId) const {
+    const std::optional<reducer::DirectPadKey> pad =
+        reducer::parseDirectSlotId(slotId.toStdString());
+    if (!pad.has_value() || usbManager_ == nullptr) { return std::nullopt; }
+    return usbManager_->lastWrite(*pad);
 }
 
 } // namespace dish

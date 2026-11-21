@@ -49,6 +49,7 @@ Kit.Page {
         function onTelemetryChanged() { page.revision += 1; }
         function onStateChanged() { page.revision += 1; }
         function onDiagnosticsLogChanged() { page.logRevision += 1; }
+        function onTestOutcomesChanged() { page.revision += 1; }
     }
 
     readonly property var hosts: page.revision >= 0 ? App.diagnosticsHosts() : []
@@ -297,6 +298,154 @@ Kit.Page {
         return lines;
     }
 
+    // ── The controller database and what it says about each pad ─────────────
+
+    function chipText(token) {
+        switch (token) {
+        case "verified":
+            return qsTr("Verified");
+        case "flagged":
+            return qsTr("Flagged");
+        }
+        return qsTr("Layout guessed");
+    }
+
+    function chipTone(token) {
+        switch (token) {
+        case "verified":
+            return Kit.CapabilityChip.Present;
+        case "flagged":
+            return Kit.CapabilityChip.Absent;
+        }
+        return Kit.CapabilityChip.Warn;
+    }
+
+    function clockText(atMs) {
+        return Qt.formatTime(new Date(atMs), "HH:mm:ss");
+    }
+
+    function recordText(record) {
+        if (record.matched !== true)
+            return qsTr("No record for this controller");
+        const name = record.name.length > 0 ? record.name + " · " + record.recordId : record.recordId;
+        return record.inert ? qsTr("%1 (name and notes only on this PC)").arg(name) : name;
+    }
+
+    function writeText(write) {
+        if (write.route === undefined)
+            return qsTr("nothing written yet");
+        if (write.ok)
+            return qsTr("sent · report %1 · %2").arg(write.reportId).arg(page.clockText(write.atMs));
+        const reason = write.err.length > 0 ? write.err : qsTr("no error code");
+        return qsTr("failed · report %1 · %2 · %3").arg(write.reportId).arg(reason)
+                                                   .arg(page.clockText(write.atMs));
+    }
+
+    function testName(test) {
+        switch (test) {
+        case "rumble.weak":
+            return qsTr("weak rumble");
+        case "rumble.strong":
+            return qsTr("strong rumble");
+        }
+        return qsTr("both motors");
+    }
+
+    function testText(outcome) {
+        const result = outcome.result === "worked" ? qsTr("felt") : qsTr("not felt");
+        return qsTr("%1 · %2 · %3").arg(page.testName(outcome.test)).arg(result)
+                                   .arg(page.clockText(outcome.atMs));
+    }
+
+    function recordLines(pad, record) {
+        const lines = [{ "key": qsTr("Record"), "value": page.recordText(record) }];
+        if (pad.usbDirect && record.matched === true) {
+            const check = record.mismatches.length > 0 ? record.mismatches.join("\n")
+                                                       : qsTr("as the record expects");
+            lines.push({ "key": qsTr("Hardware check"), "value": check });
+        }
+        if (pad.usbDirect)
+            lines.push({ "key": qsTr("Last write"), "value": page.writeText(record.lastWrite) });
+        if (record.lastTest.test !== undefined)
+            lines.push({ "key": qsTr("Last test"), "value": page.testText(record.lastTest) });
+        return lines;
+    }
+
+    function resultText(token) {
+        switch (token) {
+        case "upToDate":
+            return qsTr("up to date");
+        case "updated":
+            return qsTr("updated");
+        case "offline":
+            return qsTr("could not reach dish.tinkernorth.com");
+        case "invalid":
+            return qsTr("the download did not verify");
+        case "off":
+            return qsTr("checks are off");
+        }
+        return "";
+    }
+
+    function databaseLines(db) {
+        const active = db.source === "cache"
+            ? qsTr("%1 · downloaded").arg(qsTr("v%1").arg(db.activeVersion))
+            : qsTr("%1 · bundled").arg(qsTr("v%1").arg(db.activeVersion));
+        const checked = db.lastCheckAtMs > 0
+            ? qsTr("%1 · %2").arg(Qt.formatDateTime(new Date(db.lastCheckAtMs), "yyyy-MM-dd HH:mm"))
+                             .arg(page.resultText(db.lastCheckResult))
+            : qsTr("never");
+        return [
+            { "key": qsTr("In use"), "value": active },
+            { "key": qsTr("Bundled"), "value": qsTr("v%1").arg(db.bundledVersion) },
+            { "key": qsTr("Last check"), "value": db.checking ? qsTr("checking…") : checked }
+        ];
+    }
+
+    // ── Sharing ──────────────────────────────────────────────────────────────
+
+    // The mail's body: what this page shows, in the person's language, then what the file holds.
+    function summaryText() {
+        const db = App.controllerDb;
+        const lines = [qsTr("Dish %1 on %2").arg(App.appVersion).arg(App.machineModel),
+                       App.osVersion,
+                       qsTr("Controller database: %1").arg(page.databaseLines(db)[0].value)];
+        const pads = App.diagnosticsControllers();
+        for (let i = 0; i < pads.length; ++i) {
+            const recordWord = pads[i].recordId.length > 0
+                ? pads[i].recordId + " · " + page.chipText(pads[i].chip)
+                : qsTr("no record");
+            lines.push(qsTr("%1: %2 · %3").arg(pads[i].name).arg(recordWord)
+                                          .arg(page.transportText(pads[i])));
+        }
+        for (let h = 0; h < page.hosts.length; ++h) {
+            lines.push(qsTr("Host %1: %2").arg(h + 1).arg(linkWords.chipText(page.hosts[h].chip)));
+        }
+        lines.push("");
+        lines.push(qsTr("The attached file holds this page and its log, each controller's input and output counts, Dish's own view of each session and what each Satellite says about it; it never holds pairing keys, certificate fingerprints, IP addresses, Wi-Fi names or the names of your PCs and devices."));
+        return lines.join("\n");
+    }
+
+    // "Report a problem" and "Ask a question" are one page in two categories.
+    function openReport(category) {
+        if (!page.shellApi)
+            return;
+        page.shellApi.pushDetail(Qt.resolvedUrl("ReportProblemPage.qml"),
+                                 category === "question" ? qsTr("Ask a question")
+                                                         : qsTr("Report a problem"),
+                                 { category: category, summary: page.summaryText() });
+    }
+
+    function saveDiagnostics() {
+        const path = App.saveDiagnostics();
+        if (!page.shellApi)
+            return;
+        if (path.length > 0)
+            page.shellApi.toast(qsTr("Diagnostics saved. The file manager shows its folder."), "success");
+        else
+            page.shellApi.toast(qsTr("The diagnostics file could not be written."), "error");
+    }
+
     // ── Radios ───────────────────────────────────────────────────────────────
 
     function adapterText() {
@@ -527,6 +676,8 @@ Kit.Page {
 
                     readonly property var binding: page.revision >= 0
                                                    ? App.bindingDiagnostics(pad.slotId) : ({})
+                    readonly property var record: page.revision >= 0
+                                                  ? App.controllerRecordFacts(pad.slotId) : ({})
                     readonly property bool bound: pad.binding.bound === true
 
                     // The binding editor's explanations, so a diagnosed pad and an
@@ -565,6 +716,11 @@ Kit.Page {
                                 font.weight: Font.DemiBold
                                 elide: Text.ElideRight
                             }
+                            Kit.CapabilityChip {
+                                visible: pad.record.matched === true
+                                text: page.chipText(pad.record.chip)
+                                tone: page.chipTone(pad.record.chip)
+                            }
                             Kit.OutlineButton {
                                 size: Kit.DishButton.Small
                                 text: qsTr("Inspect input")
@@ -577,12 +733,117 @@ Kit.Page {
                             delegate: factLine
                         }
 
+                        Repeater {
+                            model: page.recordLines(pad, pad.record)
+                            delegate: factLine
+                        }
+
+                        Repeater {
+                            model: pad.record.matched === true ? pad.record.issues : []
+
+                            delegate: Kit.Callout {
+                                id: issueNote
+                                required property var modelData
+                                Layout.fillWidth: true
+                                tone: Kit.Callout.Warning
+                                text: issueNote.modelData.body.length > 0
+                                      ? issueNote.modelData.title + "\n" + issueNote.modelData.body
+                                      : issueNote.modelData.title
+                            }
+                        }
+
                         Kit.CapabilityTable {
                             Layout.fillWidth: true
                             Layout.topMargin: Tokens.s4
                             visible: pad.bound
                             rows: pad.capabilityRows
                         }
+                    }
+                }
+            }
+        }
+
+        // ── Controller database ──────────────────────────────────────────────
+        ColumnLayout {
+            Layout.fillWidth: true
+            spacing: Tokens.s4
+
+            Kit.SectionHeader { label: qsTr("Controller database") }
+
+            Kit.Card {
+                Layout.fillWidth: true
+                contentItem: ColumnLayout {
+                    spacing: Tokens.s3
+
+                    Repeater {
+                        model: page.databaseLines(App.controllerDb)
+                        delegate: factLine
+                    }
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        Layout.topMargin: Tokens.s4
+                        spacing: Tokens.s6
+
+                        Kit.OutlineButton {
+                            size: Kit.DishButton.Small
+                            text: qsTr("Check now")
+                            enabled: App.controllerDbChecksEnabled && !App.controllerDb.checking
+                            onClicked: App.checkControllerDbNow()
+                        }
+                        Label {
+                            Layout.fillWidth: true
+                            visible: !App.controllerDbChecksEnabled
+                            text: qsTr("Automatic controller checks are off in Settings, so Dish sends no request for the list.")
+                            color: Theme.muted
+                            font.pixelSize: Tokens.textMeta
+                            wrapMode: Text.WordWrap
+                        }
+                    }
+                }
+            }
+        }
+
+        // ── Sharing ──────────────────────────────────────────────────────────
+        ColumnLayout {
+            Layout.fillWidth: true
+            spacing: Tokens.s4
+
+            Kit.SectionHeader { label: qsTr("Send to support") }
+
+            Kit.Card {
+                Layout.fillWidth: true
+                contentItem: ColumnLayout {
+                    spacing: Tokens.s4
+
+                    Label {
+                        Layout.fillWidth: true
+                        text: qsTr("Report a problem writes a file of what this page shows and what each Satellite says about its side, and opens your own mail app addressed to support@tinkernorth.com with the file attached. Nothing is sent until you click Send.")
+                        color: Theme.muted
+                        font.pixelSize: Tokens.textMeta
+                        wrapMode: Text.WordWrap
+                    }
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: Tokens.s6
+
+                        Kit.KitButton {
+                            size: Kit.DishButton.Small
+                            text: qsTr("Report a problem")
+                            onClicked: page.openReport("other")
+                        }
+                        Kit.OutlineButton {
+                            size: Kit.DishButton.Small
+                            text: qsTr("Ask a question")
+                            onClicked: page.openReport("question")
+                        }
+                        Kit.OutlineButton {
+                            size: Kit.DishButton.Small
+                            text: qsTr("Save diagnostics")
+                            onClicked: page.saveDiagnostics()
+                        }
+                        Item { Layout.fillWidth: true }
                     }
                 }
             }

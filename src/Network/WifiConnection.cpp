@@ -348,12 +348,24 @@ void WifiConnection::applyResults(const QList<models::ControllerApplyDto>& resul
         // rather than killing a working pad over a type the driver could not
         // switch to.
         b.registered = r.slotIsLive();
+        b.appliedType = r.appliedType;
+        b.applyResult = r.result;
         if (!r.ok()) { failures.append(r); }
     }
     emit changed();
     for (const auto& f : failures) {
         emit errorOccurred(QStringLiteral("Controller #%1: %2").arg(f.ctrlIdx).arg(f.result));
     }
+}
+
+std::vector<WifiConnection::SlotReport> WifiConnection::slotReports() const {
+    std::vector<SlotReport> reports;
+    reports.reserve(slots_.size());
+    for (const auto& [slotId, b] : slots_) {
+        reports.push_back(SlotReport{slotId, b.controllerIndex, b.controllerType, b.appliedType,
+                                     b.applyResult, b.touchpadMode});
+    }
+    return reports;
 }
 
 std::uint16_t WifiConnection::registeredBitmap() const {

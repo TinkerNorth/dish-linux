@@ -21,6 +21,8 @@ set(DISH_KIT_QML_FILES
     src/qml/kit/AppMark.qml
     src/qml/kit/LabeledSwitch.qml
     src/qml/kit/KitTextField.qml
+    # KitTextField's multi-line sibling, for the support report's own words.
+    src/qml/kit/KitTextArea.qml
     src/qml/kit/Page.qml
     src/qml/kit/ContentDialog.qml
     src/qml/kit/Eyebrow.qml

@@ -395,6 +395,10 @@ Item {
                         width: parent.width
                         placeholderText: qsTr("PIN")
                     }
+                    KitTextArea {
+                        width: parent.width
+                        placeholderText: qsTr("PIN")
+                    }
                     KitTextField {
                         width: parent.width
                         text: "1234"
