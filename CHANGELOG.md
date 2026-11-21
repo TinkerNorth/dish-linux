@@ -40,10 +40,38 @@ the repos share a version number.
   language has none), a chip for its verification state (Verified, Layout
   guessed, Flagged), and any open issue for this transport on this PC model
   and kernel, with its title and text.
+- **A served record drives how a Direct pad decodes.** The gateway that first
+  enumerates a pad resolves its model once, at attach: the compiled tables
+  first, then the database row in force for its id, then the vendor
+  fallback. The model (family, button order, init kind, whether it goes
+  Direct by itself, a receiver's slots, extended buttons, Steam trackpads,
+  whether releasing it brings back a framework gamepad) is pinned on the
+  pad's record, and the capability solve, the claim, the read loop, the
+  output worker, the health judgement and the SDL path's effect builders all
+  read it, so a newer list applies at a pad's next attach and never under a
+  pad in use. A row that needs a family or op this build lacks leaves the
+  bundled row for its id in force; a `flagged` row gives way to a bundled one
+  too. The resolver is an immutable snapshot of the active and bundled
+  catalogs that the app swaps whole when the list changes.
 - **Hardware check at attach.** On the Direct path the record's `expect` is
-  compared with the interface's HID report descriptor (an Output item stands
-  for the OUT endpoint, an Input item for the IN one), and each mismatch is a
-  Diagnostics row and a line in the diagnostics file.
+  compared with the claimed interface's endpoints as sysfs lists them, as
+  dish-android does, and each mismatch is a Diagnostics row and a line in the
+  diagnostics file.
+- **The pad's hardware in the file.** A Direct pad's `hardware` gains its
+  `bcdDevice`, every USB interface (number, alternate setting, class,
+  subclass, protocol) with its endpoints (address, type, packet size,
+  interval), parsed from sysfs's `descriptors`, and the SHA-256 of its HID
+  report descriptor. Never its serial number.
+- **Capture this controller.** For a pad Dish reads directly, Report a
+  problem can capture it: the read loop keeps its next twenty input reports
+  with their arrival times, in slots fixed with the claim, then disarms
+  itself, and the file's `capture` (format `usb-descriptors-v1`) carries them
+  with the pad's raw device and configuration descriptors, its manufacturer
+  and product strings and its report descriptor (`source: device`). Only the
+  capture of the controller the report names enters the file.
+- **`usbHost` measured.** `device.usbHost` is `true` when Linux lists a root
+  hub `usbN` under `/sys/bus/usb/devices`, `false` when it lists none, `null`
+  when that directory cannot be read.
 - **"Last write" on a Direct controller's card**: the route, the report id,
   whether the pad took it and the kernel's `errno` name when it did not,
   recorded by the claim's output worker without a lock or an allocation.
@@ -89,8 +117,12 @@ the repos share a version number.
   (rumble, light bar, player lights, trigger effects, mute lamp) how many
   reached it, where they went (`directUsb`, `framework`, `none`) and the last
   value with its time; its speaker and haptics streams' state; and for a
-  Bluetooth pad whether the link is classic or low energy (from sysfs: HIDP
-  or uhid), never its address.
+  Bluetooth pad whether the link is classic or low energy, never its address:
+  classic when the kernel's HIDP made its HID device under an HCI connection,
+  and for a device BlueZ made through uhid, whichever HID service BlueZ's
+  `org.bluez.Device1.UUIDs` lists for the address in its `HID_UNIQ` (0x1124
+  classic, 0x1812 low energy, both or neither not known). BlueZ 5.73 and later
+  hand classic pads to uhid too, so uhid alone no longer means low energy.
 - **The PC's battery, power profile and thermal state** in the file: the
   system battery from `/sys/class/power_supply`, power saving from
   `/sys/firmware/acpi/platform_profile`, and `nominal` / `fair` / `serious` /
@@ -105,18 +137,37 @@ the repos share a version number.
 
 - **PRIVACY.md** gains "Controller database updates" (2.5) and "Report a
   problem" (2.6), which describes your own words in the report and the
-  Satellite connection snapshot, what each holds and never holds; its
-  effective date moves to 2026-11-19.
+  Satellite connection snapshot, what each holds and never holds, the
+  question to BlueZ (asked on this PC, over the system D-Bus), the USB host
+  fact, the pad's descriptors and a controller you capture. The update check
+  is described as on by default everywhere but the Flatpak, where it starts
+  off, in the summary, in 2.1, in 2.4, in Settings and in the metainfo. Its
+  effective date moves to 2026-11-20.
+- **Direct by itself for the verified pads the list names.** The thirteen
+  third-party DualShock 4 pads dbVersion 1 marks verified with the rule
+  `auto` (Hori, Nacon, Razer and others) now go Direct without a pick and
+  decode as a DualShock 4; the 51 ids the list runs that the compiled tables
+  lack decode by their record's family, and `054c:05c5`, an imported record
+  with the rule `optIn`, waits for a pick where the Sony fast lane claimed it
+  before. `packaging/udev/70-dish-hidraw.rules` grants the 47 of those ids no
+  vendor line already covered, and a test holds the rules to every bundled
+  record the Direct path runs.
 
 ### Notes
 
 - The compiled Direct tables (`kKnownModels`, the fast-lane vendors) stay, and
-  a test now requires every row to match its database record. Served records
-  are classified for ids those tables lack, but the claim still takes its
-  parser from the compiled tables in this release (`tests/PARITY.md`).
+  a test requires every row to match its database record; they answer first,
+  and a served row only adds an id they lack.
 - Hot path: the session counts each message kind it sends and receives, and
   the router counts each pad's output lanes, with relaxed atomics only; no
-  thread on the input, USB, receive or mic path takes a new lock.
+  thread on the input, USB, receive or mic path takes a new lock. A Direct
+  pad's read loop now loads one word per report that holds both its running
+  flag and the capture's armed flag (relaxed, where it was a sequentially
+  consistent load of the running flag alone), and a report is copied only
+  while a capture is armed. The SDL path's effect builders read the family
+  pinned at attach instead of looking it up per output command. A pad's
+  model is resolved at attach only: on the SDL thread that is one acquire
+  load of the resolver's snapshot pointer, no lock.
 - No wire change. The snapshot route is a new REST call to Satellite 2.3.0.
 - Hand port of dish-windows#138.
 

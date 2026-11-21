@@ -109,10 +109,15 @@ seconds after launch and every six hours it asks `dish.tinkernorth.com` for a
 newer one: a manifest first, and the list only when it is newer, with no
 identifier attached. *Check for controller updates automatically* in Settings
 turns that off, in every build including the Flatpak, and with it off nothing
-is asked. *Report a problem* on the Diagnostics page sends nothing itself: it
-saves a diagnostics file and runs `xdg-email` to open your own mail app with
-the file attached, and the mail leaves only when you click Send.
-[`PRIVACY.md`](PRIVACY.md) sections 2.5 and 2.6 list what each one holds.
+is asked. A controller the list names and Dish's own tables do not decodes on
+the Direct path by its record's family, and a newer list applies to a
+controller the next time it is plugged in. *Report a problem* on the
+Diagnostics page sends nothing itself: it saves a diagnostics file and runs
+`xdg-email` to open your own mail app with the file attached, and the mail
+leaves only when you click Send. For a controller Dish reads directly it can
+first *Capture this controller*: its USB descriptors and twenty reports taken
+while it lies still. [`PRIVACY.md`](PRIVACY.md) sections 2.5 and 2.6 list what
+each one holds.
 
 ## Build from source
 

@@ -1,6 +1,6 @@
 # Dish for Linux: Privacy Policy
 
-**Effective date:** 2026-11-19.
+**Effective date:** 2026-11-20.
 **Canonical copy:** this file, at
 [`https://github.com/TinkerNorth/dish-linux/blob/main/PRIVACY.md`](https://github.com/TinkerNorth/dish-linux/blob/main/PRIVACY.md).
 The app links to it from Help, and the privacy index on
@@ -25,7 +25,8 @@ do not read one as describing the other.
   host you paired with. It does not stream to any TinkerNorth-operated
   server. TinkerNorth does not operate a server for Dish at all.
 - **Three things can leave your machine on their own**, and you can turn
-  each one off: an update check against GitHub, described in section 2.4; a
+  each one off: an update check against GitHub, on by default except in the
+  Flatpak, where it starts off, described in section 2.4; a
   check for a newer list of the controllers Dish recognises, against
   `dish.tinkernorth.com`, described in section 2.5; and, when the app
   crashes, one crash report to Sentry, described in section 3. There is no
@@ -88,7 +89,7 @@ own bookkeeping. None of them is transmitted anywhere.
 
 | Setting | Holds | Used for |
 |---|---|---|
-| `updates_check_enabled` | Boolean, default `true` | The *Check for updates automatically* switch. When off, the app makes no update-related network request at all. |
+| `updates_check_enabled` | Boolean, default `true`, `false` in the Flatpak | The *Check for updates automatically* switch. When off, the app makes no update-related network request at all. |
 | `updates_skipped_version` | A version string, default empty | The one version you pressed *Skip this version* on, so it stops being offered |
 | `updates_last_check_utc_ms` | Timestamp | Not checking more than once an hour at startup |
 
@@ -197,7 +198,8 @@ There is no TinkerNorth server for this app to talk to. The one thing that
 reaches us is a crash report, through Sentry, and only if you leave *Share
 crash reports* on.
 
-Three things leave your network by default, and you can turn each one off.
+Three things leave your network by default, two in the Flatpak, where the
+update check starts off; you can turn each one off.
 The update check described in **section 2.4** goes to GitHub: a plain HTTPS
 request for a file on the public releases page, with no identifier. The
 controller database check described in **section 2.5** goes to
@@ -228,9 +230,9 @@ these URLs.
 
 ### 2.4 Update check (GitHub)
 
-When *Check for updates automatically* is on, which is the default, the app
-sends an HTTPS `GET` to `github.com` for the file `latest.json` attached to the
-newest release of this project. GitHub answers with a redirect to its own
+When *Check for updates automatically* is on, which is the default everywhere
+but the Flatpak, the app sends an HTTPS `GET` to `github.com` for the file
+`latest.json` attached to the newest release of this project. GitHub answers with a redirect to its own
 download CDN, so the request finishes against
 `objects.githubusercontent.com`. The file is about a kilobyte of JSON: a version number, a minimum supported
 version, and a link to the release notes.
@@ -255,7 +257,9 @@ shows a pill linking to the release page and stops. That one `GET` for
 
 **Turning it off.** *Check for updates automatically* is the master switch. Off
 means the app makes no update-related network request of any kind, arms no
-timer, and creates no network stack for it.
+timer, and creates no network stack for it. In the Flatpak the switch starts
+off, because Flathub delivers the app's updates itself; turned on there, it
+works as described above.
 
 The settings behind that switch are in section 2.1.
 
@@ -354,11 +358,14 @@ thermal trip points (`/sys/class/thermal`: nominal, fair, serious or
 critical); the controller database's bundled and active versions and the time
 and result of its last check; for each controller, the database record it
 matched, that record's verification state, its transport (USB or Bluetooth)
-and path (Direct or SDL), whether a Bluetooth link is classic or low energy,
-its USB vendor and product ids, the product and manufacturer strings it
-reports, the addresses of its USB endpoints, any mismatch between the record
-and what Dish saw, how many input reports it sent and at what rate, the last
-one (the buttons, sticks and triggers at that moment), for each kind of
+and path (Direct or SDL), whether a Bluetooth link is classic or low energy
+(see below), its USB vendor and product ids, its release number
+(`bcdDevice`), the product and manufacturer strings it reports, its USB
+interfaces (number, class, subclass, protocol) with each one's endpoints
+(address, type, packet size, interval), the addresses of the endpoints Dish
+reads and writes, a SHA-256 checksum of its HID report descriptor, any
+mismatch between the record and what Dish saw, how many input reports it sent
+and at what rate, the last one (the buttons, sticks and triggers at that moment), for each kind of
 output (rumble, light bar, player lights, trigger effects, mute lamp) how
 many reached it, where they went and the last value with its time, whether
 its speaker and haptics streams are open, the last report Dish wrote to it
@@ -372,11 +379,37 @@ many messages of each kind went each way) and the snapshot above; and this
 run's event log of hosts and controllers appearing, changing state, binding
 and leaving, with every host named only by its alias.
 
+**Whether this PC has a USB host controller.** The file says whether Linux
+lists at least one USB root hub under `/sys/bus/usb/devices` (one per host
+controller), as `true` or `false`, and nothing about the devices on it.
+
+**A controller you capture.** For a controller Dish reads directly, the report
+page offers *Capture this controller*. Dish then keeps the next twenty input
+reports the controller sends, with the time each arrived, while you leave it
+untouched, and reads its USB descriptors from sysfs (`descriptors`, the raw
+device and configuration descriptors), its manufacturer and product strings
+and its HID report descriptor. Nothing is read from the controller's serial
+number. The capture stays in memory for this run and goes into the file only
+when your report names that controller; it never includes anything you press
+afterwards.
+
+**The Bluetooth link, a question on this PC.** For a Bluetooth controller the
+kernel's own Bluetooth stack made, the link is classic, from sysfs alone. For
+one that BlueZ hands to the kernel itself (every low energy pad, and from
+BlueZ 5.73 classic ones too), Dish reads the controller's Bluetooth address
+from sysfs and asks BlueZ on this PC, over the system D-Bus, which HID
+service the paired device lists: classic HID, or HID over GATT. The question
+never leaves your machine, the address is used for that one question and is
+never kept or written, and when BlueZ cannot answer the file says the link is
+not known.
+
 **What it never holds.** Pairing keys, pairing secrets, certificate
 fingerprints, IP addresses, Bluetooth addresses, Wi-Fi names, the names of
 your hosts, PCs and devices, the machine's host name, this install's
-`deviceId`, a stream of your controller input (only the counts and the last
-report), and anything from a controller's microphone or speaker.
+`deviceId`, a controller's serial number, a stream of your controller input
+(only the counts and the last report, and the twenty reports of a controller
+you captured, taken at rest), and anything from a controller's microphone or
+speaker.
 
 ---
 
