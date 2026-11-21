@@ -8,9 +8,8 @@
 // firmware give alike on every platform. Pure and allocation-bounded: a descriptor that lies about
 // its length ends the walk rather than reading past the bytes.
 //
-// The strings are the manufacturer's and the product's, by their descriptor index. The serial
-// number identifies one unit: no index is read for it, and a string that shares its index is
-// left out with it.
+// The strings are the manufacturer's and the product's, by role. The serial number identifies one
+// unit: nothing is read for it, and a string that shares its index is left out with it.
 
 #pragma once
 
@@ -21,7 +20,6 @@
 #include <optional>
 #include <string>
 #include <string_view>
-#include <utility>
 #include <vector>
 
 namespace dish::diagnostics {
@@ -65,8 +63,8 @@ struct UsbDeviceDescriptor {
 
 using DescriptorBytes = std::vector<std::uint8_t>;
 
-// A descriptors file as Linux's sysfs and Android's rawDescriptors serve it: the device descriptor
-// (its own bLength), then every configuration with its subordinate descriptors.
+// A descriptors file as Linux's sysfs and Android's rawDescriptors serve it: the 18-byte device
+// descriptor, then every configuration in index order with its subordinate descriptors.
 struct RawDescriptors {
     DescriptorBytes device;
     DescriptorBytes configuration;
@@ -96,8 +94,13 @@ struct HidReportDescriptor {
     bool operator==(const HidReportDescriptor&) const = default;
 };
 
-// One string descriptor's text, by its index.
-using UsbString = std::pair<int, std::string>;
+// The string descriptors a capture carries, by role: none for a role the pad does not report.
+struct CaptureStrings {
+    std::optional<std::string> manufacturer;
+    std::optional<std::string> product;
+
+    bool operator==(const CaptureStrings&) const = default;
+};
 
 // What a gateway reads about a pad once, when it first enumerates it. Every field is empty where
 // the platform could not read it.
@@ -105,16 +108,16 @@ struct UsbHardwareFacts {
     std::optional<std::uint16_t> bcdDevice;
     std::vector<UsbInterface> interfaces;
     RawDescriptors raw;
-    std::vector<UsbString> strings;
+    CaptureStrings strings;
     std::optional<HidReportDescriptor> reportDescriptor;
 
     bool operator==(const UsbHardwareFacts&) const = default;
 };
 
-// The manufacturer and product strings a capture may carry, by the device descriptor's indices:
-// index 0 (no string) and the serial number's index never.
-std::vector<UsbString> captureStrings(const UsbDeviceDescriptor& device,
-                                      const std::string& manufacturer, const std::string& product);
+// The manufacturer and product strings a capture may carry, by the device descriptor's indices: a
+// role whose index is 0 reports none, and a role whose index is the serial number's is left out.
+CaptureStrings captureStrings(const UsbDeviceDescriptor& device, const std::string& manufacturer,
+                              const std::string& product);
 
 std::string hexOf(const std::uint8_t* bytes, std::size_t len);
 std::string hexOf(const DescriptorBytes& bytes);

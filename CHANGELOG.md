@@ -68,10 +68,12 @@ the repos share a version number.
   problem can capture it: the read loop keeps its next twenty input reports
   with their arrival times, in slots fixed with the claim, then disarms
   itself, and the file's `capture` (format `usb-descriptors-v1`) carries them
-  with the pad's raw device and configuration descriptors, its manufacturer
-  and product strings and its report descriptor (`source: os`: sysfs serves
-  the kernel's copy, after the HID driver's `report_fixup`). Only the capture
-  of the controller the report names enters the file.
+  with the hex of the pad's 18-byte device descriptor and of every
+  configuration, its manufacturer and product strings by role
+  (`{ "manufacturer", "product" }`, never the serial number) and its report
+  descriptor (`source: os`: sysfs serves the kernel's copy, after the HID
+  driver's `report_fixup`). Only the capture of the controller the report
+  names enters the file.
 - **`usbHost` measured.** `device.usbHost` is `true` when Linux lists a root
   hub `usbN` under `/sys/bus/usb/devices`, `false` when it lists none, `null`
   when that directory cannot be read.

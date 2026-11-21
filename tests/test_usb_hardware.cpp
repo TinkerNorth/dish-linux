@@ -60,7 +60,10 @@ UsbHardwareFacts dualSenseFacts() {
     facts.bcdDevice = 0x0100;
     facts.raw = RawDescriptors{bytesOf(kDualSenseDevice), bytesOf(kDualSenseConfiguration)};
     facts.interfaces = interfacesOf(facts.raw.configuration);
-    facts.strings = {{1, "Sony Interactive Entertainment"}, {2, "Wireless Controller"}};
+    const auto device = parseDeviceDescriptor(facts.raw.device);
+    REQUIRE(device.has_value());
+    facts.strings =
+        captureStrings(*device, "Sony Interactive Entertainment", "Wireless Controller");
     facts.reportDescriptor =
         HidReportDescriptor{3, bytesOf(kDualSenseReportDescriptor), DescriptorSource::Device};
     return facts;
@@ -109,7 +112,7 @@ TEST_CASE("usb descriptors: the device descriptor names the release and the stri
     }
 }
 
-TEST_CASE("usb descriptors: the file splits at the device descriptor's own length",
+TEST_CASE("usb descriptors: the file splits after the 18-byte device descriptor",
           "[diagnostics][usb]") {
     const RawDescriptors hub =
         splitDescriptors(kRootHub2Descriptors.data(), kRootHub2Descriptors.size());
@@ -121,6 +124,18 @@ TEST_CASE("usb descriptors: the file splits at the device descriptor's own lengt
     const RawDescriptors cut = splitDescriptors(kRootHub2Descriptors.data(), 10);
     CHECK(cut.device.size() == 10);
     CHECK(cut.configuration.empty());
+
+    SECTION("a bLength that lies does not move the split") {
+        // sysfs writes sizeof(struct usb_device_descriptor), 18 bytes, before the configurations
+        // whatever the pad put in bLength (drivers/usb/core/sysfs.c, descriptors_read).
+        std::array<std::uint8_t, kRootHub2Descriptors.size()> lying = kRootHub2Descriptors;
+        lying[0] = 0x09;
+        const RawDescriptors split = splitDescriptors(lying.data(), lying.size());
+        CHECK(split.device.size() == 18);
+        CHECK(split.configuration.size() == 25);
+        CHECK(split.configuration[0] == 0x09);
+        CHECK(split.configuration[1] == 0x02);
+    }
 }
 
 TEST_CASE("usb descriptors: every interface and alternate setting with the endpoints after it",
@@ -193,6 +208,8 @@ TEST_CASE("usb descriptors: release numbers and bytes read as the bundle writes 
           "[diagnostics][usb]") {
     CHECK(bcdText(0x0107) == "0107");
     CHECK(bcdText(0x0100) == "0100");
+    // Four lowercase hex digits, the descriptor's own value, never a release string like "1.07".
+    CHECK(bcdText(0x01AB) == "01ab");
     CHECK(hexOf(DescriptorBytes{0x12, 0x01, 0xAB}) == "1201ab");
     CHECK(endpointTypeToken(EndpointType::Interrupt) == "interrupt");
     CHECK(endpointTypeToken(EndpointType::Isochronous) == "isochronous");
@@ -204,23 +221,45 @@ TEST_CASE("usb descriptors: release numbers and bytes read as the bundle writes 
     CHECK(descriptorSourceToken(DescriptorSource::Reconstructed) == "reconstructed");
 }
 
-TEST_CASE("usb descriptors: a capture's strings are the maker's and the product's, never the "
-          "serial number's",
+namespace {
+
+// The capture's `strings` object for a pad with these indices and these texts.
+Json stringsFor(const UsbDeviceDescriptor& device, const std::string& manufacturer,
+                const std::string& product) {
+    UsbHardwareFacts facts;
+    facts.strings = captureStrings(device, manufacturer, product);
+    return *captureJson(facts, {}).find("strings");
+}
+
+} // namespace
+
+TEST_CASE("usb descriptors: a capture's strings are the maker's and the product's by role, never "
+          "the serial number",
           "[diagnostics][usb]") {
     UsbDeviceDescriptor device;
     device.manufacturerIndex = 1;
     device.productIndex = 2;
     device.serialNumberIndex = 3;
-    CHECK(
-        captureStrings(device, "Sony Interactive Entertainment", "Wireless Controller") ==
-        std::vector<UsbString>{{1, "Sony Interactive Entertainment"}, {2, "Wireless Controller"}});
+    const Json both = stringsFor(device, "Sony Interactive Entertainment", "Wireless Controller");
+    REQUIRE(both.find("manufacturer") != nullptr);
+    REQUIRE(both.find("product") != nullptr);
+    CHECK(both.find("manufacturer")->stringValue() == "Sony Interactive Entertainment");
+    CHECK(both.find("product")->stringValue() == "Wireless Controller");
+    CHECK(both.keys().size() == 2);
     SECTION("a string that shares the serial number's index is the serial number") {
         device.productIndex = 3;
-        CHECK(captureStrings(device, "Maker", "Unit 0042") == std::vector<UsbString>{{1, "Maker"}});
+        const Json strings = stringsFor(device, "Maker", "Unit 0042");
+        REQUIRE(strings.find("product") != nullptr);
+        CHECK(strings.find("manufacturer")->stringValue() == "Maker");
+        CHECK(strings.find("product")->kind() == Json::Kind::Null);
     }
-    SECTION("index 0 names no string, and an empty one is not written") {
+    SECTION("index 0 names no string, and an empty one is not reported") {
         device.manufacturerIndex = 0;
-        CHECK(captureStrings(device, "Maker", "").empty());
+        const Json strings = stringsFor(device, "Maker", "");
+        REQUIRE(strings.find("manufacturer") != nullptr);
+        REQUIRE(strings.find("product") != nullptr);
+        CHECK(strings.find("manufacturer")->kind() == Json::Kind::Null);
+        CHECK(strings.find("product")->kind() == Json::Kind::Null);
     }
 }
 
@@ -339,8 +378,11 @@ TEST_CASE("capture: the file's usb-descriptors-v1 object", "[diagnostics][captur
                                                    "01");
     CHECK(capture.find("configuration")->stringValue().size() ==
           2 * kDualSenseConfiguration.size());
-    CHECK(capture.find("strings")->find("1")->stringValue() == "Sony Interactive Entertainment");
-    CHECK(capture.find("strings")->find("2")->stringValue() == "Wireless Controller");
+    const Json& strings = *capture.find("strings");
+    REQUIRE(strings.find("manufacturer") != nullptr);
+    REQUIRE(strings.find("product") != nullptr);
+    CHECK(strings.find("manufacturer")->stringValue() == "Sony Interactive Entertainment");
+    CHECK(strings.find("product")->stringValue() == "Wireless Controller");
     const Json& descriptor = capture.find("hidReportDescriptors")->items().front();
     CHECK(descriptor.find("interface")->integerValue() == 3);
     CHECK(descriptor.find("source")->stringValue() == "device");
@@ -354,6 +396,10 @@ TEST_CASE("capture: the file's usb-descriptors-v1 object", "[diagnostics][captur
         CHECK(none.find("device")->kind() == Json::Kind::Null);
         CHECK(none.find("configuration")->kind() == Json::Kind::Null);
         CHECK(none.find("hidReportDescriptors")->items().empty());
+        const Json& noStrings = *none.find("strings");
+        REQUIRE(noStrings.find("manufacturer") != nullptr);
+        CHECK(noStrings.find("manufacturer")->kind() == Json::Kind::Null);
+        CHECK(noStrings.find("product")->kind() == Json::Kind::Null);
         CHECK(none.find("restReports")->items().empty());
     }
 }
@@ -408,8 +454,11 @@ TEST_CASE("usb hardware: a pad's facts come from its sysfs device, never its ser
     CHECK(facts.raw.device == bytesOf(kDualSenseDevice));
     CHECK(facts.raw.configuration == bytesOf(kDualSenseConfiguration));
     CHECK(facts.interfaces.size() == 6);
-    CHECK(facts.strings == std::vector<UsbString>{{1, "Sony Interactive Entertainment"},
-                                                  {2, "Wireless Controller"}});
+    const Json strings = *captureJson(facts, {}).find("strings");
+    REQUIRE(strings.find("manufacturer") != nullptr);
+    REQUIRE(strings.find("product") != nullptr);
+    CHECK(strings.find("manufacturer")->stringValue() == "Sony Interactive Entertainment");
+    CHECK(strings.find("product")->stringValue() == "Wireless Controller");
     REQUIRE(facts.reportDescriptor.has_value());
     CHECK(facts.reportDescriptor->interfaceNumber == 3);
     // sysfs's report_descriptor is the system's copy, after the HID driver's report_fixup.

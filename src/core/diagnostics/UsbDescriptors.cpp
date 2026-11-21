@@ -76,20 +76,23 @@ void addEndpoint(std::vector<UsbInterface>& interfaces, const DescriptorView& d)
 }
 
 // A string the device names by a real index, unless that index is the serial number's.
-void addString(std::vector<UsbString>& out, const UsbDeviceDescriptor& device, std::uint8_t index,
-               const std::string& text) {
+std::optional<std::string> stringAt(const UsbDeviceDescriptor& device, std::uint8_t index,
+                                    const std::string& text) {
     const bool named = index != 0 && !text.empty();
     const bool isTheSerialNumber = index == device.serialNumberIndex;
-    if (named && !isTheSerialNumber) { out.emplace_back(index, text); }
+    if (!named || isTheSerialNumber) { return std::nullopt; }
+    return text;
 }
 
 } // namespace
 
 bool UsbEndpoint::isIn() const { return (address & kEndpointDirectionIn) != 0; }
 
+// At 18 bytes whatever bLength says: sysfs writes sizeof(struct usb_device_descriptor) before the
+// configurations (drivers/usb/core/sysfs.c, descriptors_read).
 RawDescriptors splitDescriptors(const std::uint8_t* raw, std::size_t len) {
     if (raw == nullptr || len == 0) { return {}; }
-    const std::size_t deviceLength = std::min<std::size_t>(raw[0], len);
+    const std::size_t deviceLength = std::min(kDeviceDescriptorBytes, len);
     RawDescriptors out;
     out.device.assign(raw, raw + deviceLength);
     out.configuration.assign(raw + deviceLength, raw + len);
@@ -126,12 +129,10 @@ std::vector<UsbInterface> interfacesOf(const DescriptorBytes& configuration) {
     return interfaces;
 }
 
-std::vector<UsbString> captureStrings(const UsbDeviceDescriptor& device,
-                                      const std::string& manufacturer, const std::string& product) {
-    std::vector<UsbString> out;
-    addString(out, device, device.manufacturerIndex, manufacturer);
-    addString(out, device, device.productIndex, product);
-    return out;
+CaptureStrings captureStrings(const UsbDeviceDescriptor& device, const std::string& manufacturer,
+                              const std::string& product) {
+    return CaptureStrings{stringAt(device, device.manufacturerIndex, manufacturer),
+                          stringAt(device, device.productIndex, product)};
 }
 
 std::string hexOf(const std::uint8_t* bytes, std::size_t len) {

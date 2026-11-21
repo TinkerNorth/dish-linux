@@ -15,9 +15,10 @@ Json hexOrNull(const DescriptorBytes& bytes) {
     return {hexOf(bytes)};
 }
 
-Json stringsJson(const std::vector<UsbString>& strings) {
+Json stringsJson(const CaptureStrings& strings) {
     Json out = Json::object();
-    for (const auto& [index, text] : strings) { out.set(std::to_string(index), text); }
+    out.set("manufacturer", Json::orNull(strings.manufacturer));
+    out.set("product", Json::orNull(strings.product));
     return out;
 }
 

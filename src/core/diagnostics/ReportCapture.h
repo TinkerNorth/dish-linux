@@ -139,9 +139,9 @@ struct RestReport {
 std::vector<RestReport> restReportsOf(const std::vector<CapturedReport>& kept,
                                       std::int64_t loopClockNowMs, std::int64_t wallClockNowMs);
 
-// `capture` for the pad the person picked: its descriptors as the platform read them, its strings
-// (never the serial number), its report descriptor and the reports at rest. A field the platform
-// could not read is null.
+// `capture` for the pad the person picked: the hex of its 18-byte device descriptor and of every
+// configuration in index order, its strings by role (never the serial number), its report
+// descriptor and the reports at rest. A field the platform could not read is null.
 Json captureJson(const UsbHardwareFacts& hardware, const std::vector<RestReport>& reports);
 
 } // namespace dish::diagnostics
