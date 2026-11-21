@@ -66,7 +66,7 @@ Json batteryJson(const std::optional<diagnostics::BatteryFacts>& battery) {
 }
 
 // `thermal` from the thermal zones' trip points where a zone names one; `wifi` is null because
-// this client links no WLAN library, and `usbHost`, a phone's question, is null (tests/PARITY.md).
+// this client links no WLAN library (tests/PARITY.md); `usbHost` as the reader measured it.
 Json deviceJson(const BundleFacts& facts) {
     Json device = Json::object();
     device.set("model", facts.model);
@@ -78,7 +78,7 @@ Json deviceJson(const BundleFacts& facts) {
                               : Json());
     device.set("powerSave", Json::orNull(facts.power.powerSave));
     device.set("wifi", Json());
-    device.set("usbHost", Json());
+    device.set("usbHost", Json::orNull(facts.usbHost));
     return device;
 }
 
@@ -133,13 +133,28 @@ Json endpointsJson(const BundleHardware& hw) {
     return out;
 }
 
+Json bcdJson(const std::optional<std::uint16_t>& bcd) {
+    if (!bcd.has_value()) { return {}; }
+    return {diagnostics::bcdText(*bcd)};
+}
+
+Json interfacesOrNull(const std::optional<std::vector<diagnostics::UsbInterface>>& interfaces) {
+    if (!interfaces.has_value()) { return {}; }
+    return diagnostics::interfacesJson(*interfaces);
+}
+
+// `firmware` is null: no desktop path reads a pad's firmware version.
 Json hardwareJson(const BundleHardware& hw) {
     Json out = Json::object();
     out.set("vid", controllerdb::hexWordText(hw.vendorId));
     out.set("pid", controllerdb::hexWordText(hw.productId));
+    out.set("bcdDevice", bcdJson(hw.bcdDevice));
     out.set("product", orNullText(hw.product));
     out.set("manufacturer", orNullText(hw.manufacturer));
+    out.set("interfaces", interfacesOrNull(hw.interfaces));
     out.set("endpoints", endpointsJson(hw));
+    out.set("descriptorSha256", Json::orNull(hw.descriptorSha256));
+    out.set("firmware", Json());
     return out;
 }
 
@@ -273,7 +288,7 @@ Json bluetoothJson(const std::optional<BundleBluetooth>& bluetooth) {
     if (!bluetooth.has_value()) { return {}; }
     Json out = Json::object();
     out.set("profile", bluetooth->profile);
-    out.set("transportLayer", bluetooth->transportLayer);
+    out.set("transportLayer", orNullText(bluetooth->transportLayer));
     return out;
 }
 
@@ -289,7 +304,7 @@ Json controllerJson(const BundleController& c) {
     out.set("lastFeedback", Json());
     out.set("lastWrite", lastWriteJson(c.lastWrite));
     out.set("outcomes", outcomesJson(c.outcomes));
-    out.set("capture", Json());
+    out.set("capture", c.capture.has_value() ? *c.capture : Json());
     out.set("input", inputJson(c.input));
     out.set("output", outputJson(c));
     out.set("bluetooth", bluetoothJson(c.bluetooth));

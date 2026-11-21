@@ -148,6 +148,7 @@ project it so the type picker can tell loading from empty from failed.
 | `machineModel` | `string` | CONSTANT | This PC's model as the diagnostics file names it (DMI's `sys_vendor` and `product_name`), `Linux PC` when the firmware names none; never the host name. |
 | `osVersion` | `string` | CONSTANT | The distribution and kernel release, `Ubuntu 24.04.1 LTS (6.8.0-45-generic)`. |
 | `reportReady` | `bool` | `reportReadyChanged` | Every live Satellite has answered the snapshot request `prepareReport()` sent, or let it time out; until then "Preview file" and "Continue in your mail app" wait. |
+| `controllerCapture` | `QVariantMap` | `controllerCaptureChanged` | "Capture this controller" for the pad last asked for: `{ slotId, state }`, `state` one of `idle`, `capturing`, `captured`, `failed`. |
 | `donateSponsorsUrl` | `string` | CONSTANT | GitHub Sponsors URL. |
 | `donateKofiUrl` | `string` | CONSTANT | Ko-fi URL. |
 | `donateBmacUrl` | `string` | CONSTANT | Buy Me a Coffee URL. |
@@ -221,6 +222,7 @@ Republished at the inspector's 33 ms poll while an inspection is armed (see
 | `controllerDbChanged` | | `controllerDb` or `controllerDbChecksEnabled` moved. |
 | `testOutcomesChanged` | | An answer to "Did it work?" was recorded. Re-pull `lastTestOutcome()` and `controllerRecordFacts()`. |
 | `reportReadyChanged` | | `reportReady` moved. |
+| `controllerCaptureChanged` | | `controllerCapture` moved. |
 | `diagnosticsMailHandedOff` | `bool viaMailClient` | After `sendReport`: `true` when the mail client took the message, `false` when the `mailto:` fallback opened and the file manager shows the folder to attach the file from. |
 | `inputSnapshotChanged` | | `inputSnapshot` moved. |
 | `stickTestChanged` | | `stickTest` moved. |
@@ -468,6 +470,7 @@ every ack answer reads `unknown` until then.
 | `saveDiagnostics()` | Writes `dish-diagnostics-dish-linux-<yyyyMMdd-HHmmss>.json` under `~/.local/share/TinkerNorth/Dish/diagnostics` and opens that folder in the file manager. Returns the path, `""` when it could not be written. |
 | `prepareReport()` | "Report a problem" / "Ask a question" opened: asks every live Satellite for its own snapshot of the session (`GET /api/connections/{id}/diagnostics`, two seconds at most) and reads the PC's power and thermal facts from sysfs. `reportReady` turns `true` when every answer is in. |
 | `reportPreview(category, text, slotId)` | The file as `sendReport` would write it, as text. `category` is `notRecognised` / `noFeedback` / `connection` / `audio` / `other` / `question`, `text` the person's words, `slotId` the controller it concerns or `""`. |
+| `captureController(slotId)` | "Capture this controller" for a Direct pad: arms its claim's read loop to keep its next twenty input reports, then polls ten times a second for two seconds at most; the pad's USB descriptors (sysfs `descriptors`), its manufacturer and product strings, its report descriptor and the reports it sent are kept for the run and written, as `capture` in format `usb-descriptors-v1`, only into a report whose `slotId` is this pad. `false` for a pad with no live Direct claim, or while a capture runs. |
 | `sendReport(category, categoryWords, text, slotId, summary)` | Writes the file with the report in it, then runs `xdg-email` to open the person's mail app addressed to `support@tinkernorth.com` with the file attached, or the `mailto:` fallback where it cannot: subject `Dish support: <categoryWords> · Dish for Linux <version> on <model>`, body `text`, a blank line, then `summary` (the Diagnostics page's summary in the person's language). `false` when the file could not be written or the last mail's `xdg-email` has not answered yet; `diagnosticsMailHandedOff` follows. |
 | `startInputInspection(slotId)` | Arm the inspector on one slot: `inputSnapshot` and `stickTest` republish until `stopInputInspection()`. Arming another slot re-points it and drops the last slot's stick test. |
 | `stopInputInspection()` | Disarm. Call it when the page goes away. Safe when idle. |

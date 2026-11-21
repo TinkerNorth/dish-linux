@@ -101,14 +101,21 @@ inline bool isInert(const ControllerRecord& record) {
     return lacksAFamily || lacksAnOp || lacksItsParser || hidWithoutAnOrder || unknownOutput;
 }
 
-// The row the Direct path may act on for a pad: the active one, unless it is inert and the
-// bundled database has a live row for the same id, which then stays in force.
+// The row the Direct path may act on for a pad: the active one, unless it is inert, or flagged
+// (failures reported, section 4.1), and the bundled database has a live row for the same id that
+// is not, which then stays in force. A flagged row with no such twin still applies; an inert one
+// applies nothing.
 inline const ControllerRecord* directRecordFor(const ControllerRecord* active,
                                                const ControllerCatalog& bundled) {
-    if (active == nullptr || !isInert(*active)) { return active; }
+    if (active == nullptr) { return nullptr; }
+    const bool inert = isInert(*active);
+    const bool flagged = active->verification == Verification::Flagged;
+    if (!inert && !flagged) { return active; }
     const ControllerRecord* bundledRow = bundled.findById(active->id);
-    const bool bundledRowLives = bundledRow != nullptr && !isInert(*bundledRow);
-    return bundledRowLives ? bundledRow : nullptr;
+    const bool bundledRowLives = bundledRow != nullptr && !isInert(*bundledRow) &&
+                                 bundledRow->verification != Verification::Flagged;
+    if (bundledRowLives) { return bundledRow; }
+    return inert ? nullptr : active;
 }
 
 // Where a Direct pad's parser came from: the tables compiled into this binary, a database row

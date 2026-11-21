@@ -25,6 +25,9 @@
 
 #include "source/usb/UsbDeviceGateway.h"
 
+#include "core/controllerdb/PadModel.h"
+#include "core/diagnostics/ReportCapture.h"
+#include "core/diagnostics/UsbDescriptors.h"
 #include "core/input/UsbHidLayout.h"
 #include "core/input/UsbReportParsers.h"
 #include "core/thread/TrackedMutex.h"
@@ -202,7 +205,6 @@ class HidrawGateway : public UsbDeviceGateway {
     ClaimResult claim(const UsbDeviceInfo& device,
                       std::function<void(const UsbReport&)> onReport) override;
     void releaseClaim(int syntheticId) override;
-    bool isKnownFastLaneModel(int vendorId, int productId) const override;
     bool isClaimAlive(int syntheticId) const override;
     bool isPadLinked(int syntheticId) const override;
     std::int64_t completionCount(int syntheticId) const override;
@@ -210,18 +212,29 @@ class HidrawGateway : public UsbDeviceGateway {
     // Before the first claim: what each claim's read thread asks for its priority through as it
     // starts. None asks for nothing.
     void setPriorityRequester(const PriorityRequester* requester) { priority_ = requester; }
+    // Before the first scan: what a pad's model is resolved through when it attaches. None
+    // resolves with no database.
+    void setModelResolver(const dish::controllerdb::PadModelResolver* resolver) {
+        resolver_ = resolver;
+    }
 
     bool writeOutputReport(int syntheticId, const std::uint8_t* data, std::size_t len) override;
     std::unique_ptr<HidReportWriter> openReportWriter(int syntheticId) override;
     bool setPadMicMuted(int syntheticId, bool muted) override;
     bool setTrackpadPick(int syntheticId, input::usbparse::TrackpadPick pick) override;
+    bool armCapture(int syntheticId) override;
+    std::vector<diagnostics::CapturedReport> capturedReports(int syntheticId) const override;
 
   private:
     struct Claimed {
         std::string node;
         int fd = -1;
         std::thread reader;
-        std::atomic<bool> running{false};
+        // Whether the reader keeps reading, and whether a capture is armed: the one word it loads
+        // per report.
+        diagnostics::ReadLoopWord loop;
+        // Fixed with the claim, before anything can arm it.
+        diagnostics::ReportCapture capture;
         // Cleared by the reader as it exits, whatever ended it.
         std::atomic<bool> alive{true};
         // Whether a controller is there: from the claim for a model's own pad, and for a
@@ -268,10 +281,20 @@ class HidrawGateway : public UsbDeviceGateway {
     static bool decodeOneReport(Claimed* c, const std::uint8_t* data, std::size_t len,
                                 input::usbparse::ParsedReport& parsed);
 
+    // The hardware an admitted node's attach read, read now if the attach is new.
+    const diagnostics::UsbHardwareFacts& hardwareFor(const std::string& attach,
+                                                     const std::string& hidrawName,
+                                                     const std::vector<std::uint8_t>& descriptor);
+
     // Negative and decreasing, mirroring the android synthetic-id space so they
     // never collide with positive SDL ids.
     std::atomic<int> nextSyntheticId_{-1000};
     const PriorityRequester* priority_ = nullptr;
+    const dish::controllerdb::PadModelResolver* resolver_ = nullptr;
+    // enumerate()'s own, by the HID device's name: the model each attach pinned, and the hardware
+    // read for it once it was admitted.
+    dish::controllerdb::ModelPins pins_;
+    std::map<std::string, diagnostics::UsbHardwareFacts> hardware_;
 
     mutable thread::TrackedMutex mtx_{"hid.claims"};
     std::map<int, std::unique_ptr<Claimed>> claimed_;

@@ -272,6 +272,9 @@ set(DISH_TEST_SOURCES
     test_diagnostics_maps.cpp
     # The controller database and diagnostics at every level.
     test_controller_db_core.cpp
+    test_pad_model.cpp
+    test_usb_hardware.cpp
+    test_usb_served_models.cpp
     test_controller_db_json.cpp
     test_controller_db_bundled.cpp
     test_controller_db_fetch.cpp

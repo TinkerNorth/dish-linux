@@ -16,6 +16,8 @@
 
 #include "QSettingsFixture.h"
 
+#include "PinnedModels.h"
+
 #include <catch2/catch_test_macros.hpp>
 
 #include <functional>
@@ -70,7 +72,9 @@ class FakeGateway : public UsbDeviceGateway {
     std::vector<Written> writes;
     bool writeSucceeds = true;
 
-    std::vector<UsbDeviceInfo> enumerate() override { return devices; }
+    std::vector<UsbDeviceInfo> enumerate() override {
+        return dish::test::pinnedWithoutDatabase(devices, fastLane);
+    }
     ClaimResult claim(const UsbDeviceInfo& /*d*/,
                       std::function<void(const UsbReport&)> /*onReport*/) override {
         ++claimCalls;
@@ -80,9 +84,6 @@ class FakeGateway : public UsbDeviceGateway {
     void releaseClaim(int syntheticId) override {
         released.push_back(syntheticId);
         deadClaims.insert(syntheticId);
-    }
-    bool isKnownFastLaneModel(int /*vendorId*/, int /*productId*/) const override {
-        return fastLane;
     }
     bool isClaimAlive(int syntheticId) const override { return deadClaims.count(syntheticId) == 0; }
     std::int64_t completionCount(int /*syntheticId*/) const override { return completions; }
@@ -609,14 +610,15 @@ class ReportingGateway : public UsbDeviceGateway {
     UsbReport report;
     int syntheticId = -1000;
 
-    std::vector<UsbDeviceInfo> enumerate() override { return {padDevice()}; }
+    std::vector<UsbDeviceInfo> enumerate() override {
+        return dish::test::pinnedWithoutDatabase({padDevice()}, false);
+    }
     ClaimResult claim(const UsbDeviceInfo& /*d*/,
                       std::function<void(const UsbReport&)> onReport) override {
         if (onReport) { onReport(report); }
         return ClaimResult::success(syntheticId);
     }
     void releaseClaim(int /*syntheticId*/) override {}
-    bool isKnownFastLaneModel(int /*v*/, int /*p*/) const override { return false; }
     bool isClaimAlive(int /*syntheticId*/) const override { return true; }
     std::int64_t completionCount(int /*syntheticId*/) const override { return 0; }
     std::int64_t decodedCount(int /*syntheticId*/) const override { return 0; }
@@ -793,14 +795,15 @@ using TouchpadSample = dish::input::GamepadInputProcessor::TouchpadSample;
 // Keeps the claim's report callback, so a test streams reports through it.
 class StreamingGateway : public UsbDeviceGateway {
   public:
-    std::vector<UsbDeviceInfo> enumerate() override { return {padDevice()}; }
+    std::vector<UsbDeviceInfo> enumerate() override {
+        return dish::test::pinnedWithoutDatabase({padDevice()}, false);
+    }
     ClaimResult claim(const UsbDeviceInfo& /*d*/,
                       std::function<void(const UsbReport&)> onReport) override {
         onReport_ = std::move(onReport);
         return ClaimResult::success(-1000);
     }
     void releaseClaim(int /*syntheticId*/) override {}
-    bool isKnownFastLaneModel(int /*v*/, int /*p*/) const override { return false; }
     bool isClaimAlive(int /*syntheticId*/) const override { return true; }
     std::int64_t completionCount(int /*syntheticId*/) const override { return 0; }
     std::int64_t decodedCount(int /*syntheticId*/) const override { return 0; }

@@ -57,21 +57,8 @@ std::shared_ptr<const ControllerCatalog> catalogOf(int dbVersion,
     return std::make_shared<const ControllerCatalog>(std::move(db), std::move(strings), source);
 }
 
-// A gamepad's report descriptor: Usage Page (Generic Desktop), Usage (Game Pad), Collection
-// (Application), then an Input main item, an Output main item, either or neither, and the End
-// Collection.
-std::vector<std::uint8_t> descriptorWith(bool input, bool output) {
-    std::vector<std::uint8_t> d{0x05, 0x01, 0x09, 0x05, 0xA1, 0x01};
-    if (input) { d.insert(d.end(), {0x81, 0x02}); }
-    if (output) { d.insert(d.end(), {0x91, 0x02}); }
-    d.push_back(0xC0);
-    return d;
-}
-
-ObservedHardware observedOf(bool input, bool output) {
-    const std::vector<std::uint8_t> d = descriptorWith(input, output);
-    return observedFromReportDescriptor(d.data(), d.size());
-}
+// The claimed interface's endpoints as the Direct path read them.
+ObservedHardware observedOf(bool input, bool output) { return ObservedHardware{input, output}; }
 
 } // namespace
 
@@ -157,10 +144,14 @@ TEST_CASE("controller db: a string missing in the person's language falls back t
 TEST_CASE("controller db: the strings locale is the first UI language the database has",
           "[controllerdb]") {
     CHECK(stringsLocaleFor({"de-DE", "en-US"}) == "de");
+    CHECK(stringsLocaleFor({"de-AT"}) == "de");
     CHECK(stringsLocaleFor({"pt-BR"}) == "pt-BR");
     CHECK(stringsLocaleFor({"pt-PT"}) == "pt-BR");
     CHECK(stringsLocaleFor({"bs-Latn-BA"}) == "bs");
+    CHECK(stringsLocaleFor({"fr-CA"}) == "fr");
     CHECK(stringsLocaleFor({"ja-JP", "fr-CA"}) == "fr");
+    CHECK(stringsLocaleFor({"es-419"}) == "es");
+    CHECK(stringsLocaleFor({"en-GB"}) == "en");
     CHECK(stringsLocaleFor({"ja-JP"}) == "en");
     CHECK(stringsLocaleFor({}) == "en");
 }
@@ -248,6 +239,13 @@ TEST_CASE("controller db: an inert served row leaves the bundled row for the sam
         CHECK(directRecordFor(&lonely, *bundled) == nullptr);
     }
     SECTION("no row at all") { CHECK(directRecordFor(nullptr, *bundled) == nullptr); }
+    SECTION("a flagged served row gives way to the live bundled row, and applies without one") {
+        ControllerRecord flagged = recordOf("pad", Family::DualSense, {kThirdPartyPad});
+        flagged.verification = Verification::Flagged;
+        CHECK(directRecordFor(&flagged, *bundled) == bundled->findById("pad"));
+        const auto empty = catalogOf(1, {});
+        CHECK(directRecordFor(&flagged, *empty) == &flagged);
+    }
 }
 
 TEST_CASE("controller db: the compiled tables outrank a record for an id they name",
@@ -317,38 +315,6 @@ TEST_CASE("controller db: the expect check names each disagreement in the contra
     }
     SECTION("a side the path did not observe is not compared") {
         CHECK(expectMismatches(both, ObservedHardware{true, std::nullopt}).empty());
-    }
-}
-
-TEST_CASE("controller db: a report descriptor's Input and Output items are what is observed",
-          "[controllerdb]") {
-    CHECK(observedOf(true, true) == ObservedHardware{true, true});
-    CHECK(observedOf(true, false) == ObservedHardware{true, false});
-    CHECK(observedOf(false, false) == ObservedHardware{false, false});
-    SECTION("a Feature item is neither") {
-        const std::vector<std::uint8_t> feature{0x06, 0x00, 0xFF, 0xA1, 0x01, 0xB1, 0x02, 0xC0};
-        CHECK(observedFromReportDescriptor(feature.data(), feature.size()) ==
-              ObservedHardware{false, false});
-    }
-    SECTION("a data byte that looks like an Output item is skipped as data") {
-        // Usage Page with two data bytes 0x91 0x02, then an Input item.
-        const std::vector<std::uint8_t> d{0x06, 0x91, 0x02, 0x81, 0x02};
-        CHECK(observedFromReportDescriptor(d.data(), d.size()) == ObservedHardware{true, false});
-    }
-    SECTION("a four-byte item and a long item are stepped over whole") {
-        const std::vector<std::uint8_t> d{0x27, 0x91, 0x91, 0x91, 0x91, 0xFE,
-                                          0x02, 0x00, 0x91, 0x91, 0x91, 0x02};
-        CHECK(observedFromReportDescriptor(d.data(), d.size()) == ObservedHardware{false, true});
-    }
-    SECTION("a descriptor cut short ends the walk without reading past it") {
-        const std::vector<std::uint8_t> d{0x81, 0x02, 0x27, 0x91};
-        CHECK(observedFromReportDescriptor(d.data(), d.size()) == ObservedHardware{true, false});
-    }
-    SECTION("no descriptor observes nothing, so nothing is compared") {
-        CHECK(observedFromReportDescriptor(nullptr, 0) == ObservedHardware{});
-        CHECK(expectMismatches(Expect{Expectation::Present, Expectation::Present},
-                               observedFromReportDescriptor(nullptr, 0))
-                  .empty());
     }
 }
 

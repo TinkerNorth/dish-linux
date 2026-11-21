@@ -48,6 +48,19 @@ Kit.Page {
     property bool previewing: false
     property string previewText: ""
 
+    // "Capture this controller", offered for a pad Dish reads directly: its descriptors and the
+    // reports it sends at rest ride the file, for the controller the report names only.
+    readonly property bool pickedDirect: page.padIsDirect(page.slotId)
+    readonly property string captureState: App.controllerCapture.slotId === page.slotId
+                                           ? App.controllerCapture.state : "idle"
+    readonly property string captureWords: page.captureState === "capturing"
+        ? qsTr("Recording its reports. Leave the controller untouched…")
+        : page.captureState === "captured"
+          ? qsTr("Captured: the file now holds this controller's descriptors and the reports it sent while it lay still.")
+          : page.captureState === "failed"
+            ? qsTr("The capture did not finish: Dish no longer reads this controller directly.")
+            : qsTr("Dish can add this controller's USB descriptors and twenty reports taken while it lies still. Put it down, leave it untouched, then capture.")
+
     Component.onCompleted: App.prepareReport()
 
     Connections {
@@ -69,6 +82,14 @@ Kit.Page {
     // var-typed so the shell's dynamic `shellApi` resolves without lint warnings.
     readonly property var shellView: StackView.view
     readonly property var shellApi: page.shellView ? page.shellView.shellApi : null
+
+    function padIsDirect(slotId) {
+        for (let i = 0; i < page.pads.length; ++i) {
+            if (page.pads[i].slotId === slotId)
+                return page.pads[i].usbDirect;
+        }
+        return false;
+    }
 
     function pick(words) {
         const at = page.categoryWords.indexOf(words);
@@ -160,6 +181,26 @@ Kit.Page {
                 title: qsTr("No particular controller")
                 onPicked: page.slotId = ""
             }
+
+            ColumnLayout {
+                Layout.fillWidth: true
+                visible: page.pickedDirect
+                spacing: Tokens.s3
+
+                Label {
+                    Layout.fillWidth: true
+                    text: page.captureWords
+                    color: Theme.muted
+                    font.pixelSize: Tokens.textMeta
+                    wrapMode: Text.WordWrap
+                }
+                Kit.OutlineButton {
+                    size: Kit.DishButton.Small
+                    text: qsTr("Capture this controller")
+                    enabled: page.captureState !== "capturing"
+                    onClicked: App.captureController(page.slotId)
+                }
+            }
         }
 
         // ── The file ─────────────────────────────────────────────────────────
@@ -179,7 +220,8 @@ Kit.Page {
                                 qsTr("Dish's version, this PC's model and Linux version, its battery and power profile, and how hot it runs."),
                                 qsTr("Each controller's identity, the path Dish reads it on, and what went in and out of it, as counts and last values."),
                                 qsTr("Each host's kind, version and link state, Dish's own view of each session, and what each Satellite says about it."),
-                                qsTr("The controller database's state and this run's event log.")]
+                                qsTr("The controller database's state and this run's event log."),
+                                qsTr("For a controller you captured: its USB descriptors and the reports it sent while it lay still.")]
                         delegate: Label {
                             id: holdsLine
                             required property string modelData

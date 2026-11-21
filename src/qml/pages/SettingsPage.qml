@@ -492,7 +492,7 @@ Kit.Page {
                         Kit.LabeledSwitch {
                             Layout.fillWidth: true
                             label: qsTr("Check for updates automatically")
-                            description: qsTr("Dish asks GitHub for the newest release at startup and every few hours. Only a standard web request is sent; see the privacy policy for details.")
+                            description: qsTr("Dish asks GitHub for the newest release at startup and every few hours. Only a standard web request is sent; see the privacy policy for details. In the Flatpak it starts off, because Flathub delivers the updates.")
                             checked: App.updateChecksEnabled
                             onToggled: (checked) => App.setUpdateChecksEnabled(checked)
                         }

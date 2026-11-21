@@ -45,7 +45,7 @@ CatalogPtr bundledCatalog() {
                             DbSource::Bundled);
 }
 
-// The vendors HidrawGateway::isKnownFastLaneModel answers true for: Sony, Nintendo, 8BitDo.
+// The vendors controllerdb::vendorFastLane answers true for: Sony, Nintendo, 8BitDo.
 constexpr std::array<std::uint16_t, 3> kFastLaneVendors{0x054C, 0x057E, 0x2DC8};
 
 std::optional<Mapping> mappingOf(dish::input::usbparse::ButtonOrder order) {

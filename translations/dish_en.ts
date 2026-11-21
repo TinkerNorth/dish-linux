@@ -3989,6 +3989,22 @@
         <translation>A question</translation>
     </message>
     <message>
+        <source>Recording its reports. Leave the controller untouched…</source>
+        <translation>Recording its reports. Leave the controller untouched…</translation>
+    </message>
+    <message>
+        <source>Captured: the file now holds this controller&apos;s descriptors and the reports it sent while it lay still.</source>
+        <translation>Captured: the file now holds this controller&apos;s descriptors and the reports it sent while it lay still.</translation>
+    </message>
+    <message>
+        <source>The capture did not finish: Dish no longer reads this controller directly.</source>
+        <translation>The capture did not finish: Dish no longer reads this controller directly.</translation>
+    </message>
+    <message>
+        <source>Dish can add this controller&apos;s USB descriptors and twenty reports taken while it lies still. Put it down, leave it untouched, then capture.</source>
+        <translation>Dish can add this controller&apos;s USB descriptors and twenty reports taken while it lies still. Put it down, leave it untouched, then capture.</translation>
+    </message>
+    <message>
         <source>Your mail app has the message. Nothing is sent until you click Send.</source>
         <translation>Your mail app has the message. Nothing is sent until you click Send.</translation>
     </message>
@@ -4025,6 +4041,10 @@
         <translation>No particular controller</translation>
     </message>
     <message>
+        <source>Capture this controller</source>
+        <translation>Capture this controller</translation>
+    </message>
+    <message>
         <source>What the file holds</source>
         <translation>What the file holds</translation>
     </message>
@@ -4047,6 +4067,10 @@
     <message>
         <source>The controller database&apos;s state and this run&apos;s event log.</source>
         <translation>The controller database&apos;s state and this run&apos;s event log.</translation>
+    </message>
+    <message>
+        <source>For a controller you captured: its USB descriptors and the reports it sent while it lay still.</source>
+        <translation>For a controller you captured: its USB descriptors and the reports it sent while it lay still.</translation>
     </message>
     <message>
         <source>It never holds pairing keys, certificate fingerprints, IP addresses, Wi-Fi names or the names of your PCs and devices. Nothing is sent until you click Send in your mail app.</source>
@@ -4236,6 +4260,10 @@
         <translation>Open release page</translation>
     </message>
     <message>
+        <source>Dish asks GitHub for the newest release at startup and every few hours. Only a standard web request is sent; see the privacy policy for details. In the Flatpak it starts off, because Flathub delivers the updates.</source>
+        <translation>Dish asks GitHub for the newest release at startup and every few hours. Only a standard web request is sent; see the privacy policy for details. In the Flatpak it starts off, because Flathub delivers the updates.</translation>
+    </message>
+    <message>
         <source>Check for controller updates automatically</source>
         <translation>Check for controller updates automatically</translation>
     </message>
@@ -4350,10 +4378,6 @@
     <message>
         <source>Check for updates automatically</source>
         <translation>Check for updates automatically</translation>
-    </message>
-    <message>
-        <source>Dish asks GitHub for the newest release at startup and every few hours. Only a standard web request is sent; see the privacy policy for details.</source>
-        <translation>Dish asks GitHub for the newest release at startup and every few hours. Only a standard web request is sent; see the privacy policy for details.</translation>
     </message>
     <message>
         <source>Checking connects to github.com and sends no account data.</source>

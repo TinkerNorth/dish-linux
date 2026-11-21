@@ -3989,6 +3989,22 @@
         <translation>Una pregunta</translation>
     </message>
     <message>
+        <source>Recording its reports. Leave the controller untouched…</source>
+        <translation>Grabando sus informes. No toques el mando…</translation>
+    </message>
+    <message>
+        <source>Captured: the file now holds this controller&apos;s descriptors and the reports it sent while it lay still.</source>
+        <translation>Capturado: el archivo ya contiene los descriptores de este mando y los informes que envió mientras estaba quieto.</translation>
+    </message>
+    <message>
+        <source>The capture did not finish: Dish no longer reads this controller directly.</source>
+        <translation>La captura no terminó: Dish ya no lee este mando directamente.</translation>
+    </message>
+    <message>
+        <source>Dish can add this controller&apos;s USB descriptors and twenty reports taken while it lies still. Put it down, leave it untouched, then capture.</source>
+        <translation>Dish puede añadir los descriptores USB de este mando y veinte informes tomados mientras está quieto. Déjalo, no lo toques y luego captura.</translation>
+    </message>
+    <message>
         <source>Your mail app has the message. Nothing is sent until you click Send.</source>
         <translation>Tu app de correo tiene el mensaje. No se envía nada hasta que hagas clic en Enviar.</translation>
     </message>
@@ -4025,6 +4041,10 @@
         <translation>Ningún mando en concreto</translation>
     </message>
     <message>
+        <source>Capture this controller</source>
+        <translation>Capturar este mando</translation>
+    </message>
+    <message>
         <source>What the file holds</source>
         <translation>Qué contiene el archivo</translation>
     </message>
@@ -4047,6 +4067,10 @@
     <message>
         <source>The controller database&apos;s state and this run&apos;s event log.</source>
         <translation>El estado de la base de datos de mandos y el registro de eventos de esta ejecución.</translation>
+    </message>
+    <message>
+        <source>For a controller you captured: its USB descriptors and the reports it sent while it lay still.</source>
+        <translation>De un mando que capturaste: sus descriptores USB y los informes que envió mientras estaba quieto.</translation>
     </message>
     <message>
         <source>It never holds pairing keys, certificate fingerprints, IP addresses, Wi-Fi names or the names of your PCs and devices. Nothing is sent until you click Send in your mail app.</source>
@@ -4224,6 +4248,10 @@
         <translation>Abrir la página de la versión</translation>
     </message>
     <message>
+        <source>Dish asks GitHub for the newest release at startup and every few hours. Only a standard web request is sent; see the privacy policy for details. In the Flatpak it starts off, because Flathub delivers the updates.</source>
+        <translation>Dish pregunta a GitHub por la versión más reciente al iniciarse y cada pocas horas. Solo se envía una solicitud web normal; consulta la política de privacidad para más detalles. En el Flatpak empieza desactivado, porque Flathub entrega las actualizaciones.</translation>
+    </message>
+    <message>
         <source>Check for controller updates automatically</source>
         <translation>Buscar actualizaciones de mandos automáticamente</translation>
     </message>
@@ -4350,10 +4378,6 @@
     <message>
         <source>Check for updates automatically</source>
         <translation>Buscar actualizaciones automáticamente</translation>
-    </message>
-    <message>
-        <source>Dish asks GitHub for the newest release at startup and every few hours. Only a standard web request is sent; see the privacy policy for details.</source>
-        <translation>Dish pregunta a GitHub por la versión más reciente al iniciarse y cada pocas horas. Solo se envía una petición web estándar; consulta la política de privacidad para más detalles.</translation>
     </message>
     <message>
         <source>Checking connects to github.com and sends no account data.</source>

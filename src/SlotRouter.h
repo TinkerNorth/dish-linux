@@ -241,7 +241,7 @@ class SlotRouter final : public input::GamepadInputProcessor::InputSink {
     Sender moonlightSender(const DeviceId& id, Sender MoonlightRoutes::* member) const;
     // GUI thread: each Moonlight-bound slot's feedback route, rebuilt live.
     void refreshMoonlightFeedback();
-    static SlotHardware syntheticHardware(int vendorId, int productId);
+    SlotHardware syntheticHardware(const reducer::DirectPadKey& pad) const;
     SlotHardware sdlHardware(const QString& slotId) const;
 
     // The receive thread's half: the session's route, read inside a bracket on its participant.

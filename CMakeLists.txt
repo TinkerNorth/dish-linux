@@ -209,6 +209,9 @@ set(DISH_CORE_SOURCES
     src/core/controllerdb/IssueMatch.h
     src/core/controllerdb/DbFetch.h
     src/core/controllerdb/AttachedRecords.h
+    # The model each pad is pinned to at attach, and the resolver the composition root swaps.
+    src/core/controllerdb/PadModel.h
+    src/core/controllerdb/PadModel.cpp
     src/source/controllerdb/ControllerDbJson.h
     src/source/controllerdb/ControllerDbJson.cpp
     src/source/controllerdb/ControllerDbStore.h
@@ -225,6 +228,16 @@ set(DISH_CORE_SOURCES
     # bundle builder in composer, the xdg-email hand-off and the machine's identity at the system
     # edge.
     src/core/diagnostics/WriteVerdict.h
+    # A pad's hardware from its descriptors, the capture of its reports at rest, the measured
+    # usbHost and Bluetooth link; the sysfs readers at the USB edge.
+    src/core/diagnostics/UsbDescriptors.h
+    src/core/diagnostics/UsbDescriptors.cpp
+    src/core/diagnostics/ReportCapture.h
+    src/core/diagnostics/ReportCapture.cpp
+    src/core/diagnostics/UsbHost.h
+    src/core/input/BluetoothServices.h
+    src/source/usb/UsbSysfs.h
+    src/source/usb/UsbSysfs.cpp
     src/core/diagnostics/PadTestOutcomes.h
     src/core/diagnostics/MailHandoff.h
     src/core/diagnostics/HostIdentity.h
@@ -464,6 +477,8 @@ set(DISH_CORE_SOURCES
     src/source/inputrate/InputRateStore.cpp
     src/source/system/BluetoothRadioProbe.h
     src/source/system/BluetoothRadioProbe.cpp
+    src/source/system/BluetoothLinkReader.h
+    src/source/system/BluetoothLinkReader.cpp
     src/source/system/SecretServiceStore.h
     src/source/system/SleepMonitor.h
     src/source/system/WakeInhibitor.h

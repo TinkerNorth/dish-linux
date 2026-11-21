@@ -3989,6 +3989,22 @@
         <translation>Eine Frage</translation>
     </message>
     <message>
+        <source>Recording its reports. Leave the controller untouched…</source>
+        <translation>Die Berichte werden aufgezeichnet. Den Controller nicht berühren…</translation>
+    </message>
+    <message>
+        <source>Captured: the file now holds this controller&apos;s descriptors and the reports it sent while it lay still.</source>
+        <translation>Aufgezeichnet: Die Datei enthält jetzt die Deskriptoren dieses Controllers und die Berichte, die er in Ruhe gesendet hat.</translation>
+    </message>
+    <message>
+        <source>The capture did not finish: Dish no longer reads this controller directly.</source>
+        <translation>Die Aufzeichnung wurde nicht abgeschlossen: Dish liest diesen Controller nicht mehr direkt.</translation>
+    </message>
+    <message>
+        <source>Dish can add this controller&apos;s USB descriptors and twenty reports taken while it lies still. Put it down, leave it untouched, then capture.</source>
+        <translation>Dish kann die USB-Deskriptoren dieses Controllers und zwanzig in Ruhe aufgenommene Berichte hinzufügen. Legen Sie ihn ab, berühren Sie ihn nicht und starten Sie dann die Aufzeichnung.</translation>
+    </message>
+    <message>
         <source>Your mail app has the message. Nothing is sent until you click Send.</source>
         <translation>Deine Mail-App hat die Nachricht. Nichts wird gesendet, bis du auf Senden klickst.</translation>
     </message>
@@ -4025,6 +4041,10 @@
         <translation>Kein bestimmter Controller</translation>
     </message>
     <message>
+        <source>Capture this controller</source>
+        <translation>Diesen Controller aufzeichnen</translation>
+    </message>
+    <message>
         <source>What the file holds</source>
         <translation>Was die Datei enthält</translation>
     </message>
@@ -4047,6 +4067,10 @@
     <message>
         <source>The controller database&apos;s state and this run&apos;s event log.</source>
         <translation>Den Stand der Controller-Datenbank und das Ereignisprotokoll dieses Laufs.</translation>
+    </message>
+    <message>
+        <source>For a controller you captured: its USB descriptors and the reports it sent while it lay still.</source>
+        <translation>Für einen Controller, den Sie aufgezeichnet haben: seine USB-Deskriptoren und die Berichte, die er in Ruhe gesendet hat.</translation>
     </message>
     <message>
         <source>It never holds pairing keys, certificate fingerprints, IP addresses, Wi-Fi names or the names of your PCs and devices. Nothing is sent until you click Send in your mail app.</source>
@@ -4224,6 +4248,10 @@
         <translation>Release-Seite öffnen</translation>
     </message>
     <message>
+        <source>Dish asks GitHub for the newest release at startup and every few hours. Only a standard web request is sent; see the privacy policy for details. In the Flatpak it starts off, because Flathub delivers the updates.</source>
+        <translation>Dish fragt beim Start und alle paar Stunden bei GitHub nach der neuesten Version. Es wird nur eine normale Webanfrage gesendet; Einzelheiten stehen in der Datenschutzerklärung. Im Flatpak ist es zunächst aus, weil Flathub die Updates liefert.</translation>
+    </message>
+    <message>
         <source>Check for controller updates automatically</source>
         <translation>Automatisch nach Controller-Updates suchen</translation>
     </message>
@@ -4350,10 +4378,6 @@
     <message>
         <source>Check for updates automatically</source>
         <translation>Automatisch nach Updates suchen</translation>
-    </message>
-    <message>
-        <source>Dish asks GitHub for the newest release at startup and every few hours. Only a standard web request is sent; see the privacy policy for details.</source>
-        <translation>Dish fragt beim Start und alle paar Stunden bei GitHub nach der neuesten Version. Es wird nur eine normale Web-Anfrage gesendet; Details stehen in der Datenschutzerklärung.</translation>
     </message>
     <message>
         <source>Checking connects to github.com and sends no account data.</source>

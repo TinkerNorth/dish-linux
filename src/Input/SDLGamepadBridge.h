@@ -6,6 +6,7 @@
 #include "ControllerShadow.h"
 #include "GamepadInputProcessor.h"
 #include "JoystickMapping.h"
+#include "core/controllerdb/PadModel.h"
 #include "core/input/DirtySet.h"
 #include "core/input/HidTransport.h"
 #include "core/input/OutputMailbox.h"
@@ -60,6 +61,9 @@ class SDLGamepadBridge : public QObject {
     // Before start: what the SDL thread asks for its priority through as it starts. None asks
     // for nothing.
     void setPriorityRequester(const source::PriorityRequester* requester) { priority_ = requester; }
+    // Before start: what each pad's family is resolved through when it attaches, and pinned for
+    // as long as it stays (docs/controller-db.md section 6.5). None resolves with no database.
+    void setModelResolver(const controllerdb::PadModelResolver* resolver) { resolver_ = resolver; }
     void stop();
 
     // A snapshot of one attached device. Every field is classified once at
@@ -95,9 +99,14 @@ class SDLGamepadBridge : public QObject {
         // False when SDL reports no path, which leaves
         // the wired presentation in place and so fails safe.
         bool bluetooth = false;
-        // Which Bluetooth link the same node rides (sysfs: HIDP or uhid), for the support report;
-        // only the verdict leaves, never the node or the HCI connection it hangs off.
-        dish::input::BluetoothLink bluetoothLink = dish::input::BluetoothLink::None;
+        // Who made the node's HID device (sysfs: HIDP under its HCI connection, or uhid), and the
+        // node, which the support report reads the link through. Only the verdict leaves.
+        dish::input::BluetoothHidOrigin bluetoothOrigin =
+            dish::input::BluetoothHidOrigin::NotBluetooth;
+        std::string hidNode;
+        // The family its USB identity resolved to at attach, pinned: the effect builders and the
+        // capability solve read it, so a database that lands meanwhile applies at its next attach.
+        usbparse::HidParser parser = usbparse::HidParser::None;
         // GUID plus the serial where the driver exposes one (a Sony pad's is its
         // Bluetooth address), so a standing binding follows the pad and not the
         // order pads were plugged.
@@ -239,6 +248,7 @@ class SDLGamepadBridge : public QObject {
     void applySdlHints();
     bool initSdl();
     void onControllerAdded(const SDL_Event& ev);
+    usbparse::HidParser resolvedFamily(int vendorId, int productId) const;
     void onControllerRemoved(const SDL_Event& ev);
     void onJoystickAdded(const SDL_Event& ev);
     void onJoystickRemoved(const SDL_Event& ev);
@@ -292,6 +302,7 @@ class SDLGamepadBridge : public QObject {
     std::atomic<bool> running_{false};
     pump::PumpPolicy policy_{};
     const source::PriorityRequester* priority_ = nullptr;
+    const controllerdb::PadModelResolver* resolver_ = nullptr;
 
     // SDL thread only.
     std::array<Pad, kMaxPads> pads_{};

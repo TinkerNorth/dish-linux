@@ -15,6 +15,8 @@
 
 #include "source/usb/UsbDeviceGateway.h"
 
+#include "PinnedModels.h"
+
 #include <catch2/catch_test_macros.hpp>
 
 #include <atomic>
@@ -93,7 +95,9 @@ class RecordingGateway : public UsbDeviceGateway {
         return false;
     }
 
-    std::vector<UsbDeviceInfo> enumerate() override { return devices; }
+    std::vector<UsbDeviceInfo> enumerate() override {
+        return dish::test::pinnedWithoutDatabase(devices, true);
+    }
     ClaimResult claim(const UsbDeviceInfo& /*d*/,
                       std::function<void(const UsbReport&)> onReport) override {
         // Kept so a test can play the read thread and feed reports back in.
@@ -101,7 +105,6 @@ class RecordingGateway : public UsbDeviceGateway {
         return ClaimResult::success(nextSyntheticId--, ds5Firmware);
     }
     void releaseClaim(int syntheticId) override { released.push_back(syntheticId); }
-    bool isKnownFastLaneModel(int /*v*/, int /*p*/) const override { return true; }
     bool isClaimAlive(int /*syntheticId*/) const override { return true; }
     std::int64_t completionCount(int /*syntheticId*/) const override { return 0; }
     std::int64_t decodedCount(int /*syntheticId*/) const override { return 0; }

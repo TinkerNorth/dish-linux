@@ -494,34 +494,85 @@ TEST_CASE("device facts: a PC whose sysfs has none of the files says null",
 
 // ── Bluetooth ───────────────────────────────────────────────────────────────
 
-TEST_CASE("bluetooth: the link is who made the HID device, never more of the path",
+TEST_CASE("bluetooth: sysfs names who made the HID device, never more of the path",
           "[diagnostics][bluetooth]") {
-    using dish::input::BluetoothLink;
-    using dish::input::bluetoothLinkOfHidDevice;
-    CHECK(bluetoothLinkOfHidDevice(
+    using dish::input::BluetoothHidOrigin;
+    using dish::input::bluetoothOriginOfHidDevice;
+    CHECK(bluetoothOriginOfHidDevice(
               true, "/sys/devices/pci0000:00/0000:00:14.0/usb1/1-10/1-10:1.0/bluetooth/hci0/"
-                    "hci0:256/0005:054C:0CE6.0007") == BluetoothLink::Classic);
-    CHECK(bluetoothLinkOfHidDevice(true, "/sys/devices/virtual/misc/uhid/0005:045E:0B13.0009") ==
-          BluetoothLink::LowEnergy);
-    CHECK(bluetoothLinkOfHidDevice(
+                    "hci0:256/0005:054C:0CE6.0007") == BluetoothHidOrigin::HciConnection);
+    CHECK(bluetoothOriginOfHidDevice(true, "/sys/devices/virtual/misc/uhid/0005:045E:0B13.0009") ==
+          BluetoothHidOrigin::Uhid);
+    CHECK(bluetoothOriginOfHidDevice(
               false, "/sys/devices/pci0000:00/0000:00:14.0/usb1/1-2/1-2:1.3/0003:054C:0CE6.0003") ==
-          BluetoothLink::None);
-    // A uhid device that is not on the Bluetooth bus (a userspace driver's) is no BLE pad.
-    CHECK(bluetoothLinkOfHidDevice(false, "/sys/devices/virtual/misc/uhid/0003:1234:5678.0001") ==
-          BluetoothLink::None);
+          BluetoothHidOrigin::NotBluetooth);
+    // A uhid device that is not on the Bluetooth bus (a userspace driver's) is no Bluetooth pad.
+    CHECK(bluetoothOriginOfHidDevice(false, "/sys/devices/virtual/misc/uhid/0003:1234:5678.0001") ==
+          BluetoothHidOrigin::NotBluetooth);
+    // The adapter itself is not a connection: only hciN:handle is.
+    CHECK(bluetoothOriginOfHidDevice(true, "/sys/devices/x/bluetooth/hci0/0005:054C:0CE6.0007") ==
+          BluetoothHidOrigin::Other);
+    CHECK(bluetoothOriginOfHidDevice(true, "/sys/devices/x/hci0:/0005:054C:0CE6.0007") ==
+          BluetoothHidOrigin::Other);
+}
+
+TEST_CASE("bluetooth: a uhid pad's link is BlueZ's service list for it, a HIDP pad's classic",
+          "[diagnostics][bluetooth]") {
+    using dish::input::BluetoothHidOrigin;
+    using dish::input::TransportLayer;
+    using dish::input::transportLayerOf;
+    using Services = std::optional<std::vector<std::string>>;
+    const std::string hid = "00001124-0000-1000-8000-00805f9b34fb";
+    const std::string hogp = "00001812-0000-1000-8000-00805f9b34fb";
+    const std::string battery = "0000180f-0000-1000-8000-00805f9b34fb";
+    CHECK(transportLayerOf(BluetoothHidOrigin::Uhid, Services{{hid}}) == TransportLayer::Classic);
+    CHECK(transportLayerOf(BluetoothHidOrigin::Uhid, Services{{battery, hogp}}) ==
+          TransportLayer::LowEnergy);
+    CHECK(transportLayerOf(BluetoothHidOrigin::Uhid, Services{{hid, hogp}}) ==
+          TransportLayer::Unknown);
+    CHECK(transportLayerOf(BluetoothHidOrigin::Uhid, Services{{battery}}) ==
+          TransportLayer::Unknown);
+    CHECK(transportLayerOf(BluetoothHidOrigin::Uhid, std::nullopt) == TransportLayer::Unknown);
+    CHECK(transportLayerOf(BluetoothHidOrigin::HciConnection, std::nullopt) ==
+          TransportLayer::Classic);
+    CHECK(transportLayerOf(BluetoothHidOrigin::Other, Services{{hid}}) == TransportLayer::Unknown);
+    // BlueZ lists lowercase; the rule reads either case, and only the Bluetooth base UUID.
+    CHECK(transportLayerOf(BluetoothHidOrigin::Uhid,
+                           Services{{"00001124-0000-1000-8000-00805F9B34FB"}}) ==
+          TransportLayer::Classic);
+    CHECK(transportLayerOf(BluetoothHidOrigin::Uhid,
+                           Services{{"00001124-0000-1000-8000-00805f9b34fc"}}) ==
+          TransportLayer::Unknown);
+    CHECK(dish::input::transportLayerToken(TransportLayer::Classic) == "classic");
+    CHECK(dish::input::transportLayerToken(TransportLayer::LowEnergy) == "le");
+    CHECK(dish::input::transportLayerToken(TransportLayer::Unknown).empty());
+}
+
+TEST_CASE("bluetooth: HID_UNIQ is the remote address BlueZ finds the pad by",
+          "[diagnostics][bluetooth]") {
+    using dish::input::remoteAddressOf;
+    CHECK(remoteAddressOf("aa:bb:cc:0d:ee:f1") == std::optional<std::string>("AA:BB:CC:0D:EE:F1"));
+    // BlueZ writes the zero address when it could not read the peer's.
+    CHECK_FALSE(remoteAddressOf("00:00:00:00:00:00").has_value());
+    CHECK_FALSE(remoteAddressOf("").has_value());
+    CHECK_FALSE(remoteAddressOf("aa:bb:cc").has_value());
+    CHECK_FALSE(remoteAddressOf("aa-bb-cc-dd-ee-ff").has_value());
+    CHECK_FALSE(remoteAddressOf("ag:bb:cc:dd:ee:ff").has_value());
 }
 
 TEST_CASE("bluetooth: a hidraw and an evdev node resolve through sysfs's links",
           "[diagnostics][bluetooth][sysfs]") {
-    using dish::input::BluetoothLink;
-    using dish::input::bluetoothLinkOfHidPath;
+    using dish::input::BluetoothHidOrigin;
+    using dish::input::bluetoothOriginOfHidPath;
+    using dish::input::hidUniqOfHidPath;
     QTemporaryDir root;
     REQUIRE(root.isValid());
     const QString sys = root.path();
-    const QString ble = QStringLiteral("devices/virtual/misc/uhid/0005:045E:0B13.0009");
-    writeFile(sys, ble + QStringLiteral("/uevent"), "HID_ID=0005:0000045E:00000B13\n");
+    const QString uhid = QStringLiteral("devices/virtual/misc/uhid/0005:045E:0B13.0009");
+    writeFile(sys, uhid + QStringLiteral("/uevent"),
+              "HID_ID=0005:0000045E:00000B13\nHID_UNIQ=aa:bb:cc:dd:ee:ff\n");
     REQUIRE(QDir().mkpath(sys + QStringLiteral("/class/hidraw/hidraw3")));
-    REQUIRE(QFile::link(sys + QLatin1Char('/') + ble,
+    REQUIRE(QFile::link(sys + QLatin1Char('/') + uhid,
                         sys + QStringLiteral("/class/hidraw/hidraw3/device")));
     const QString classic = QStringLiteral("devices/hci0/hci0:256/0005:054C:0CE6.0007");
     writeFile(sys, classic + QStringLiteral("/uevent"), "HID_ID=0005:0000054C:00000CE6\n");
@@ -533,11 +584,16 @@ TEST_CASE("bluetooth: a hidraw and an evdev node resolve through sysfs's links",
     REQUIRE(QFile::link(sys + QLatin1Char('/') + classic + QStringLiteral("/input/input9"),
                         sys + QStringLiteral("/class/input/event9/device")));
     const std::string sysRoot = sys.toStdString();
-    CHECK(bluetoothLinkOfHidPath("/dev/hidraw3", sysRoot) == BluetoothLink::LowEnergy);
-    CHECK(bluetoothLinkOfHidPath("/dev/input/event9", sysRoot) == BluetoothLink::Classic);
-    CHECK(bluetoothLinkOfHidPath("/dev/hidraw4", sysRoot) == BluetoothLink::None);
-    CHECK(bluetoothLinkOfHidPath("", sysRoot) == BluetoothLink::None);
-    CHECK(bluetoothLinkOfHidPath("some-opaque-sdl-identifier", sysRoot) == BluetoothLink::None);
+    CHECK(bluetoothOriginOfHidPath("/dev/hidraw3", sysRoot) == BluetoothHidOrigin::Uhid);
+    CHECK(bluetoothOriginOfHidPath("/dev/input/event9", sysRoot) ==
+          BluetoothHidOrigin::HciConnection);
+    CHECK(bluetoothOriginOfHidPath("/dev/hidraw4", sysRoot) == BluetoothHidOrigin::NotBluetooth);
+    CHECK(bluetoothOriginOfHidPath("", sysRoot) == BluetoothHidOrigin::NotBluetooth);
+    CHECK(bluetoothOriginOfHidPath("some-opaque-sdl-identifier", sysRoot) ==
+          BluetoothHidOrigin::NotBluetooth);
+    CHECK(hidUniqOfHidPath("/dev/hidraw3", sysRoot) == "aa:bb:cc:dd:ee:ff");
+    CHECK(hidUniqOfHidPath("/dev/input/event9", sysRoot).empty());
+    CHECK(hidUniqOfHidPath("/dev/hidraw4", sysRoot).empty());
 }
 
 // ── The JSON writer's numbers ───────────────────────────────────────────────

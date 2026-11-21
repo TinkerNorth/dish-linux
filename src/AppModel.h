@@ -45,6 +45,8 @@
 #include "core/audio/AudioEnginePolicy.h"
 #include "core/controllerdb/AttachedRecords.h"
 #include "core/controllerdb/ControllerCatalog.h"
+#include "core/controllerdb/PadModel.h"
+#include "core/diagnostics/ReportCapture.h"
 #include "core/diagnostics/WriteVerdict.h"
 #include "core/audio/AudioRefusal.h"
 #include "core/audio/PadAudioMatcher.h"
@@ -333,6 +335,10 @@ class AppModel : public QObject {
     // The record a slot's pad was matched to at its attach, with the expect mismatches found then.
     // Empty for an unknown slot.
     std::optional<controllerdb::AttachedIdentity> attachedIdentity(const QString& slotId) const;
+    // "Capture this controller" for a Direct slot: arms its claim's capture, and what it kept so
+    // far on the read loop's clock. False, and nothing, for a slot with no live claim.
+    bool armDirectCapture(const QString& slotId);
+    std::vector<diagnostics::CapturedReport> directCapturedReports(const QString& slotId) const;
     // A Direct slot's device as the gateway described it, and its claim's last write verdict.
     std::optional<source::usb::UsbDeviceInfo> directDeviceFor(const QString& slotId) const;
     std::optional<diagnostics::WriteVerdict> lastDirectWrite(const QString& slotId) const;
@@ -404,6 +410,9 @@ class AppModel : public QObject {
     // cross-reference fills in what a binding adds, and the two republish* push the result to the
     // input threads and the power inhibitor.
     using DirectPads = std::vector<source::usb::UsbGamepadManager::DirectPad>;
+    controllerdb::PadModel pinnedModelOf(const reducer::DirectPadKey& pad) const;
+    controllerdb::PadModel pinnedModelOf(int vendorId, int productId) const;
+    bool directLayoutKnown(int vendorId, int productId) const;
     std::set<std::string>
     hideSdlTwinsOfClaimedPads(const DirectPads& pads,
                               const QList<input::SDLGamepadBridge::Device>& sdlDevices);
@@ -629,6 +638,12 @@ class AppModel : public QObject {
     // The Diagnostics bench's buzzes, so a stop ends only the buzz it was set for.
     reducer::TestBuzzTickets buzzTickets_;
     input::GamepadInputProcessor processor_;
+    // What each gateway resolves a pad's model through when the pad attaches (the hidraw gateway's
+    // scan, the SDL thread's attach): the database in force and the bundled copy, replaced whole
+    // when the database changes. Before every gateway, so it outlives their threads.
+    controllerdb::PadModelResolver padModels_;
+    controllerdb::CatalogPtr padModelsActive_;
+    void refreshPadModels();
     input::SDLGamepadBridge* bridge_;
     FeatureSettings* featureSettings_;
     QTimer* autoReconnectTimer_;
@@ -855,6 +870,7 @@ class AppModel : public QObject {
     std::unique_ptr<source::controllerdb::ControllerDbStore> controllerDbStore_;
     std::unique_ptr<source::controllerdb::HttpControllerDbGateway> controllerDbGateway_;
     composer::ControllerDbCoordinator* controllerDbCoordinator_ = nullptr;
+    arch::Observable<source::controllerdb::ControllerDbStatus>::Subscription controllerDbSub_;
     // Refreshed at every rebuild: a pad keeps what it was matched to until it leaves.
     controllerdb::AttachedIdentities attachedIdentities_;
     void refreshAttachedIdentities();
