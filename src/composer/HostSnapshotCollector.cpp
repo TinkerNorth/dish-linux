@@ -40,9 +40,11 @@ void HostSnapshotCollector::collect(const std::vector<std::string>& connectionKe
     batch->done = std::move(done);
     batches_.push_back(batch);
     const std::weak_ptr<Batch> weakBatch = batch;
+    // Each closure holds a plain copy of its key: a capture of the loop's const reference would
+    // make the closure's move a string copy, which can throw.
     for (const std::string& key : connectionKeys) {
-        gateway_.fetch(key, [weakBatch, key](SnapshotFetchReply reply) {
-            onReply(weakBatch, key, std::move(reply));
+        gateway_.fetch(key, [weakBatch, connectionKey = key](SnapshotFetchReply reply) {
+            onReply(weakBatch, connectionKey, std::move(reply));
         });
     }
 }

@@ -2349,10 +2349,10 @@ AppViewModel::bundleOutputOf(const models::ControllerSlot& slot) const {
     const reducer::SlotFeedbackInputs feedback = router->feedbackInputs(slot.id);
     composer::BundleOutput output;
     for (const LaneRow& row : kLaneRows) {
-        composer::BundleLane& lane = output.*row.field;
-        lane.sample = router->laneSample(slot.id, row.lane);
-        lane.target = std::string(
-            diagnostics::feedbackTargetToken(reducer::resolveFeedbackTarget(feedback, row.kind)));
+        const reducer::FeedbackTarget target = reducer::resolveFeedbackTarget(feedback, row.kind);
+        const diagnostics::LaneSample sample = router->laneSample(slot.id, row.lane);
+        output.*row.field =
+            composer::BundleLane{std::string(diagnostics::feedbackTargetToken(target)), sample};
     }
     const audio::PadAudioRoute route = router->audioRouteForSlot(slot.id);
     const std::string slotId = slot.id.toStdString();
