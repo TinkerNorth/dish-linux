@@ -178,6 +178,8 @@ std::string_view descriptorSourceToken(DescriptorSource source) {
     switch (source) {
     case DescriptorSource::Device:
         return "device";
+    case DescriptorSource::Os:
+        return "os";
     case DescriptorSource::Reconstructed:
         return "reconstructed";
     }
@@ -208,10 +210,15 @@ Json interfacesJson(const std::vector<UsbInterface>& interfaces) {
     return out;
 }
 
+std::optional<std::string> rawDescriptorsSha256(const UsbHardwareFacts& hardware) {
+    DescriptorBytes raw = hardware.raw.device;
+    raw.insert(raw.end(), hardware.raw.configuration.begin(), hardware.raw.configuration.end());
+    if (raw.empty()) { return std::nullopt; }
+    return sha256Hex(raw);
+}
+
 Json descriptorSha256Json(const UsbHardwareFacts& hardware) {
-    if (!hardware.reportDescriptor.has_value()) { return {}; }
-    const std::string sha = sha256Hex(hardware.reportDescriptor->bytes);
-    return sha.empty() ? Json() : Json(sha);
+    return Json::orNull(rawDescriptorsSha256(hardware));
 }
 
 } // namespace dish::diagnostics

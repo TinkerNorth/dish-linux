@@ -4,8 +4,9 @@
 // A USB pad's hardware as its own descriptors state it (docs/diagnostics-bundle.md, `hardware` and
 // `capture` in format usb-descriptors-v1): the device descriptor, every interface of the
 // configuration with the endpoints that follow it, and the claimed interface's HID report
-// descriptor, which the bundle names by its SHA-256. Pure and allocation-bounded: a descriptor that
-// lies about its length ends the walk rather than reading past the bytes.
+// descriptor. The bundle names a pad by the SHA-256 of its raw USB descriptors, which one pad and
+// firmware give alike on every platform. Pure and allocation-bounded: a descriptor that lies about
+// its length ends the walk rather than reading past the bytes.
 //
 // The strings are the manufacturer's and the product's, by their descriptor index. The serial
 // number identifies one unit: no index is read for it, and a string that shares its index is
@@ -81,9 +82,11 @@ std::optional<UsbDeviceDescriptor> parseDeviceDescriptor(const DescriptorBytes& 
 // descriptors that follow it up to the next interface.
 std::vector<UsbInterface> interfacesOf(const DescriptorBytes& configuration);
 
-// Where a report descriptor's bytes came from: the pad's own (Linux's sysfs report_descriptor,
-// the hub request on Windows), or a parsed form the client turned back into a descriptor.
-enum class DescriptorSource : std::uint8_t { Device, Reconstructed };
+// Where a report descriptor's bytes came from: read off the pad itself (Android's control
+// transfer, the hub request on Windows), the operating system's copy, which a HID driver may have
+// rewritten (Linux's sysfs report_descriptor, after the driver's report_fixup; IOKit's
+// kIOHIDReportDescriptorKey), or a parsed form the client turned back into a descriptor.
+enum class DescriptorSource : std::uint8_t { Device, Os, Reconstructed };
 
 struct HidReportDescriptor {
     int interfaceNumber = 0;
@@ -123,8 +126,12 @@ std::string bcdText(std::uint16_t bcd);
 std::string_view endpointTypeToken(EndpointType type);
 std::string_view descriptorSourceToken(DescriptorSource source);
 
-// `hardware.interfaces` with their endpoints, and the report descriptor's hash or null.
+// `hardware.interfaces` with their endpoints.
 Json interfacesJson(const std::vector<UsbInterface>& interfaces);
+// `hardware.descriptorSha256`: the SHA-256 of the device descriptor followed by every
+// configuration in index order, as the bus delivered them (Android's getRawDescriptors(), Linux's
+// sysfs `descriptors`, the Windows hub request); none for a pad with no raw descriptors.
+std::optional<std::string> rawDescriptorsSha256(const UsbHardwareFacts& hardware);
 Json descriptorSha256Json(const UsbHardwareFacts& hardware);
 
 } // namespace dish::diagnostics

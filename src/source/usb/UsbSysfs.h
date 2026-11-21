@@ -19,7 +19,8 @@
 namespace dish::source::usb {
 
 // The pad's hardware from its USB device directory, with the claimed interface's report
-// descriptor as the gateway read it. Each fact a file could not give is left empty.
+// descriptor as the gateway read it, the system's copy. Each fact a file could not give is left
+// empty.
 diagnostics::UsbHardwareFacts readUsbHardware(const std::string& usbDeviceDir, int interfaceNumber,
                                               diagnostics::DescriptorBytes reportDescriptor);
 

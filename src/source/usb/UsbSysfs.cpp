@@ -79,8 +79,10 @@ diagnostics::UsbHardwareFacts readUsbHardware(const std::string& usbDeviceDir, i
                                         firstLine(usbDeviceDir + "/product"));
     }
     if (!reportDescriptor.empty()) {
+        // The system's copy: sysfs serves the descriptor after the HID driver's report_fixup
+        // (drivers/hid/hid-core.c, report_descriptor_read copies hdev->rdesc).
         facts.reportDescriptor = diagnostics::HidReportDescriptor{
-            interfaceNumber, std::move(reportDescriptor), diagnostics::DescriptorSource::Device};
+            interfaceNumber, std::move(reportDescriptor), diagnostics::DescriptorSource::Os};
     }
     return facts;
 }

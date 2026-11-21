@@ -32,9 +32,11 @@
 using namespace dish::diagnostics;
 using dish::test::kDualSenseConfiguration;
 using dish::test::kDualSenseDevice;
+using dish::test::kDualSenseRawDescriptorsSha256;
 using dish::test::kDualSenseReportDescriptor;
 using dish::test::kDualSenseReportDescriptorSha256;
 using dish::test::kRootHub2Descriptors;
+using dish::test::kRootHub2DescriptorsSha256;
 using dish::test::kRootHub3Descriptors;
 
 namespace {
@@ -167,12 +169,24 @@ TEST_CASE("usb descriptors: a descriptor that lies about its length ends the wal
     CHECK(interfacesOf(DescriptorBytes{}).empty());
 }
 
-TEST_CASE("usb descriptors: the report descriptor is named by its SHA-256", "[diagnostics][usb]") {
+TEST_CASE("usb descriptors: a pad is named by the SHA-256 of its raw USB descriptors",
+          "[diagnostics][usb]") {
     CHECK(sha256Hex(bytesOf(kDualSenseReportDescriptor)) == kDualSenseReportDescriptorSha256);
     CHECK(sha256Hex(DescriptorBytes{}).empty());
-    UsbHardwareFacts none;
-    CHECK(descriptorSha256Json(none).kind() == Json::Kind::Null);
-    CHECK(descriptorSha256Json(dualSenseFacts()).stringValue() == kDualSenseReportDescriptorSha256);
+    // The device descriptor, then every configuration in index order, as the bus delivered them.
+    CHECK(descriptorSha256Json(dualSenseFacts()).stringValue() == kDualSenseRawDescriptorsSha256);
+    UsbHardwareFacts hub;
+    hub.raw = splitDescriptors(kRootHub2Descriptors.data(), kRootHub2Descriptors.size());
+    CHECK(rawDescriptorsSha256(hub) == std::optional<std::string>(kRootHub2DescriptorsSha256));
+
+    SECTION("a pad with no raw descriptors has none, whatever report descriptor it has") {
+        UsbHardwareFacts reportOnly;
+        reportOnly.reportDescriptor =
+            HidReportDescriptor{0, bytesOf(kDualSenseReportDescriptor), DescriptorSource::Os};
+        CHECK_FALSE(rawDescriptorsSha256(reportOnly).has_value());
+        CHECK(descriptorSha256Json(reportOnly).kind() == Json::Kind::Null);
+        CHECK(descriptorSha256Json(UsbHardwareFacts{}).kind() == Json::Kind::Null);
+    }
 }
 
 TEST_CASE("usb descriptors: release numbers and bytes read as the bundle writes them",
@@ -184,6 +198,10 @@ TEST_CASE("usb descriptors: release numbers and bytes read as the bundle writes 
     CHECK(endpointTypeToken(EndpointType::Isochronous) == "isochronous");
     CHECK(endpointTypeToken(EndpointType::Bulk) == "bulk");
     CHECK(endpointTypeToken(EndpointType::Control) == "control");
+    // Where a report descriptor came from: off the pad itself, the system's copy, or rebuilt.
+    CHECK(descriptorSourceToken(DescriptorSource::Device) == "device");
+    CHECK(descriptorSourceToken(DescriptorSource::Os) == "os");
+    CHECK(descriptorSourceToken(DescriptorSource::Reconstructed) == "reconstructed");
 }
 
 TEST_CASE("usb descriptors: a capture's strings are the maker's and the product's, never the "
@@ -394,8 +412,18 @@ TEST_CASE("usb hardware: a pad's facts come from its sysfs device, never its ser
                                                   {2, "Wireless Controller"}});
     REQUIRE(facts.reportDescriptor.has_value());
     CHECK(facts.reportDescriptor->interfaceNumber == 3);
-    CHECK(facts.reportDescriptor->source == DescriptorSource::Device);
+    // sysfs's report_descriptor is the system's copy, after the HID driver's report_fixup.
+    CHECK(facts.reportDescriptor->source == DescriptorSource::Os);
     CHECK(facts.reportDescriptor->bytes == reportDescriptor);
+    CHECK(captureJson(facts, {})
+              .find("hidReportDescriptors")
+              ->items()
+              .front()
+              .find("source")
+              ->stringValue() == "os");
+    // The whole descriptors file, byte for byte, is what descriptorSha256 names.
+    CHECK(rawDescriptorsSha256(facts) ==
+          std::optional<std::string>(kDualSenseRawDescriptorsSha256));
     const std::string written =
         captureJson(facts, {}).dump() + interfacesJson(facts.interfaces).dump();
     CHECK(written.find("SERIAL-0042") == std::string::npos);

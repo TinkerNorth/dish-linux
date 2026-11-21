@@ -363,7 +363,7 @@ and path (Direct or SDL), whether a Bluetooth link is classic or low energy
 (`bcdDevice`), the product and manufacturer strings it reports, its USB
 interfaces (number, class, subclass, protocol) with each one's endpoints
 (address, type, packet size, interval), the addresses of the endpoints Dish
-reads and writes, a SHA-256 checksum of its HID report descriptor, any
+reads and writes, a SHA-256 checksum of its USB descriptors, any
 mismatch between the record and what Dish saw, how many input reports it sent
 and at what rate, the last one (the buttons, sticks and triggers at that moment), for each kind of
 output (rumble, light bar, player lights, trigger effects, mute lamp) how

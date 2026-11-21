@@ -82,11 +82,21 @@ inline constexpr std::array<std::uint8_t, 273> kDualSenseReportDescriptor{{
 inline constexpr const char* kDualSenseReportDescriptorSha256 =
     "7587a72ee49550f24da50cbbad203742a0eb9aefbb753c2aaa5bedf8466c0d33";
 
+// SHA-256 of kDualSenseDevice followed by kDualSenseConfiguration, the raw USB descriptors as the
+// bus delivered them (Android's getRawDescriptors(), Linux's sysfs `descriptors`), from Python's
+// hashlib over the same 245 bytes.
+inline constexpr const char* kDualSenseRawDescriptorsSha256 =
+    "aff94b3a4bb26645cff6939f1722bbf3c1f32b8bf6f5047b295f9caa3c6f0d22";
+
 inline constexpr std::array<std::uint8_t, 43> kRootHub2Descriptors{{
     0x12, 0x01, 0x00, 0x02, 0x09, 0x00, 0x01, 0x40, 0x6B, 0x1D, 0x02, 0x00, 0x00, 0x07, 0x03,
     0x02, 0x01, 0x01, 0x09, 0x02, 0x19, 0x00, 0x01, 0x01, 0x00, 0xE0, 0x00, 0x09, 0x04, 0x00,
     0x00, 0x01, 0x09, 0x00, 0x00, 0x00, 0x07, 0x05, 0x81, 0x03, 0x04, 0x00, 0x0C,
 }};
+
+// SHA-256 of the whole kRootHub2Descriptors file, from Python's hashlib.
+inline constexpr const char* kRootHub2DescriptorsSha256 =
+    "08f7149916d118598a840ee35065c1d1e1edddaf3ee92f7d3cabe3d67bae8cf4";
 
 inline constexpr std::array<std::uint8_t, 49> kRootHub3Descriptors{{
     0x12, 0x01, 0x10, 0x03, 0x09, 0x00, 0x03, 0x09, 0x6B, 0x1D, 0x03, 0x00, 0x00,

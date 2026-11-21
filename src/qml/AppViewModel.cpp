@@ -2297,9 +2297,7 @@ composer::BundleBluetooth bundleBluetoothOf(const input::SDLGamepadBridge::Devic
 void addDescriptorFacts(composer::BundleHardware& hw, const diagnostics::UsbHardwareFacts& facts) {
     hw.bcdDevice = facts.bcdDevice;
     if (!facts.raw.configuration.empty()) { hw.interfaces = facts.interfaces; }
-    if (facts.reportDescriptor.has_value()) {
-        hw.descriptorSha256 = diagnostics::sha256Hex(facts.reportDescriptor->bytes);
-    }
+    hw.descriptorSha256 = diagnostics::rawDescriptorsSha256(facts);
 }
 
 // Below 2.3.0 by the version its capabilities reported: it has no diagnostics route, and a 404

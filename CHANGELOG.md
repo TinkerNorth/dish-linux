@@ -60,15 +60,18 @@ the repos share a version number.
 - **The pad's hardware in the file.** A Direct pad's `hardware` gains its
   `bcdDevice`, every USB interface (number, alternate setting, class,
   subclass, protocol) with its endpoints (address, type, packet size,
-  interval), parsed from sysfs's `descriptors`, and the SHA-256 of its HID
-  report descriptor. Never its serial number.
+  interval), parsed from sysfs's `descriptors`, and `descriptorSha256`, the
+  SHA-256 of those raw descriptors as the bus delivered them (the device
+  descriptor, then every configuration), which dish-android's
+  `getRawDescriptors()` gives byte for byte. Never its serial number.
 - **Capture this controller.** For a pad Dish reads directly, Report a
   problem can capture it: the read loop keeps its next twenty input reports
   with their arrival times, in slots fixed with the claim, then disarms
   itself, and the file's `capture` (format `usb-descriptors-v1`) carries them
   with the pad's raw device and configuration descriptors, its manufacturer
-  and product strings and its report descriptor (`source: device`). Only the
-  capture of the controller the report names enters the file.
+  and product strings and its report descriptor (`source: os`: sysfs serves
+  the kernel's copy, after the HID driver's `report_fixup`). Only the capture
+  of the controller the report names enters the file.
 - **`usbHost` measured.** `device.usbHost` is `true` when Linux lists a root
   hub `usbN` under `/sys/bus/usb/devices`, `false` when it lists none, `null`
   when that directory cannot be read.
