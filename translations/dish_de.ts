@@ -4002,7 +4002,7 @@
     </message>
     <message>
         <source>Dish can add this controller&apos;s USB descriptors and twenty reports taken while it lies still. Put it down, leave it untouched, then capture.</source>
-        <translation>Dish kann die USB-Deskriptoren dieses Controllers und zwanzig in Ruhe aufgenommene Berichte hinzufügen. Legen Sie ihn ab, berühren Sie ihn nicht und starten Sie dann die Aufzeichnung.</translation>
+        <translation>Dish kann die USB-Deskriptoren dieses Controllers und zwanzig in Ruhe aufgenommene Berichte hinzufügen. Leg ihn hin, berühre ihn nicht und starte dann die Aufzeichnung.</translation>
     </message>
     <message>
         <source>Your mail app has the message. Nothing is sent until you click Send.</source>
@@ -4010,7 +4010,7 @@
     </message>
     <message>
         <source>Your mail app opened without the file: attach the one the file manager shows.</source>
-        <translation>Ihre Mail-App wurde ohne die Datei geöffnet: Hängen Sie die an, die der Dateimanager zeigt.</translation>
+        <translation>Deine Mail-App wurde ohne die Datei geöffnet: Hänge die an, die der Dateimanager zeigt.</translation>
     </message>
     <message>
         <source>The diagnostics file could not be written, or a mail from the last one is still open.</source>
@@ -4070,7 +4070,7 @@
     </message>
     <message>
         <source>For a controller you captured: its USB descriptors and the reports it sent while it lay still.</source>
-        <translation>Für einen Controller, den Sie aufgezeichnet haben: seine USB-Deskriptoren und die Berichte, die er in Ruhe gesendet hat.</translation>
+        <translation>Für einen Controller, den du aufgezeichnet hast: seine USB-Deskriptoren und die Berichte, die er in Ruhe gesendet hat.</translation>
     </message>
     <message>
         <source>It never holds pairing keys, certificate fingerprints, IP addresses, Wi-Fi names or the names of your PCs and devices. Nothing is sent until you click Send in your mail app.</source>
