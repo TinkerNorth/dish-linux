@@ -453,7 +453,8 @@ TEST_CASE("the bench's trigger buzz reaches an SDL pad whose driver drives the t
     CHECK(rig.router().slotHardware(padId).hasTriggerRumble);
     CHECK(dish::reducer::slotCarriesTriggerRumble(rig.router().feedbackInputs(padId)));
 
-    rig.router().triggerBuzz(padId, dish::reducer::testTriggerBuzzFor(dish::reducer::TriggerMotor::Left));
+    rig.router().triggerBuzz(padId,
+                             dish::reducer::testTriggerBuzzFor(dish::reducer::TriggerMotor::Left));
     CHECK(hp::pumpUntil([&] { return pad.lastTriggerRumble() == (48000U << 16); }));
     rig.router().triggerBuzz(padId, dish::reducer::TestTriggerBuzz{});
     CHECK(hp::pumpUntil([&] { return pad.lastTriggerRumble() == 0U; }));

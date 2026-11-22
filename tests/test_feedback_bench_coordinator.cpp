@@ -183,7 +183,8 @@ TEST_CASE("a light bar test holds the bar, shows each colour on its step, and gi
     bench.clock.advanceBy(1);
     bench.clock.advanceBy(400);
     CHECK(bench.actuators.names() == std::vector<std::string>{"hold", "write", "write", "write"});
-    CHECK(bench.actuators.calls[3].write.values.lightbar == dish::reducer::LightbarValue{0, 0, 0xFF});
+    CHECK(bench.actuators.calls[3].write.values.lightbar ==
+          dish::reducer::LightbarValue{0, 0, 0xFF});
     CHECK(bench.coordinator.runFor(kSlot).running == BenchTest::LightbarCycle);
     bench.clock.advanceBy(400);
     REQUIRE(bench.actuators.calls.size() == 5U);

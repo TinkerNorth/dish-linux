@@ -90,8 +90,9 @@ class SDLGamepadBridge : public QObject {
         // Whether SDL can actually drive this pad's motors (the probe, not the
         // model DB) — what CAP_RUMBLE advertises for a Standard-path slot.
         bool hasRumble = false;
-        // Whether SDL's driver drives the pad's trigger motors (SDL_GameControllerHasRumbleTriggers):
-        // the bench's trigger rumble, which no host message carries.
+        // Whether SDL's driver drives the pad's trigger motors
+        // (SDL_GameControllerHasRumbleTriggers): the bench's trigger rumble, which no host message
+        // carries.
         bool hasTriggerRumble = false;
         // Whether SDL's mapping for the pad has a paddle or misc1 (an Elite, an
         // Edge, the Steam Deck's own controls): what the pad sources of the

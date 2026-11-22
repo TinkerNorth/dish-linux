@@ -32,7 +32,7 @@
 | Runs in the background / window closed | ⚠️ Moonlight sessions stay up (foreground service) · satellite streaming stops when the app leaves the screen, by design: the phone is the pad | ✅ tray | ✅ tray |
 | Survives PC sleep and resume | – | ✅ Satellite · ❌ Moonlight | ✅ Satellite · ❌ Moonlight |
 | Keep-awake is user-configurable | ❌ (always on while streaming) | ✅ | ✅ |
-| Diagnostics screen | ✅ | ✅ (rumble-only bench, see §5) | ✅ (rumble-only bench, see §5) |
+| Diagnostics screen | ✅ | ✅ (rumble-only bench, see §5) | ✅ (every item its paths carry, see §5b) |
 | Link-tier cue on host rows (Fastest / Fast / Basic) | ✅ (on the section header) | ✅ | ✅ |
 | Protocol chip ("Satellite update recommended / required", "Dish update required") | ✅ | ✅ | ✅ |
 | App-wide microphone chip with mute-all | ✅ | ✅ | ✅ |
@@ -241,14 +241,70 @@ or is dropped.
   source, and the USB card because each controller card already shows its path
   and poll rate, while the endpoint packet facts Android adds have no desktop
   source.
-- The Diagnostics feature bench drives rumble only, through the ungated path, so
-  a pad whose rumble switch is off can still be tested. The lightbar, player
-  LEDs, trigger effects and mic lamp are host-owned state a test would
-  overwrite, and the lamp is the mute indicator. Controller audio has no test
-  tone in the desktop engines.
+- The Diagnostics bench tests every item a pad's path carries (§5b), through
+  the ungated path, so a pad whose rumble switch is off can still be tested.
 - The Diagnostics event log is localized like every other desktop string: the
   C++ vends tokens and the QML words them. Android keeps its log in English as
   export material for bug reports.
+
+## 5b. The Diagnostics bench (dish-website `docs/diagnostics-bundle.md`, "The bench")
+
+The controller inspector offers each item only where the pad's path carries it,
+by the router's own answer for the game's writes (`reducer::benchOffers`), and
+drives it from this client alone at the contract's strengths and times
+(`core/reducer/BenchSteps.h`). The light bar, the player LEDs, the adaptive
+triggers and the mic lamp go back to what the game last sent, or dark and off
+when it never sent one, and a value the game sends during the test is held
+until the test ends (`core/reducer/BenchSurfaces.h`). ⚠️ throughout until a
+hardware pass: no pad has been on the bench yet.
+
+| Item | USB Direct | USB Standard (SDL) | Bluetooth (SDL) |
+|---|---|---|---|
+| Rumble (`rumble.*`) | ⚠️ DS4, DualSense, Switch Pro, 2026 Steam Controller | ⚠️ where `SDL_GameControllerHasRumble` | ⚠️ where `SDL_GameControllerHasRumble` |
+| Trigger rumble (`triggerRumble.*`) | ❌ (a) | ⚠️ where `SDL_GameControllerHasRumbleTriggers` (b) | ⚠️ where `SDL_GameControllerHasRumbleTriggers` (b) |
+| Light bar (`lightbar.cycle`) | ⚠️ DS4, DualSense | ⚠️ where `SDL_GameControllerHasLED` | ⚠️ where `SDL_GameControllerHasLED` |
+| Player LEDs (`playerLeds.cycle`) | ⚠️ DualSense, Switch Pro | ⚠️ DualSense under SDL's HIDAPI driver only (c) | ⚠️ DualSense under SDL's HIDAPI driver only (c) |
+| Adaptive triggers (`trigger.pulse`) | ⚠️ DualSense | ⚠️ DualSense under SDL's HIDAPI driver only (d) | ⚠️ DualSense under SDL's HIDAPI driver only (d) |
+| Mic lamp (`lamp.on`, `lamp.pulse`) | ⚠️ DualSense | ⚠️ DualSense under SDL's HIDAPI driver only (d) | ⚠️ DualSense under SDL's HIDAPI driver only (d) |
+| Speaker (`tone.play`) | ⚠️ the pad's own endpoint | ⚠️ the pad's own endpoint | ❌ (e) |
+| HD haptics (`haptics.play`) | ⚠️ a 4-channel endpoint (f) | ⚠️ a 4-channel endpoint (f) | ❌ (e) |
+| Microphone (`mic.level`) | ⚠️ the pad's own endpoint | ⚠️ the pad's own endpoint | ❌ (e) |
+| Sticks (`stick.drift`, `stick.range`) | ✅ | ✅ | ✅ |
+
+(a) No Direct family has trigger motors. The one that does, the Xbox One/Series
+GIP pad, is a vendor-class USB device the kernel's xpad driver binds, so it
+publishes no hidraw node for the claim to open (§4; `usbout::FeedbackState`).
+(b) SDL decides: SDL 2.30.0's evdev backend refuses it
+(`LINUX_JoystickRumbleTriggers` returns `SDL_Unsupported()`,
+`src/joystick/linux/SDL_sysjoystick.c:1681`), so it lands through SDL's HIDAPI
+Xbox driver only, which is what `SDL_GameControllerHasRumbleTriggers` reports.
+No host message carries trigger rumble, so the bench is its only writer.
+(c) The SDL path carries the player LEDs as the game's own writes do, through
+`SDL_GameControllerSendEffect` for a DualSense SDL's HIDAPI driver owns.
+`SDL_GameControllerSetPlayerIndex` is not used for the other pads: SDL2 has no
+query for whether a driver lights LEDs for an index (`SDL_gamecontroller.h`
+offers `HasLED`, `HasRumble` and `HasRumbleTriggers` only); the evdev backend
+lights nothing (`LINUX_JoystickSetDevicePlayerIndex` is empty,
+`SDL_sysjoystick.c:1129`); the drivers that do light LEDs pick their own
+patterns, not the contract's masks (PS5: `0x04, 0x0A, 0x15, 0x1B, 0x1F`,
+`SDL_hidapi_ps5.c:332-347`; Switch: `1 << (index % 4)`,
+`SDL_hidapi_switch.c:706-715`); and the call moves SDL's own player-index
+table (`SDL_JoystickSetPlayerIndex` → `SDL_SetJoystickIDForPlayerIndex`,
+`SDL_joystick.c:1373`).
+(d) Only `SDL_GameControllerSendEffect` reaches these, and only SDL's HIDAPI
+drivers implement it; for any family but the DualSense the body would be the
+wrong report (`core/reducer/FeedbackRouting.h`).
+(e) The speaker, the haptic lanes and the microphone are the pad's USB Audio
+Class interface; over Bluetooth the pad is a HID device only, so the pad
+audio matcher never routes one (`SlotRouter::audioRouteForSlot`).
+(f) The haptic lanes are channels 3 and 4 of the DualSense's own 4-channel
+endpoint; a stereo endpoint has no actuator pair (`audio::benchTone`).
+
+What only a person with a pad can prove: that each test is felt, seen or
+heard on real hardware; that the bar, the LEDs, the triggers and the lamp come
+back to the game's state after a test during a game; that the tone reaches the
+DualSense's speaker and its actuators on their own pairs; and that an Xbox pad
+under SDL's HIDAPI driver answers `SDL_GameControllerHasRumbleTriggers`.
 
 ## 5a. Controller database and diagnostics (dish-website `docs/controller-db.md`, `docs/diagnostics-bundle.md`)
 
@@ -269,7 +325,7 @@ contracts say, the row says so and why.
 | `expect.endpoints` at attach | ⚠️ HID report lengths | ⚠️ against the claimed interface's endpoints as sysfs lists them (`ep_XX` with the direction bit), as dish-android's check reads its claim's endpoint pair; `null` where sysfs was not read. usbhid sends an output report over the interrupt OUT pipe when there is one and as SET_REPORT(Output) otherwise, so `endpoints.out: false` is a fact about the pipe, not about whether rumble lands. Checked on the Direct path only |
 | "Last write" (route, report id, ok, OS error, time) | ⚠️ Win32 code | ⚠️ from each claim's output worker through a seqlock. `route` is `interruptOut` for `write()` on the node and `setReport` for `HIDIOCSFEATURE`; which pipe usbhid used for a `write()` is not observable. `err` is the `errno` name (`EPIPE`, `ENODEV`, …, else `errno:<n>`); a short write is a failure with no code |
 | "Last feedback" (host to client) | ⚠️ per lane | ⚠️ the top-level `lastFeedback` stays `null`; the same facts are now per lane under `output` (below) |
-| Pad tests with "Did it work?" outcomes, last twenty, in memory | ⚠️ | ⚠️ `rumble.weak`, `rumble.strong`, `rumble.both` with `worked` / `didNotWork`, on the inspector's existing bench; the bundle contract's other tests (trigger pulse, lamp, tone, mic level, the stick tests) are not offered (§5 says why the other surfaces have no bench here) |
+| Pad tests with "Did it work?" outcomes, last twenty, in memory | ⚠️ | ⚠️ every test the contract names that the pad's path carries (§5b), with `worked` / `didNotWork` stamped with the time the test ended, one answer per run |
 | Issue shown while `open`, for this transport on this machine model | ⚠️ `windows` key | ⚠️ `fixed` and `wontfix` never show; the model is DMI's `sys_vendor` + `product_name` ("Linux PC" when unreadable, never the host name); an `os` map matches only through its `linux` key, read as the **kernel's** major version (a number, or a string such as `6.8`), because the contract names no Linux version and the kernel is the one every Linux machine has |
 | Diagnostics: bundled / active `dbVersion`, source, last check time and result, per controller record id, verification and mismatches | ⚠️ | ⚠️ |
 | Bundle `dish-diagnostics.v1` | ⚠️ | ⚠️ `path` is `direct` or `sdl`; a Direct pad's `hardware` carries vid, pid, `bcdDevice` (sysfs), product, manufacturer, every interface with its endpoints (parsed from sysfs's `descriptors`, `test_usb_hardware` on a DualSense's and two root hubs' real bytes), `endpoints` and `descriptorSha256`, the SHA-256 of the raw USB descriptors as the bus delivered them (sysfs's `descriptors`: the device descriptor, then every configuration in index order), which is dish-android's `getRawDescriptors()` byte for byte, so one pad and firmware hash the same on both; `firmware` is `null`; an SDL pad's are `null`. There is no `standard` block (SDL is the reader); a Satellite's `version` is the `serverVersion` its capabilities last reported, `null` before any; `app.flavor` is `flatpak`, `appimage`, else `github` (a package or a source build) |

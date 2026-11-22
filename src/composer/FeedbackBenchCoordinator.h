@@ -102,15 +102,16 @@ class FeedbackBenchCoordinator : public QObject {
     std::map<QString, SlotBench> benches_;
 };
 
-// The production clock: Qt's timers on the GUI thread, and the wall clock for the outcome.
+// The production clock: Qt's timers on the GUI thread, and the wall clock for the outcome. Its
+// timers run in a context of its own, so letting the clock go cancels every one still pending:
+// the owner lets it go before the coordinator whose steps they would run.
 class QtBenchClock final : public BenchClock {
   public:
-    explicit QtBenchClock(QObject* context) : context_(context) {}
     std::int64_t nowMs() const override;
     void after(std::int64_t delayMs, std::function<void()> due) override;
 
   private:
-    QObject* context_;
+    QObject context_;
 };
 
 } // namespace dish::composer

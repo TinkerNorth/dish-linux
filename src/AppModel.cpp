@@ -352,7 +352,7 @@ AppModel::AppModel(std::unique_ptr<source::WakeInhibitor> inhibitor, QObject* pa
         hub_, wifi_, &processor_, bridge_, usbManager_.get(), &motionEnabledStore_,
         &rumbleEnabledStore_, featureSettings_, &speakerEngine_});
     router_->attach();
-    benchClock_ = std::make_unique<composer::QtBenchClock>(this);
+    benchClock_ = std::make_unique<composer::QtBenchClock>();
     bench_ = std::make_unique<composer::FeedbackBenchCoordinator>(router_.get(), &audioGateway_,
                                                                   &padOutcomes_, benchClock_.get());
     // The rumble switch rides the published routes, so a flip republishes them.
@@ -438,6 +438,7 @@ AppModel::AppModel(std::unique_ptr<source::WakeInhibitor> inhibitor, QObject* pa
 }
 
 AppModel::~AppModel() {
+    benchClock_.reset();
     bench_.reset();
     // Order matters. Stop the input thread first so no further SDL report races
     // teardown; the timers next so no queued pollUsbDirect fires against a

@@ -1876,14 +1876,6 @@
         <translation>beide Motoren</translation>
     </message>
     <message>
-        <source>felt</source>
-        <translation>gespürt</translation>
-    </message>
-    <message>
-        <source>not felt</source>
-        <translation>nicht gespürt</translation>
-    </message>
-    <message>
         <source>%1 · %2 · %3</source>
         <translation>%1 · %2 · %3</translation>
     </message>
@@ -1998,6 +1990,66 @@
     <message>
         <source>Diagnostics saved. The file manager shows its folder.</source>
         <translation>Diagnose gespeichert. Der Dateimanager zeigt ihren Ordner.</translation>
+    </message>
+    <message>
+        <source>left trigger rumble</source>
+        <translation>Vibration des linken Triggers</translation>
+    </message>
+    <message>
+        <source>right trigger rumble</source>
+        <translation>Vibration des rechten Triggers</translation>
+    </message>
+    <message>
+        <source>both trigger motors</source>
+        <translation>beide Trigger-Motoren</translation>
+    </message>
+    <message>
+        <source>light bar colours</source>
+        <translation>Farben der Lichtleiste</translation>
+    </message>
+    <message>
+        <source>player LEDs</source>
+        <translation>Spieler-LEDs</translation>
+    </message>
+    <message>
+        <source>adaptive triggers</source>
+        <translation>adaptive Trigger</translation>
+    </message>
+    <message>
+        <source>mic lamp on</source>
+        <translation>Mikrofon-LED an</translation>
+    </message>
+    <message>
+        <source>mic lamp pulsing</source>
+        <translation>Mikrofon-LED pulsierend</translation>
+    </message>
+    <message>
+        <source>speaker tone</source>
+        <translation>Lautsprecherton</translation>
+    </message>
+    <message>
+        <source>HD haptics tone</source>
+        <translation>Ton der HD-Haptik</translation>
+    </message>
+    <message>
+        <source>microphone level</source>
+        <translation>Mikrofonpegel</translation>
+    </message>
+    <message>
+        <source>stick drift</source>
+        <translation>Stick-Drift</translation>
+    </message>
+    <message>
+        <source>stick range</source>
+        <translation>Stick-Bereich</translation>
+    </message>
+    <message>
+        <source>worked</source>
+        <translation>hat funktioniert</translation>
+    </message>
+    <message>
+        <source>did not work</source>
+        <translation>hat nicht funktioniert</translation>
     </message>
     <message>
         <source>The diagnostics file could not be written.</source>
@@ -2653,16 +2705,148 @@
         <translation>Controller-Inspektor</translation>
     </message>
     <message>
-        <source>felt</source>
-        <translation>gespürt</translation>
+        <source>Trigger rumble</source>
+        <translation>Trigger-Vibration</translation>
     </message>
     <message>
-        <source>not felt</source>
-        <translation>nicht gespürt</translation>
+        <source>Left</source>
+        <translation>Links</translation>
+    </message>
+    <message>
+        <source>Right</source>
+        <translation>Rechts</translation>
+    </message>
+    <message>
+        <source>Light bar</source>
+        <translation>Lichtleiste</translation>
+    </message>
+    <message>
+        <source>Red, green, blue</source>
+        <translation>Rot, Grün, Blau</translation>
+    </message>
+    <message>
+        <source>Player LEDs</source>
+        <translation>Spieler-LEDs</translation>
+    </message>
+    <message>
+        <source>Each LED in turn</source>
+        <translation>Jede LED der Reihe nach</translation>
+    </message>
+    <message>
+        <source>Adaptive triggers</source>
+        <translation>Adaptive Trigger</translation>
+    </message>
+    <message>
+        <source>Stiffen both</source>
+        <translation>Beide verhärten</translation>
+    </message>
+    <message>
+        <source>Mic lamp</source>
+        <translation>Mikrofon-LED</translation>
+    </message>
+    <message>
+        <source>On</source>
+        <translation>An</translation>
+    </message>
+    <message>
+        <source>Pulse</source>
+        <translation>Pulsieren</translation>
+    </message>
+    <message>
+        <source>Speaker</source>
+        <translation>Lautsprecher</translation>
+    </message>
+    <message>
+        <source>Play the test tone</source>
+        <translation>Testton abspielen</translation>
+    </message>
+    <message>
+        <source>HD haptics</source>
+        <translation>HD-Haptik</translation>
+    </message>
+    <message>
+        <source>Play the tone on the haptics</source>
+        <translation>Ton über die Haptik abspielen</translation>
+    </message>
+    <message>
+        <source>Microphone</source>
+        <translation>Mikrofon</translation>
+    </message>
+    <message>
+        <source>Show its level</source>
+        <translation>Pegel anzeigen</translation>
+    </message>
+    <message>
+        <source>Weak rumble</source>
+        <translation>Schwache Vibration</translation>
+    </message>
+    <message>
+        <source>Strong rumble</source>
+        <translation>Starke Vibration</translation>
+    </message>
+    <message>
+        <source>Both motors</source>
+        <translation>Beide Motoren</translation>
+    </message>
+    <message>
+        <source>Left trigger rumble</source>
+        <translation>Vibration des linken Triggers</translation>
+    </message>
+    <message>
+        <source>Right trigger rumble</source>
+        <translation>Vibration des rechten Triggers</translation>
+    </message>
+    <message>
+        <source>Both trigger motors</source>
+        <translation>Beide Trigger-Motoren</translation>
+    </message>
+    <message>
+        <source>Light bar colours</source>
+        <translation>Farben der Lichtleiste</translation>
+    </message>
+    <message>
+        <source>Mic lamp on</source>
+        <translation>Mikrofon-LED an</translation>
+    </message>
+    <message>
+        <source>Mic lamp pulsing</source>
+        <translation>Mikrofon-LED pulsierend</translation>
+    </message>
+    <message>
+        <source>Speaker tone</source>
+        <translation>Lautsprecherton</translation>
+    </message>
+    <message>
+        <source>HD haptics tone</source>
+        <translation>Ton der HD-Haptik</translation>
+    </message>
+    <message>
+        <source>Microphone level</source>
+        <translation>Mikrofonpegel</translation>
+    </message>
+    <message>
+        <source>Drift test</source>
+        <translation>Drift-Test</translation>
+    </message>
+    <message>
+        <source>Range test</source>
+        <translation>Bereichstest</translation>
+    </message>
+    <message>
+        <source>worked</source>
+        <translation>hat funktioniert</translation>
+    </message>
+    <message>
+        <source>did not work</source>
+        <translation>hat nicht funktioniert</translation>
     </message>
     <message>
         <source>Last test: %1 · %2 · %3</source>
         <translation>Letzter Test: %1 · %2 · %3</translation>
+    </message>
+    <message>
+        <source>Level %1% · peak %2%</source>
+        <translation>Pegel %1 % · Spitze %2 %</translation>
     </message>
     <message>
         <source>%1%</source>
@@ -2861,16 +3045,32 @@
         <translation>Bereichstest (volle Kreise ziehen)</translation>
     </message>
     <message>
-        <source>Rumble test</source>
-        <translation>Vibrationstest</translation>
+        <source>Feedback and audio tests</source>
+        <translation>Feedback- und Audiotests</translation>
     </message>
     <message>
-        <source>A short buzz straight to the controller, whatever its rumble switch says.</source>
-        <translation>Ein kurzes Vibrieren direkt am Controller, unabhängig vom Vibrationsschalter.</translation>
+        <source>Each test goes straight to the controller, with no host in the loop, whatever its switches say. Light, trigger and lamp tests put back what the game had set.</source>
+        <translation>Jeder Test geht direkt an den Controller, ohne Host dazwischen, egal was seine Schalter sagen. Licht-, Trigger- und LED-Tests stellen wieder her, was das Spiel eingestellt hatte.</translation>
     </message>
     <message>
-        <source>This controller has no rumble motors on the path it is on now.</source>
-        <translation>Dieser Controller hat auf seinem jetzigen Pfad keine Vibrationsmotoren.</translation>
+        <source>This controller has nothing to test on the path it is on now.</source>
+        <translation>Dieser Controller hat auf seinem jetzigen Pfad nichts zu testen.</translation>
+    </message>
+    <message>
+        <source>Stop</source>
+        <translation>Stopp</translation>
+    </message>
+    <message>
+        <source>Testing: %1…</source>
+        <translation>Test läuft: %1…</translation>
+    </message>
+    <message>
+        <source>The controller&apos;s own audio device would not open, so nothing played or listened.</source>
+        <translation>Das eigene Audiogerät des Controllers ließ sich nicht öffnen, also wurde nichts abgespielt oder aufgenommen.</translation>
+    </message>
+    <message>
+        <source>%1: did it work?</source>
+        <translation>%1: Hat es funktioniert?</translation>
     </message>
     <message>
         <source>Did it work?</source>
@@ -2887,6 +3087,10 @@
     <message>
         <source>Weak</source>
         <translation>Schwach</translation>
+    </message>
+    <message>
+        <source>Rumble</source>
+        <translation>Vibration</translation>
     </message>
     <message>
         <source>Strong</source>

@@ -875,8 +875,10 @@ class AppModel : public QObject {
     source::MachineIdentity machine_;
     source::DiagnosticsHandoff* diagnosticsHandoff_ = nullptr;
     // The Diagnostics bench drives pads through router_ and the audio gateway and records into
-    // padOutcomes_; made once the router exists, and let go first in the destructor, so a test
-    // still running gives its pad back while everything it writes through is still there.
+    // padOutcomes_; made once the router exists, and let go first in the destructor, the clock
+    // before the bench so no step falls due on a bench that is gone, and the bench before the
+    // rest so a test still running gives its pad back while everything it writes through is
+    // still there.
     std::unique_ptr<composer::QtBenchClock> benchClock_;
     std::unique_ptr<composer::FeedbackBenchCoordinator> bench_;
 };

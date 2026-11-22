@@ -642,8 +642,8 @@ void SlotRouter::routeTriggerEffects(
     const std::array<std::uint8_t, proto::kTriggerEffectBlockBytes>& left,
     const std::array<std::uint8_t, proto::kTriggerEffectBlockBytes>& right) {
     recordLane(route, diagnostics::OutputLane::TriggerEffects, 0);
-    const bool writeNow = route.ledger == nullptr ||
-                          route.ledger->rememberTriggerEffects(reducer::TriggerEffectsValue{left, right});
+    const bool writeNow = route.ledger == nullptr || route.ledger->rememberTriggerEffects(
+                                                         reducer::TriggerEffectsValue{left, right});
     if (writeNow) { writeTriggerEffects(route, left, right); }
 }
 

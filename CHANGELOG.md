@@ -137,6 +137,28 @@ the repos share a version number.
   Bluetooth addresses, Wi-Fi names, the names of your PCs and devices or the
   machine's host name: hosts appear as "Host 1", "Host 2", and the PC is
   named by its firmware's model, or "Linux PC".
+- **The controller inspector tests every item a controller's path carries**
+  (dish-website `docs/diagnostics-bundle.md`, "The bench"), from Dish alone
+  with no host in the loop, at the strengths and times every client uses:
+  rumble and trigger rumble (48000 for 400 ms), the light bar (red, green,
+  blue, 400 ms each), the player LEDs (each in turn, 400 ms each), the
+  adaptive triggers (full rigid resistance for 2 s), the mic lamp (on, or
+  pulsing, for 2 s), the speaker's test tone and the same tone on the HD
+  haptics (660 Hz then 880 Hz, 800 ms), the microphone's level (live, up to
+  8 s) and the two stick tests. A row shows only where the path carries its
+  item, by the same answer the game's own writes pass; `tests/PARITY.md` §5b
+  says why each missing one cannot be carried. Trigger rumble rides SDL alone
+  (`SDL_GameControllerRumbleTriggers`, where `SDL_GameControllerHasRumbleTriggers`
+  says the driver drives the motors). The tone and the microphone open the
+  pad's own audio endpoint for the test and close it after; nothing is sent.
+- **A test gives back what it borrowed.** The light bar, player LEDs,
+  adaptive triggers and mic lamp go back to what the game last sent when a
+  test ends, or dark and off where the game never set them, and a value the
+  game sends during the test is held until the test ends instead of being
+  written over it. The other surfaces keep following the game.
+- After every test the inspector asks "Did it work?" once; the answer is kept
+  under the test's contract name (`triggerRumble.left`, `lightbar.cycle`,
+  `stick.drift`, ...) with the time the test ended, and rides in the file.
 
 ### Changed
 
@@ -160,6 +182,13 @@ the repos share a version number.
 
 ### Notes
 
+- Hot path (the bench): each light-bar, player-LED, trigger-effect and
+  mic-lamp message a session's receive thread or a Moonlight control thread
+  routes now passes its slot's ledger first: one flag taken for a few
+  sequentially consistent stores, and one load of the test's hold bits, never
+  a lock or an allocation. Rumble messages and input reports are untouched.
+  The SDL output mailbox gains a trigger-rumble kind; its state still copies
+  as five words.
 - The compiled Direct tables (`kKnownModels`, the fast-lane vendors) stay, and
   a test requires every row to match its database record; they answer first,
   and a served row only adds an id they lack.

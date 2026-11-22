@@ -226,6 +226,7 @@ Republished at the inspector's 33 ms poll while an inspection is armed (see
 | `diagnosticsMailHandedOff` | `bool viaMailClient` | After `sendReport`: `true` when the mail client took the message, `false` when the `mailto:` fallback opened and the file manager shows the folder to attach the file from. |
 | `inputSnapshotChanged` | | `inputSnapshot` moved. |
 | `stickTestChanged` | | `stickTest` moved. |
+| `benchChanged` | | A bench run started, stepped, ended or was answered, or the microphone test's level moved. Re-pull `benchState()`. |
 
 ## `App` methods
 
@@ -464,7 +465,6 @@ every ack answer reads `unknown` until then.
 | `copyToClipboard(text)` | Put the text on the clipboard. |
 | `checkControllerDbNow()` | One controller database check now. Refused while `controllerDbChecksEnabled` is off, and both buttons that call it are disabled then. |
 | `controllerRecordFacts(slotId)` | The record the slot's pad was matched to at its attach: `{ matched }` and, when matched, `{ recordId, name, hint, family, chip, inert, mismatches, issues }`, plus `{ lastWrite, lastTest }` for every slot. `chip` is `verified` / `guessed` / `flagged`; `inert` means only the name and the notes apply on this PC; `mismatches` are the expect check's lines in the contract's form; `issues` are `{ id, title, body }` for this transport on this PC model and kernel. `lastWrite` is `{}` or `{ route, reportId, ok, err, atMs }` (`interruptOut` / `setReport`, two hex digits, an `errno` name such as `EPIPE` or `""`), `lastTest` `{}` or `{ test, result, atMs }`. Words come from the database's strings in the UI language, English where it has none. Re-pull on `stateChanged`, `telemetryChanged` and `testOutcomesChanged`. |
-| `recordTestOutcome(slotId, motor, worked)` | The answer to "Did it work?" after `testRumble(slotId, motor)`: kept as `{ rumble.<motor>, worked / didNotWork, now }`, the last twenty per slot, for this run. |
 | `lastTestOutcome(slotId)` | `{}` before any answer, else `{ test, result, atMs }`. |
 | `diagnosticsControllers()` | One row per controller for the mail's summary and the report's controller picker: `{ slotId, name, recordId, chip, usbDirect, bluetooth }`, `recordId` and `chip` `""` for a pad no record lists. |
 | `saveDiagnostics()` | Writes `dish-diagnostics-dish-linux-<yyyyMMdd-HHmmss>.json` under `~/.local/share/TinkerNorth/Dish/diagnostics` and opens that folder in the file manager. Returns the path, `""` when it could not be written. |
@@ -474,9 +474,12 @@ every ack answer reads `unknown` until then.
 | `sendReport(category, categoryWords, text, slotId, summary)` | Writes the file with the report in it, then runs `xdg-email` to open the person's mail app addressed to `support@tinkernorth.com` with the file attached, or the `mailto:` fallback where it cannot: subject `Dish support: <categoryWords> · Dish for Linux <version> on <model>`, body `text`, a blank line, then `summary` (the Diagnostics page's summary in the person's language). `false` when the file could not be written or the last mail's `xdg-email` has not answered yet; `diagnosticsMailHandedOff` follows. |
 | `startInputInspection(slotId)` | Arm the inspector on one slot: `inputSnapshot` and `stickTest` republish until `stopInputInspection()`. Arming another slot re-points it and drops the last slot's stick test. |
 | `stopInputInspection()` | Disarm. Call it when the page goes away. Safe when idle. |
-| `startStickTest(kind)` | `"drift"` (hands off the sticks for three seconds) or `"range"` (full circles for eight). Replaces the last result; ignored while nothing is armed. |
-| `canTestRumble(slotId)` | The slot's pad can rumble on the path it is on now. Show the rumble bench only when true. |
-| `testRumble(slotId, motor)` | A 400 ms test buzz on `"weak"`, `"strong"` or `"both"`, straight to the actuator: the binding's rumble switch does not gate it, so a pad whose rumble is off can still be tested. The bench drives rumble only; the lightbar, LEDs, trigger effects and mute lamp are host state a test would overwrite. |
+| `startStickTest(kind)` | `"drift"` (hands off the sticks for three seconds) or `"range"` (full circles for eight). Replaces the last result; ignored while nothing is armed. Each is a bench run of its own, `stick.drift` or `stick.range`, asked about once its capture ends; leaving the inspector mid-test drops the run unasked. |
+| `benchItems(slotId)` | The items the slot's pad is offered on the path it is on now, by token, in this order: `rumble`, `triggerRumble`, `lightbar`, `playerLeds`, `adaptiveTriggers`, `micLamp`, `speaker`, `haptics`, `microphone`, `sticks`. An item the path cannot carry is absent (`tests/PARITY.md` §5b says why). Re-pull on `stateChanged`. |
+| `startBenchTest(slotId, test)` | Starts a test by its outcome name: `rumble.weak` / `rumble.strong` / `rumble.both`, `triggerRumble.left` / `.right` / `.both` (48000 for 400 ms), `lightbar.cycle` (red, green, blue, 400 ms each), `playerLeds.cycle` (masks `01` to `10`, 400 ms each), `trigger.pulse` (full rigid resistance, 2 s), `lamp.on` / `lamp.pulse` (2 s), `tone.play` / `haptics.play` (the 800 ms test tone on the pad's speaker pair or its actuator pair) or `mic.level` (the pad's microphone level, up to 8 s). Straight to the pad, ungated by the binding's switches. A test started while another runs ends that one first, unasked; a state surface goes back to the game's last value, or dark and off where the game never set one. A name the contract does not list, or an item the pad is not offered, starts nothing. |
+| `stopBenchTest(slotId)` | Ends the running test now, as if it had run its course: the microphone's level before its 8 s are up. |
+| `answerBenchTest(slotId, worked)` | The answer to "Did it work?" for the slot's ended test: kept as `{ test, worked / didNotWork, the time the test ended }`, the last twenty per slot, for this run. One answer per run; ignored while none is awaited. |
+| `benchState(slotId)` | `{ running, asking, unavailable, micMeter, micPeak }`: the running test, the ended one awaiting its answer and the last one whose audio endpoint would not open, each an outcome name or `""`; the microphone test's meter and peak as whole percents. Re-pull on `benchChanged`. |
 
 ## `SlotListModel`, bound as `App.slotModel`
 

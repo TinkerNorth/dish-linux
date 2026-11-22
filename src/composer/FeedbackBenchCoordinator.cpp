@@ -31,9 +31,8 @@ class MicLevelTap {
           meter_(std::make_shared<audio::MicMeter>()) {}
 
     void operator()(const std::int16_t* samples, std::size_t count) const {
-        windower_->feed(samples, count, [this](const std::int16_t* window, std::size_t n) {
-            step(window, n);
-        });
+        windower_->feed(samples, count,
+                        [this](const std::int16_t* window, std::size_t n) { step(window, n); });
     }
 
   private:
@@ -51,7 +50,7 @@ class MicLevelTap {
 
 int toneLaneOffset(reducer::BenchTest test) {
     return reducer::benchItemOf(test) == reducer::BenchItem::Haptics ? audio::kHapticLaneOffset
-                                                                      : audio::kSpeakerLaneOffset;
+                                                                     : audio::kSpeakerLaneOffset;
 }
 
 } // namespace
@@ -116,7 +115,9 @@ void FeedbackBenchCoordinator::answer(const QString& slotId, bool worked) {
     if (it == benches_.end()) { return; }
     const reducer::BenchAnswer answered = reducer::answeredRun(it->second.run, worked);
     it->second.run = answered.run;
-    if (answered.outcome.has_value()) { outcomes_->record(slotId.toStdString(), *answered.outcome); }
+    if (answered.outcome.has_value()) {
+        outcomes_->record(slotId.toStdString(), *answered.outcome);
+    }
     emit benchChanged();
 }
 
@@ -278,7 +279,7 @@ void FeedbackBenchCoordinator::stop(const QString& slotId, SlotBench& bench) {
 std::int64_t QtBenchClock::nowMs() const { return QDateTime::currentMSecsSinceEpoch(); }
 
 void QtBenchClock::after(std::int64_t delayMs, std::function<void()> due) {
-    QTimer::singleShot(static_cast<int>(delayMs), context_, std::move(due));
+    QTimer::singleShot(static_cast<int>(delayMs), &context_, std::move(due));
 }
 
 } // namespace dish::composer

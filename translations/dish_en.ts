@@ -1876,14 +1876,6 @@
         <translation>both motors</translation>
     </message>
     <message>
-        <source>felt</source>
-        <translation>felt</translation>
-    </message>
-    <message>
-        <source>not felt</source>
-        <translation>not felt</translation>
-    </message>
-    <message>
         <source>%1 · %2 · %3</source>
         <translation>%1 · %2 · %3</translation>
     </message>
@@ -1998,6 +1990,66 @@
     <message>
         <source>Diagnostics saved. The file manager shows its folder.</source>
         <translation>Diagnostics saved. The file manager shows its folder.</translation>
+    </message>
+    <message>
+        <source>left trigger rumble</source>
+        <translation>left trigger rumble</translation>
+    </message>
+    <message>
+        <source>right trigger rumble</source>
+        <translation>right trigger rumble</translation>
+    </message>
+    <message>
+        <source>both trigger motors</source>
+        <translation>both trigger motors</translation>
+    </message>
+    <message>
+        <source>light bar colours</source>
+        <translation>light bar colours</translation>
+    </message>
+    <message>
+        <source>player LEDs</source>
+        <translation>player LEDs</translation>
+    </message>
+    <message>
+        <source>adaptive triggers</source>
+        <translation>adaptive triggers</translation>
+    </message>
+    <message>
+        <source>mic lamp on</source>
+        <translation>mic lamp on</translation>
+    </message>
+    <message>
+        <source>mic lamp pulsing</source>
+        <translation>mic lamp pulsing</translation>
+    </message>
+    <message>
+        <source>speaker tone</source>
+        <translation>speaker tone</translation>
+    </message>
+    <message>
+        <source>HD haptics tone</source>
+        <translation>HD haptics tone</translation>
+    </message>
+    <message>
+        <source>microphone level</source>
+        <translation>microphone level</translation>
+    </message>
+    <message>
+        <source>stick drift</source>
+        <translation>stick drift</translation>
+    </message>
+    <message>
+        <source>stick range</source>
+        <translation>stick range</translation>
+    </message>
+    <message>
+        <source>worked</source>
+        <translation>worked</translation>
+    </message>
+    <message>
+        <source>did not work</source>
+        <translation>did not work</translation>
     </message>
     <message>
         <source>The diagnostics file could not be written.</source>
@@ -2653,16 +2705,148 @@
         <translation>Controller inspector</translation>
     </message>
     <message>
-        <source>felt</source>
-        <translation>felt</translation>
+        <source>Trigger rumble</source>
+        <translation>Trigger rumble</translation>
     </message>
     <message>
-        <source>not felt</source>
-        <translation>not felt</translation>
+        <source>Left</source>
+        <translation>Left</translation>
+    </message>
+    <message>
+        <source>Right</source>
+        <translation>Right</translation>
+    </message>
+    <message>
+        <source>Light bar</source>
+        <translation>Light bar</translation>
+    </message>
+    <message>
+        <source>Red, green, blue</source>
+        <translation>Red, green, blue</translation>
+    </message>
+    <message>
+        <source>Player LEDs</source>
+        <translation>Player LEDs</translation>
+    </message>
+    <message>
+        <source>Each LED in turn</source>
+        <translation>Each LED in turn</translation>
+    </message>
+    <message>
+        <source>Adaptive triggers</source>
+        <translation>Adaptive triggers</translation>
+    </message>
+    <message>
+        <source>Stiffen both</source>
+        <translation>Stiffen both</translation>
+    </message>
+    <message>
+        <source>Mic lamp</source>
+        <translation>Mic lamp</translation>
+    </message>
+    <message>
+        <source>On</source>
+        <translation>On</translation>
+    </message>
+    <message>
+        <source>Pulse</source>
+        <translation>Pulse</translation>
+    </message>
+    <message>
+        <source>Speaker</source>
+        <translation>Speaker</translation>
+    </message>
+    <message>
+        <source>Play the test tone</source>
+        <translation>Play the test tone</translation>
+    </message>
+    <message>
+        <source>HD haptics</source>
+        <translation>HD haptics</translation>
+    </message>
+    <message>
+        <source>Play the tone on the haptics</source>
+        <translation>Play the tone on the haptics</translation>
+    </message>
+    <message>
+        <source>Microphone</source>
+        <translation>Microphone</translation>
+    </message>
+    <message>
+        <source>Show its level</source>
+        <translation>Show its level</translation>
+    </message>
+    <message>
+        <source>Weak rumble</source>
+        <translation>Weak rumble</translation>
+    </message>
+    <message>
+        <source>Strong rumble</source>
+        <translation>Strong rumble</translation>
+    </message>
+    <message>
+        <source>Both motors</source>
+        <translation>Both motors</translation>
+    </message>
+    <message>
+        <source>Left trigger rumble</source>
+        <translation>Left trigger rumble</translation>
+    </message>
+    <message>
+        <source>Right trigger rumble</source>
+        <translation>Right trigger rumble</translation>
+    </message>
+    <message>
+        <source>Both trigger motors</source>
+        <translation>Both trigger motors</translation>
+    </message>
+    <message>
+        <source>Light bar colours</source>
+        <translation>Light bar colours</translation>
+    </message>
+    <message>
+        <source>Mic lamp on</source>
+        <translation>Mic lamp on</translation>
+    </message>
+    <message>
+        <source>Mic lamp pulsing</source>
+        <translation>Mic lamp pulsing</translation>
+    </message>
+    <message>
+        <source>Speaker tone</source>
+        <translation>Speaker tone</translation>
+    </message>
+    <message>
+        <source>HD haptics tone</source>
+        <translation>HD haptics tone</translation>
+    </message>
+    <message>
+        <source>Microphone level</source>
+        <translation>Microphone level</translation>
+    </message>
+    <message>
+        <source>Drift test</source>
+        <translation>Drift test</translation>
+    </message>
+    <message>
+        <source>Range test</source>
+        <translation>Range test</translation>
+    </message>
+    <message>
+        <source>worked</source>
+        <translation>worked</translation>
+    </message>
+    <message>
+        <source>did not work</source>
+        <translation>did not work</translation>
     </message>
     <message>
         <source>Last test: %1 · %2 · %3</source>
         <translation>Last test: %1 · %2 · %3</translation>
+    </message>
+    <message>
+        <source>Level %1% · peak %2%</source>
+        <translation>Level %1% · peak %2%</translation>
     </message>
     <message>
         <source>%1%</source>
@@ -2861,16 +3045,32 @@
         <translation>Range test (sweep full circles)</translation>
     </message>
     <message>
-        <source>Rumble test</source>
-        <translation>Rumble test</translation>
+        <source>Feedback and audio tests</source>
+        <translation>Feedback and audio tests</translation>
     </message>
     <message>
-        <source>A short buzz straight to the controller, whatever its rumble switch says.</source>
-        <translation>A short buzz straight to the controller, whatever its rumble switch says.</translation>
+        <source>Each test goes straight to the controller, with no host in the loop, whatever its switches say. Light, trigger and lamp tests put back what the game had set.</source>
+        <translation>Each test goes straight to the controller, with no host in the loop, whatever its switches say. Light, trigger and lamp tests put back what the game had set.</translation>
     </message>
     <message>
-        <source>This controller has no rumble motors on the path it is on now.</source>
-        <translation>This controller has no rumble motors on the path it is on now.</translation>
+        <source>This controller has nothing to test on the path it is on now.</source>
+        <translation>This controller has nothing to test on the path it is on now.</translation>
+    </message>
+    <message>
+        <source>Stop</source>
+        <translation>Stop</translation>
+    </message>
+    <message>
+        <source>Testing: %1…</source>
+        <translation>Testing: %1…</translation>
+    </message>
+    <message>
+        <source>The controller&apos;s own audio device would not open, so nothing played or listened.</source>
+        <translation>The controller&apos;s own audio device would not open, so nothing played or listened.</translation>
+    </message>
+    <message>
+        <source>%1: did it work?</source>
+        <translation>%1: did it work?</translation>
     </message>
     <message>
         <source>Did it work?</source>
@@ -2887,6 +3087,10 @@
     <message>
         <source>Weak</source>
         <translation>Weak</translation>
+    </message>
+    <message>
+        <source>Rumble</source>
+        <translation>Rumble</translation>
     </message>
     <message>
         <source>Strong</source>

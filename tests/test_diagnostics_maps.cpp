@@ -47,15 +47,15 @@ using dish::models::DiscoveredServer;
 using dish::net::SatelliteClient;
 using dish::net::SatelliteClientTestAccess;
 using dish::net::WifiConnection;
-using dish::qml::bindingTypeOf;
-using dish::qml::BindingWireFacts;
-using dish::qml::bindingWireFactsOf;
-using dish::qml::bindingWireRow;
 using dish::qml::benchItemsRow;
 using dish::qml::BenchStateInputs;
 using dish::qml::benchStateRow;
 using dish::qml::benchTestFrom;
 using dish::qml::benchTestOfStickKind;
+using dish::qml::bindingTypeOf;
+using dish::qml::BindingWireFacts;
+using dish::qml::bindingWireFactsOf;
+using dish::qml::bindingWireRow;
 using dish::qml::catalogTypeName;
 using dish::qml::diagnosticsLogRows;
 using dish::qml::hostCardRow;
@@ -549,7 +549,7 @@ TEST_CASE("a stick test's kind reads back from the word its row writes", "[diagn
     CHECK_FALSE(stickTestKindFrom(QStringLiteral("sweep")).has_value());
 }
 
-TEST_CASE("a page names a bench test by its outcome name", "[diagnostics][maps]") {
+TEST_CASE("a page names a bench test by its outcome name", "[diagnostics][maps][bench]") {
     CHECK(benchTestFrom(QStringLiteral("rumble.weak")) == dish::reducer::BenchTest::RumbleWeak);
     CHECK(benchTestFrom(QStringLiteral("triggerRumble.both")) ==
           dish::reducer::BenchTest::TriggerRumbleBoth);
@@ -557,7 +557,7 @@ TEST_CASE("a page names a bench test by its outcome name", "[diagnostics][maps]"
     CHECK_FALSE(benchTestFrom(QStringLiteral("weak")).has_value());
 }
 
-TEST_CASE("the inspector's stick tests are the bench's stick tests", "[diagnostics][maps]") {
+TEST_CASE("the inspector's stick tests are the bench's stick tests", "[diagnostics][maps][bench]") {
     CHECK(benchTestOfStickKind(dish::input::StickTestKind::Drift) ==
           dish::reducer::BenchTest::StickDrift);
     CHECK(benchTestOfStickKind(dish::input::StickTestKind::Range) ==
@@ -565,7 +565,7 @@ TEST_CASE("the inspector's stick tests are the bench's stick tests", "[diagnosti
 }
 
 TEST_CASE("the bench's items row lists what the pad's path carries, by token",
-          "[diagnostics][maps]") {
+          "[diagnostics][maps][bench]") {
     dish::reducer::SlotFeedbackInputs in;
     in.padRumble = true;
     in.padLightbar = true;
@@ -575,7 +575,7 @@ TEST_CASE("the bench's items row lists what the pad's path carries, by token",
 }
 
 TEST_CASE("the bench's state row names the running and the awaited test, and the level",
-          "[diagnostics][maps]") {
+          "[diagnostics][maps][bench]") {
     BenchStateInputs idle;
     const QVariantMap none = benchStateRow(idle);
     CHECK(none.value("running").toString().isEmpty());

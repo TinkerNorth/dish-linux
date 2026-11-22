@@ -347,12 +347,40 @@ Kit.Page {
             return qsTr("weak rumble");
         case "rumble.strong":
             return qsTr("strong rumble");
+        case "rumble.both":
+            return qsTr("both motors");
+        case "triggerRumble.left":
+            return qsTr("left trigger rumble");
+        case "triggerRumble.right":
+            return qsTr("right trigger rumble");
+        case "triggerRumble.both":
+            return qsTr("both trigger motors");
+        case "lightbar.cycle":
+            return qsTr("light bar colours");
+        case "playerLeds.cycle":
+            return qsTr("player LEDs");
+        case "trigger.pulse":
+            return qsTr("adaptive triggers");
+        case "lamp.on":
+            return qsTr("mic lamp on");
+        case "lamp.pulse":
+            return qsTr("mic lamp pulsing");
+        case "tone.play":
+            return qsTr("speaker tone");
+        case "haptics.play":
+            return qsTr("HD haptics tone");
+        case "mic.level":
+            return qsTr("microphone level");
+        case "stick.drift":
+            return qsTr("stick drift");
+        case "stick.range":
+            return qsTr("stick range");
         }
-        return qsTr("both motors");
+        return test;
     }
 
     function testText(outcome) {
-        const result = outcome.result === "worked" ? qsTr("felt") : qsTr("not felt");
+        const result = outcome.result === "worked" ? qsTr("worked") : qsTr("did not work");
         return qsTr("%1 · %2 · %3").arg(page.testName(outcome.test)).arg(result)
                                    .arg(page.clockText(outcome.atMs));
     }

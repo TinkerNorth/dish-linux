@@ -678,7 +678,9 @@ void SDLGamepadBridge::pollBatteries(TimePoint now) {
 void SDLGamepadBridge::postTriggerRumble(GamepadInputProcessor::DeviceIndex device,
                                          std::uint16_t left, std::uint16_t right,
                                          std::uint16_t durationMs) {
-    if (device < mailboxes_.size()) { mailboxes_[device].postTriggerRumble(left, right, durationMs); }
+    if (device < mailboxes_.size()) {
+        mailboxes_[device].postTriggerRumble(left, right, durationMs);
+    }
 }
 
 void SDLGamepadBridge::postLightbar(GamepadInputProcessor::DeviceIndex device, std::uint8_t r,
