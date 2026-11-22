@@ -8,6 +8,9 @@
 #include "core/audio/PadAudioMatcher.h"
 #include "core/diagnostics/PadLanes.h"
 #include "core/input/UsbReportParsers.h"
+#include "composer/BenchActuators.h"
+#include "core/reducer/BenchSurfaces.h"
+#include "core/reducer/FeedbackBench.h"
 #include "core/reducer/FeedbackRouting.h"
 #include "core/thread/GraceEpoch.h"
 #include "core/thread/TrackedMutex.h"
@@ -58,7 +61,8 @@ class SpeakerPlayoutEngine;
 // device's index for the thread that publishes that device, a session's own for its receive
 // thread, a mic sender's own for its capture thread), so the GUI can retire the table it replaced
 // once no bracket holds it. AppModel and the hot-path harness use it alike.
-class SlotRouter final : public input::GamepadInputProcessor::InputSink {
+class SlotRouter final : public input::GamepadInputProcessor::InputSink,
+                         public composer::BenchActuators {
   public:
     using DeviceIndex = input::GamepadInputProcessor::DeviceIndex;
     using DeviceId = input::GamepadInputProcessor::DeviceId;
@@ -86,6 +90,8 @@ class SlotRouter final : public input::GamepadInputProcessor::InputSink {
         bool hasLightbar = false;
         bool hasTouchpad = false;
         bool hasRumble = false;
+        // SDL drives the trigger motors; no Direct family's writer has them.
+        bool hasTriggerRumble = false;
         bool hasTriggerEffects = false;
         bool hasPlayerLeds = false;
         bool hasMicLed = false;
@@ -165,6 +171,18 @@ class SlotRouter final : public input::GamepadInputProcessor::InputSink {
                           const std::array<std::uint8_t, proto::kTriggerEffectBlockBytes>& right);
     void actuatePlayerLeds(const QString& slotId, std::uint8_t ledMask);
     void actuateMicLed(const QString& slotId, std::uint8_t state);
+
+    // BenchActuators, GUI thread: the Diagnostics bench's own writes, which go straight to the pad
+    // and are never remembered as the owner's. A held surface keeps the owner's values in the
+    // slot's ledger until the bench gives it back (core/reducer/BenchSurfaces.h).
+    void buzz(const QString& slotId, const reducer::TestBuzz& buzz) override;
+    void triggerBuzz(const QString& slotId, const reducer::TestTriggerBuzz& buzz) override;
+    void holdSurface(const QString& slotId, reducer::BenchSurface surface) override;
+    void writeSurface(const QString& slotId, const reducer::SurfaceWrite& write) override;
+    void giveBackSurface(const QString& slotId, reducer::BenchSurface surface) override;
+    audio::PadAudioRoute audioRouteFor(const QString& slotId) const override {
+        return audioRouteForSlot(slotId);
+    }
     // GUI thread: a battery heartbeat for a slot whose reports another thread publishes (a Direct
     // pad's routed battery), sent from the published table under the publishers' lock.
     void sendBattery(const QString& slotId, std::uint8_t level, std::uint8_t status);
@@ -208,6 +226,8 @@ class SlotRouter final : public input::GamepadInputProcessor::InputSink {
         bool rumbleOn = true;
         // The slot's lane counters, which outlive every table: recorded on the receive thread.
         diagnostics::PadOutputCounters* counters = nullptr;
+        // The slot's ledger of the owner's state surfaces, which outlives every table too.
+        reducer::SurfaceLedger* ledger = nullptr;
 
         reducer::FeedbackTarget target(reducer::FeedbackKind kind) const {
             return targets[static_cast<std::size_t>(kind)];
@@ -256,10 +276,22 @@ class SlotRouter final : public input::GamepadInputProcessor::InputSink {
                         const std::array<std::uint8_t, proto::kTriggerEffectBlockBytes>& right);
     void routePlayerLeds(const FeedbackRoute& route, std::uint8_t ledMask);
     void routeMicLed(const FeedbackRoute& route, std::uint8_t state);
+    // The pad's half of each surface, for the owner's value the ledger lets through and for the
+    // bench's own: no remembering here.
+    void writeLightbar(const FeedbackRoute& route, std::uint8_t r, std::uint8_t g, std::uint8_t b);
+    void
+    writeTriggerEffects(const FeedbackRoute& route,
+                        const std::array<std::uint8_t, proto::kTriggerEffectBlockBytes>& left,
+                        const std::array<std::uint8_t, proto::kTriggerEffectBlockBytes>& right);
+    void writePlayerLeds(const FeedbackRoute& route, std::uint8_t ledMask);
+    void writeMicLed(const FeedbackRoute& route, std::uint8_t state);
+    void writeSurfaceTo(const FeedbackRoute& route, const reducer::SurfaceWrite& write);
     // The GUI's own actuation: the same routing over a route built live for the one slot.
     FeedbackRoute liveRoute(const QString& slotId) const;
     // GUI thread: the slot's counters, made on first use and never dropped.
     diagnostics::PadOutputCounters* countersFor(const QString& slotId) const;
+    // GUI thread: the slot's ledger, made on first use and never dropped, like its counters.
+    reducer::SurfaceLedger* ledgerFor(const QString& slotId) const;
     // Hot path: one relaxed add and two relaxed stores, never a lock or an allocation.
     static void recordLane(const FeedbackRoute& route, diagnostics::OutputLane lane,
                            std::uint64_t packedValue);
@@ -280,6 +312,7 @@ class SlotRouter final : public input::GamepadInputProcessor::InputSink {
     // counters through the route they already hold, and an entry is never dropped while the router
     // lives, so that pointer cannot dangle.
     mutable std::map<QString, std::unique_ptr<diagnostics::PadOutputCounters>> padCounters_;
+    mutable std::map<QString, std::unique_ptr<reducer::SurfaceLedger>> padLedgers_;
     std::atomic<std::uint64_t> rumblesRouted_{0};
     std::atomic<std::uint64_t> lightbarsRouted_{0};
     // Written on the GUI thread, read by the input threads and the Moonlight control threads.

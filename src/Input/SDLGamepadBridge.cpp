@@ -257,6 +257,7 @@ void SDLGamepadBridge::onControllerAdded(const SDL_Event& ev) {
     d.hasLightbar = SDL_GameControllerHasLED(gc) == SDL_TRUE;
     d.hasTouchpad = SDL_GameControllerGetNumTouchpads(gc) > 0;
     d.hasRumble = SDL_GameControllerHasRumble(gc) == SDL_TRUE;
+    d.hasTriggerRumble = SDL_GameControllerHasRumbleTriggers(gc) == SDL_TRUE;
     d.hasExtendedButtons = hasExtendedButtons(gc);
     // SDL returns 0 when it cannot read the descriptor, which the twin-dedup pairing treats as
     // "no identity".
@@ -674,6 +675,12 @@ void SDLGamepadBridge::pollBatteries(TimePoint now) {
     if (anyChange) { publishDevices(); }
 }
 
+void SDLGamepadBridge::postTriggerRumble(GamepadInputProcessor::DeviceIndex device,
+                                         std::uint16_t left, std::uint16_t right,
+                                         std::uint16_t durationMs) {
+    if (device < mailboxes_.size()) { mailboxes_[device].postTriggerRumble(left, right, durationMs); }
+}
+
 void SDLGamepadBridge::postLightbar(GamepadInputProcessor::DeviceIndex device, std::uint8_t r,
                                     std::uint8_t g, std::uint8_t b) {
     if (device < mailboxes_.size()) { mailboxes_[device].postLightbar(r, g, b); }
@@ -708,6 +715,10 @@ void SDLGamepadBridge::applyOutput(Pad& pad, const OutputMailbox::Taken& taken) 
     const OutputState& s = taken.state;
     if ((taken.kinds & output::kRumble) != 0) {
         SDL_GameControllerRumble(pad.gc, s.strong, s.weak, s.durationMs);
+    }
+    if ((taken.kinds & output::kTriggerRumble) != 0) {
+        SDL_GameControllerRumbleTriggers(pad.gc, s.leftTriggerMotor, s.rightTriggerMotor,
+                                         s.triggerRumbleMs);
     }
     if ((taken.kinds & output::kLightbar) != 0) { SDL_GameControllerSetLED(pad.gc, s.r, s.g, s.b); }
     // The family pinned at attach from the pad's USB identity, which a Bluetooth pad reports too.

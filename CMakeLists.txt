@@ -555,6 +555,9 @@ set(DISH_CORE_SOURCES
     src/composer/WakeStateController.cpp
     src/composer/RumbleSwitchController.h
     src/composer/RumbleSwitchController.cpp
+    src/composer/BenchActuators.h
+    src/composer/FeedbackBenchCoordinator.h
+    src/composer/FeedbackBenchCoordinator.cpp
     src/composer/TrayComposer.h
     src/composer/TrayController.h
     src/composer/TrayController.cpp

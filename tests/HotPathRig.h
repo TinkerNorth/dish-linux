@@ -437,6 +437,7 @@ class VirtualPad {
         desc.userdata = this;
         desc.Rumble = &VirtualPad::onRumble;
         desc.SetLED = &VirtualPad::onLed;
+        desc.RumbleTriggers = &VirtualPad::onRumbleTriggers;
         const int index = SDL_JoystickAttachVirtualEx(&desc);
         if (index >= 0) {
             instanceId_ = SDL_JoystickGetDeviceInstanceID(index);
@@ -468,6 +469,12 @@ class VirtualPad {
     // The last rumble SDL handed the pad, low motor in the high half.
     std::uint32_t lastRumble() const { return lastRumble_.load(std::memory_order_relaxed); }
     std::uint64_t leds() const { return leds_.load(std::memory_order_relaxed); }
+    // The last colour SDL handed the pad, red in the high byte of the three.
+    std::uint32_t lastLed() const { return lastLed_.load(std::memory_order_relaxed); }
+    // The last trigger rumble SDL handed the pad, the left motor in the high half.
+    std::uint32_t lastTriggerRumble() const {
+        return lastTriggerRumble_.load(std::memory_order_relaxed);
+    }
 
   private:
     static int SDLCALL onRumble(void* self, Uint16 low, Uint16 high) {
@@ -478,8 +485,18 @@ class VirtualPad {
         return 0;
     }
 
-    static int SDLCALL onLed(void* self, Uint8 /*red*/, Uint8 /*green*/, Uint8 /*blue*/) {
-        static_cast<VirtualPad*>(self)->leds_.fetch_add(1, std::memory_order_relaxed);
+    static int SDLCALL onLed(void* self, Uint8 red, Uint8 green, Uint8 blue) {
+        auto* pad = static_cast<VirtualPad*>(self);
+        pad->lastLed_.store((static_cast<std::uint32_t>(red) << 16) |
+                                (static_cast<std::uint32_t>(green) << 8) | blue,
+                            std::memory_order_relaxed);
+        pad->leds_.fetch_add(1, std::memory_order_relaxed);
+        return 0;
+    }
+
+    static int SDLCALL onRumbleTriggers(void* self, Uint16 left, Uint16 right) {
+        static_cast<VirtualPad*>(self)->lastTriggerRumble_.store(
+            (static_cast<std::uint32_t>(left) << 16) | right, std::memory_order_relaxed);
         return 0;
     }
 
@@ -489,6 +506,8 @@ class VirtualPad {
     std::atomic<std::uint64_t> rumbles_{0};
     std::atomic<std::uint32_t> lastRumble_{0};
     std::atomic<std::uint64_t> leds_{0};
+    std::atomic<std::uint32_t> lastLed_{0};
+    std::atomic<std::uint32_t> lastTriggerRumble_{0};
 };
 
 // The objects AppModel owns for the input and feedback paths, wired as AppModel wires them, over

@@ -287,7 +287,8 @@ set(DISH_TEST_SOURCES
     test_connection_snapshot_gateway.cpp
     test_feedback_bench.cpp
     test_bench_surfaces.cpp
-    test_bench_audio.cpp)
+    test_bench_audio.cpp
+    test_feedback_bench_coordinator.cpp)
 
 add_executable(DishTests ${DISH_TEST_SOURCES})
 target_link_libraries(DishTests

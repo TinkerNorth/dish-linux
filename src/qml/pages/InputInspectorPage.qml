@@ -2,9 +2,10 @@
 // Copyright (C) 2026 Dish contributors.
 //
 // The controller inspector: one pad's live input as it goes on the wire, the
-// two stick tests, and a rumble test buzz. Pushed from Diagnostics with
-// `slotId` set before load. Arming the inspector starts App's poll, so every
-// way off this page disarms it.
+// two stick tests, and the bench's feedback and audio tests, each offered only
+// where the pad's path carries it. Pushed from Diagnostics with `slotId` set
+// before load. Arming the inspector starts App's poll, so every way off this
+// page disarms it.
 
 // Bound: the stick delegates read the outer `page` id.
 pragma ComponentBehavior: Bound
@@ -31,13 +32,17 @@ Kit.Page {
     readonly property bool reporting: page.snapshot.hasReport === true
     readonly property bool testing: page.stickTest.phase === "running"
 
-    // Bumped on every state move: canTestRumble is a call, not a binding
+    // Bumped on every state move: benchItems is a call, not a binding
     // dependency, and a path switch can change its answer.
     property int revision: 0
-    readonly property bool canBuzz: page.revision >= 0 && App.canTestRumble(page.slotId)
+    readonly property var items: page.revision >= 0 ? App.benchItems(page.slotId) : []
 
-    // The motor of the buzz awaiting "Did it work?", "" when none is.
-    property string pendingTest: ""
+    property int benchRevision: 0
+    readonly property var bench: page.benchRevision >= 0 ? App.benchState(page.slotId) : ({})
+    readonly property string running: page.bench.running || ""
+    readonly property string asking: page.bench.asking || ""
+    readonly property bool askingAboutSticks: page.asking.startsWith("stick.")
+
     property int outcomeRevision: 0
     readonly property var lastOutcome: page.outcomeRevision >= 0
                                        ? App.lastTestOutcome(page.slotId) : ({})
@@ -46,36 +51,91 @@ Kit.Page {
         target: App
         function onStateChanged() { page.revision += 1; }
         function onTestOutcomesChanged() { page.outcomeRevision += 1; }
+        function onBenchChanged() { page.benchRevision += 1; }
     }
 
-    function buzz(motor) {
-        App.testRumble(page.slotId, motor);
-        page.pendingTest = motor;
+    function offers(item) {
+        return page.items.indexOf(item) >= 0;
     }
 
-    function answer(worked) {
-        App.recordTestOutcome(page.slotId, page.pendingTest, worked);
-        page.pendingTest = "";
-    }
+    // The bench's rows, each test by its outcome name; a row shows only where
+    // the pad's path carries its item.
+    readonly property var benchRows: [
+        { "item": "rumble", "title": qsTr("Rumble"), "tests": [
+            { "test": "rumble.weak", "label": qsTr("Weak") },
+            { "test": "rumble.strong", "label": qsTr("Strong") },
+            { "test": "rumble.both", "label": qsTr("Both") } ] },
+        { "item": "triggerRumble", "title": qsTr("Trigger rumble"), "tests": [
+            { "test": "triggerRumble.left", "label": qsTr("Left") },
+            { "test": "triggerRumble.right", "label": qsTr("Right") },
+            { "test": "triggerRumble.both", "label": qsTr("Both") } ] },
+        { "item": "lightbar", "title": qsTr("Light bar"), "tests": [
+            { "test": "lightbar.cycle", "label": qsTr("Red, green, blue") } ] },
+        { "item": "playerLeds", "title": qsTr("Player LEDs"), "tests": [
+            { "test": "playerLeds.cycle", "label": qsTr("Each LED in turn") } ] },
+        { "item": "adaptiveTriggers", "title": qsTr("Adaptive triggers"), "tests": [
+            { "test": "trigger.pulse", "label": qsTr("Stiffen both") } ] },
+        { "item": "micLamp", "title": qsTr("Mic lamp"), "tests": [
+            { "test": "lamp.on", "label": qsTr("On") },
+            { "test": "lamp.pulse", "label": qsTr("Pulse") } ] },
+        { "item": "speaker", "title": qsTr("Speaker"), "tests": [
+            { "test": "tone.play", "label": qsTr("Play the test tone") } ] },
+        { "item": "haptics", "title": qsTr("HD haptics"), "tests": [
+            { "test": "haptics.play", "label": qsTr("Play the tone on the haptics") } ] },
+        { "item": "microphone", "title": qsTr("Microphone"), "tests": [
+            { "test": "mic.level", "label": qsTr("Show its level") } ] }
+    ].filter(row => page.offers(row.item))
 
-    function motorName(test) {
+    function testName(test) {
         switch (test) {
         case "rumble.weak":
-            return qsTr("Weak");
+            return qsTr("Weak rumble");
         case "rumble.strong":
-            return qsTr("Strong");
+            return qsTr("Strong rumble");
+        case "rumble.both":
+            return qsTr("Both motors");
+        case "triggerRumble.left":
+            return qsTr("Left trigger rumble");
+        case "triggerRumble.right":
+            return qsTr("Right trigger rumble");
+        case "triggerRumble.both":
+            return qsTr("Both trigger motors");
+        case "lightbar.cycle":
+            return qsTr("Light bar colours");
+        case "playerLeds.cycle":
+            return qsTr("Player LEDs");
+        case "trigger.pulse":
+            return qsTr("Adaptive triggers");
+        case "lamp.on":
+            return qsTr("Mic lamp on");
+        case "lamp.pulse":
+            return qsTr("Mic lamp pulsing");
+        case "tone.play":
+            return qsTr("Speaker tone");
+        case "haptics.play":
+            return qsTr("HD haptics tone");
+        case "mic.level":
+            return qsTr("Microphone level");
+        case "stick.drift":
+            return qsTr("Drift test");
+        case "stick.range":
+            return qsTr("Range test");
         }
-        return qsTr("Both");
+        return test;
     }
 
     function lastOutcomeText() {
         if (page.lastOutcome.test === undefined)
             return "";
-        const result = page.lastOutcome.result === "worked" ? qsTr("felt") : qsTr("not felt");
-        return qsTr("Last test: %1 · %2 · %3").arg(page.motorName(page.lastOutcome.test))
+        const result = page.lastOutcome.result === "worked" ? qsTr("worked") : qsTr("did not work");
+        return qsTr("Last test: %1 · %2 · %3").arg(page.testName(page.lastOutcome.test))
                                                .arg(result)
                                                .arg(Qt.formatTime(new Date(page.lastOutcome.atMs),
                                                                   "HH:mm:ss"));
+    }
+
+    function micLevelText() {
+        return qsTr("Level %1% · peak %2%").arg(page.bench.micMeter || 0).arg(page.bench.micPeak || 0);
     }
 
     Component.onCompleted: App.startInputInspection(page.slotId)
@@ -423,59 +483,12 @@ Kit.Page {
                         font.pixelSize: Tokens.textSummary
                         wrapMode: Text.WordWrap
                     }
-                }
-            }
-        }
-
-        // ── Rumble test ──────────────────────────────────────────────────────
-        ColumnLayout {
-            Layout.fillWidth: true
-            spacing: Tokens.s4
-
-            Kit.SectionHeader { label: qsTr("Rumble test") }
-
-            Kit.Card {
-                Layout.fillWidth: true
-                contentItem: ColumnLayout {
-                    spacing: Tokens.s5
-
-                    Label {
-                        Layout.fillWidth: true
-                        text: page.canBuzz
-                              ? qsTr("A short buzz straight to the controller, whatever its rumble switch says.")
-                              : qsTr("This controller has no rumble motors on the path it is on now.")
-                        color: Theme.muted
-                        font.pixelSize: Tokens.textMeta
-                        wrapMode: Text.WordWrap
-                    }
-
-                    Flow {
-                        Layout.fillWidth: true
-                        visible: page.canBuzz
-                        spacing: Tokens.s4
-
-                        Kit.OutlineButton {
-                            size: Kit.DishButton.Small
-                            text: qsTr("Weak")
-                            onClicked: page.buzz("weak")
-                        }
-                        Kit.OutlineButton {
-                            size: Kit.DishButton.Small
-                            text: qsTr("Strong")
-                            onClicked: page.buzz("strong")
-                        }
-                        Kit.OutlineButton {
-                            size: Kit.DishButton.Small
-                            text: qsTr("Both")
-                            onClicked: page.buzz("both")
-                        }
-                    }
 
                     // The answer is the test's outcome: kept for this run and carried by the
                     // diagnostics file.
                     RowLayout {
                         Layout.fillWidth: true
-                        visible: page.canBuzz && page.pendingTest.length > 0
+                        visible: page.askingAboutSticks
                         spacing: Tokens.s4
 
                         Label {
@@ -486,12 +499,132 @@ Kit.Page {
                         Kit.OutlineButton {
                             size: Kit.DishButton.Small
                             text: qsTr("Yes")
-                            onClicked: page.answer(true)
+                            onClicked: App.answerBenchTest(page.slotId, true)
                         }
                         Kit.OutlineButton {
                             size: Kit.DishButton.Small
                             text: qsTr("No")
-                            onClicked: page.answer(false)
+                            onClicked: App.answerBenchTest(page.slotId, false)
+                        }
+                        Item { Layout.fillWidth: true }
+                    }
+                }
+            }
+        }
+
+        // ── Feedback and audio tests ─────────────────────────────────────────
+        ColumnLayout {
+            Layout.fillWidth: true
+            spacing: Tokens.s4
+
+            Kit.SectionHeader { label: qsTr("Feedback and audio tests") }
+
+            Kit.Card {
+                Layout.fillWidth: true
+                contentItem: ColumnLayout {
+                    spacing: Tokens.s5
+
+                    Label {
+                        Layout.fillWidth: true
+                        text: page.benchRows.length > 0
+                              ? qsTr("Each test goes straight to the controller, with no host in the loop, whatever its switches say. Light, trigger and lamp tests put back what the game had set.")
+                              : qsTr("This controller has nothing to test on the path it is on now.")
+                        color: Theme.muted
+                        font.pixelSize: Tokens.textMeta
+                        wrapMode: Text.WordWrap
+                    }
+
+                    Repeater {
+                        model: page.benchRows
+
+                        delegate: ColumnLayout {
+                            id: benchRow
+                            required property var modelData
+                            Layout.fillWidth: true
+                            spacing: Tokens.s2
+
+                            Label {
+                                text: benchRow.modelData.title
+                                color: Theme.onSurface
+                                font.pixelSize: Tokens.textSummary
+                            }
+                            Flow {
+                                Layout.fillWidth: true
+                                spacing: Tokens.s4
+
+                                Repeater {
+                                    model: benchRow.modelData.tests
+
+                                    delegate: Kit.OutlineButton {
+                                        id: benchButton
+                                        required property var modelData
+                                        size: Kit.DishButton.Small
+                                        text: benchButton.modelData.label
+                                        enabled: page.running.length === 0
+                                        onClicked: App.startBenchTest(page.slotId,
+                                                                      benchButton.modelData.test)
+                                    }
+                                }
+                                Kit.OutlineButton {
+                                    size: Kit.DishButton.Small
+                                    visible: benchRow.modelData.item === "microphone"
+                                             && page.running === "mic.level"
+                                    text: qsTr("Stop")
+                                    onClicked: App.stopBenchTest(page.slotId)
+                                }
+                            }
+                            Label {
+                                Layout.fillWidth: true
+                                visible: benchRow.modelData.item === "microphone"
+                                         && page.running === "mic.level"
+                                text: page.micLevelText()
+                                color: Theme.onSurface
+                                font.family: Tokens.monoFamily
+                                font.pixelSize: Tokens.textMeta
+                            }
+                        }
+                    }
+
+                    Label {
+                        Layout.fillWidth: true
+                        visible: page.running.length > 0 && page.running !== "mic.level"
+                                 && !page.running.startsWith("stick.")
+                        text: qsTr("Testing: %1…").arg(page.testName(page.running))
+                        color: Theme.muted
+                        font.pixelSize: Tokens.textMeta
+                        wrapMode: Text.WordWrap
+                    }
+
+                    Label {
+                        Layout.fillWidth: true
+                        visible: (page.bench.unavailable || "").length > 0
+                        text: qsTr("The controller's own audio device would not open, so nothing played or listened.")
+                        color: Theme.muted
+                        font.pixelSize: Tokens.textMeta
+                        wrapMode: Text.WordWrap
+                    }
+
+                    // The answer is the test's outcome: kept for this run and carried by the
+                    // diagnostics file.
+                    RowLayout {
+                        Layout.fillWidth: true
+                        visible: page.asking.length > 0 && !page.askingAboutSticks
+                        spacing: Tokens.s4
+
+                        Label {
+                            text: qsTr("%1: did it work?").arg(page.testName(page.asking))
+                            color: Theme.onSurface
+                            font.pixelSize: Tokens.textSummary
+                        }
+                        Kit.OutlineButton {
+                            size: Kit.DishButton.Small
+                            text: qsTr("Yes")
+                            onClicked: App.answerBenchTest(page.slotId, true)
+                        }
+                        Kit.OutlineButton {
+                            size: Kit.DishButton.Small
+                            text: qsTr("No")
+                            onClicked: App.answerBenchTest(page.slotId, false)
                         }
                         Item { Layout.fillWidth: true }
                     }
