@@ -9,6 +9,8 @@
 
 #include "FeatureSettings.h"
 #include "core/model/Protocol.h"
+#include "core/diagnostics/PadLanes.h"
+#include "core/reducer/BenchItems.h"
 #include "core/reducer/DirectPadKey.h"
 #include "core/thread/TrackedMutex.h"
 
@@ -407,17 +409,27 @@ TEST_CASE("a game's colour sent while the bench holds the bar is remembered, not
     sendLightbar(rig.satellite(0), 0x10, 0x20, 0x30);
     REQUIRE(hp::pumpUntil([&] { return pad.lastLed() == packedRgb(0x10, 0x20, 0x30); }));
 
+    const auto lane = [&] {
+        return rig.router().laneSample(padId, dish::diagnostics::OutputLane::Lightbar);
+    };
+    const std::uint64_t gameColours = lane().count;
     rig.router().holdSurface(padId, dish::reducer::BenchSurface::Lightbar);
     rig.router().writeSurface(padId, kBenchRed);
     REQUIRE(hp::pumpUntil([&] { return pad.lastLed() == packedRgb(0xFF, 0, 0); }));
+    // Rule 5: the bench's colour is not the game's, so its lane does not count it.
+    CHECK(lane().count == gameColours);
     const std::uint64_t routedBefore = rig.router().lightbarsRouted();
     sendLightbar(rig.satellite(0), 0x01, 0x02, 0x03);
     std::this_thread::sleep_for(std::chrono::milliseconds(kQuietMs));
     CHECK(pad.lastLed() == packedRgb(0xFF, 0, 0));
     CHECK(rig.router().lightbarsRouted() == routedBefore);
+    // The game's colour held back by the test is counted when it arrives.
+    CHECK(lane().count == gameColours + 1);
+    CHECK(lane().last == dish::diagnostics::packRgb(0x01, 0x02, 0x03));
 
     rig.router().giveBackSurface(padId, dish::reducer::BenchSurface::Lightbar);
     CHECK(hp::pumpUntil([&] { return pad.lastLed() == packedRgb(0x01, 0x02, 0x03); }));
+    CHECK(lane().count == gameColours + 1);
     sendLightbar(rig.satellite(0), 0x04, 0x05, 0x06);
     CHECK(hp::pumpUntil([&] { return pad.lastLed() == packedRgb(0x04, 0x05, 0x06); }));
 }
@@ -432,12 +444,32 @@ TEST_CASE("a bar the game never set goes back dark when the bench gives it back"
     const QString padId = pad.deviceId();
     REQUIRE(hp::pumpUntil([&] { return !rig.bridge().devices().isEmpty(); }));
     rig.router().republish({padId});
+    // Rule 1: the bench needs no host, so a pad bound to none is offered what its path carries.
+    const auto in = rig.router().feedbackInputs(padId);
+    CHECK(dish::reducer::benchOffers(in, dish::reducer::BenchItem::Lightbar));
+    CHECK(dish::reducer::benchOffers(in, dish::reducer::BenchItem::Rumble));
 
     rig.router().holdSurface(padId, dish::reducer::BenchSurface::Lightbar);
     rig.router().writeSurface(padId, kBenchRed);
     REQUIRE(hp::pumpUntil([&] { return pad.lastLed() == packedRgb(0xFF, 0, 0); }));
     rig.router().giveBackSurface(padId, dish::reducer::BenchSurface::Lightbar);
     CHECK(hp::pumpUntil([&] { return pad.lastLed() == 0U; }));
+}
+
+TEST_CASE("the bench's buzz reaches the motors and is not counted as the game's rumble",
+          "[slot-router][bench]") {
+    Seen seen;
+    hp::HotPathRig rig(1, countInto(seen));
+    REQUIRE(rig.startBridge());
+    const hp::VirtualPad pad("Router bench buzz pad");
+    REQUIRE(pad.ok());
+    const QString padId = pad.deviceId();
+    REQUIRE(hp::pumpUntil([&] { return !rig.bridge().devices().isEmpty(); }));
+    rig.router().republish({padId});
+
+    rig.router().buzz(padId, dish::reducer::testBuzzFor(dish::reducer::BuzzMotor::Strong));
+    CHECK(hp::pumpUntil([&] { return pad.lastRumble() == (48000U << 16); }));
+    CHECK(rig.router().laneSample(padId, dish::diagnostics::OutputLane::Rumble).count == 0U);
 }
 
 TEST_CASE("the bench's trigger buzz reaches an SDL pad whose driver drives the trigger motors",

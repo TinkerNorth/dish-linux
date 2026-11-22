@@ -300,6 +300,29 @@ audio matcher never routes one (`SlotRouter::audioRouteForSlot`).
 (f) The haptic lanes are channels 3 and 4 of the DualSense's own 4-channel
 endpoint; a stereo endpoint has no actuator pair (`audio::benchTone`).
 
+How the contract's per-path choices land here:
+
+- Player LEDs are the five masks (`01` to `10`) on both paths, because both write the mask byte
+  themselves: the claim's OUT report and the effect body `SDL_GameControllerSendEffect` takes.
+  Neither lights them by a player number, so the contract's players 1 to 4 apply to no desktop
+  path (`test_feedback_bench`, "every desktop path that carries the player LEDs is offered the
+  five masks").
+- Rumble offers all three tests: SDL's rumble call always takes both motors, and every Direct
+  family with rumble has two actuators (`usbout::buildRumbleReport`).
+- The bench needs no host: a pad bound to none is offered what its path carries
+  (`test_slot_router`, "a bar the game never set goes back dark").
+- A surface the game never set goes back to the idle state, not to what the pad showed when the
+  test began, because Linux cannot read that. The kernel's LED class answers from
+  hid-playstation's own cache (`dualsense_player_led_get_brightness` returns
+  `ds->player_leds_state`, `drivers/hid/hid-playstation.c:1222-1227` at torvalds/linux
+  4843f6873f7c), which the Direct claim and SDL's HIDAPI driver bypass by writing hidraw, and
+  neither hid-playstation nor SDL's PS5 driver ever reads an output report back from the pad.
+  Where Dish itself set the surface before the test (the mute lamp), that value is the one put
+  back.
+- A test's writes are not the game's: the `output` lanes in the file count none of them, and a
+  game's value the test held back is counted when it arrives (`test_slot_router`). `lastWrite`
+  is the claim's last write, a test's included.
+
 What only a person with a pad can prove: that each test is felt, seen or
 heard on real hardware; that the bar, the LEDs, the triggers and the lamp come
 back to the game's state after a test during a game; that the tone reaches the

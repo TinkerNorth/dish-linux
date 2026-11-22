@@ -174,6 +174,29 @@ TEST_CASE("an SDL DualSense is offered its effect surfaces only where SDL takes 
     CHECK(offeredItems(in) == withTheBody);
 }
 
+// Both desktop paths that carry the player LEDs write the mask byte themselves: the claim's OUT
+// report, and the effect body SDL_GameControllerSendEffect takes. Neither lights them by a player
+// number (SDL_GameControllerSetPlayerIndex is not used, tests/PARITY.md section 5b), so the test is
+// the contract's five masks on both, and an SDL pad SDL cannot hand the effect body is not offered
+// it at all.
+TEST_CASE("every desktop path that carries the player LEDs is offered the five masks",
+          "[diagnostics][bench]") {
+    SlotFeedbackInputs sdlWithTheBody;
+    sdlWithTheBody.padPlayerLeds = true;
+    sdlWithTheBody.standardEffects = true;
+    SlotFeedbackInputs sdlWithoutTheBody = sdlWithTheBody;
+    sdlWithoutTheBody.standardEffects = false;
+    CHECK(dish::reducer::benchOffers(directDualSense(), BenchItem::PlayerLeds));
+    CHECK(dish::reducer::benchOffers(sdlWithTheBody, BenchItem::PlayerLeds));
+    CHECK_FALSE(dish::reducer::benchOffers(sdlWithoutTheBody, BenchItem::PlayerLeds));
+    std::vector<int> masks;
+    for (std::size_t step = 0; step < dish::reducer::kPlayerLedCycle.size(); ++step) {
+        masks.push_back(
+            dish::reducer::surfaceStepFor(BenchTest::PlayerLedsCycle, step).values.playerLeds);
+    }
+    CHECK(masks == std::vector<int>{0x01, 0x02, 0x04, 0x08, 0x10});
+}
+
 TEST_CASE("the haptics tone is offered only where the pad's endpoint has the actuator pair",
           "[diagnostics][bench]") {
     SlotFeedbackInputs in;

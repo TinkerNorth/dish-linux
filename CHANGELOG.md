@@ -155,7 +155,10 @@ the repos share a version number.
   adaptive triggers and mic lamp go back to what the game last sent when a
   test ends, or dark and off where the game never set them, and a value the
   game sends during the test is held until the test ends instead of being
-  written over it. The other surfaces keep following the game.
+  written over it. The other surfaces keep following the game. A test's own
+  writes are not counted in the file's output lanes, so a rumble test never
+  reads as the host's rumble; a game's value held back during a test is
+  counted when it arrives.
 - After every test the inspector asks "Did it work?" once; the answer is kept
   under the test's contract name (`triggerRumble.left`, `lightbar.cycle`,
   `stick.drift`, ...) with the time the test ended, and rides in the file.

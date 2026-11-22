@@ -188,7 +188,8 @@ class SlotRouter final : public input::GamepadInputProcessor::InputSink,
     void sendBattery(const QString& slotId, std::uint8_t level, std::uint8_t status);
 
     // GUI thread: what came out of one slot's pad, lane by lane, for the support report: every
-    // host message and every bench actuation the router handed it, whatever the lane's target.
+    // host message the router handed it, whatever the lane's target, one held back by a bench
+    // test included. The bench's own writes are not the game's and are not counted.
     // Kept for the router's lifetime, so a route table may point at it.
     diagnostics::LaneSample laneSample(const QString& slotId, diagnostics::OutputLane lane) const;
 
@@ -268,6 +269,8 @@ class SlotRouter final : public input::GamepadInputProcessor::InputSink,
     template <typename Deliver>
     void withFeedbackRoute(std::size_t participant, const QString& connectionId, Deliver&& deliver);
     void routeRumble(const FeedbackRoute& route, std::uint16_t strong, std::uint16_t weak,
+                     std::uint16_t durationMs);
+    void writeRumble(const FeedbackRoute& route, std::uint16_t strong, std::uint16_t weak,
                      std::uint16_t durationMs);
     void routeLightbar(const FeedbackRoute& route, std::uint8_t r, std::uint8_t g, std::uint8_t b);
     void

@@ -585,6 +585,11 @@ void SlotRouter::installFeedbackHandlers(net::WifiConnection& conn, const QStrin
 void SlotRouter::routeRumble(const FeedbackRoute& route, std::uint16_t strong, std::uint16_t weak,
                              std::uint16_t durationMs) {
     recordLane(route, diagnostics::OutputLane::Rumble, diagnostics::packRumble(strong, weak));
+    writeRumble(route, strong, weak, durationMs);
+}
+
+void SlotRouter::writeRumble(const FeedbackRoute& route, std::uint16_t strong, std::uint16_t weak,
+                             std::uint16_t durationMs) {
     switch (route.target(reducer::FeedbackKind::Rumble)) {
     case reducer::FeedbackTarget::Standard:
         // The SDL thread actuates it from the pad's mailbox on its next cycle.
@@ -742,9 +747,10 @@ void SlotRouter::actuateMicLed(const QString& slotId, std::uint8_t state) {
     routeMicLed(liveRoute(slotId), state);
 }
 
-// The bench's buzz ignores the rumble switch: it tests the motors, not the setting.
+// The bench's buzz ignores the rumble switch: it tests the motors, not the setting. Like every
+// bench write it is not the game's, so no lane counts it (rule 5).
 void SlotRouter::buzz(const QString& slotId, const reducer::TestBuzz& buzz) {
-    routeRumble(liveRoute(slotId), buzz.strong, buzz.weak, buzz.durationMs);
+    writeRumble(liveRoute(slotId), buzz.strong, buzz.weak, buzz.durationMs);
 }
 
 void SlotRouter::triggerBuzz(const QString& slotId, const reducer::TestTriggerBuzz& buzz) {
@@ -768,25 +774,21 @@ void SlotRouter::giveBackSurface(const QString& slotId, reducer::BenchSurface su
                       [&](const reducer::SurfaceWrite& write) { writeSurfaceTo(route, write); });
 }
 
-// One surface's write, counted on its lane like every write the router hands the pad.
+// One surface's write for the bench: a step, or the value its end puts back. Neither is the
+// game's, so no lane counts it (rule 5); the game's own value was counted when it arrived.
 void SlotRouter::writeSurfaceTo(const FeedbackRoute& route, const reducer::SurfaceWrite& write) {
     const reducer::SurfaceValues& v = write.values;
     switch (write.surface) {
     case reducer::BenchSurface::Lightbar:
-        recordLane(route, diagnostics::OutputLane::Lightbar,
-                   diagnostics::packRgb(v.lightbar.r, v.lightbar.g, v.lightbar.b));
         writeLightbar(route, v.lightbar.r, v.lightbar.g, v.lightbar.b);
         return;
     case reducer::BenchSurface::PlayerLeds:
-        recordLane(route, diagnostics::OutputLane::PlayerLeds, v.playerLeds);
         writePlayerLeds(route, v.playerLeds);
         return;
     case reducer::BenchSurface::TriggerEffects:
-        recordLane(route, diagnostics::OutputLane::TriggerEffects, 0);
         writeTriggerEffects(route, v.triggerEffects.left, v.triggerEffects.right);
         return;
     case reducer::BenchSurface::MicLamp:
-        recordLane(route, diagnostics::OutputLane::MicLed, v.micLamp);
         writeMicLed(route, v.micLamp);
         return;
     }
