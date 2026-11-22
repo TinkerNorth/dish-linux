@@ -2066,7 +2066,7 @@ void AppViewModel::startInputInspection(const QString& slotId) {
 void AppViewModel::dropStickTest() {
     const bool measuring = stickBench_.phase() == input::StickTestPhase::Running;
     if (measuring && !inspectedSlotId_.isEmpty()) { model_->bench()->cancel(inspectedSlotId_); }
-    stickBench_ = input::StickBench{};
+    stickBench_.clear();
 }
 
 void AppViewModel::stopInputInspection() {

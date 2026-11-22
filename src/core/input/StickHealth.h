@@ -249,6 +249,12 @@ class StickBench {
   public:
     void start(StickTestKind kind, std::int64_t nowMs) { running_.emplace(kind, nowMs); }
 
+    // Back to nothing: the running test and the last result both go.
+    void clear() {
+        running_.reset();
+        result_.reset();
+    }
+
     // One poll's sticks, taken only while a test runs.
     void sample(const StickSample& left, const StickSample& right) {
         if (running_.has_value()) { running_->add(left, right); }

@@ -254,3 +254,19 @@ TEST_CASE("starting a test puts the last result behind the running one", "[diagn
     REQUIRE(bench.phase() == StickTestPhase::Running);
     REQUIRE(bench.kind() == StickTestKind::Range);
 }
+
+TEST_CASE("a cleared bench drops the test it was running", "[diagnostics][stick]") {
+    StickBench bench;
+    bench.start(StickTestKind::Range, 0);
+    bench.clear();
+    REQUIRE(bench.phase() == StickTestPhase::Idle);
+}
+
+TEST_CASE("a cleared bench drops its last result", "[diagnostics][stick]") {
+    StickBench bench;
+    bench.start(StickTestKind::Drift, 0);
+    bench.advance(kDriftCaptureMs);
+    bench.clear();
+    REQUIRE(bench.phase() == StickTestPhase::Idle);
+    REQUIRE_FALSE(bench.result().has_value());
+}
