@@ -57,6 +57,13 @@ TEST_CASE("each kind posted sets its own pending bit, and a take clears them all
     CHECK_FALSE(box.take().has_value());
 }
 
+// Every post stores the state word by word and every take loads it, on the receive and pump
+// threads: the trigger motors joined it without making it a word longer.
+TEST_CASE("a pad's whole output state copies as five words", "[output-mailbox]") {
+    CHECK(sizeof(dish::input::OutputState) == 40U);
+    CHECK(dish::thread::AtomicWords<dish::input::OutputState>::kWords == 5U);
+}
+
 TEST_CASE("the trigger motors post as their own kind, apart from the body motors",
           "[output-mailbox]") {
     OutputMailbox box;

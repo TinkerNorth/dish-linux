@@ -16,11 +16,16 @@ namespace dish::input {
 
 // What a pad's feedback should be now, the newest value of each kind, and whether its controller
 // is there as last told.
+// The wide fields first, so the struct packs into five words with no padding.
 struct OutputState {
-    bool padLinked = false;
     std::uint16_t strong = 0;
     std::uint16_t weak = 0;
     std::uint16_t durationMs = 0;
+    // The trigger motors, which only the SDL path drives.
+    std::uint16_t leftTriggerMotor = 0;
+    std::uint16_t rightTriggerMotor = 0;
+    std::uint16_t triggerRumbleMs = 0;
+    bool padLinked = false;
     std::uint8_t r = 0;
     std::uint8_t g = 0;
     std::uint8_t b = 0;
@@ -28,10 +33,6 @@ struct OutputState {
     std::uint8_t micLedState = 0;
     std::array<std::uint8_t, usbout::kTriggerEffectBlockBytes> leftTrigger{};
     std::array<std::uint8_t, usbout::kTriggerEffectBlockBytes> rightTrigger{};
-    // The trigger motors, which only the SDL path drives.
-    std::uint16_t leftTriggerMotor = 0;
-    std::uint16_t rightTriggerMotor = 0;
-    std::uint16_t triggerRumbleMs = 0;
 };
 
 namespace output {

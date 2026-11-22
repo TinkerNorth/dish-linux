@@ -187,8 +187,8 @@ the repos share a version number.
   routes now passes its slot's ledger first: one flag taken for a few
   sequentially consistent stores, and one load of the test's hold bits, never
   a lock or an allocation. Rumble messages and input reports are untouched.
-  The SDL output mailbox gains a trigger-rumble kind; its state still copies
-  as five words.
+  The SDL output mailbox gains a trigger-rumble kind; its fields are reordered
+  so its state still copies as five words.
 - The compiled Direct tables (`kKnownModels`, the fast-lane vendors) stay, and
   a test requires every row to match its database record; they answer first,
   and a served row only adds an id they lack.
