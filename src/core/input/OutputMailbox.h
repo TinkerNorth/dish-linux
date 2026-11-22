@@ -28,6 +28,10 @@ struct OutputState {
     std::uint8_t micLedState = 0;
     std::array<std::uint8_t, usbout::kTriggerEffectBlockBytes> leftTrigger{};
     std::array<std::uint8_t, usbout::kTriggerEffectBlockBytes> rightTrigger{};
+    // The trigger motors, which only the SDL path drives.
+    std::uint16_t leftTriggerMotor = 0;
+    std::uint16_t rightTriggerMotor = 0;
+    std::uint16_t triggerRumbleMs = 0;
 };
 
 namespace output {
@@ -37,6 +41,7 @@ inline constexpr std::uint32_t kTriggerEffects = 1U << 2;
 inline constexpr std::uint32_t kPlayerLeds = 1U << 3;
 inline constexpr std::uint32_t kMicLed = 1U << 4;
 inline constexpr std::uint32_t kPadLink = 1U << 5;
+inline constexpr std::uint32_t kTriggerRumble = 1U << 6;
 } // namespace output
 
 // One pad's feedback on its way to the thread that drives the pad. A producer (a session's
@@ -82,6 +87,14 @@ class OutputMailbox {
 
     void postMicLed(std::uint8_t state) {
         post(output::kMicLed, [&](OutputState& s) { s.micLedState = state; });
+    }
+
+    void postTriggerRumble(std::uint16_t left, std::uint16_t right, std::uint16_t durationMs) {
+        post(output::kTriggerRumble, [&](OutputState& s) {
+            s.leftTriggerMotor = left;
+            s.rightTriggerMotor = right;
+            s.triggerRumbleMs = durationMs;
+        });
     }
 
     void postPadLink(bool linked) {

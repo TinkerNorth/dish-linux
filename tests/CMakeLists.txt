@@ -285,7 +285,9 @@ set(DISH_TEST_SOURCES
     # The support report: the report, both ends of each host, every path.
     test_support_report.cpp
     test_connection_snapshot_gateway.cpp
-    test_feedback_bench.cpp)
+    test_feedback_bench.cpp
+    test_bench_surfaces.cpp
+    test_bench_audio.cpp)
 
 add_executable(DishTests ${DISH_TEST_SOURCES})
 target_link_libraries(DishTests

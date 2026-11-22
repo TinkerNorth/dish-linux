@@ -4,13 +4,13 @@
 // The pad level of Diagnostics (docs/controller-db.md section 9): after each
 // test the person says whether it worked, and the answer is kept as an
 // outcome, `{ test, result, atMs }`, per controller, the last twenty, oldest
-// first, in memory for the run. The bundle carries them.
+// first, in memory for the run. The bundle carries them. The tests and their
+// names are the bench's (core/reducer/BenchItems.h).
 
 #pragma once
 
 #include <cstddef>
 #include <cstdint>
-#include <optional>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -37,13 +37,6 @@ inline OutcomeLog appendOutcome(OutcomeLog log, TestOutcome outcome) {
         log.erase(log.begin(), log.begin() + excess);
     }
     return log;
-}
-
-// The bench's motor words name the test: "weak" is "rumble.weak". Nothing else is a test.
-inline std::optional<std::string> rumbleTestName(std::string_view motor) {
-    const bool known = motor == "weak" || motor == "strong" || motor == "both";
-    if (!known) { return std::nullopt; }
-    return "rumble." + std::string(motor);
 }
 
 inline std::string_view outcomeResult(bool worked) { return worked ? "worked" : "didNotWork"; }

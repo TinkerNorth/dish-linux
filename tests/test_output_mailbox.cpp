@@ -57,6 +57,20 @@ TEST_CASE("each kind posted sets its own pending bit, and a take clears them all
     CHECK_FALSE(box.take().has_value());
 }
 
+TEST_CASE("the trigger motors post as their own kind, apart from the body motors",
+          "[output-mailbox]") {
+    OutputMailbox box;
+    box.postRumble(1, 2, 3);
+    box.postTriggerRumble(48000, 0, 400);
+    const auto taken = box.take();
+    REQUIRE(taken.has_value());
+    CHECK(taken->kinds == (output::kRumble | output::kTriggerRumble));
+    CHECK(taken->state.leftTriggerMotor == 48000);
+    CHECK(taken->state.rightTriggerMotor == 0);
+    CHECK(taken->state.triggerRumbleMs == 400);
+    CHECK(taken->state.strong == 1);
+}
+
 TEST_CASE("the pad's link posts like any other kind, the newest winning", "[output-mailbox]") {
     OutputMailbox box;
     box.postPadLink(true);

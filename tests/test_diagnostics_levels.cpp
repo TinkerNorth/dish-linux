@@ -105,12 +105,7 @@ TEST_CASE("test outcomes: the last twenty, oldest first", "[diagnostics][outcome
     }
 }
 
-TEST_CASE("test outcomes: the bench's motors name the test, the answer names the result",
-          "[diagnostics][outcomes]") {
-    CHECK(rumbleTestName("weak") == std::optional<std::string>("rumble.weak"));
-    CHECK(rumbleTestName("strong") == std::optional<std::string>("rumble.strong"));
-    CHECK(rumbleTestName("both") == std::optional<std::string>("rumble.both"));
-    CHECK_FALSE(rumbleTestName("lightbar").has_value());
+TEST_CASE("test outcomes: the answer names the result", "[diagnostics][outcomes]") {
     CHECK(outcomeResult(true) == "worked");
     CHECK(outcomeResult(false) == "didNotWork");
 }

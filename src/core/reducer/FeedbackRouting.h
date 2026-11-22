@@ -76,6 +76,11 @@ struct SlotFeedbackInputs {
     // meaningful when !usbDirect; a Direct claim writes the report itself.
     bool standardEffects = false;
 
+    // SDL drives the pad's trigger motors (SDL_GameControllerHasRumbleTriggers,
+    // the driver's own answer). No host message carries trigger rumble, so
+    // this is the bench's alone.
+    bool padTriggerRumble = false;
+
     // Controller-audio routes: does the pad have a usable audio path on THIS
     // machine (its own USB-audio endpoints matched to an audio device)?
     // Deliberately independent of the HID path above — the pad's audio
@@ -158,6 +163,13 @@ inline bool slotCarriesSpeakerPlayout(const SlotFeedbackInputs& in) { return in.
 // every other pad and is why a false here is a fallback rather than a loss.
 inline bool slotCarriesHapticPlayout(const SlotFeedbackInputs& in) {
     return in.padSpeakerRoute && in.padHapticRoute;
+}
+
+// Trigger rumble rides SDL alone: the Direct claim has no writer for trigger
+// motors, because the one family with them, the Xbox One/Series GIP pad, never
+// reaches it (see usbout::FeedbackState).
+inline bool slotCarriesTriggerRumble(const SlotFeedbackInputs& in) {
+    return !in.usbDirect && in.padTriggerRumble;
 }
 
 } // namespace dish::reducer
