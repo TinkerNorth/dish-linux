@@ -173,6 +173,13 @@ the repos share a version number.
   is described as on by default everywhere but the Flatpak, where it starts
   off, in the summary, in 2.1, in 2.4, in Settings and in the metainfo. Its
   effective date moves to 2026-11-20.
+- **PRIVACY.md** now describes what the app does with a controller as the code does it: it writes
+  the player lights, adaptive-trigger effects and the mute lamp as well as rumble and the light bar,
+  in USB-direct mode too; a DualSense's or DualShock 4's own speaker plays what the PC sends, and
+  its own microphone is opened only with that controller's Microphone switch on, streaming and not
+  muted; the gamepad stream's list names those frames; and the inspector's tests, the microphone
+  test among them, are described. The sentence that the app does not access the microphone is
+  replaced: the only microphone it ever opens is a controller's own.
 - **Direct by itself for the verified pads the list names.** The thirteen
   third-party DualShock 4 pads dbVersion 1 marks verified with the rule
   `auto` (Hori, Nacon, Razer and others) now go Direct without a pick and

@@ -1,6 +1,6 @@
 # Dish for Linux: Privacy Policy
 
-**Effective date:** 2026-11-20.
+**Effective date:** 2026-11-22.
 **Canonical copy:** this file, at
 [`https://github.com/TinkerNorth/dish-linux/blob/main/PRIVACY.md`](https://github.com/TinkerNorth/dish-linux/blob/main/PRIVACY.md).
 The app links to it from Help, and the privacy index on
@@ -131,15 +131,42 @@ the satellite you bound the controller to:
   computer's level and charging state also go into a support report you send
   (section 2.6).
 - Raw HID reports read from a controller in USB-direct mode.
-- Your answers to *Did it work?* after a rumble test, the last twenty per
-  controller, kept until the app quits and written out only into a
-  diagnostics file you save or send (section 2.6).
+- Your answers to *Did it work?* after each test in the controller inspector,
+  the last twenty per controller, kept until the app quits and written out
+  only into a diagnostics file you save or send (section 2.6).
+- What a controller's own microphone hears, only while it is open as described
+  below. It is encoded as it arrives and never recorded or kept.
 
 The app reads input from connected game controllers, through SDL2 and, in
 USB-direct mode, by reading raw HID input reports itself. It also writes back to
-them: rumble and light-bar colour are sent through SDL2. The USB-direct path is
-read-only. All of this is device IO on your own machine. It requires no
-administrator rights and no driver install.
+them what the game on your PC sends: rumble, the light-bar colour, the player
+lights, adaptive-trigger effects and the mute lamp, through SDL2 or, in
+USB-direct mode, as HID output reports it writes itself. All of this is device
+IO on your own machine. It requires no administrator rights and no driver
+install.
+
+**A controller's own speaker and microphone.** A DualSense or DualShock 4 on a
+USB cable has an audio device of its own. While that controller's *Speaker*
+switch is on, which is the default, the sound your PC sends for it, and on a
+DualSense the haptics, play on that device. Apart from the inspector's test below, its microphone
+is opened only while all of these hold: that controller's *Microphone* switch
+is on, which it is not until you turn it on; the controller is streaming to a
+Satellite that carries the microphone; and it is not muted. What it hears is
+then sent to that Satellite, as section 2.2 describes. Turning the switch off,
+muting it or ending the stream closes the microphone. The app never opens the
+computer's own microphone, or any microphone but a controller's own.
+
+**The controller inspector's tests.** From the Diagnostics page, a
+controller's inspector can test each thing its connection carries: rumble and
+trigger rumble run for a moment; the light bar, the player lights, the
+adaptive triggers and the mute lamp change for a moment and then go back to
+what the game had set; the test tone plays on the controller's own speaker, or
+on its haptics; and the microphone test opens the controller's own microphone
+for up to eight seconds to show how loud it hears you. What the microphone
+hears stays in the app and goes no further: it is not recorded, kept or sent,
+and only its level is shown. Your answer to *Did it work?* is kept in memory
+for this run, and leaves your machine only inside a diagnostics file you save
+or send (section 2.6).
 
 ### 2.2 Sent to your own LAN, not to TinkerNorth
 
@@ -169,7 +196,10 @@ on an address you can see in the app.
   by default, encrypted and authenticated with ChaCha20-Poly1305 under a
   session key derived from the pairing key (the pairing key itself never
   travels over UDP). Upstream frames carry controller state, motion, battery,
-  and touchpad. Downstream frames carry rumble, light-bar colour, heartbeat
+  and touchpad and, while a controller's microphone is open as section 2.1
+  describes, what it hears, as 20 ms Opus frames. Downstream frames carry
+  rumble, light-bar colour, the player lights, adaptive-trigger effects, the
+  mute lamp, the sound and haptics for a controller's own speaker, heartbeat
   acknowledgements, and session close.
 - **Moonlight hosts.** Dish can also be the controller for a Sunshine, Apollo
   or Wolf host, speaking the Moonlight (GameStream) protocol instead of the
@@ -367,10 +397,12 @@ reads and writes, a SHA-256 checksum of its USB descriptors, any
 mismatch between the record and what Dish saw, how many input reports it sent
 and at what rate, the last one (the buttons, sticks and triggers at that moment), for each kind of
 output (rumble, light bar, player lights, trigger effects, mute lamp) how
-many reached it, where they went and the last value with its time, whether
-its speaker and haptics streams are open, the last report Dish wrote to it
-(the report id, whether it went through and the kernel's error name when it
-did not), and your answers to *Did it work?* after a rumble test; for each
+many a host sent it, where they went and the last value with its time (an
+inspector test's own output is not counted), whether its speaker and haptics
+streams are open, the last report Dish wrote to it (the report id, whether it
+went through and the kernel's error name when it did not), and your answers
+to *Did it work?* after each test in the controller inspector, with the
+test's name and when it ended; for each
 paired Satellite or Moonlight host, an alias ("Host 1", "Host 2"), its kind
 and version, the protocol version the session settled on, its link state and
 which controller-audio directions it grants, Dish's own view of the session
@@ -490,7 +522,8 @@ do, so this is the equivalent list of what the app touches.
 |---|---|
 | Network sockets: UDP multicast, UDP broadcast listen, UDP unicast, TCP, TLS over TCP | Discovery, pairing, control plane, gamepad stream, for satellites and Moonlight hosts alike. All to your LAN. |
 | HTTPS to `github.com` | The update check, and only the check. Section 2.4. Only while *Check for updates automatically* is on. |
-| Game-controller device enumeration and IO | Reading controller input, and writing rumble and light-bar output back to the controller. `/dev/hidraw*` access is used for reading in USB-direct mode, which needs the udev rule the package installs. |
+| Game-controller device enumeration and IO | Reading controller input, and writing rumble, light, trigger and lamp output back to the controller. `/dev/hidraw*` access is used for reading and writing in USB-direct mode, which needs the udev rule the package installs. |
+| A controller's own audio device, through SDL2's audio | Playing the sound and haptics your PC sends for that controller, and opening its microphone only as section 2.1 describes. Never the computer's own microphone. |
 | `org.freedesktop.ScreenSaver.Inhibit` on the session bus | Preventing sleep while a controller is actively streaming, so input latency stays low. Released when streaming stops. |
 | XDG desktop portals (appearance, settings) | Following your light/dark and reduced-motion preferences. Read only. |
 | `/sys/class/bluetooth` and BlueZ on the system bus | Telling "no Bluetooth adapter" from "adapter switched off" in the setup wizard. Read only. |
@@ -500,8 +533,9 @@ do, so this is the equivalent list of what the app touches.
 | Default browser launch | Opening the links listed in section 2.3, only when you click one. |
 
 The app runs as a normal user. It never asks for root, installs no service and
-no driver, does not read your files, and does not access the microphone,
-camera, location, contacts, or clipboard. USB-direct needs read/write on the
+no driver, does not read your files, and does not access the camera,
+location, contacts, or clipboard. The only microphone it ever opens is a
+controller's own (section 2.1). USB-direct needs read/write on the
 hidraw node, which the packaged udev rule grants to your logged-in seat; if
 that rule is absent the claim simply fails and the pad keeps streaming over
 SDL.
