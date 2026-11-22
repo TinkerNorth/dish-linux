@@ -260,7 +260,7 @@ hardware pass: no pad has been on the bench yet.
 
 | Item | USB Direct | USB Standard (SDL) | Bluetooth (SDL) |
 |---|---|---|---|
-| Rumble (`rumble.*`) | ⚠️ DS4, DualSense, Switch Pro, 2026 Steam Controller | ⚠️ where `SDL_GameControllerHasRumble` | ⚠️ where `SDL_GameControllerHasRumble` |
+| Rumble (`rumble.*`) | ⚠️ DS4, DualSense, Switch Pro, 2026 Steam Controller | ⚠️ where `SDL_GameControllerHasRumble` (g) | ⚠️ where `SDL_GameControllerHasRumble` (g) |
 | Trigger rumble (`triggerRumble.*`) | ❌ (a) | ⚠️ where `SDL_GameControllerHasRumbleTriggers` (b) | ⚠️ where `SDL_GameControllerHasRumbleTriggers` (b) |
 | Light bar (`lightbar.cycle`) | ⚠️ DS4, DualSense | ⚠️ where `SDL_GameControllerHasLED` | ⚠️ where `SDL_GameControllerHasLED` |
 | Player LEDs (`playerLeds.cycle`) | ⚠️ DualSense, Switch Pro | ⚠️ DualSense under SDL's HIDAPI driver only (c) | ⚠️ DualSense under SDL's HIDAPI driver only (c) |
@@ -299,6 +299,13 @@ Class interface; over Bluetooth the pad is a HID device only, so the pad
 audio matcher never routes one (`SlotRouter::audioRouteForSlot`).
 (f) The haptic lanes are channels 3 and 4 of the DualSense's own 4-channel
 endpoint; a stereo endpoint has no actuator pair (`audio::benchTone`).
+(g) A pad SDL opens as a raw joystick (no game-controller mapping) is offered
+rumble where `SDL_JoystickHasRumble`, and the game's rumble and the bench's
+both land on it through `SDL_JoystickRumble`, from the same mailbox the SDL
+thread drains for a game controller (`SDLGamepadBridge::applyJoystickOutput`).
+Rumble is all such a pad claims: its light bar, trigger motors and effect body
+are never offered and never written (`test_slot_router`, over an SDL virtual
+joystick that `SDL_IsGameController` refuses). dish-windows does the same.
 
 How the contract's per-path choices land here:
 

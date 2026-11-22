@@ -706,14 +706,35 @@ void SDLGamepadBridge::postMicLed(GamepadInputProcessor::DeviceIndex device, std
 
 void SDLGamepadBridge::drainMailboxes() {
     for (Pad& pad : pads_) {
-        if (pad.kind != PadKind::Controller || !pad.index.has_value()) { continue; }
+        if (!pad.index.has_value()) { continue; }
         if (const auto taken = mailboxes_[*pad.index].take()) { applyOutput(pad, *taken); }
     }
 }
 
+void SDLGamepadBridge::applyOutput(Pad& pad, const OutputMailbox::Taken& taken) {
+    switch (pad.kind) {
+    case PadKind::Controller:
+        applyControllerOutput(pad, taken);
+        return;
+    case PadKind::Joystick:
+        applyJoystickOutput(pad, taken);
+        return;
+    case PadKind::Free:
+        return;
+    }
+}
+
+// Rumble is all a raw joystick claims (onJoystickAdded), so it is all that is written to one.
+void SDLGamepadBridge::applyJoystickOutput(Pad& pad, const OutputMailbox::Taken& taken) {
+    const bool wantsRumble = (taken.kinds & output::kRumble) != 0;
+    if (!wantsRumble) { return; }
+    const OutputState& s = taken.state;
+    SDL_JoystickRumble(pad.js, s.strong, s.weak, s.durationMs);
+}
+
 // Return values ignored: -1 means the pad has no such actuator or its driver changed under us, and
 // neither the caller nor the satellite-side game has any recourse.
-void SDLGamepadBridge::applyOutput(Pad& pad, const OutputMailbox::Taken& taken) {
+void SDLGamepadBridge::applyControllerOutput(Pad& pad, const OutputMailbox::Taken& taken) {
     const OutputState& s = taken.state;
     if ((taken.kinds & output::kRumble) != 0) {
         SDL_GameControllerRumble(pad.gc, s.strong, s.weak, s.durationMs);

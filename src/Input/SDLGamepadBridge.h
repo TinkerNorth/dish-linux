@@ -278,7 +278,10 @@ class SDLGamepadBridge : public QObject {
     // Every open pad's mailbox, applied with SDL's calls (rumble, SetLED, SendEffect) on the SDL
     // thread. Called once per pump cycle.
     void drainMailboxes();
+    // Through the handle the pad's kind has: a raw joystick has no game-controller handle.
     void applyOutput(Pad& pad, const OutputMailbox::Taken& taken);
+    void applyControllerOutput(Pad& pad, const OutputMailbox::Taken& taken);
+    static void applyJoystickOutput(Pad& pad, const OutputMailbox::Taken& taken);
     // Build one effect kind's DualSense report and hand its body to SDL_GameControllerSendEffect.
     static void sendEffect(Pad& pad, std::size_t reportBytes,
                            const std::array<std::uint8_t, usbout::kMaxOutputReportBytes>& report);

@@ -12,6 +12,7 @@
 #include "core/diagnostics/PadLanes.h"
 #include "core/reducer/BenchItems.h"
 #include "core/reducer/DirectPadKey.h"
+#include "core/reducer/FeedbackRouting.h"
 #include "core/thread/TrackedMutex.h"
 
 #include <catch2/catch_test_macros.hpp>
@@ -490,6 +491,85 @@ TEST_CASE("the bench's trigger buzz reaches an SDL pad whose driver drives the t
     CHECK(hp::pumpUntil([&] { return pad.lastTriggerRumble() == (48000U << 16); }));
     rig.router().triggerBuzz(padId, dish::reducer::TestTriggerBuzz{});
     CHECK(hp::pumpUntil([&] { return pad.lastTriggerRumble() == 0U; }));
+}
+
+namespace {
+
+// A raw joystick the bridge has listed, proven to be one SDL opens by the joystick path.
+bool listedAsRawJoystick(hp::HotPathRig& rig, const hp::VirtualPad& pad) {
+    const QString padId = pad.deviceId();
+    const bool listed = hp::pumpUntil([&] {
+        const auto devices = rig.bridge().devices();
+        return std::any_of(devices.begin(), devices.end(),
+                           [&padId](const auto& d) { return d.id == padId && d.isRawJoystick; });
+    });
+    return listed && !pad.isGameController();
+}
+
+} // namespace
+
+TEST_CASE("a session's rumble reaches a pad SDL opens as a raw joystick", "[slot-router]") {
+    Seen seen;
+    hp::HotPathRig rig(1, countInto(seen));
+    REQUIRE(rig.startBridge());
+    const hp::VirtualPad pad("Router raw rumble pad", hp::VirtualKind::RawJoystick);
+    REQUIRE(pad.ok());
+    REQUIRE(listedAsRawJoystick(rig, pad));
+    const QString padId = pad.deviceId();
+    REQUIRE(rig.connectAll());
+    REQUIRE(rig.bind(padId, 0));
+    REQUIRE(hp::pumpUntil([&] { return rig.satellite(0).knowsDish(); }));
+    rig.router().republish({padId});
+    REQUIRE(dish::reducer::slotCarriesFeedback(rig.router().feedbackInputs(padId),
+                                               dish::reducer::FeedbackKind::Rumble));
+
+    sendRumble(rig.satellite(0), 0x4000);
+    CHECK(hp::pumpUntil([&] { return pad.lastRumble() == ((0x4000U << 16) | 0x2000U); }));
+}
+
+TEST_CASE("the bench's buzz reaches a pad SDL opens as a raw joystick", "[slot-router][bench]") {
+    Seen seen;
+    hp::HotPathRig rig(1, countInto(seen));
+    REQUIRE(rig.startBridge());
+    const hp::VirtualPad pad("Router bench raw buzz pad", hp::VirtualKind::RawJoystick);
+    REQUIRE(pad.ok());
+    REQUIRE(listedAsRawJoystick(rig, pad));
+    const QString padId = pad.deviceId();
+    rig.router().republish({padId});
+    REQUIRE(dish::reducer::benchOffers(rig.router().feedbackInputs(padId),
+                                       dish::reducer::BenchItem::Rumble));
+
+    rig.router().buzz(padId, dish::reducer::testBuzzFor(dish::reducer::BuzzMotor::Strong));
+    CHECK(hp::pumpUntil([&] { return pad.lastRumble() == (48000U << 16); }));
+}
+
+TEST_CASE("a raw joystick is offered rumble alone, and nothing else posted for it is written",
+          "[slot-router][bench]") {
+    Seen seen;
+    hp::HotPathRig rig(1, countInto(seen));
+    REQUIRE(rig.startBridge());
+    const hp::VirtualPad pad("Router bench raw quiet pad", hp::VirtualKind::RawJoystick);
+    REQUIRE(pad.ok());
+    REQUIRE(listedAsRawJoystick(rig, pad));
+    const QString padId = pad.deviceId();
+    rig.router().republish({padId});
+    const auto in = rig.router().feedbackInputs(padId);
+    CHECK_FALSE(dish::reducer::benchOffers(in, dish::reducer::BenchItem::Lightbar));
+    CHECK_FALSE(dish::reducer::benchOffers(in, dish::reducer::BenchItem::TriggerRumble));
+    CHECK_FALSE(dish::reducer::benchOffers(in, dish::reducer::BenchItem::PlayerLeds));
+    CHECK_FALSE(dish::reducer::benchOffers(in, dish::reducer::BenchItem::AdaptiveTriggers));
+    CHECK_FALSE(dish::reducer::benchOffers(in, dish::reducer::BenchItem::MicLamp));
+
+    // Posted straight into the pad's mailbox, past the router's gate, with a rumble last: once
+    // the rumble lands, the drain has taken everything posted before it.
+    const auto index = rig.processor().find(padId.toStdString());
+    REQUIRE(index.has_value());
+    rig.bridge().postLightbar(*index, 0x10, 0x20, 0x30);
+    rig.bridge().postTriggerRumble(*index, 0x3000, 0x4000, 100);
+    rig.bridge().postRumble(*index, 0x4000, 0x2000, 100);
+    REQUIRE(hp::pumpUntil([&] { return pad.lastRumble() == ((0x4000U << 16) | 0x2000U); }));
+    CHECK(pad.leds() == 0U);
+    CHECK(pad.triggerRumbles() == 0U);
 }
 
 TEST_CASE("republishing under a reporting thread never pulls a table from under it",

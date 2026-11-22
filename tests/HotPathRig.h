@@ -418,21 +418,31 @@ inline source::usb::UsbReport dualSenseReport(std::int16_t rx) {
     return r;
 }
 
-// An SDL virtual game controller: SDL maps it from its descriptor, so the real bridge opens it as
-// a pad with rumble and an LED, and every axis move becomes a controller event on the SDL thread.
+// How SDL meets a virtual pad: as a game controller it maps from the descriptor, or as a raw
+// joystick it has no mapping for.
+enum class VirtualKind : std::uint8_t { GameController, RawJoystick };
+
+// An SDL virtual pad with rumble, an LED and trigger motors. As a game controller SDL maps it from
+// its descriptor, so the real bridge opens it as a pad with rumble and an LED, and every axis move
+// becomes a controller event on the SDL thread. As a raw joystick it carries ids no mapping names
+// and a type SDL builds no mapping for, so the bridge opens it on its joystick path.
 class VirtualPad {
   public:
     static constexpr Uint16 kVendorId = 0x045E;
     static constexpr Uint16 kProductId = 0x028E;
+    static constexpr Uint16 kRawVendorId = 0x1209;
+    static constexpr Uint16 kRawProductId = 0x0D15;
 
-    explicit VirtualPad(const char* name) : name_(name) {
+    explicit VirtualPad(const char* name, VirtualKind kind = VirtualKind::GameController)
+        : name_(name) {
+        const bool isRaw = kind == VirtualKind::RawJoystick;
         SDL_VirtualJoystickDesc desc{};
         desc.version = SDL_VIRTUAL_JOYSTICK_DESC_VERSION;
-        desc.type = SDL_JOYSTICK_TYPE_GAMECONTROLLER;
+        desc.type = isRaw ? SDL_JOYSTICK_TYPE_UNKNOWN : SDL_JOYSTICK_TYPE_GAMECONTROLLER;
         desc.naxes = SDL_CONTROLLER_AXIS_MAX;
         desc.nbuttons = SDL_CONTROLLER_BUTTON_MAX;
-        desc.vendor_id = kVendorId;
-        desc.product_id = kProductId;
+        desc.vendor_id = isRaw ? kRawVendorId : kVendorId;
+        desc.product_id = isRaw ? kRawProductId : kProductId;
         desc.name = name_;
         desc.userdata = this;
         desc.Rumble = &VirtualPad::onRumble;
@@ -461,6 +471,15 @@ class VirtualPad {
     VirtualPad& operator=(VirtualPad&&) = delete;
 
     bool ok() const { return joystick_ != nullptr; }
+    // SDL's own answer for the device, the one the bridge's attach asks.
+    bool isGameController() const {
+        for (int i = 0; i < SDL_NumJoysticks(); ++i) {
+            if (SDL_JoystickGetDeviceInstanceID(i) == instanceId_) {
+                return SDL_IsGameController(i) == SDL_TRUE;
+            }
+        }
+        return false;
+    }
     QString deviceId() const { return QStringLiteral("sdl:%1").arg(instanceId_); }
     void setRightX(std::int16_t value) const {
         SDL_JoystickSetVirtualAxis(joystick_, SDL_CONTROLLER_AXIS_RIGHTX, value);
@@ -475,6 +494,7 @@ class VirtualPad {
     std::uint32_t lastTriggerRumble() const {
         return lastTriggerRumble_.load(std::memory_order_relaxed);
     }
+    std::uint64_t triggerRumbles() const { return triggerRumbles_.load(std::memory_order_relaxed); }
 
   private:
     static int SDLCALL onRumble(void* self, Uint16 low, Uint16 high) {
@@ -495,8 +515,10 @@ class VirtualPad {
     }
 
     static int SDLCALL onRumbleTriggers(void* self, Uint16 left, Uint16 right) {
-        static_cast<VirtualPad*>(self)->lastTriggerRumble_.store(
-            (static_cast<std::uint32_t>(left) << 16) | right, std::memory_order_relaxed);
+        auto* pad = static_cast<VirtualPad*>(self);
+        pad->lastTriggerRumble_.store((static_cast<std::uint32_t>(left) << 16) | right,
+                                      std::memory_order_relaxed);
+        pad->triggerRumbles_.fetch_add(1, std::memory_order_relaxed);
         return 0;
     }
 
@@ -508,6 +530,7 @@ class VirtualPad {
     std::atomic<std::uint64_t> leds_{0};
     std::atomic<std::uint32_t> lastLed_{0};
     std::atomic<std::uint32_t> lastTriggerRumble_{0};
+    std::atomic<std::uint64_t> triggerRumbles_{0};
 };
 
 // The objects AppModel owns for the input and feedback paths, wired as AppModel wires them, over

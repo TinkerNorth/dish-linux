@@ -190,8 +190,21 @@ the repos share a version number.
   vendor line already covered, and a test holds the rules to every bundled
   record the Direct path runs.
 
+### Fixed
+
+- **A pad SDL has no mapping for now rumbles.** A controller SDL opens as a
+  raw joystick reported rumble to the host and was offered the bench's rumble
+  tests, but its output was never applied, so neither the game's rumble nor
+  the bench's reached it. Its rumble now goes out through the joystick's own
+  handle (`SDL_JoystickRumble`). Rumble is all such a pad claims, so nothing
+  else is ever written to it.
+
 ### Notes
 
+- Hot path (the raw joystick's rumble): the SDL thread now drains a raw
+  joystick's output mailbox each pump cycle, as it does a game controller's,
+  and picks the pad's handle by a switch on the kind already in its record;
+  no lock, no allocation and no extra lookup per command.
 - Hot path (the bench): each light-bar, player-LED, trigger-effect and
   mic-lamp message a session's receive thread or a Moonlight control thread
   routes now passes its slot's ledger first: one flag taken for a few
