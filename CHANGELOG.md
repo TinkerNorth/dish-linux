@@ -38,6 +38,13 @@ the repos share a version number.
 
 ### Fixed
 
+- **The Arch package carries a working AppImage.** makepkg stripped
+  `/opt/dish/Dish.AppImage` as if it were a plain ELF binary, which cut the
+  image off the runtime: the `dish-bin` 2.8.1 in the pacman repository holds a
+  944 KB file where the release's AppImage is 53 MB, and it cannot start. The
+  PKGBUILD now turns stripping off, and the pull-request lane that builds the
+  package from the run's AppImage found it by comparing the installed file
+  with the one packaged.
 - **The release verification recipe works.** `SECURITY.md` and
   `CONTRIBUTING.md` named `v`-prefixed tags and the wrong signing workflow, so
   following them failed on a good release; the commands now match the bare

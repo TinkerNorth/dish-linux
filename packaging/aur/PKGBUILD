@@ -25,6 +25,12 @@ pkgrel=1
 pkgdesc="Stream a gamepad to a Satellite server over your LAN"
 arch=('x86_64')
 install='dish-bin.install'
+# The AppImage is an ELF runtime with the squashfs image appended. makepkg's
+# default strip treats it as an ELF binary and writes back the stripped runtime
+# without the image, so the package installed a /opt/dish/Dish.AppImage that
+# could not start. Nothing in a -bin package is ours to strip, and there are no
+# debug symbols to split.
+options=('!strip' '!debug')
 url="https://github.com/TinkerNorth/dish-linux"
 license=('LGPL-3.0-or-later')
 # The AppImage bundles Qt, SDL2, libsodium and libopus; what remains is the AppImage
