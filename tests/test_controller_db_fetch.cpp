@@ -9,7 +9,11 @@
 
 #include "composer/ControllerDbCoordinator.h"
 #include "core/controllerdb/DbFetch.h"
+#include "core/controllerdb/DirectModel.h"
+#include "core/controllerdb/IssueMatch.h"
+#include "core/controllerdb/PadModel.h"
 #include "source/controllerdb/ControllerDbGateway.h"
+#include "source/controllerdb/ControllerDbJson.h"
 #include "source/controllerdb/ControllerDbStore.h"
 #include "source/store/ControllerDbPreferenceStore.h"
 
@@ -23,6 +27,8 @@
 #include <QSettings>
 #include <QTemporaryDir>
 
+#include <algorithm>
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <initializer_list>
@@ -30,10 +36,12 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <variant>
 #include <vector>
 
 using namespace dish::controllerdb;
 using dish::composer::ControllerDbCoordinator;
+using dish::input::usbparse::HidParser;
 using dish::source::ControllerDbPreferenceStore;
 using dish::source::controllerdb::ControllerDbPort;
 using dish::source::controllerdb::ControllerDbStore;
@@ -159,8 +167,12 @@ TEST_CASE("controller db fetch: a reply's transport and status, before its body"
     CHECK(replyVerdict(false, 503) == ReplyVerdict::Offline);
     CHECK(replyVerdict(false, 304) == ReplyVerdict::NotModified);
     CHECK(replyVerdict(false, 200) == ReplyVerdict::Body);
-    CHECK(replyVerdict(false, 404) == ReplyVerdict::Invalid);
-    CHECK(replyVerdict(false, 413) == ReplyVerdict::Invalid);
+    // Nothing arrived to verify: the database is not there (404, until the site deploys), the
+    // request timed out (408) or was turned away (429, 413). Offline, as Android and the Mac say.
+    for (const int status : {404, 408, 413, 429, 301, 403, 418}) {
+        INFO(status);
+        CHECK(replyVerdict(false, status) == ReplyVerdict::Offline);
+    }
 }
 
 TEST_CASE("controller db fetch: a usable manifest", "[controllerdb][fetch]") {
@@ -360,6 +372,22 @@ TEST_CASE("controller db check: an unreachable host is offline", "[controllerdb]
     }
 }
 
+TEST_CASE("controller db check: a database that is not there yet is offline, not invalid",
+          "[controllerdb][check]") {
+    CheckRig rig;
+    rig.port.replies[QStringLiteral("manifest.json")] = DbReply{false, 404, {}, {}};
+    rig.coordinator.checkNow();
+    CHECK(rig.lastResult() == std::optional<CheckResult>(CheckResult::Offline));
+    SECTION("and a file the manifest names that is not there") {
+        const DbFiles v2 = republished(readDbFolder(QStringLiteral(DISH_CONTROLLER_DB_DIR)), 2);
+        rig.serve(v2);
+        rig.port.replies[QStringLiteral("strings/de.json")] = DbReply{false, 429, {}, {}};
+        rig.coordinator.checkNow();
+        CHECK(rig.lastResult() == std::optional<CheckResult>(CheckResult::Offline));
+        CHECK(rig.store.state().value().activeVersion == 1);
+    }
+}
+
 TEST_CASE("controller db check: a portal page instead of a manifest is invalid",
           "[controllerdb][check]") {
     CheckRig rig;
@@ -385,4 +413,224 @@ TEST_CASE("controller db check: a check in flight is not started twice", "[contr
     rig.coordinator.checkNow();
     rig.coordinator.scheduledCheck();
     CHECK(rig.port.requested.size() == 1U);
+}
+
+// The future-reader set (tests/fixtures/controllerdb-future, byte for byte): a dbVersion 2 the
+// website may publish later, which a reader released today has to take. Every row of the set's
+// EXPECT.md is one case below.
+namespace {
+
+QByteArray futureFile(const QString& path) {
+    QFile file(QStringLiteral(DISH_FUTURE_DB_DIR) + QLatin1Char('/') + path);
+    REQUIRE(file.open(QIODevice::ReadOnly));
+    return file.readAll();
+}
+
+// The whole set as the website serves it: the manifest and every file it names, strings/it.json
+// (a locale this build does not ship) included.
+DbFiles futureSet() {
+    DbFiles out;
+    out.manifest = futureFile(QStringLiteral("manifest.json"));
+    const QJsonObject files =
+        QJsonDocument::fromJson(out.manifest).object().value(QStringLiteral("files")).toObject();
+    for (const QString& path : files.keys()) { out.files.insert(path, futureFile(path)); }
+    return out;
+}
+
+// The rig after one check against the future set.
+struct FutureRig : CheckRig {
+    FutureRig() {
+        serve(futureSet());
+        coordinator.checkNow();
+    }
+    const ControllerCatalog& active() const { return *store.active(); }
+    const ControllerCatalog& bundledCatalog() const { return *store.bundled(); }
+    PadModel modelFor(int vendorId, int productId) const {
+        return padModelFor(vendorId, productId, store.active().get(), store.bundled().get());
+    }
+    PadModel bundledModelFor(int vendorId, int productId) const {
+        return padModelFor(vendorId, productId, store.bundled().get(), store.bundled().get());
+    }
+};
+
+constexpr std::array<const char*, 9> kFutureRecordIds{
+    "sony-dualsense",        "xbox-360-controller",    "future-pad-served",
+    "future-pad-served-ds4", "future-pad-new-family",  "future-pad-new-op",
+    "8bitdo-m30-d-input",    "future-pad-misauthored", "valve-steam-controller-bluetooth"};
+
+} // namespace
+
+TEST_CASE("future reader: the set is taken whole and is the database in force",
+          "[controllerdb][future]") {
+    FutureRig rig;
+    CHECK(rig.lastResult() == std::optional<CheckResult>(CheckResult::Updated));
+    CHECK(rig.store.state().value().activeVersion == 2);
+    CHECK(rig.store.state().value().source == DbSource::Cache);
+    // Replaced whole: a dbVersion 1 record the set does not carry is gone, nothing merged.
+    REQUIRE(rig.bundledCatalog().findById("sony-dualshock-4-cuh-zct1") != nullptr);
+    CHECK(rig.active().findById("sony-dualshock-4-cuh-zct1") == nullptr);
+    SECTION("a fresh start reads the stored set back in force") {
+        ControllerDbStore again(&rig.prefs, QStringLiteral(DISH_CONTROLLER_DB_DIR),
+                                rig.dir.filePath(QStringLiteral("cache")));
+        again.load();
+        CHECK(again.state().value().activeVersion == 2);
+    }
+}
+
+TEST_CASE("future reader: the manifest's unknown signature key is ignored",
+          "[controllerdb][future]") {
+    const auto parsed =
+        dish::source::controllerdb::parseDbManifest(futureFile(QStringLiteral("manifest.json")));
+    const auto* manifest = std::get_if<DbManifest>(&parsed);
+    REQUIRE(manifest != nullptr);
+    CHECK(manifest->dbVersion == 2);
+    CHECK(manifestIsUsable(*manifest));
+}
+
+TEST_CASE("future reader: a strings file for a locale the build does not ship is left out",
+          "[controllerdb][future]") {
+    FutureRig rig;
+    REQUIRE(rig.lastResult() == std::optional<CheckResult>(CheckResult::Updated));
+    const bool askedForIt =
+        std::find(rig.port.requested.begin(), rig.port.requested.end(),
+                  QStringLiteral("strings/it.json")) != rig.port.requested.end();
+    CHECK_FALSE(askedForIt);
+    const QDir stored(rig.dir.filePath(QStringLiteral("cache/2")));
+    CHECK(stored.entryList(QDir::Files) ==
+          QStringList{QStringLiteral("controllers.json"), QStringLiteral("manifest.json")});
+    CHECK(QDir(stored.filePath(QStringLiteral("strings"))).entryList(QDir::Files) ==
+          QStringList{QStringLiteral("bs.json"), QStringLiteral("de.json"),
+                      QStringLiteral("en.json"), QStringLiteral("es.json"),
+                      QStringLiteral("fr.json"), QStringLiteral("pt-BR.json")});
+}
+
+TEST_CASE("future reader: a strings path that is not a locale still refuses the manifest",
+          "[controllerdb][future]") {
+    DbManifest m = manifestOf(2);
+    for (const char* path : {"strings/../../dish.json", "strings/it/x.json", "strings/.json",
+                             "strings/it.txt", "schema/it.json", "strings/it.json/"}) {
+        INFO(path);
+        DbManifest bad = m;
+        bad.files.push_back(ManifestFile{path, kSomeSha, 10});
+        CHECK_FALSE(manifestIsUsable(bad));
+    }
+    m.files.push_back(ManifestFile{"strings/it.json", kSomeSha, 10});
+    m.files.push_back(ManifestFile{"strings/zh-Hant-TW.json", kSomeSha, 10});
+    CHECK(manifestIsUsable(m));
+    const std::vector<ManifestFile> fetched = filesThisBuildFetches(m);
+    CHECK(fetched == std::vector<ManifestFile>{m.files[0], m.files[1]});
+}
+
+TEST_CASE("future reader: the records file's unknown generatedBy key is ignored",
+          "[controllerdb][future]") {
+    const auto parsed = dish::source::controllerdb::parseControllerDb(
+        futureFile(QStringLiteral("controllers.json")));
+    const auto* db = std::get_if<ControllerDb>(&parsed);
+    REQUIRE(db != nullptr);
+    CHECK(db->dbVersion == 2);
+}
+
+TEST_CASE("future reader: no record's trouble removes another", "[controllerdb][future]") {
+    FutureRig rig;
+    CHECK(rig.active().db().droppedRows == 0);
+    CHECK(rig.active().db().records.size() == kFutureRecordIds.size());
+    for (const char* id : kFutureRecordIds) {
+        INFO(id);
+        CHECK(rig.active().findById(id) != nullptr);
+    }
+}
+
+TEST_CASE("future reader: the DualSense keeps every use it had, both issues and text os values",
+          "[controllerdb][future]") {
+    FutureRig rig;
+    const ControllerRecord* served = rig.active().findUsb(DeviceId{0x054C, 0x0CE6});
+    const ControllerRecord* before = rig.bundledCatalog().findUsb(DeviceId{0x054C, 0x0CE6});
+    REQUIRE(served != nullptr);
+    REQUIRE(before != nullptr);
+    CHECK_FALSE(isInert(*served));
+    CHECK(served->family == before->family);
+    CHECK(served->input == before->input);
+    CHECK(served->output == before->output);
+    REQUIRE(served->issues.size() == 2U);
+    CHECK(served->issues[0].id == "thor-ds5-rumble-usb");
+    CHECK(served->issues[1].id == "future-os-as-text");
+    // "linux": "6.8" matches by its major version; the windows, macos and futureos keys do not.
+    const Issue& asText = served->issues[1];
+    CHECK(issueApplies(asText, Transport::Usb, HostFacts{"Future Handheld", 6}));
+    CHECK_FALSE(issueApplies(asText, Transport::Usb, HostFacts{"Future Handheld", 11}));
+    CHECK_FALSE(issueApplies(asText, Transport::Usb, HostFacts{"Future Handheld", 1}));
+}
+
+TEST_CASE("future reader: a served row for a family the build lacks leaves the build's row",
+          "[controllerdb][future]") {
+    FutureRig rig;
+    const ControllerRecord* served = rig.active().findUsb(DeviceId{0x045E, 0x028E});
+    REQUIRE(served != nullptr);
+    CHECK(isInert(*served));
+    CHECK(rig.modelFor(0x045E, 0x028E) == rig.bundledModelFor(0x045E, 0x028E));
+}
+
+TEST_CASE("future reader: two new pads, one on a family the Direct path runs here",
+          "[controllerdb][future]") {
+    FutureRig rig;
+    SECTION("xinput360 is xpad's on Linux, so 1209:0f02 is inert, named, never applied") {
+        const ControllerRecord* served = rig.active().findUsb(DeviceId{0x1209, 0x0F02});
+        REQUIRE(served != nullptr);
+        CHECK(isInert(*served));
+        CHECK_FALSE(rig.active().text("controller.future-pad-served.name", "en").empty());
+        CHECK(rig.modelFor(0x1209, 0x0F02).source == ModelSource::Fallback);
+    }
+    SECTION("dualshock4 runs here, so 1209:0f05 resolves to the record at its next attach") {
+        const ControllerRecord* served = rig.active().findUsb(DeviceId{0x1209, 0x0F05});
+        REQUIRE(served != nullptr);
+        CHECK_FALSE(isInert(*served));
+        // No platforms.linux: the record's own auto, never Android's optIn or the Mac's rule.
+        CHECK(served->directRule == DirectRule::Auto);
+        const PadModel model = rig.modelFor(0x1209, 0x0F05);
+        CHECK(model.source == ModelSource::Database);
+        CHECK(model.parser == HidParser::DualShock4);
+        CHECK(model.autoClaims);
+    }
+}
+
+TEST_CASE("future reader: a new family or a new op is inert and never applied",
+          "[controllerdb][future]") {
+    FutureRig rig;
+    for (const DeviceId id : {DeviceId{0x1209, 0x0F01}, DeviceId{0x1209, 0x0F03}}) {
+        INFO(id.productId);
+        const ControllerRecord* served = rig.active().findUsb(id);
+        REQUIRE(served != nullptr);
+        CHECK(isInert(*served));
+        CHECK(rig.modelFor(id.vendorId, id.productId).source == ModelSource::Fallback);
+    }
+    CHECK_FALSE(rig.active().text("controller.future-pad-new-family.name", "en").empty());
+}
+
+TEST_CASE("future reader: a mapping in its reserved object form leaves the build's row",
+          "[controllerdb][future]") {
+    FutureRig rig;
+    const ControllerRecord* served = rig.active().findUsb(DeviceId{0x2DC8, 0x5006});
+    REQUIRE(served != nullptr);
+    CHECK(isInert(*served));
+    CHECK(rig.modelFor(0x2DC8, 0x5006) == rig.bundledModelFor(0x2DC8, 0x5006));
+}
+
+TEST_CASE("future reader: a misauthored record is inert and its issue never shows",
+          "[controllerdb][future]") {
+    FutureRig rig;
+    const ControllerRecord* served = rig.active().findUsb(DeviceId{0x1209, 0x0F04});
+    REQUIRE(served != nullptr);
+    CHECK(isInert(*served));
+    CHECK(applicableIssues(*served, Transport::Usb, HostFacts{"", 6}).empty());
+    CHECK(rig.modelFor(0x1209, 0x0F04).source == ModelSource::Fallback);
+}
+
+TEST_CASE("future reader: the Bluetooth Steam Controller reads as in dbVersion 1",
+          "[controllerdb][future]") {
+    FutureRig rig;
+    const ControllerRecord* served = rig.active().findBluetooth(DeviceId{0x28DE, 0x1106});
+    const ControllerRecord* before = rig.bundledCatalog().findBluetooth(DeviceId{0x28DE, 0x1106});
+    REQUIRE(served != nullptr);
+    REQUIRE(before != nullptr);
+    CHECK(*served == *before);
 }

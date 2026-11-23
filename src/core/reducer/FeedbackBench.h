@@ -1,18 +1,19 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 // Copyright (C) 2026 Dish contributors.
 //
-// The Diagnostics bench's test buzz: which motors run, how hard and for how
-// long, the same strength and time as dish-android's inspector, so a pad feels
-// the same test on either client. Rumble is the one feedback surface the bench
-// drives, because it is transient by nature: a lightbar colour, the player
-// LEDs, a trigger effect and the mute lamp are state the host set, and a test
-// would overwrite it with nothing to put it back.
+// The Diagnostics bench (docs/diagnostics-bundle.md, "The bench"): every item
+// a pad's path carries, driven from this client alone at the strengths and
+// times every client uses, so a pad feels the same test everywhere. Beside
+// this file: BenchItems.h names the items and says which a pad is offered,
+// BenchSteps.h says what each test writes and when, BenchSurfaces.h keeps the
+// state a test borrows (the light bar, the player LEDs, the adaptive triggers,
+// the mic lamp) and gives it back to the game, and BenchRuns.h takes one
+// answer per run. Here are the two transient items: the body motors' test
+// buzz and the trigger motors', which simply stop and borrow nothing.
 
 #pragma once
 
 #include <cstdint>
-#include <string>
-#include <unordered_map>
 
 namespace dish::reducer {
 
@@ -41,22 +42,27 @@ inline TestBuzz testBuzzFor(BuzzMotor motor) {
     return {};
 }
 
-// Each test buzz ends with its own stop, scheduled for when it runs out. A buzz
-// started before the last one's stop falls due must not be cut short by that
-// stop, so every buzz takes a ticket and its stop is honoured only while the
-// ticket is still the pad's latest: dish-android's inspector cancels the
-// pending stop to the same end.
-class TestBuzzTickets {
-  public:
-    std::uint64_t issue(const std::string& slotId) { return ++latest_[slotId]; }
+enum class TriggerMotor : std::uint8_t { Left, Right, Both };
 
-    bool isLatest(const std::string& slotId, std::uint64_t ticket) const {
-        const auto it = latest_.find(slotId);
-        return it != latest_.end() && it->second == ticket;
-    }
+struct TestTriggerBuzz {
+    std::uint16_t left = 0;
+    std::uint16_t right = 0;
+    std::uint16_t durationMs = 0;
 
-  private:
-    std::unordered_map<std::string, std::uint64_t> latest_;
+    bool operator==(const TestTriggerBuzz&) const = default;
 };
+
+// The trigger motors run at the body motors' strength and time.
+inline TestTriggerBuzz testTriggerBuzzFor(TriggerMotor motor) {
+    switch (motor) {
+    case TriggerMotor::Left:
+        return {kTestBuzzMagnitude, 0, kTestBuzzMs};
+    case TriggerMotor::Right:
+        return {0, kTestBuzzMagnitude, kTestBuzzMs};
+    case TriggerMotor::Both:
+        return {kTestBuzzMagnitude, kTestBuzzMagnitude, kTestBuzzMs};
+    }
+    return {};
+}
 
 } // namespace dish::reducer

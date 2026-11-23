@@ -29,6 +29,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <vector>
 
 class QTimer;
 
@@ -72,7 +73,8 @@ class ControllerDbCoordinator : public QObject {
     QTimer* intervalTimer_;
 
     bool inFlight_ = false;
-    dish::controllerdb::DbManifest manifest_;
+    // The manifest's files this build fetches, in its order (filesThisBuildFetches).
+    std::vector<dish::controllerdb::ManifestFile> toFetch_;
     source::controllerdb::DbFiles download_;
     QByteArray manifestEtag_;
     std::size_t nextFile_ = 0;

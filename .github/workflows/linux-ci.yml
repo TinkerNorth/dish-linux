@@ -461,6 +461,13 @@ jobs:
             echo "::error::the installed app cannot decode its brand SVGs — the Qt SVG image plugin is missing or unloadable"
             exit 1
           fi
+          # The bundled controller database is a resource compiled into the static dish_core. A
+          # binary that lost it still starts, with no controller list and "bundled version 0" on
+          # the Diagnostics page, so only its own start-up line can tell.
+          if ! grep -qE 'controller database: bundled dbVersion [1-9][0-9]* with [1-9][0-9]* records' /tmp/launch.log; then
+            echo "::error::the installed app did not load its bundled controller database"
+            exit 1
+          fi
           if [ "$started" != 1 ]; then
             echo "::error::dish exited on its own (${rc}) instead of staying up"
             exit 1

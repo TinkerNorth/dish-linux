@@ -90,6 +90,10 @@ class SDLGamepadBridge : public QObject {
         // Whether SDL can actually drive this pad's motors (the probe, not the
         // model DB) — what CAP_RUMBLE advertises for a Standard-path slot.
         bool hasRumble = false;
+        // Whether SDL's driver drives the pad's trigger motors
+        // (SDL_GameControllerHasRumbleTriggers): the bench's trigger rumble, which no host message
+        // carries.
+        bool hasTriggerRumble = false;
         // Whether SDL's mapping for the pad has a paddle or misc1 (an Elite, an
         // Edge, the Steam Deck's own controls): what the pad sources of the
         // protocol 4 extended-buttons word.
@@ -149,6 +153,9 @@ class SDLGamepadBridge : public QObject {
                     std::uint16_t weakMagnitude, std::uint16_t durationMs);
     void postLightbar(GamepadInputProcessor::DeviceIndex device, std::uint8_t r, std::uint8_t g,
                       std::uint8_t b);
+    // The trigger motors, on the same 16-bit scale and with the same duration rule.
+    void postTriggerRumble(GamepadInputProcessor::DeviceIndex device, std::uint16_t left,
+                           std::uint16_t right, std::uint16_t durationMs);
 
     // The DualSense surfaces SDL has no typed call for. Each is built into the
     // family's own OUT report by core/input/UsbOutputReports.h on the SDL
@@ -271,7 +278,10 @@ class SDLGamepadBridge : public QObject {
     // Every open pad's mailbox, applied with SDL's calls (rumble, SetLED, SendEffect) on the SDL
     // thread. Called once per pump cycle.
     void drainMailboxes();
+    // Through the handle the pad's kind has: a raw joystick has no game-controller handle.
     void applyOutput(Pad& pad, const OutputMailbox::Taken& taken);
+    void applyControllerOutput(Pad& pad, const OutputMailbox::Taken& taken);
+    static void applyJoystickOutput(Pad& pad, const OutputMailbox::Taken& taken);
     // Build one effect kind's DualSense report and hand its body to SDL_GameControllerSendEffect.
     static void sendEffect(Pad& pad, std::size_t reportBytes,
                            const std::array<std::uint8_t, usbout::kMaxOutputReportBytes>& report);

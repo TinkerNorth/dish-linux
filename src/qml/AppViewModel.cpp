@@ -519,6 +519,8 @@ AppViewModel::AppViewModel(dish::AppModel* model, QObject* parent)
         [this](const source::ControllerDbPreferences&) { emit controllerDbChanged(); }, false);
     outcomesSub_ = model_->padOutcomes()->state().subscribe(
         [this](const source::PadTestOutcomeMap&) { emit testOutcomesChanged(); }, false);
+    QObject::connect(model_->bench(), &composer::FeedbackBenchCoordinator::benchChanged, this,
+                     &AppViewModel::benchChanged);
     QObject::connect(model_->diagnosticsHandoff(), &source::DiagnosticsHandoff::handedOff, this,
                      &AppViewModel::diagnosticsMailHandedOff);
     snapshotGateway_ = std::make_unique<source::ConnectionSnapshotGateway>(
@@ -2054,16 +2056,25 @@ void AppViewModel::copyToClipboard(const QString& text) const {
 }
 
 void AppViewModel::startInputInspection(const QString& slotId) {
-    if (slotId != inspectedSlotId_) { stickBench_ = input::StickBench{}; }
+    if (slotId != inspectedSlotId_) { dropStickTest(); }
     inspectedSlotId_ = slotId;
     inspectionTimer_->start();
     onInspectionTick();
 }
 
+// A stick test the inspector stops measuring has no result to ask about.
+void AppViewModel::dropStickTest() {
+    const bool measuring = stickBench_.phase() == input::StickTestPhase::Running;
+    if (measuring && !inspectedSlotId_.isEmpty()) {
+        model_->bench()->cancel(inspectedSlotId_, benchTestOfStickKind(stickBench_.kind()));
+    }
+    stickBench_.clear();
+}
+
 void AppViewModel::stopInputInspection() {
     inspectionTimer_->stop();
+    dropStickTest();
     inspectedSlotId_.clear();
-    stickBench_ = input::StickBench{};
     publishInputSnapshot({});
     publishStickTest(steadyNowMs());
 }
@@ -2073,17 +2084,32 @@ void AppViewModel::startStickTest(const QString& kind) {
     if (inspectedSlotId_.isEmpty() || !parsed.has_value()) { return; }
     const std::int64_t now = steadyNowMs();
     stickBench_.start(*parsed, now);
+    model_->bench()->start(inspectedSlotId_, benchTestOfStickKind(*parsed));
     publishStickTest(now);
 }
 
-bool AppViewModel::canTestRumble(const QString& slotId) const {
-    return model_->slotCarriesRumble(slotId);
+QStringList AppViewModel::benchItems(const QString& slotId) const {
+    return benchItemsRow(model_->router()->feedbackInputs(slotId));
 }
 
-void AppViewModel::testRumble(const QString& slotId, const QString& motor) {
-    const auto parsed = buzzMotorFrom(motor);
-    if (!parsed.has_value()) { return; }
-    model_->testRumble(slotId, reducer::testBuzzFor(*parsed));
+void AppViewModel::startBenchTest(const QString& slotId, const QString& test) {
+    const auto parsed = benchTestFrom(test);
+    if (slotId.isEmpty() || !parsed.has_value()) { return; }
+    const bool offered = model_->benchOffers(slotId, reducer::benchItemOf(*parsed));
+    if (!offered) { return; }
+    model_->bench()->start(slotId, *parsed);
+}
+
+void AppViewModel::stopBenchTest(const QString& slotId) { model_->bench()->endNow(slotId); }
+
+void AppViewModel::answerBenchTest(const QString& slotId, bool worked) {
+    model_->bench()->answer(slotId, worked);
+}
+
+QVariantMap AppViewModel::benchState(const QString& slotId) const {
+    const composer::FeedbackBenchCoordinator* bench = model_->bench();
+    return benchStateRow(BenchStateInputs{bench->runFor(slotId), bench->micMeterFor(slotId),
+                                          bench->unavailableFor(slotId)});
 }
 
 // The stick tests read the report as the pad sent it: a drift the dead zone
@@ -2096,7 +2122,12 @@ void AppViewModel::onInspectionTick() {
                            input::stickSampleOf(seen.raw->rx, seen.raw->ry));
     }
     const std::int64_t now = steadyNowMs();
+    const bool wasRunning = stickBench_.phase() == input::StickTestPhase::Running;
     stickBench_.advance(now);
+    const bool justEnded = wasRunning && stickBench_.phase() != input::StickTestPhase::Running;
+    if (justEnded) {
+        model_->bench()->endTest(inspectedSlotId_, benchTestOfStickKind(stickBench_.kind()));
+    }
     publishStickTest(now);
 }
 
@@ -2191,15 +2222,6 @@ QVariantMap AppViewModel::controllerRecordFacts(const QString& slotId) const {
     row[QStringLiteral("lastTest")] =
         testOutcomeRow(model_->padOutcomes()->lastFor(slotId.toStdString()));
     return row;
-}
-
-void AppViewModel::recordTestOutcome(const QString& slotId, const QString& motor, bool worked) {
-    const std::optional<std::string> test = diagnostics::rumbleTestName(motor.toStdString());
-    if (!test.has_value()) { return; }
-    model_->padOutcomes()->record(
-        slotId.toStdString(),
-        diagnostics::TestOutcome{*test, std::string(diagnostics::outcomeResult(worked)),
-                                 QDateTime::currentMSecsSinceEpoch()});
 }
 
 QVariantMap AppViewModel::lastTestOutcome(const QString& slotId) const {

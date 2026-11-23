@@ -98,7 +98,9 @@ inline bool isInert(const ControllerRecord& record) {
         record.family == Family::Hid && !buttonOrderFor(record.mapping).has_value();
     const bool unknownOutput =
         record.route == OutputRoute::Unknown || record.init == InitKind::Unknown;
-    return lacksAFamily || lacksAnOp || lacksItsParser || hidWithoutAnOrder || unknownOutput;
+    const bool unreadable = !record.decoded;
+    return lacksAFamily || lacksAnOp || lacksItsParser || hidWithoutAnOrder || unknownOutput ||
+           unreadable;
 }
 
 // The row the Direct path may act on for a pad: the active one, unless it is inert, or flagged

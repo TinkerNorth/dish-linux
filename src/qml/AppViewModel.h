@@ -642,12 +642,23 @@ class AppViewModel : public QObject {
     // slot re-points it and drops the last one's stick test.
     Q_INVOKABLE void startInputInspection(const QString& slotId);
     Q_INVOKABLE void stopInputInspection();
-    // "drift" or "range"; ignored while no inspection is armed.
+    // "drift" or "range"; ignored while no inspection is armed. Each is a bench run of its own
+    // (`stick.drift`, `stick.range`), asked about once its capture ends.
     Q_INVOKABLE void startStickTest(const QString& kind);
-    // The inspector's rumble bench: whether the slot's pad can rumble on its
-    // current path, and a short test buzz on "weak", "strong" or "both".
-    Q_INVOKABLE bool canTestRumble(const QString& slotId) const;
-    Q_INVOKABLE void testRumble(const QString& slotId, const QString& motor);
+    // ── The bench (docs/diagnostics-bundle.md, "The bench") ──────────────────
+    // The items the slot's pad is offered on the path it is on now, by token
+    // (DiagnosticsMaps' benchItemsRow). Re-pull on stateChanged.
+    Q_INVOKABLE QStringList benchItems(const QString& slotId) const;
+    // Starts a test by its outcome name ("rumble.weak", "lightbar.cycle", "mic.level", ...),
+    // ending whatever test the pad was running first. A name the contract does not list, or an
+    // item the pad is not offered, starts nothing.
+    Q_INVOKABLE void startBenchTest(const QString& slotId, const QString& test);
+    // Ends the running test now, as if it had run its course: the microphone's level early.
+    Q_INVOKABLE void stopBenchTest(const QString& slotId);
+    // The answer to "Did it work?" for the slot's ended test; ignored while none is awaited.
+    Q_INVOKABLE void answerBenchTest(const QString& slotId, bool worked);
+    // DiagnosticsMaps' benchStateRow for the slot. Re-pull on benchChanged.
+    Q_INVOKABLE QVariantMap benchState(const QString& slotId) const;
     QVariantMap inputSnapshot() const { return inputSnapshot_; }
     QVariantMap stickTest() const { return stickTest_; }
 
@@ -662,8 +673,6 @@ class AppViewModel : public QObject {
     // The slot's record facts (DiagnosticsMaps' controllerRecordRow) plus `lastWrite`, the Direct
     // claim's last write verdict (writeVerdictRow). Re-pull on stateChanged and telemetryChanged.
     Q_INVOKABLE QVariantMap controllerRecordFacts(const QString& slotId) const;
-    // The answer to "Did it work?" after a test buzz on `motor` ("weak" / "strong" / "both").
-    Q_INVOKABLE void recordTestOutcome(const QString& slotId, const QString& motor, bool worked);
     // testOutcomeRow of the slot's last answer; {} before any.
     Q_INVOKABLE QVariantMap lastTestOutcome(const QString& slotId) const;
     // One row per controller for the mail's summary and the report's picker: { slotId, name,
@@ -766,9 +775,11 @@ class AppViewModel : public QObject {
     void stickTestChanged();
     void controllerDbChanged();
     void testOutcomesChanged();
+    // A bench run started, stepped, ended or was answered, or the microphone's level moved.
+    void benchChanged();
     // After sendReport: true when xdg-email handed it to the mail client, false when the mailto:
-    // fallback opened and the file manager shows the file to attach.
-    void diagnosticsMailHandedOff(bool viaMailClient);
+    // fallback opened. The file manager shows the file's folder either way; `fileName` is the file.
+    void diagnosticsMailHandedOff(bool viaMailClient, const QString& fileName);
     void reportReadyChanged();
     void controllerCaptureChanged();
 
@@ -905,6 +916,7 @@ class AppViewModel : public QObject {
                                             const QString& hostId) const;
     // One poll: the snapshot, and the stick test's sample and clock.
     void onInspectionTick();
+    void dropStickTest();
     void publishInputSnapshot(const QVariantMap& snapshot);
     void publishStickTest(std::int64_t nowMs);
 

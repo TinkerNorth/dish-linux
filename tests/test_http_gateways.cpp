@@ -37,7 +37,9 @@
 #include <functional>
 #include <memory>
 #include <optional>
+#include <string>
 #include <utility>
+#include <vector>
 
 using dish::reducer::UpdateError;
 using dish::update::classify;
@@ -60,6 +62,8 @@ class FixtureServer {
     }
 
     bool listening() const { return listening_; }
+    // The last request's head, as the server read it.
+    QByteArray lastRequest() const { return *lastRequest_; }
 
     QString url() const {
         return QStringLiteral("http://127.0.0.1:%1/latest.json").arg(server_.serverPort());
@@ -69,6 +73,7 @@ class FixtureServer {
     void accept() {
         QTcpSocket* sock = server_.nextPendingConnection();
         auto request = std::make_shared<QByteArray>();
+        lastRequest_ = request;
         auto answered = std::make_shared<bool>(false);
         QObject::connect(sock, &QTcpSocket::readyRead, sock, [this, sock, request, answered] {
             request->append(sock->readAll());
@@ -81,6 +86,7 @@ class FixtureServer {
 
     QTcpServer server_;
     Responder respond_;
+    std::shared_ptr<QByteArray> lastRequest_ = std::make_shared<QByteArray>();
     bool listening_ = false;
 };
 
@@ -232,6 +238,28 @@ TEST_CASE("HttpManifestGateway: a 200 yields the parsed manifest and the exact b
     // Snapshotted verbatim beside the manifest so a support request can show
     // what the client was actually told.
     CHECK(result->body == goldenManifest());
+}
+
+// Qt fills Accept-Language from the system's languages ("de-DE,en,*" under LANG=de_DE) when a
+// request names none; PRIVACY.md section 2.4 lists what the request carries, and that is not one.
+TEST_CASE("HttpManifestGateway: the request carries a fixed Accept-Language, not the system's",
+          "[update][http]") {
+    FixtureServer server(canned(response(200, "OK", goldenManifest())));
+    REQUIRE(server.listening());
+
+    HttpManifestGateway gateway;
+    gateway.setUrl(server.url());
+    std::optional<ManifestFetchResult> result;
+    gateway.fetch([&result](const ManifestFetchResult& r) { result = r; });
+    REQUIRE(spinUntil([&result] { return result.has_value(); }));
+
+    std::vector<std::string> languages;
+    for (const QByteArray& line : server.lastRequest().split('\n')) {
+        if (line.toLower().startsWith("accept-language:")) {
+            languages.push_back(line.trimmed().toStdString());
+        }
+    }
+    CHECK(languages == std::vector<std::string>{"Accept-Language: *"});
 }
 
 TEST_CASE("HttpManifestGateway: a 404 in the publish window is a plain Http failure",

@@ -106,6 +106,7 @@ SlotRouter::SlotHardware SlotRouter::sdlHardware(const QString& slotId) const {
         hw.hasLightbar = d.hasLightbar;
         hw.hasTouchpad = d.hasTouchpad;
         hw.hasRumble = d.hasRumble;
+        hw.hasTriggerRumble = d.hasTriggerRumble;
         hw.hasExtendedButtons = d.hasExtendedButtons;
         // The family the bridge pinned at the pad's attach, which its effect builders read too.
         const auto parser = d.parser;
@@ -141,6 +142,7 @@ reducer::SlotFeedbackInputs SlotRouter::feedbackInputs(const QString& slotId) co
     in.padPlayerLeds = hw.hasPlayerLeds;
     in.padMicLed = hw.hasMicLed;
     in.standardEffects = hw.sdlEffects;
+    in.padTriggerRumble = hw.hasTriggerRumble;
     if (hw.usbDirect) {
         const auto pad = reducer::parseDirectSlotId(slotId.toStdString());
         in.directClaimLive = pad.has_value() && deps_.usbManager != nullptr &&
@@ -207,12 +209,19 @@ SlotRouter::FeedbackRoute SlotRouter::liveRoute(const QString& slotId) const {
     route.padIndex = deps_.processor->find(slotId.toStdString());
     route.rumbleOn = deps_.rumbleEnabled->isEnabled(slotId);
     route.counters = countersFor(slotId);
+    route.ledger = ledgerFor(slotId);
     return route;
 }
 
 diagnostics::PadOutputCounters* SlotRouter::countersFor(const QString& slotId) const {
     auto& slot = padCounters_[slotId];
     if (slot == nullptr) { slot = std::make_unique<diagnostics::PadOutputCounters>(); }
+    return slot.get();
+}
+
+reducer::SurfaceLedger* SlotRouter::ledgerFor(const QString& slotId) const {
+    auto& slot = padLedgers_[slotId];
+    if (slot == nullptr) { slot = std::make_unique<reducer::SurfaceLedger>(); }
     return slot.get();
 }
 
@@ -576,6 +585,11 @@ void SlotRouter::installFeedbackHandlers(net::WifiConnection& conn, const QStrin
 void SlotRouter::routeRumble(const FeedbackRoute& route, std::uint16_t strong, std::uint16_t weak,
                              std::uint16_t durationMs) {
     recordLane(route, diagnostics::OutputLane::Rumble, diagnostics::packRumble(strong, weak));
+    writeRumble(route, strong, weak, durationMs);
+}
+
+void SlotRouter::writeRumble(const FeedbackRoute& route, std::uint16_t strong, std::uint16_t weak,
+                             std::uint16_t durationMs) {
     switch (route.target(reducer::FeedbackKind::Rumble)) {
     case reducer::FeedbackTarget::Standard:
         // The SDL thread actuates it from the pad's mailbox on its next cycle.
@@ -597,9 +611,19 @@ void SlotRouter::routeRumble(const FeedbackRoute& route, std::uint16_t strong, s
     }
 }
 
+// The owner's state surfaces pass the slot's ledger on their way to the pad: remembered always,
+// and written only while no bench test holds the surface (core/reducer/BenchSurfaces.h). On the
+// receive thread that is one flag taken for a few stores and a few loads, never a lock.
 void SlotRouter::routeLightbar(const FeedbackRoute& route, std::uint8_t r, std::uint8_t g,
                                std::uint8_t b) {
     recordLane(route, diagnostics::OutputLane::Lightbar, diagnostics::packRgb(r, g, b));
+    const bool writeNow =
+        route.ledger == nullptr || route.ledger->rememberLightbar(reducer::LightbarValue{r, g, b});
+    if (writeNow) { writeLightbar(route, r, g, b); }
+}
+
+void SlotRouter::writeLightbar(const FeedbackRoute& route, std::uint8_t r, std::uint8_t g,
+                               std::uint8_t b) {
     switch (route.target(reducer::FeedbackKind::Lightbar)) {
     case reducer::FeedbackTarget::Standard:
         if (route.padIndex.has_value()) {
@@ -623,6 +647,15 @@ void SlotRouter::routeTriggerEffects(
     const std::array<std::uint8_t, proto::kTriggerEffectBlockBytes>& left,
     const std::array<std::uint8_t, proto::kTriggerEffectBlockBytes>& right) {
     recordLane(route, diagnostics::OutputLane::TriggerEffects, 0);
+    const bool writeNow = route.ledger == nullptr || route.ledger->rememberTriggerEffects(
+                                                         reducer::TriggerEffectsValue{left, right});
+    if (writeNow) { writeTriggerEffects(route, left, right); }
+}
+
+void SlotRouter::writeTriggerEffects(
+    const FeedbackRoute& route,
+    const std::array<std::uint8_t, proto::kTriggerEffectBlockBytes>& left,
+    const std::array<std::uint8_t, proto::kTriggerEffectBlockBytes>& right) {
     switch (route.target(reducer::FeedbackKind::TriggerEffects)) {
     case reducer::FeedbackTarget::Standard:
         // The same report the Direct branch writes, built on the SDL thread and handed to SDL's
@@ -643,6 +676,11 @@ void SlotRouter::routeTriggerEffects(
 
 void SlotRouter::routePlayerLeds(const FeedbackRoute& route, std::uint8_t ledMask) {
     recordLane(route, diagnostics::OutputLane::PlayerLeds, ledMask);
+    const bool writeNow = route.ledger == nullptr || route.ledger->rememberPlayerLeds(ledMask);
+    if (writeNow) { writePlayerLeds(route, ledMask); }
+}
+
+void SlotRouter::writePlayerLeds(const FeedbackRoute& route, std::uint8_t ledMask) {
     switch (route.target(reducer::FeedbackKind::PlayerLeds)) {
     case reducer::FeedbackTarget::Standard:
         if (route.padIndex.has_value()) { deps_.bridge->postPlayerLeds(*route.padIndex, ledMask); }
@@ -659,6 +697,11 @@ void SlotRouter::routePlayerLeds(const FeedbackRoute& route, std::uint8_t ledMas
 
 void SlotRouter::routeMicLed(const FeedbackRoute& route, std::uint8_t state) {
     recordLane(route, diagnostics::OutputLane::MicLed, state);
+    const bool writeNow = route.ledger == nullptr || route.ledger->rememberMicLamp(state);
+    if (writeNow) { writeMicLed(route, state); }
+}
+
+void SlotRouter::writeMicLed(const FeedbackRoute& route, std::uint8_t state) {
     switch (route.target(reducer::FeedbackKind::MicLed)) {
     case reducer::FeedbackTarget::Standard:
         if (route.padIndex.has_value()) { deps_.bridge->postMicLed(*route.padIndex, state); }
@@ -702,6 +745,53 @@ void SlotRouter::actuatePlayerLeds(const QString& slotId, std::uint8_t ledMask) 
 
 void SlotRouter::actuateMicLed(const QString& slotId, std::uint8_t state) {
     routeMicLed(liveRoute(slotId), state);
+}
+
+// The bench's buzz ignores the rumble switch: it tests the motors, not the setting. Like every
+// bench write it is not the game's, so no lane counts it (rule 5).
+void SlotRouter::buzz(const QString& slotId, const reducer::TestBuzz& buzz) {
+    writeRumble(liveRoute(slotId), buzz.strong, buzz.weak, buzz.durationMs);
+}
+
+void SlotRouter::triggerBuzz(const QString& slotId, const reducer::TestTriggerBuzz& buzz) {
+    if (!reducer::slotCarriesTriggerRumble(feedbackInputs(slotId))) { return; }
+    const auto padIndex = deps_.processor->find(slotId.toStdString());
+    if (!padIndex.has_value()) { return; }
+    deps_.bridge->postTriggerRumble(*padIndex, buzz.left, buzz.right, buzz.durationMs);
+}
+
+void SlotRouter::holdSurface(const QString& slotId, reducer::BenchSurface surface) {
+    ledgerFor(slotId)->hold(surface);
+}
+
+void SlotRouter::writeSurface(const QString& slotId, const reducer::SurfaceWrite& write) {
+    writeSurfaceTo(liveRoute(slotId), write);
+}
+
+void SlotRouter::giveBackSurface(const QString& slotId, reducer::BenchSurface surface) {
+    const FeedbackRoute route = liveRoute(slotId);
+    reducer::giveBack(*route.ledger, surface,
+                      [&](const reducer::SurfaceWrite& write) { writeSurfaceTo(route, write); });
+}
+
+// One surface's write for the bench: a step, or the value its end puts back. Neither is the
+// game's, so no lane counts it (rule 5); the game's own value was counted when it arrived.
+void SlotRouter::writeSurfaceTo(const FeedbackRoute& route, const reducer::SurfaceWrite& write) {
+    const reducer::SurfaceValues& v = write.values;
+    switch (write.surface) {
+    case reducer::BenchSurface::Lightbar:
+        writeLightbar(route, v.lightbar.r, v.lightbar.g, v.lightbar.b);
+        return;
+    case reducer::BenchSurface::PlayerLeds:
+        writePlayerLeds(route, v.playerLeds);
+        return;
+    case reducer::BenchSurface::TriggerEffects:
+        writeTriggerEffects(route, v.triggerEffects.left, v.triggerEffects.right);
+        return;
+    case reducer::BenchSurface::MicLamp:
+        writeMicLed(route, v.micLamp);
+        return;
+    }
 }
 
 } // namespace dish

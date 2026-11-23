@@ -109,17 +109,48 @@ TEST_CASE("controller db json: a family a later database adds keeps the row, ine
     CHECK(db.droppedRows == 0);
 }
 
-TEST_CASE("controller db json: a row that does not decode is dropped and counted",
+TEST_CASE("controller db json: a row with no id to index is dropped and counted",
           "[controllerdb][json]") {
-    std::string broken = recordJson("broken", "dualsense");
-    const std::string state = R"("state":"verified")";
-    broken.replace(broken.find(state), state.size(), R"("state":"rumoured")");
+    std::string noIdentity = recordJson("no-identity", "dualsense");
+    const std::string usb = R"("usb":[)";
+    noIdentity.replace(noIdentity.find(usb), usb.size(), R"("usb":["nope",)");
     const auto parsed = parseControllerDb(
-        dbJson(recordJson("good", "dualsense") + "," + broken + R"(,{"schema":2,"id":"x"})"));
+        dbJson(recordJson("good", "dualsense") + "," + noIdentity + R"(,{"schema":2,"id":"x"},7)"));
     const auto& db = std::get<ControllerDb>(parsed);
     REQUIRE(db.records.size() == 1U);
     CHECK(db.records[0].id == "good");
-    CHECK(db.droppedRows == 2);
+    CHECK(db.droppedRows == 3);
+}
+
+// A later database's word in any section past the identity keeps the row, inert, so the bundled
+// row for its id stays in force instead of the pad falling back to generic HID.
+TEST_CASE("controller db json: a row a later database words differently is kept, inert",
+          "[controllerdb][json]") {
+    struct Rewording {
+        const char* what;
+        std::string from;
+        std::string to;
+    };
+    const std::vector<Rewording> rewordings{
+        {"a direct rule", R"("rule":"auto")", R"("rule":"futureRule")"},
+        {"a verification state", R"("state":"verified")", R"("state":"futureState")"},
+        {"a verification transport", R"("transport":"usb"})", R"("transport":"futureWire"})"},
+        {"no requires", R"("requires":)", R"("requiresNot":)"},
+        {"an init kind that is not text", R"("kind":"none")", R"("kind":7)"}};
+    for (const Rewording& r : rewordings) {
+        INFO(r.what);
+        std::string reworded = recordJson("reworded", "dualsense");
+        const std::size_t at = reworded.find(r.from);
+        REQUIRE(at != std::string::npos);
+        reworded.replace(at, r.from.size(), r.to);
+        const auto parsed = parseControllerDb(dbJson(reworded));
+        const auto& db = std::get<ControllerDb>(parsed);
+        CHECK(db.droppedRows == 0);
+        REQUIRE(db.records.size() == 1U);
+        CHECK(db.records[0].id == "reworded");
+        CHECK_FALSE(db.records[0].usb.empty());
+        CHECK(isInert(db.records[0]));
+    }
 }
 
 TEST_CASE("controller db json: what refuses a whole file", "[controllerdb][json]") {

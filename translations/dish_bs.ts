@@ -1057,6 +1057,29 @@
     </message>
 </context>
 <context>
+    <name>ControllerDbVocabulary</name>
+    <message>
+        <source>up to date</source>
+        <translation>ažurno</translation>
+    </message>
+    <message>
+        <source>updated</source>
+        <translation>ažurirano</translation>
+    </message>
+    <message>
+        <source>could not reach dish.tinkernorth.com</source>
+        <translation>dish.tinkernorth.com nije dostupan</translation>
+    </message>
+    <message>
+        <source>the download did not verify</source>
+        <translation>preuzimanje nije prošlo provjeru</translation>
+    </message>
+    <message>
+        <source>checks are off</source>
+        <translation>provjere su isključene</translation>
+    </message>
+</context>
+<context>
     <name>ControllersPage</name>
     <message>
         <source>Controllers</source>
@@ -1888,14 +1911,6 @@
         <translation>oba motora</translation>
     </message>
     <message>
-        <source>felt</source>
-        <translation>osjećeno</translation>
-    </message>
-    <message>
-        <source>not felt</source>
-        <translation>nije osjećeno</translation>
-    </message>
-    <message>
         <source>%1 · %2 · %3</source>
         <translation>%1 · %2 · %3</translation>
     </message>
@@ -1918,26 +1933,6 @@
     <message>
         <source>Last test</source>
         <translation>Posljednji test</translation>
-    </message>
-    <message>
-        <source>up to date</source>
-        <translation>ažurno</translation>
-    </message>
-    <message>
-        <source>updated</source>
-        <translation>ažurirano</translation>
-    </message>
-    <message>
-        <source>could not reach dish.tinkernorth.com</source>
-        <translation>dish.tinkernorth.com nije dostupan</translation>
-    </message>
-    <message>
-        <source>the download did not verify</source>
-        <translation>preuzimanje nije prošlo provjeru</translation>
-    </message>
-    <message>
-        <source>checks are off</source>
-        <translation>provjere su isključene</translation>
     </message>
     <message>
         <source>%1 · downloaded</source>
@@ -2010,6 +2005,66 @@
     <message>
         <source>Diagnostics saved. The file manager shows its folder.</source>
         <translation>Dijagnostika je sačuvana. Upravitelj datoteka prikazuje njenu mapu.</translation>
+    </message>
+    <message>
+        <source>left trigger rumble</source>
+        <translation>vibracija lijevog okidača</translation>
+    </message>
+    <message>
+        <source>right trigger rumble</source>
+        <translation>vibracija desnog okidača</translation>
+    </message>
+    <message>
+        <source>both trigger motors</source>
+        <translation>oba motora okidača</translation>
+    </message>
+    <message>
+        <source>light bar colours</source>
+        <translation>boje svjetlosne trake</translation>
+    </message>
+    <message>
+        <source>player LEDs</source>
+        <translation>LED indikatori igrača</translation>
+    </message>
+    <message>
+        <source>adaptive triggers</source>
+        <translation>adaptivni okidači</translation>
+    </message>
+    <message>
+        <source>mic lamp on</source>
+        <translation>lampica mikrofona upaljena</translation>
+    </message>
+    <message>
+        <source>mic lamp pulsing</source>
+        <translation>lampica mikrofona trepće</translation>
+    </message>
+    <message>
+        <source>speaker tone</source>
+        <translation>ton zvučnika</translation>
+    </message>
+    <message>
+        <source>HD haptics tone</source>
+        <translation>ton HD haptike</translation>
+    </message>
+    <message>
+        <source>microphone level</source>
+        <translation>nivo mikrofona</translation>
+    </message>
+    <message>
+        <source>stick drift</source>
+        <translation>drift palice</translation>
+    </message>
+    <message>
+        <source>stick range</source>
+        <translation>domet palice</translation>
+    </message>
+    <message>
+        <source>worked</source>
+        <translation>radilo je</translation>
+    </message>
+    <message>
+        <source>did not work</source>
+        <translation>nije radilo</translation>
     </message>
     <message>
         <source>The diagnostics file could not be written.</source>
@@ -2667,16 +2722,148 @@
         <translation>Inspektor kontrolera</translation>
     </message>
     <message>
-        <source>felt</source>
-        <translation>osjećeno</translation>
+        <source>Trigger rumble</source>
+        <translation>Vibracija okidača</translation>
     </message>
     <message>
-        <source>not felt</source>
-        <translation>nije osjećeno</translation>
+        <source>Left</source>
+        <translation>Lijevi</translation>
+    </message>
+    <message>
+        <source>Right</source>
+        <translation>Desni</translation>
+    </message>
+    <message>
+        <source>Light bar</source>
+        <translation>Svjetlosna traka</translation>
+    </message>
+    <message>
+        <source>Red, green, blue</source>
+        <translation>Crvena, zelena, plava</translation>
+    </message>
+    <message>
+        <source>Player LEDs</source>
+        <translation>LED indikatori igrača</translation>
+    </message>
+    <message>
+        <source>Each LED in turn</source>
+        <translation>Svaki LED redom</translation>
+    </message>
+    <message>
+        <source>Adaptive triggers</source>
+        <translation>Adaptivni okidači</translation>
+    </message>
+    <message>
+        <source>Stiffen both</source>
+        <translation>Ukruti oba</translation>
+    </message>
+    <message>
+        <source>Mic lamp</source>
+        <translation>Lampica mikrofona</translation>
+    </message>
+    <message>
+        <source>On</source>
+        <translation>Uključena</translation>
+    </message>
+    <message>
+        <source>Pulse</source>
+        <translation>Treptanje</translation>
+    </message>
+    <message>
+        <source>Speaker</source>
+        <translation>Zvučnik</translation>
+    </message>
+    <message>
+        <source>Play the test tone</source>
+        <translation>Pusti probni ton</translation>
+    </message>
+    <message>
+        <source>HD haptics</source>
+        <translation>HD haptika</translation>
+    </message>
+    <message>
+        <source>Play the tone on the haptics</source>
+        <translation>Pusti ton na haptici</translation>
+    </message>
+    <message>
+        <source>Microphone</source>
+        <translation>Mikrofon</translation>
+    </message>
+    <message>
+        <source>Show its level</source>
+        <translation>Prikaži nivo</translation>
+    </message>
+    <message>
+        <source>Weak rumble</source>
+        <translation>Slaba vibracija</translation>
+    </message>
+    <message>
+        <source>Strong rumble</source>
+        <translation>Jaka vibracija</translation>
+    </message>
+    <message>
+        <source>Both motors</source>
+        <translation>Oba motora</translation>
+    </message>
+    <message>
+        <source>Left trigger rumble</source>
+        <translation>Vibracija lijevog okidača</translation>
+    </message>
+    <message>
+        <source>Right trigger rumble</source>
+        <translation>Vibracija desnog okidača</translation>
+    </message>
+    <message>
+        <source>Both trigger motors</source>
+        <translation>Oba motora okidača</translation>
+    </message>
+    <message>
+        <source>Light bar colours</source>
+        <translation>Boje svjetlosne trake</translation>
+    </message>
+    <message>
+        <source>Mic lamp on</source>
+        <translation>Lampica mikrofona upaljena</translation>
+    </message>
+    <message>
+        <source>Mic lamp pulsing</source>
+        <translation>Lampica mikrofona trepće</translation>
+    </message>
+    <message>
+        <source>Speaker tone</source>
+        <translation>Ton zvučnika</translation>
+    </message>
+    <message>
+        <source>HD haptics tone</source>
+        <translation>Ton HD haptike</translation>
+    </message>
+    <message>
+        <source>Microphone level</source>
+        <translation>Nivo mikrofona</translation>
+    </message>
+    <message>
+        <source>Drift test</source>
+        <translation>Test drifta</translation>
+    </message>
+    <message>
+        <source>Range test</source>
+        <translation>Test dometa</translation>
+    </message>
+    <message>
+        <source>worked</source>
+        <translation>radilo je</translation>
+    </message>
+    <message>
+        <source>did not work</source>
+        <translation>nije radilo</translation>
     </message>
     <message>
         <source>Last test: %1 · %2 · %3</source>
         <translation>Posljednji test: %1 · %2 · %3</translation>
+    </message>
+    <message>
+        <source>Level %1% · peak %2%</source>
+        <translation>Nivo %1 % · vrh %2 %</translation>
     </message>
     <message>
         <source>%1%</source>
@@ -2875,16 +3062,32 @@
         <translation>Test dometa (pravite pune krugove)</translation>
     </message>
     <message>
-        <source>Rumble test</source>
-        <translation>Test vibracije</translation>
+        <source>Feedback and audio tests</source>
+        <translation>Testovi povratnih efekata i zvuka</translation>
     </message>
     <message>
-        <source>A short buzz straight to the controller, whatever its rumble switch says.</source>
-        <translation>Kratka vibracija direktno na kontroler, bez obzira na prekidač vibracije.</translation>
+        <source>Each test goes straight to the controller, with no host in the loop, whatever its switches say. Light, trigger and lamp tests put back what the game had set.</source>
+        <translation>Svaki test ide direktno na kontroler, bez hosta, bez obzira na njegove prekidače. Testovi svjetla, okidača i lampice vraćaju ono što je igra postavila.</translation>
     </message>
     <message>
-        <source>This controller has no rumble motors on the path it is on now.</source>
-        <translation>Ovaj kontroler nema motore za vibraciju na putu na kojem je sada.</translation>
+        <source>This controller has nothing to test on the path it is on now.</source>
+        <translation>Ovaj kontroler nema ništa za testiranje na putanji na kojoj je sada.</translation>
+    </message>
+    <message>
+        <source>Stop</source>
+        <translation>Zaustavi</translation>
+    </message>
+    <message>
+        <source>Testing: %1…</source>
+        <translation>Testira se: %1…</translation>
+    </message>
+    <message>
+        <source>The controller&apos;s own audio device would not open, so nothing played or listened.</source>
+        <translation>Vlastiti audio uređaj kontrolera nije se otvorio, pa ništa nije puštano ni slušano.</translation>
+    </message>
+    <message>
+        <source>%1: did it work?</source>
+        <translation>%1: je li radilo?</translation>
     </message>
     <message>
         <source>Did it work?</source>
@@ -2901,6 +3104,10 @@
     <message>
         <source>Weak</source>
         <translation>Slabo</translation>
+    </message>
+    <message>
+        <source>Rumble</source>
+        <translation>Vibracija</translation>
     </message>
     <message>
         <source>Strong</source>
@@ -4096,6 +4303,10 @@
         <translation>Nikada ne sadrži ključeve uparivanja, otiske certifikata, IP adrese, imena Wi-Fi mreža niti imena vaših računara i uređaja. Ništa se ne šalje dok ne kliknete Pošalji u svojoj aplikaciji za poštu.</translation>
     </message>
     <message>
+        <source>Your mail should carry the file %1. If it does not, attach it from the folder that just opened.</source>
+        <translation>Vaša poruka bi trebala imati priloženu datoteku %1. Ako je nema, priložite je iz mape koja se upravo otvorila.</translation>
+    </message>
+    <message>
         <source>Asking each Satellite for its side of the session…</source>
         <translation>Pitamo svaki Satelit za njegovu stranu sesije…</translation>
     </message>
@@ -4161,6 +4372,10 @@
     <message>
         <source>Controller list v%1 · last checked %2</source>
         <translation>Lista kontrolera v%1 · posljednja provjera %2</translation>
+    </message>
+    <message>
+        <source>Controller list v%1 · last checked %2: %3</source>
+        <translation>Lista kontrolera v%1 · posljednja provjera %2: %3</translation>
     </message>
     <message>
         <source>Setup &amp; help</source>

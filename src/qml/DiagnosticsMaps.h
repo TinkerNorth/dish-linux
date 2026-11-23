@@ -19,7 +19,9 @@
 #include "core/diagnostics/WriteVerdict.h"
 #include "core/input/StickHealth.h"
 #include "core/reducer/DiagnosticsLog.h"
-#include "core/reducer/FeedbackBench.h"
+#include "core/audio/BenchAudio.h"
+#include "core/reducer/BenchItems.h"
+#include "core/reducer/BenchRuns.h"
 #include "core/reducer/HostAudioVerdict.h"
 #include "core/reducer/LatencyWindow.h"
 #include "core/reducer/ProtocolNegotiation.h"
@@ -114,8 +116,27 @@ QVariantMap stickTestRow(const input::StickBench& bench, std::int64_t nowMs);
 // The kind a stickTestRow names, read back: empty for a word it never writes.
 std::optional<input::StickTestKind> stickTestKindFrom(const QString& token);
 
-// The bench's motor words, "weak", "strong" and "both": empty for any other.
-std::optional<reducer::BuzzMotor> buzzMotorFrom(const QString& token);
+// The bench test a page names by its outcome name ("rumble.weak", "lightbar.cycle", ...): empty
+// for any name the contract does not list.
+std::optional<reducer::BenchTest> benchTestFrom(const QString& name);
+
+// The stick test the inspector's bench runs, by the bench's own name for it.
+reducer::BenchTest benchTestOfStickKind(input::StickTestKind kind);
+
+// The items the pad is offered on its path, by their tokens (BenchItems.h's), in the table's
+// order: `rumble`, `triggerRumble`, `lightbar`, `playerLeds`, `adaptiveTriggers`, `micLamp`,
+// `speaker`, `haptics`, `microphone`, `sticks`.
+QStringList benchItemsRow(const reducer::SlotFeedbackInputs& in);
+
+struct BenchStateInputs {
+    reducer::BenchRun run;
+    audio::MicMeter mic;
+    std::optional<reducer::BenchTest> unavailable;
+};
+
+// { running, asking, unavailable, micMeter, micPeak }: the first three a test's outcome name or
+// "", the meter and the peak whole percents.
+QVariantMap benchStateRow(const BenchStateInputs& inputs);
 
 // Oldest first, the order the recorder wrote them.
 QVariantList diagnosticsLogRows(const std::vector<reducer::DiagnosticsEvent>& events);
@@ -131,8 +152,8 @@ QVariantMap controllerDbRow(const source::controllerdb::ControllerDbStatus& stat
 // `interruptOut` / `setReport`, `reportId` two hex digits, `err` a winerror.h name or "".
 QVariantMap writeVerdictRow(const std::optional<diagnostics::WriteVerdict>& verdict);
 
-// {} before any test, else { test, result, atMs }: `test` `rumble.weak` / `rumble.strong` /
-// `rumble.both`, `result` `worked` / `didNotWork`.
+// {} before any test, else { test, result, atMs }: `test` one of the bench's outcome names
+// (core/reducer/BenchItems.h), `result` `worked` / `didNotWork`.
 QVariantMap testOutcomeRow(const std::optional<diagnostics::TestOutcome>& outcome);
 
 struct RecordCardInputs {

@@ -1,5 +1,9 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 // Copyright (C) 2026 Dish contributors.
+//
+// The laws count TrackedMutex only. The producers' turn flags in OutputMailbox and SurfaceLedger
+// are not one and are not counted: CONTRIBUTING.md ("Touching the hot path") allows them and says
+// what bounds them, and test_bench_surfaces pins that the ledger's readers take no turn.
 
 #include "HotPathRig.h"
 

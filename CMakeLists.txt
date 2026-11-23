@@ -304,6 +304,11 @@ set(DISH_CORE_SOURCES
     src/core/input/InputReadout.h
     src/core/input/StickHealth.h
     src/core/reducer/FeedbackBench.h
+    src/core/reducer/BenchItems.h
+    src/core/reducer/BenchSteps.h
+    src/core/reducer/BenchSurfaces.h
+    src/core/reducer/BenchRuns.h
+    src/core/audio/BenchAudio.h
     src/core/reducer/CapabilitySolver.h
     src/core/reducer/CapabilitySolver.cpp
     src/core/reducer/HostAudioVerdict.h
@@ -550,6 +555,9 @@ set(DISH_CORE_SOURCES
     src/composer/WakeStateController.cpp
     src/composer/RumbleSwitchController.h
     src/composer/RumbleSwitchController.cpp
+    src/composer/BenchActuators.h
+    src/composer/FeedbackBenchCoordinator.h
+    src/composer/FeedbackBenchCoordinator.cpp
     src/composer/TrayComposer.h
     src/composer/TrayController.h
     src/composer/TrayController.cpp
@@ -782,6 +790,7 @@ qt_add_qml_module(Dish
         ${DISH_KIT_QML_FILES}
         src/qml/shared/BindingDraft.qml
         src/qml/shared/LinkVocabulary.qml
+        src/qml/shared/ControllerDbVocabulary.qml
         src/qml/pages/HomePage.qml
         src/qml/pages/ControllersPage.qml
         src/qml/pages/ConnectionsPage.qml
@@ -1087,7 +1096,9 @@ qml6-module-qtquick-effects, libqt6svg6, qt6-svg-plugins, qt6-qpa-plugins, \
 hicolor-icon-theme"
     CACHE STRING "Runtime-loaded Qt pieces dpkg-shlibdeps cannot infer")
 set(CPACK_DEBIAN_PACKAGE_DEPENDS "${DISH_DEB_RUNTIME_DEPENDS}")
-set(CPACK_DEBIAN_PACKAGE_RECOMMENDS "udev, qt6-wayland")
+# xdg-utils: xdg-email hands the diagnostics file to the mail app, and without it the report always
+# takes the mailto: fallback with no file attached.
+set(CPACK_DEBIAN_PACKAGE_RECOMMENDS "udev, qt6-wayland, xdg-utils")
 set(CPACK_DEBIAN_PACKAGE_SUGGESTS "bluez, gnome-shell-extension-appindicator")
 set(CPACK_DEBIAN_PACKAGE_CONTROL_EXTRA
     "${CMAKE_CURRENT_SOURCE_DIR}/packaging/deb/postinst"
@@ -1116,7 +1127,10 @@ set(CPACK_RPM_PACKAGE_AUTOREQ ON)
 set(CPACK_RPM_PACKAGE_AUTOPROV ON)
 set(CPACK_RPM_PACKAGE_REQUIRES
     "qt6-qtdeclarative, qt6-qtsvg, hicolor-icon-theme, systemd-udev")
-set(CPACK_RPM_PACKAGE_SUGGESTS "qt6-qtwayland, bluez, gnome-shell-extension-appindicator")
+# CPack's RPM generator writes no Recommends: tag (3.28 knows Suggests only), so xdg-utils, which
+# the .deb recommends for xdg-email, is suggested here.
+set(CPACK_RPM_PACKAGE_SUGGESTS
+    "qt6-qtwayland, bluez, gnome-shell-extension-appindicator, xdg-utils")
 set(CPACK_RPM_POST_INSTALL_SCRIPT_FILE
     "${CMAKE_CURRENT_SOURCE_DIR}/packaging/rpm/post.sh")
 set(CPACK_RPM_POST_UNINSTALL_SCRIPT_FILE

@@ -1049,6 +1049,29 @@
     </message>
 </context>
 <context>
+    <name>ControllerDbVocabulary</name>
+    <message>
+        <source>up to date</source>
+        <translation>à jour</translation>
+    </message>
+    <message>
+        <source>updated</source>
+        <translation>mise à jour</translation>
+    </message>
+    <message>
+        <source>could not reach dish.tinkernorth.com</source>
+        <translation>dish.tinkernorth.com injoignable</translation>
+    </message>
+    <message>
+        <source>the download did not verify</source>
+        <translation>le téléchargement n’a pas été vérifié</translation>
+    </message>
+    <message>
+        <source>checks are off</source>
+        <translation>les vérifications sont désactivées</translation>
+    </message>
+</context>
+<context>
     <name>ControllersPage</name>
     <message>
         <source>Controllers</source>
@@ -1876,14 +1899,6 @@
         <translation>les deux moteurs</translation>
     </message>
     <message>
-        <source>felt</source>
-        <translation>ressentie</translation>
-    </message>
-    <message>
-        <source>not felt</source>
-        <translation>pas ressentie</translation>
-    </message>
-    <message>
         <source>%1 · %2 · %3</source>
         <translation>%1 · %2 · %3</translation>
     </message>
@@ -1906,26 +1921,6 @@
     <message>
         <source>Last test</source>
         <translation>Dernier test</translation>
-    </message>
-    <message>
-        <source>up to date</source>
-        <translation>à jour</translation>
-    </message>
-    <message>
-        <source>updated</source>
-        <translation>mise à jour</translation>
-    </message>
-    <message>
-        <source>could not reach dish.tinkernorth.com</source>
-        <translation>dish.tinkernorth.com injoignable</translation>
-    </message>
-    <message>
-        <source>the download did not verify</source>
-        <translation>le téléchargement n’a pas été vérifié</translation>
-    </message>
-    <message>
-        <source>checks are off</source>
-        <translation>les vérifications sont désactivées</translation>
     </message>
     <message>
         <source>%1 · downloaded</source>
@@ -1998,6 +1993,66 @@
     <message>
         <source>Diagnostics saved. The file manager shows its folder.</source>
         <translation>Diagnostic enregistré. Le gestionnaire de fichiers affiche son dossier.</translation>
+    </message>
+    <message>
+        <source>left trigger rumble</source>
+        <translation>vibration de la gâchette gauche</translation>
+    </message>
+    <message>
+        <source>right trigger rumble</source>
+        <translation>vibration de la gâchette droite</translation>
+    </message>
+    <message>
+        <source>both trigger motors</source>
+        <translation>les deux moteurs des gâchettes</translation>
+    </message>
+    <message>
+        <source>light bar colours</source>
+        <translation>couleurs de la barre lumineuse</translation>
+    </message>
+    <message>
+        <source>player LEDs</source>
+        <translation>LED de joueur</translation>
+    </message>
+    <message>
+        <source>adaptive triggers</source>
+        <translation>gâchettes adaptatives</translation>
+    </message>
+    <message>
+        <source>mic lamp on</source>
+        <translation>voyant du micro allumé</translation>
+    </message>
+    <message>
+        <source>mic lamp pulsing</source>
+        <translation>voyant du micro clignotant</translation>
+    </message>
+    <message>
+        <source>speaker tone</source>
+        <translation>tonalité du haut-parleur</translation>
+    </message>
+    <message>
+        <source>HD haptics tone</source>
+        <translation>tonalité du retour haptique HD</translation>
+    </message>
+    <message>
+        <source>microphone level</source>
+        <translation>niveau du micro</translation>
+    </message>
+    <message>
+        <source>stick drift</source>
+        <translation>dérive du stick</translation>
+    </message>
+    <message>
+        <source>stick range</source>
+        <translation>course du stick</translation>
+    </message>
+    <message>
+        <source>worked</source>
+        <translation>a marché</translation>
+    </message>
+    <message>
+        <source>did not work</source>
+        <translation>n’a pas marché</translation>
     </message>
     <message>
         <source>The diagnostics file could not be written.</source>
@@ -2653,16 +2708,148 @@
         <translation>Inspecteur de manette</translation>
     </message>
     <message>
-        <source>felt</source>
-        <translation>ressentie</translation>
+        <source>Trigger rumble</source>
+        <translation>Vibration des gâchettes</translation>
     </message>
     <message>
-        <source>not felt</source>
-        <translation>pas ressentie</translation>
+        <source>Left</source>
+        <translation>Gauche</translation>
+    </message>
+    <message>
+        <source>Right</source>
+        <translation>Droite</translation>
+    </message>
+    <message>
+        <source>Light bar</source>
+        <translation>Barre lumineuse</translation>
+    </message>
+    <message>
+        <source>Red, green, blue</source>
+        <translation>Rouge, vert, bleu</translation>
+    </message>
+    <message>
+        <source>Player LEDs</source>
+        <translation>LED de joueur</translation>
+    </message>
+    <message>
+        <source>Each LED in turn</source>
+        <translation>Chaque LED à tour de rôle</translation>
+    </message>
+    <message>
+        <source>Adaptive triggers</source>
+        <translation>Gâchettes adaptatives</translation>
+    </message>
+    <message>
+        <source>Stiffen both</source>
+        <translation>Durcir les deux</translation>
+    </message>
+    <message>
+        <source>Mic lamp</source>
+        <translation>Voyant du micro</translation>
+    </message>
+    <message>
+        <source>On</source>
+        <translation>Allumé</translation>
+    </message>
+    <message>
+        <source>Pulse</source>
+        <translation>Clignotement</translation>
+    </message>
+    <message>
+        <source>Speaker</source>
+        <translation>Haut-parleur</translation>
+    </message>
+    <message>
+        <source>Play the test tone</source>
+        <translation>Jouer la tonalité de test</translation>
+    </message>
+    <message>
+        <source>HD haptics</source>
+        <translation>Retour haptique HD</translation>
+    </message>
+    <message>
+        <source>Play the tone on the haptics</source>
+        <translation>Jouer la tonalité sur le retour haptique</translation>
+    </message>
+    <message>
+        <source>Microphone</source>
+        <translation>Microphone</translation>
+    </message>
+    <message>
+        <source>Show its level</source>
+        <translation>Afficher son niveau</translation>
+    </message>
+    <message>
+        <source>Weak rumble</source>
+        <translation>Vibration faible</translation>
+    </message>
+    <message>
+        <source>Strong rumble</source>
+        <translation>Vibration forte</translation>
+    </message>
+    <message>
+        <source>Both motors</source>
+        <translation>Les deux moteurs</translation>
+    </message>
+    <message>
+        <source>Left trigger rumble</source>
+        <translation>Vibration de la gâchette gauche</translation>
+    </message>
+    <message>
+        <source>Right trigger rumble</source>
+        <translation>Vibration de la gâchette droite</translation>
+    </message>
+    <message>
+        <source>Both trigger motors</source>
+        <translation>Les deux moteurs des gâchettes</translation>
+    </message>
+    <message>
+        <source>Light bar colours</source>
+        <translation>Couleurs de la barre lumineuse</translation>
+    </message>
+    <message>
+        <source>Mic lamp on</source>
+        <translation>Voyant du micro allumé</translation>
+    </message>
+    <message>
+        <source>Mic lamp pulsing</source>
+        <translation>Voyant du micro clignotant</translation>
+    </message>
+    <message>
+        <source>Speaker tone</source>
+        <translation>Tonalité du haut-parleur</translation>
+    </message>
+    <message>
+        <source>HD haptics tone</source>
+        <translation>Tonalité du retour haptique HD</translation>
+    </message>
+    <message>
+        <source>Microphone level</source>
+        <translation>Niveau du micro</translation>
+    </message>
+    <message>
+        <source>Drift test</source>
+        <translation>Test de dérive</translation>
+    </message>
+    <message>
+        <source>Range test</source>
+        <translation>Test de course</translation>
+    </message>
+    <message>
+        <source>worked</source>
+        <translation>a marché</translation>
+    </message>
+    <message>
+        <source>did not work</source>
+        <translation>n’a pas marché</translation>
     </message>
     <message>
         <source>Last test: %1 · %2 · %3</source>
         <translation>Dernier test : %1 · %2 · %3</translation>
+    </message>
+    <message>
+        <source>Level %1% · peak %2%</source>
+        <translation>Niveau %1 % · crête %2 %</translation>
     </message>
     <message>
         <source>%1%</source>
@@ -2861,16 +3048,32 @@
         <translation>Test de course (faites des cercles complets)</translation>
     </message>
     <message>
-        <source>Rumble test</source>
-        <translation>Test de vibration</translation>
+        <source>Feedback and audio tests</source>
+        <translation>Tests des retours et de l’audio</translation>
     </message>
     <message>
-        <source>A short buzz straight to the controller, whatever its rumble switch says.</source>
-        <translation>Une courte vibration envoyée directement à la manette, quel que soit son réglage de vibration.</translation>
+        <source>Each test goes straight to the controller, with no host in the loop, whatever its switches say. Light, trigger and lamp tests put back what the game had set.</source>
+        <translation>Chaque test va directement à la manette, sans hôte dans la boucle, quels que soient ses réglages. Les tests de lumière, de gâchettes et de voyant remettent ce que le jeu avait réglé.</translation>
     </message>
     <message>
-        <source>This controller has no rumble motors on the path it is on now.</source>
-        <translation>Cette manette n&apos;a pas de moteurs de vibration sur la voie qu&apos;elle utilise.</translation>
+        <source>This controller has nothing to test on the path it is on now.</source>
+        <translation>Cette manette n’a rien à tester sur le chemin qu’elle emprunte maintenant.</translation>
+    </message>
+    <message>
+        <source>Stop</source>
+        <translation>Arrêter</translation>
+    </message>
+    <message>
+        <source>Testing: %1…</source>
+        <translation>Test en cours : %1…</translation>
+    </message>
+    <message>
+        <source>The controller&apos;s own audio device would not open, so nothing played or listened.</source>
+        <translation>Le périphérique audio de la manette ne s’est pas ouvert : rien n’a été joué ni écouté.</translation>
+    </message>
+    <message>
+        <source>%1: did it work?</source>
+        <translation>%1 : ça a marché ?</translation>
     </message>
     <message>
         <source>Did it work?</source>
@@ -2887,6 +3090,10 @@
     <message>
         <source>Weak</source>
         <translation>Faible</translation>
+    </message>
+    <message>
+        <source>Rumble</source>
+        <translation>Vibration</translation>
     </message>
     <message>
         <source>Strong</source>
@@ -4077,6 +4284,10 @@
         <translation>Il ne contient jamais de clés d’appairage, d’empreintes de certificats, d’adresses IP, de noms de réseaux Wi-Fi ni les noms de vos PC et appareils. Rien n’est envoyé tant que vous ne cliquez pas sur Envoyer dans votre application de messagerie.</translation>
     </message>
     <message>
+        <source>Your mail should carry the file %1. If it does not, attach it from the folder that just opened.</source>
+        <translation>Votre message devrait avoir le fichier %1 en pièce jointe. Sinon, joignez-le depuis le dossier qui vient de s’ouvrir.</translation>
+    </message>
+    <message>
         <source>Asking each Satellite for its side of the session…</source>
         <translation>Chaque Satellite est interrogé sur son côté de la session…</translation>
     </message>
@@ -4142,6 +4353,10 @@
     <message>
         <source>Controller list v%1 · last checked %2</source>
         <translation>Liste des manettes v%1 · dernière vérification %2</translation>
+    </message>
+    <message>
+        <source>Controller list v%1 · last checked %2: %3</source>
+        <translation>Liste des manettes v%1 · dernière vérification %2 : %3</translation>
     </message>
     <message>
         <source>Setup &amp; help</source>

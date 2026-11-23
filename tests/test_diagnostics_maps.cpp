@@ -47,11 +47,15 @@ using dish::models::DiscoveredServer;
 using dish::net::SatelliteClient;
 using dish::net::SatelliteClientTestAccess;
 using dish::net::WifiConnection;
+using dish::qml::benchItemsRow;
+using dish::qml::BenchStateInputs;
+using dish::qml::benchStateRow;
+using dish::qml::benchTestFrom;
+using dish::qml::benchTestOfStickKind;
 using dish::qml::bindingTypeOf;
 using dish::qml::BindingWireFacts;
 using dish::qml::bindingWireFactsOf;
 using dish::qml::bindingWireRow;
-using dish::qml::buzzMotorFrom;
 using dish::qml::catalogTypeName;
 using dish::qml::diagnosticsLogRows;
 using dish::qml::hostCardRow;
@@ -545,11 +549,54 @@ TEST_CASE("a stick test's kind reads back from the word its row writes", "[diagn
     CHECK_FALSE(stickTestKindFrom(QStringLiteral("sweep")).has_value());
 }
 
-TEST_CASE("the bench's motor words read as the motors they run", "[diagnostics][maps]") {
-    CHECK(buzzMotorFrom(QStringLiteral("weak")) == dish::reducer::BuzzMotor::Weak);
-    CHECK(buzzMotorFrom(QStringLiteral("strong")) == dish::reducer::BuzzMotor::Strong);
-    CHECK(buzzMotorFrom(QStringLiteral("both")) == dish::reducer::BuzzMotor::Both);
-    CHECK_FALSE(buzzMotorFrom(QStringLiteral("left")).has_value());
+TEST_CASE("a page names a bench test by its outcome name", "[diagnostics][maps][bench]") {
+    CHECK(benchTestFrom(QStringLiteral("rumble.weak")) == dish::reducer::BenchTest::RumbleWeak);
+    CHECK(benchTestFrom(QStringLiteral("triggerRumble.both")) ==
+          dish::reducer::BenchTest::TriggerRumbleBoth);
+    CHECK(benchTestFrom(QStringLiteral("haptics.play")) == dish::reducer::BenchTest::HapticsPlay);
+    CHECK_FALSE(benchTestFrom(QStringLiteral("weak")).has_value());
+}
+
+TEST_CASE("the inspector's stick tests are the bench's stick tests", "[diagnostics][maps][bench]") {
+    CHECK(benchTestOfStickKind(dish::input::StickTestKind::Drift) ==
+          dish::reducer::BenchTest::StickDrift);
+    CHECK(benchTestOfStickKind(dish::input::StickTestKind::Range) ==
+          dish::reducer::BenchTest::StickRange);
+}
+
+TEST_CASE("the bench's items row lists what the pad's path carries, by token",
+          "[diagnostics][maps][bench]") {
+    dish::reducer::SlotFeedbackInputs in;
+    in.padRumble = true;
+    in.padLightbar = true;
+    in.padMicRoute = true;
+    CHECK(benchItemsRow(in) == QStringList{QStringLiteral("rumble"), QStringLiteral("lightbar"),
+                                           QStringLiteral("microphone"), QStringLiteral("sticks")});
+}
+
+TEST_CASE("the bench's state row names the running and the awaited test, and the level",
+          "[diagnostics][maps][bench]") {
+    BenchStateInputs idle;
+    const QVariantMap none = benchStateRow(idle);
+    CHECK(none.value("running").toString().isEmpty());
+    CHECK(none.value("asking").toString().isEmpty());
+    CHECK(none.value("unavailable").toString().isEmpty());
+    CHECK(none.value("micMeter").toInt() == 0);
+
+    BenchStateInputs busy;
+    busy.run = dish::reducer::startedRun({}, dish::reducer::BenchTest::MicLevel);
+    busy.mic = dish::audio::MicMeter{0.5F, 0.75F};
+    busy.unavailable = dish::reducer::BenchTest::TonePlay;
+    const QVariantMap row = benchStateRow(busy);
+    CHECK(row.value("running").toString() == QStringLiteral("mic.level"));
+    CHECK(row.value("unavailable").toString() == QStringLiteral("tone.play"));
+    CHECK(row.value("micMeter").toInt() == 50);
+    CHECK(row.value("micPeak").toInt() == 75);
+
+    const auto ended = dish::reducer::endedRun(busy.run, busy.run.ticket, 1);
+    BenchStateInputs asking;
+    asking.run = ended;
+    CHECK(benchStateRow(asking).value("asking").toString() == QStringLiteral("mic.level"));
 }
 
 TEST_CASE("a log row reads a link change as the chips it moved between", "[diagnostics][maps]") {

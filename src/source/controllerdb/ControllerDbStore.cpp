@@ -71,9 +71,9 @@ std::optional<std::string> stringsLocaleOf(const std::string& path) {
     return path.substr(prefix.size(), path.size() - prefix.size() - suffix.size());
 }
 
-// Each promised file at its promised size and digest.
+// Each promised file this build fetches at its promised size and digest.
 bool everyFileAsPromised(const cdb::DbManifest& manifest, const DbFiles& files) {
-    for (const cdb::ManifestFile& promised : manifest.files) {
+    for (const cdb::ManifestFile& promised : cdb::filesThisBuildFetches(manifest)) {
         const auto it = files.files.find(pathOf(promised.path));
         if (it == files.files.end()) { return false; }
         const QByteArray& bytes = it.value();
@@ -85,7 +85,7 @@ bool everyFileAsPromised(const cdb::DbManifest& manifest, const DbFiles& files) 
 std::optional<std::map<std::string, cdb::StringsTable>> stringsOf(const cdb::DbManifest& manifest,
                                                                   const DbFiles& files) {
     std::map<std::string, cdb::StringsTable> out;
-    for (const cdb::ManifestFile& promised : manifest.files) {
+    for (const cdb::ManifestFile& promised : cdb::filesThisBuildFetches(manifest)) {
         const std::optional<std::string> locale = stringsLocaleOf(promised.path);
         if (!locale.has_value()) { continue; }
         auto parsed = parseStringsTable(files.files.value(pathOf(promised.path)));
@@ -144,6 +144,15 @@ void ControllerDbStore::load() {
     }
     active_ = cdb::chooseActive(bundled_, loadCache());
     publish();
+    // Once at start, so a package whose binary lost the compiled-in resource (bundled version 0)
+    // fails its install-and-launch check instead of shipping.
+    const int bundledVersion = bundled_ != nullptr ? bundled_->dbVersion() : 0;
+    const qsizetype bundledRecords =
+        bundled_ != nullptr ? static_cast<qsizetype>(bundled_->db().records.size()) : 0;
+    const int activeVersion = active_ != nullptr ? active_->dbVersion() : 0;
+    qCInfo(lcDishControllerDb).nospace()
+        << "controller database: bundled dbVersion " << bundledVersion << " with " << bundledRecords
+        << " records; in force dbVersion " << activeVersion;
 }
 
 cdb::CatalogPtr ControllerDbStore::loadCache() const {

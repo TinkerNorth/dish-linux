@@ -92,9 +92,6 @@ void ControllerDbCoordinator::onManifest(const cdbsrc::DbReply& reply) {
     case cdb::ReplyVerdict::Offline:
         finish(cdb::CheckResult::Offline);
         return;
-    case cdb::ReplyVerdict::Invalid:
-        finish(cdb::CheckResult::Invalid);
-        return;
     case cdb::ReplyVerdict::NotModified:
         finish(cdb::CheckResult::UpToDate);
         return;
@@ -112,7 +109,7 @@ void ControllerDbCoordinator::onManifest(const cdbsrc::DbReply& reply) {
         finish(cdb::CheckResult::UpToDate);
         return;
     }
-    manifest_ = std::move(*manifest);
+    toFetch_ = cdb::filesThisBuildFetches(*manifest);
     manifestEtag_ = reply.etag;
     download_ = cdbsrc::DbFiles{};
     download_.manifest = reply.body;
@@ -121,11 +118,11 @@ void ControllerDbCoordinator::onManifest(const cdbsrc::DbReply& reply) {
 }
 
 void ControllerDbCoordinator::fetchNextFile() {
-    if (nextFile_ >= manifest_.files.size()) {
+    if (nextFile_ >= toFetch_.size()) {
         commitDownload();
         return;
     }
-    port_->get(qtText(manifest_.files[nextFile_].path), QByteArray(),
+    port_->get(qtText(toFetch_[nextFile_].path), QByteArray(),
                [this](const cdbsrc::DbReply& reply) { onFile(reply); });
 }
 
@@ -134,14 +131,14 @@ void ControllerDbCoordinator::onFile(const cdbsrc::DbReply& reply) {
     case cdb::ReplyVerdict::Offline:
         finish(cdb::CheckResult::Offline);
         return;
-    case cdb::ReplyVerdict::Invalid:
+    // A file is asked for without an ETag, so a 304 for it is an answer to a request never sent.
     case cdb::ReplyVerdict::NotModified:
         finish(cdb::CheckResult::Invalid);
         return;
     case cdb::ReplyVerdict::Body:
         break;
     }
-    const cdb::ManifestFile& promised = manifest_.files[nextFile_];
+    const cdb::ManifestFile& promised = toFetch_[nextFile_];
     if (!cdb::fileMatches(promised, sha256Hex(reply.body), reply.body.size())) {
         finish(cdb::CheckResult::Invalid);
         return;
@@ -170,7 +167,7 @@ void ControllerDbCoordinator::commitDownload() {
 void ControllerDbCoordinator::finish(cdb::CheckResult result) {
     inFlight_ = false;
     download_ = cdbsrc::DbFiles{};
-    manifest_ = cdb::DbManifest{};
+    toFetch_.clear();
     store_->setChecking(false);
     store_->recordCheck(wallClockMs_(), result);
 }

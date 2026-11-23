@@ -257,6 +257,7 @@ void SDLGamepadBridge::onControllerAdded(const SDL_Event& ev) {
     d.hasLightbar = SDL_GameControllerHasLED(gc) == SDL_TRUE;
     d.hasTouchpad = SDL_GameControllerGetNumTouchpads(gc) > 0;
     d.hasRumble = SDL_GameControllerHasRumble(gc) == SDL_TRUE;
+    d.hasTriggerRumble = SDL_GameControllerHasRumbleTriggers(gc) == SDL_TRUE;
     d.hasExtendedButtons = hasExtendedButtons(gc);
     // SDL returns 0 when it cannot read the descriptor, which the twin-dedup pairing treats as
     // "no identity".
@@ -497,6 +498,11 @@ void SDLGamepadBridge::runLoop() {
         schedule.advance(pump::Clock::now());
     }
 
+    // Once, at exit: a post that landed after the last cycle's drain (a bench test's give-back at
+    // quit, which comes just before stop()) still reaches its pad before the pads close. The
+    // acquire pairs with stop()'s exchange, so every post made before it is seen.
+    const bool stopped = !running_.load(std::memory_order_acquire);
+    if (stopped) { drainMailboxes(); }
     closeAllDevices();
     SDL_QuitSubSystem(SDL_INIT_GAMECONTROLLER | SDL_INIT_JOYSTICK);
     // SDL frees a thread's own storage (its error buffer) only on threads it started; this one is
@@ -674,6 +680,14 @@ void SDLGamepadBridge::pollBatteries(TimePoint now) {
     if (anyChange) { publishDevices(); }
 }
 
+void SDLGamepadBridge::postTriggerRumble(GamepadInputProcessor::DeviceIndex device,
+                                         std::uint16_t left, std::uint16_t right,
+                                         std::uint16_t durationMs) {
+    if (device < mailboxes_.size()) {
+        mailboxes_[device].postTriggerRumble(left, right, durationMs);
+    }
+}
+
 void SDLGamepadBridge::postLightbar(GamepadInputProcessor::DeviceIndex device, std::uint8_t r,
                                     std::uint8_t g, std::uint8_t b) {
     if (device < mailboxes_.size()) { mailboxes_[device].postLightbar(r, g, b); }
@@ -697,17 +711,42 @@ void SDLGamepadBridge::postMicLed(GamepadInputProcessor::DeviceIndex device, std
 
 void SDLGamepadBridge::drainMailboxes() {
     for (Pad& pad : pads_) {
-        if (pad.kind != PadKind::Controller || !pad.index.has_value()) { continue; }
+        if (!pad.index.has_value()) { continue; }
         if (const auto taken = mailboxes_[*pad.index].take()) { applyOutput(pad, *taken); }
     }
 }
 
+void SDLGamepadBridge::applyOutput(Pad& pad, const OutputMailbox::Taken& taken) {
+    switch (pad.kind) {
+    case PadKind::Controller:
+        applyControllerOutput(pad, taken);
+        return;
+    case PadKind::Joystick:
+        applyJoystickOutput(pad, taken);
+        return;
+    case PadKind::Free:
+        return;
+    }
+}
+
+// Rumble is all a raw joystick claims (onJoystickAdded), so it is all that is written to one.
+void SDLGamepadBridge::applyJoystickOutput(Pad& pad, const OutputMailbox::Taken& taken) {
+    const bool wantsRumble = (taken.kinds & output::kRumble) != 0;
+    if (!wantsRumble) { return; }
+    const OutputState& s = taken.state;
+    SDL_JoystickRumble(pad.js, s.strong, s.weak, s.durationMs);
+}
+
 // Return values ignored: -1 means the pad has no such actuator or its driver changed under us, and
 // neither the caller nor the satellite-side game has any recourse.
-void SDLGamepadBridge::applyOutput(Pad& pad, const OutputMailbox::Taken& taken) {
+void SDLGamepadBridge::applyControllerOutput(Pad& pad, const OutputMailbox::Taken& taken) {
     const OutputState& s = taken.state;
     if ((taken.kinds & output::kRumble) != 0) {
         SDL_GameControllerRumble(pad.gc, s.strong, s.weak, s.durationMs);
+    }
+    if ((taken.kinds & output::kTriggerRumble) != 0) {
+        SDL_GameControllerRumbleTriggers(pad.gc, s.leftTriggerMotor, s.rightTriggerMotor,
+                                         s.triggerRumbleMs);
     }
     if ((taken.kinds & output::kLightbar) != 0) { SDL_GameControllerSetLED(pad.gc, s.r, s.g, s.b); }
     // The family pinned at attach from the pad's USB identity, which a Bluetooth pad reports too.

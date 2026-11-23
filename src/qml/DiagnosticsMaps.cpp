@@ -210,16 +210,11 @@ QString stickTestPhaseToken(input::StickTestPhase phase) {
 constexpr std::array<input::StickTestKind, 2> kStickTestKinds{input::StickTestKind::Drift,
                                                               input::StickTestKind::Range};
 
-struct BuzzMotorWord {
-    reducer::BuzzMotor motor = reducer::BuzzMotor::Weak;
-    const char* token = "";
-};
-
-constexpr std::array<BuzzMotorWord, 3> kBuzzMotorWords{{
-    {reducer::BuzzMotor::Weak, "weak"},
-    {reducer::BuzzMotor::Strong, "strong"},
-    {reducer::BuzzMotor::Both, "both"},
-}};
+QString benchTestName(const std::optional<reducer::BenchTest>& test) {
+    if (!test.has_value()) { return {}; }
+    const std::string_view name = reducer::benchTestName(*test);
+    return QString::fromUtf8(name.data(), static_cast<qsizetype>(name.size()));
+}
 
 QString stickTestKindToken(input::StickTestKind kind) {
     switch (kind) {
@@ -469,11 +464,37 @@ std::optional<input::StickTestKind> stickTestKindFrom(const QString& token) {
     return std::nullopt;
 }
 
-std::optional<reducer::BuzzMotor> buzzMotorFrom(const QString& token) {
-    for (const auto& word : kBuzzMotorWords) {
-        if (token == QLatin1String(word.token)) { return word.motor; }
+std::optional<reducer::BenchTest> benchTestFrom(const QString& name) {
+    return reducer::benchTestFrom(name.toStdString());
+}
+
+reducer::BenchTest benchTestOfStickKind(input::StickTestKind kind) {
+    switch (kind) {
+    case input::StickTestKind::Drift:
+        return reducer::BenchTest::StickDrift;
+    case input::StickTestKind::Range:
+        return reducer::BenchTest::StickRange;
     }
-    return std::nullopt;
+    return reducer::BenchTest::StickDrift;
+}
+
+QStringList benchItemsRow(const reducer::SlotFeedbackInputs& in) {
+    QStringList items;
+    for (const reducer::BenchItemRow& row : reducer::kBenchItemRows) {
+        if (!reducer::benchOffers(in, row.item)) { continue; }
+        items.append(QString::fromUtf8(row.token.data(), static_cast<qsizetype>(row.token.size())));
+    }
+    return items;
+}
+
+QVariantMap benchStateRow(const BenchStateInputs& inputs) {
+    QVariantMap row;
+    row[QStringLiteral("running")] = benchTestName(inputs.run.running);
+    row[QStringLiteral("asking")] = benchTestName(inputs.run.asking);
+    row[QStringLiteral("unavailable")] = benchTestName(inputs.unavailable);
+    row[QStringLiteral("micMeter")] = audio::micPercentOf(inputs.mic.meter);
+    row[QStringLiteral("micPeak")] = audio::micPercentOf(inputs.mic.peak);
+    return row;
 }
 
 QVariantList diagnosticsLogRows(const std::vector<reducer::DiagnosticsEvent>& events) {

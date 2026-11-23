@@ -206,17 +206,18 @@ bool readSupport(const QJsonObject& record, cdb::ControllerRecord& out) {
     const QJsonObject verification = member(support, "verification").toObject();
     const auto state = token(cdb::kVerificationTokens, member(verification, "state"));
     const auto transport = token(cdb::kTransportTokens, member(verification, "transport"));
-    if (!state.has_value() || !transport.has_value()) { return false; }
-    out.verification = *state;
-    out.verificationTransport = *transport;
     for (const auto& item : member(support, "issues").toArray()) {
         if (auto issue = issueOf(item)) { out.issues.push_back(std::move(*issue)); }
     }
+    if (!state.has_value() || !transport.has_value()) { return false; }
+    out.verification = *state;
+    out.verificationTransport = *transport;
     return true;
 }
 
-// Every section of the record, in the order the contract lists them; any one that does not
-// decode drops the row.
+// The id and the identity index the row, so a row without them is dropped. Every other section
+// is read in the order the contract lists them; one that does not decode keeps the row, inert,
+// because a later database's new word must not take a pad's own bundled row away (section 6.6).
 std::optional<cdb::ControllerRecord> recordOf(const QJsonValue& value) {
     if (!value.isObject()) { return std::nullopt; }
     const QJsonObject record = value.toObject();
@@ -224,10 +225,12 @@ std::optional<cdb::ControllerRecord> recordOf(const QJsonValue& value) {
     if (!schemaIsOne(record) || !id.isString()) { return std::nullopt; }
     cdb::ControllerRecord out;
     out.id = utf8(id);
-    const bool decoded = readRequires(record, out) && readIdentity(record, out) &&
-                         readInput(record, out) && readOutput(record, out) &&
-                         readSupport(record, out);
-    if (!decoded) { return std::nullopt; }
+    if (!readIdentity(record, out)) { return std::nullopt; }
+    const bool requiresRead = readRequires(record, out);
+    const bool inputRead = readInput(record, out);
+    const bool outputRead = readOutput(record, out);
+    const bool supportRead = readSupport(record, out);
+    out.decoded = requiresRead && inputRead && outputRead && supportRead;
     readExpect(record, out);
     return out;
 }

@@ -1,6 +1,6 @@
 # Dish for Linux: Privacy Policy
 
-**Effective date:** 2026-11-20.
+**Effective date:** 2026-11-22.
 **Canonical copy:** this file, at
 [`https://github.com/TinkerNorth/dish-linux/blob/main/PRIVACY.md`](https://github.com/TinkerNorth/dish-linux/blob/main/PRIVACY.md).
 The app links to it from Help, and the privacy index on
@@ -34,8 +34,9 @@ do not read one as describing the other.
   and no account. Both checks ask for files and send no identifier with the
   request.
 - **Report a problem** (section 2.6) happens only when you click *Report a
-  problem* or *Ask a question*: Dish saves a file and opens your own mail app
-  with it attached, addressed to `support@tinkernorth.com`. Nothing is sent
+  problem* or *Ask a question*: Dish saves a file, opens your own mail app
+  addressed to `support@tinkernorth.com` with the file attached where the mail
+  app takes it, and shows the folder that holds the file. Nothing is sent
   until you click Send in your mail app.
 - Crash diagnostics are always written to your own disk, at
   `$XDG_STATE_HOME/dish/crash.log` (`~/.local/state/dish/crash.log` by
@@ -117,7 +118,9 @@ delete it (section 2.6).
 The app also **reads** (never writes) the XDG desktop portals for your
 light/dark preference and your reduced-motion preference, and reads
 `/sys/class/bluetooth` and BlueZ over the system bus to tell "no Bluetooth
-adapter" from "adapter switched off".
+adapter" from "adapter switched off", and, for a Bluetooth controller in a
+diagnostics file, to ask BlueZ which HID service the paired controller lists
+(section 2.6).
 
 Held in memory only, never written and never transmitted anywhere except to
 the satellite you bound the controller to:
@@ -131,15 +134,42 @@ the satellite you bound the controller to:
   computer's level and charging state also go into a support report you send
   (section 2.6).
 - Raw HID reports read from a controller in USB-direct mode.
-- Your answers to *Did it work?* after a rumble test, the last twenty per
-  controller, kept until the app quits and written out only into a
-  diagnostics file you save or send (section 2.6).
+- Your answers to *Did it work?* after each test in the controller inspector,
+  the last twenty per controller, kept until the app quits and written out
+  only into a diagnostics file you save or send (section 2.6).
+- What a controller's own microphone hears, only while it is open as described
+  below. It is encoded as it arrives and never recorded or kept.
 
 The app reads input from connected game controllers, through SDL2 and, in
 USB-direct mode, by reading raw HID input reports itself. It also writes back to
-them: rumble and light-bar colour are sent through SDL2. The USB-direct path is
-read-only. All of this is device IO on your own machine. It requires no
-administrator rights and no driver install.
+them what the game on your PC sends: rumble, the light-bar colour, the player
+lights, adaptive-trigger effects and the mute lamp, through SDL2 or, in
+USB-direct mode, as HID output reports it writes itself. All of this is device
+IO on your own machine. It requires no administrator rights and no driver
+install.
+
+**A controller's own speaker and microphone.** A DualSense or DualShock 4 on a
+USB cable has an audio device of its own. While that controller's *Speaker*
+switch is on, which is the default, the sound your PC sends for it, and on a
+DualSense the haptics, play on that device. Apart from the inspector's test below, its microphone
+is opened only while all of these hold: that controller's *Microphone* switch
+is on, which it is not until you turn it on; the controller is streaming to a
+Satellite that carries the microphone; and it is not muted. What it hears is
+then sent to that Satellite, as section 2.2 describes. Turning the switch off,
+muting it or ending the stream closes the microphone. The app never opens the
+computer's own microphone, or any microphone but a controller's own.
+
+**The controller inspector's tests.** From the Diagnostics page, a
+controller's inspector can test each thing its connection carries: rumble and
+trigger rumble run for a moment; the light bar, the player lights, the
+adaptive triggers and the mute lamp change for a moment and then go back to
+what the game had set; the test tone plays on the controller's own speaker, or
+on its haptics; and the microphone test opens the controller's own microphone
+for up to eight seconds to show how loud it hears you. What the microphone
+hears stays in the app and goes no further: it is not recorded, kept or sent,
+and only its level is shown. Your answer to *Did it work?* is kept in memory
+for this run, and leaves your machine only inside a diagnostics file you save
+or send (section 2.6).
 
 ### 2.2 Sent to your own LAN, not to TinkerNorth
 
@@ -169,7 +199,10 @@ on an address you can see in the app.
   by default, encrypted and authenticated with ChaCha20-Poly1305 under a
   session key derived from the pairing key (the pairing key itself never
   travels over UDP). Upstream frames carry controller state, motion, battery,
-  and touchpad. Downstream frames carry rumble, light-bar colour, heartbeat
+  and touchpad and, while a controller's microphone is open as section 2.1
+  describes, what it hears, as 20 ms Opus frames. Downstream frames carry
+  rumble, light-bar colour, the player lights, adaptive-trigger effects, the
+  mute lamp, the sound and haptics for a controller's own speaker, heartbeat
   acknowledgements, and session close.
 - **Moonlight hosts.** Dish can also be the controller for a Sunshine, Apollo
   or Wolf host, speaking the Moonlight (GameStream) protocol instead of the
@@ -244,8 +277,12 @@ no service, no scheduled task, and no update agent.
 
 **What the request carries.** Your IP address, as GitHub sees it, which is
 unavoidable for any HTTPS request. A `User-Agent` header of the form
-`Dish/<version> (Linux; x86_64)`. Nothing else. No device id, no account data,
-no settings, no usage data, no cookies, no query parameters, and no
+`Dish/<version> (Linux; x86_64)`, `Accept: application/json`, and
+`Accept-Language: *`, which is the same for everyone and never your system's
+languages. Beside those, only the headers Qt puts on every request: the host
+name, the compressions it can read (`Accept-Encoding`), `Cache-Control` and
+`Pragma` asking for a fresh copy, and `Connection`. No device id, no account
+data, no settings, no usage data, no cookies, no query parameters, and no
 conditional-request identifiers. GitHub's own
 [privacy statement](https://docs.github.com/site-policy/privacy-policies/github-general-privacy-statement)
 governs what GitHub logs about the request.
@@ -280,11 +317,15 @@ to a controller the next time it is plugged in.
 
 `dish.tinkernorth.com` is an Amazon S3 bucket behind Amazon CloudFront,
 operated for TinkerNorth by Amazon Web Services. The requests carry no
-identifier, no cookie and no query, and use Qt's default `User-Agent`, not the
-update check's `Dish/<version>` one. The only header the app adds is
-`If-None-Match`, carrying the ETag the server gave the last time, so an
-unchanged manifest is not sent again. What the host's access logs can see is
-what any web server sees: the IP address the request came from, and the time.
+identifier, no cookie and no query. Each one carries exactly these headers:
+the host name; Qt's default `User-Agent`, `Mozilla/5.0`, not the update check's
+`Dish/<version>` one; `Accept-Language: *`, the same for everyone and never
+your system's languages; the compressions Qt can read (`Accept-Encoding`);
+`Cache-Control` and `Pragma` asking for a fresh copy; `Connection`; and, on the
+manifest only, `If-None-Match`, carrying the ETag the server gave the last
+time, so an unchanged manifest is not sent again. What the host's access logs
+can see is what any web server sees: the IP address the request came from, and
+the time.
 We use those logs as we use the rest of the website's: for capacity planning
 and abuse detection only.
 
@@ -311,10 +352,13 @@ app's own `~/.var/app/com.tinkernorth.Dish/data/`) and runs your desktop's
 `xdg-email` to open your own mail app with a new message to
 `support@tinkernorth.com`. The subject is `Dish support: <the category, in
 your language> · Dish for Linux <version> on <PC model>`; the body is your
-own words first, then a summary of the Diagnostics page in your language; the
-file is attached. When `xdg-email` is not installed or no mail app takes the
-message, a `mailto:` link opens with the same subject and body and your file
-manager shows the folder for you to attach the file. *Save diagnostics*
+own words first, then a summary of the Diagnostics page in your language.
+`xdg-email` asks your mail app to attach the file, but only some mail apps
+(Thunderbird among them) do, so your file manager also opens the folder that
+holds the file, and the page names the file to attach if the message arrives
+without it. When `xdg-email` is not installed or no mail app takes the
+message, a `mailto:` link opens with the same subject and body instead, and
+the folder opens the same way. *Save diagnostics*
 writes the same file without a report and opens that folder in your file
 manager. Nothing is sent by the app: the mail leaves only when you click Send
 in your mail app, and you can read or edit it before you do. If you send it,
@@ -342,8 +386,10 @@ and how many reports went in and out of it), the audio switches it grants, its
 message counters, the state of its own controller list, and this connection's
 lines of its log. Satellite removes from it every machine name, every other
 client's name and address and every secret, and names your device "this
-connection"; Dish then replaces that host's name and address with its alias
-wherever either still appears. A Moonlight host (Sunshine, Apollo, Wolf) is
+connection"; Dish then replaces the name and the address of every host it
+lists with that host's alias wherever either still appears, in every
+snapshot and every line of the log, a host's name and its address being one
+alias. A Moonlight host (Sunshine, Apollo, Wolf) is
 not asked anything: the file holds the version its last answer to Dish gave.
 
 **What the file holds.** Your report, as above; the app's version and how it
@@ -367,10 +413,12 @@ reads and writes, a SHA-256 checksum of its USB descriptors, any
 mismatch between the record and what Dish saw, how many input reports it sent
 and at what rate, the last one (the buttons, sticks and triggers at that moment), for each kind of
 output (rumble, light bar, player lights, trigger effects, mute lamp) how
-many reached it, where they went and the last value with its time, whether
-its speaker and haptics streams are open, the last report Dish wrote to it
-(the report id, whether it went through and the kernel's error name when it
-did not), and your answers to *Did it work?* after a rumble test; for each
+many a host sent it, where they went and the last value with its time (an
+inspector test's own output is not counted), whether its speaker and haptics
+streams are open, the last report Dish wrote to it (the report id, whether it
+went through and the kernel's error name when it did not), and your answers
+to *Did it work?* after each test in the controller inspector, with the
+test's name and when it ended; for each
 paired Satellite or Moonlight host, an alias ("Host 1", "Host 2"), its kind
 and version, the protocol version the session settled on, its link state and
 which controller-audio directions it grants, Dish's own view of the session
@@ -490,18 +538,24 @@ do, so this is the equivalent list of what the app touches.
 |---|---|
 | Network sockets: UDP multicast, UDP broadcast listen, UDP unicast, TCP, TLS over TCP | Discovery, pairing, control plane, gamepad stream, for satellites and Moonlight hosts alike. All to your LAN. |
 | HTTPS to `github.com` | The update check, and only the check. Section 2.4. Only while *Check for updates automatically* is on. |
-| Game-controller device enumeration and IO | Reading controller input, and writing rumble and light-bar output back to the controller. `/dev/hidraw*` access is used for reading in USB-direct mode, which needs the udev rule the package installs. |
+| HTTPS to `dish.tinkernorth.com` | The controller database check, and only that check. Section 2.5. Only while *Check for controller updates automatically* is on, or when you click *Check now*. |
+| Game-controller device enumeration and IO | Reading controller input, and writing rumble, light, trigger and lamp output back to the controller. `/dev/hidraw*` access is used for reading and writing in USB-direct mode, which needs the udev rule the package installs. |
+| A controller's own audio device, through SDL2's audio | Playing the sound and haptics your PC sends for that controller, and opening its microphone only as section 2.1 describes. Never the computer's own microphone. |
 | `org.freedesktop.ScreenSaver.Inhibit` on the session bus | Preventing sleep while a controller is actively streaming, so input latency stays low. Released when streaming stops. |
 | XDG desktop portals (appearance, settings) | Following your light/dark and reduced-motion preferences. Read only. |
-| `/sys/class/bluetooth` and BlueZ on the system bus | Telling "no Bluetooth adapter" from "adapter switched off" in the setup wizard. Read only. |
+| `/sys/class/bluetooth` and BlueZ on the system bus | Telling "no Bluetooth adapter" from "adapter switched off" in the setup wizard, and asking which HID service (classic HID or HID over GATT) a paired Bluetooth controller lists, for a diagnostics file (section 2.6). Read only. |
+| sysfs reads for a diagnostics file | This PC's model (`/sys/class/dmi/id`), its battery (`/sys/class/power_supply`), its thermal state (`/sys/class/thermal`) and power profile (`/sys/firmware/acpi/platform_profile`), whether it has a USB host controller (`/sys/bus/usb/devices`), and for each controller its USB descriptors (`descriptors`), release number and strings, and its HID report descriptor (`report_descriptor`). Read only, and only into the file described in section 2.6. |
+| Running `xdg-email`, opening a `mailto:` link and a folder | Handing a diagnostics file to your own mail app, and showing the folder that holds it, only when you click *Continue in your mail app* or *Save diagnostics* (section 2.6). The folder and the link open through your desktop's default handler (`xdg-open`, or the desktop portal in the Flatpak). |
 | `~/.config/` read and write | Settings and pairing state, as listed in section 2.1. |
 | `$XDG_STATE_HOME/dish/` file write | The crash log described in section 3. |
+| `~/.local/share/TinkerNorth/Dish/controllers/` and `diagnostics/` file write | A downloaded controller list (section 2.5), and the diagnostics files you save or send (section 2.6). |
 | `~/.local/share/TinkerNorth/Dish/sentry/` file write | The crash reporter's run state and any report not yet sent (section 3), only while *Share crash reports* is on. |
 | Default browser launch | Opening the links listed in section 2.3, only when you click one. |
 
 The app runs as a normal user. It never asks for root, installs no service and
-no driver, does not read your files, and does not access the microphone,
-camera, location, contacts, or clipboard. USB-direct needs read/write on the
+no driver, does not read your files, and does not access the camera,
+location, contacts, or clipboard. The only microphone it ever opens is a
+controller's own (section 2.1). USB-direct needs read/write on the
 hidraw node, which the packaged udev rule grants to your logged-in seat; if
 that rule is absent the claim simply fails and the pad keeps streaming over
 SDL.

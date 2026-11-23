@@ -8,7 +8,8 @@
 // `xdg-email --attach <file> --subject <s> --body <b> support@tinkernorth.com`,
 // which opens a compose window and sends nothing itself. When xdg-email is not
 // on the PATH, fails to start or exits with anything but 0, a mailto: link
-// opens with the subject and body and the folder is shown, so the file can be
+// opens with the subject and body. The folder is shown either way, because
+// xdg-email attaches the file for Thunderbird only, so the file can be
 // attached by hand. Which of those runs is core/diagnostics/MailHandoff.h's
 // decision.
 //
@@ -70,8 +71,9 @@ class DiagnosticsHandoff : public QObject {
     void reveal(const QString& filePath) const;
 
   signals:
-    // `viaMailClient` is true when xdg-email took it, false when the mailto: fallback ran.
-    void handedOff(bool viaMailClient);
+    // `viaMailClient` is true when xdg-email took it, false when the mailto: fallback ran; the
+    // file's folder is open in both cases, and `fileName` is the file in it.
+    void handedOff(bool viaMailClient, const QString& fileName);
 
   private:
     void onFinished(int exitCode, QProcess::ExitStatus status);

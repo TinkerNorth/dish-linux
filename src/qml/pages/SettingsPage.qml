@@ -72,11 +72,15 @@ Kit.Page {
         const db = App.controllerDb;
         if (db.checking)
             return qsTr("Checking for controller updates…");
-        const checked = db.lastCheckAtMs > 0
-            ? Qt.formatDateTime(new Date(db.lastCheckAtMs), Locale.ShortFormat)
-            : qsTr("never");
-        return qsTr("Controller list v%1 · last checked %2").arg(db.activeVersion).arg(checked);
+        if (db.lastCheckAtMs <= 0)
+            return qsTr("Controller list v%1 · last checked %2").arg(db.activeVersion).arg(qsTr("never"));
+        // The result beside the time, as Diagnostics shows it: a time alone reads as success.
+        const checked = Qt.formatDateTime(new Date(db.lastCheckAtMs), Locale.ShortFormat);
+        return qsTr("Controller list v%1 · last checked %2: %3").arg(db.activeVersion).arg(checked)
+                                                                .arg(dbWords.resultText(db.lastCheckResult));
     }
+
+    ControllerDbVocabulary { id: dbWords }
 
     // var-typed: `shellApi` is a dynamic property, resolved at runtime.
     readonly property var shellView: StackView.view

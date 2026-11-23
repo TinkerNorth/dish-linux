@@ -46,6 +46,8 @@ Kit.Page {
     property string slotId: page.pads.length > 0 ? page.pads[0].slotId : ""
 
     property bool previewing: false
+    // The last file handed to the mail app, which the file manager now shows; "" before the first.
+    property string handedFileName: ""
     property string previewText: ""
 
     // "Capture this controller", offered for a pad Dish reads directly: its descriptors and the
@@ -65,7 +67,8 @@ Kit.Page {
 
     Connections {
         target: App
-        function onDiagnosticsMailHandedOff(viaMailClient) {
+        function onDiagnosticsMailHandedOff(viaMailClient, fileName) {
+            page.handedFileName = fileName;
             if (!page.shellApi)
                 return;
             page.shellApi.toast(viaMailClient
@@ -242,6 +245,15 @@ Kit.Page {
                         wrapMode: Text.WordWrap
                     }
                 }
+            }
+
+            Label {
+                Layout.fillWidth: true
+                visible: page.handedFileName !== ""
+                text: qsTr("Your mail should carry the file %1. If it does not, attach it from the folder that just opened.").arg(page.handedFileName)
+                color: Theme.onSurface
+                font.pixelSize: Tokens.textMeta
+                wrapMode: Text.WordWrap
             }
 
             Label {
