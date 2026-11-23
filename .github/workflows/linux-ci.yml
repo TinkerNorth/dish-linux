@@ -309,6 +309,11 @@ jobs:
       - name: Check, install and launch the .rpm
         run: ./scripts/test-package.sh rpm
 
+      # release.yml signs the .rpm with the repository key; this signs a copy
+      # with a throwaway key through the same script and has rpm verify it.
+      - name: Sign a copy of the .rpm as the release does
+        run: ./scripts/check-rpm-signing.sh dist/dish-[0-9]*.rpm
+
       - name: Upload the .rpm
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -320,8 +325,9 @@ jobs:
   # tag is too late to learn that one of them no longer works (a release was
   # lost to exactly that on 2026-11-23). This builds both repositories from the
   # two packages above through the same scripts, on the runner the publish
-  # jobs use, signs them with a throwaway key and reads them back as apt and
-  # dnf would. Nothing is published.
+  # jobs use, signs them with a throwaway key, reads them back, and installs
+  # and launches dish from each in a clean container, as a user would.
+  # Nothing is published.
   repos:
     name: APT and DNF repositories (built, not published)
     needs: [package, rpm]
@@ -350,6 +356,12 @@ jobs:
 
       - name: Build and read back the repositories
         run: ./scripts/check-package-repos.sh staging
+
+      # What a user does: add the repository as packaging/repo/README.md says,
+      # install dish with apt and with dnf (gpgcheck on), and launch it, each
+      # in a clean Debian or Fedora container.
+      - name: Install and launch from each repository
+        run: ./scripts/install-from-repos.sh dist/pages
 
   # The pull-request run of release.yml's harden job: the shared
   # _release_harden.yml in dry-run mode over the two packages above, so the

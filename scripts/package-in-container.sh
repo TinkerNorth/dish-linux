@@ -10,7 +10,9 @@
 #   scripts/package-in-container.sh arch <AppImage>    build the dish-bin package and a signed
 #                                                      pacman repository from that AppImage
 #   scripts/package-in-container.sh repos <dir>        build and read back the APT and DNF
-#                                                      repositories from the .deb and .rpm in <dir>
+#                                                      repositories from the .deb and .rpm in <dir>,
+#                                                      then install and launch from each
+#                                                      (scripts/install-from-repos.sh)
 #
 # The image tags come from scripts/tools.sh, the same tags linux-ci.yml and
 # release.yml name. The tree goes in as a copy of the tracked and untracked
@@ -76,4 +78,9 @@ git ls-files -z --cached --others --exclude-standard \
         --cpuset-cpus "0-$((cpus - 1))" --memory "${memory}" \
         -v "${out}:/out" "${extra[@]+"${extra[@]}"}" \
         "${image}" bash -c "set -euo pipefail; mkdir -p /src; tar -xf - -C /src; cd /src; ${run}"
+if [ "${lane}" = repos ]; then
+    # The install a user does, from the tree just built, each in its own
+    # clean container; it starts those itself, so it runs from the host.
+    scripts/install-from-repos.sh "${out}/pages"
+fi
 echo "=== ${lane} lane passed; artifacts in ${out} ==="

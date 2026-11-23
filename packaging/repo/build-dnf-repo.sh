@@ -20,7 +20,7 @@
 # Usage:
 #   build-dnf-repo.sh <pages-dir> <release-staging-dir>
 #
-# Requires: createrepo_c, gpg (with $GPG_KEY_ID imported), $REPO_BASE_URL.
+# Requires: createrepo_c, rpmsign, gpg (with $GPG_KEY_ID imported), $REPO_BASE_URL.
 set -euo pipefail
 
 PAGES_DIR="${1:-}"
@@ -53,6 +53,16 @@ else
         echo "+ adding $(basename "$rpm")"
         cp -v "$rpm" "$repo_dir/"
     done
+fi
+
+# ── 2. Sign every package in the tree with the repository key ──────────────
+# dish.repo sets gpgcheck=1, so dnf refuses an unsigned package even from a
+# repository whose metadata is signed. A package release.yml already signed
+# with this key is left as it is; anything else is signed here.
+here="$(cd "$(dirname "$0")" && pwd)"
+pool=("$repo_dir"/*.rpm)
+if [ "${#pool[@]}" -gt 0 ]; then
+    "$here/sign-rpm.sh" "${pool[@]}"
 fi
 
 # Regenerate metadata from scratch (cheap at our scale).

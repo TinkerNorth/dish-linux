@@ -7,7 +7,7 @@
 #   scripts/package-deps.sh deb     the .deb build, lint and launch (Debian)
 #   scripts/package-deps.sh rpm     the .rpm build and launch (Fedora)
 #   scripts/package-deps.sh arch    makepkg and repo-add (Arch Linux)
-#   scripts/package-deps.sh repos   apt-ftparchive, createrepo_c and gpg (Debian or Ubuntu)
+#   scripts/package-deps.sh repos   apt-ftparchive, createrepo_c, rpmsign and gpg (Debian or Ubuntu)
 #   scripts/package-deps.sh appimage  the AppImage build host (Ubuntu 22.04)
 #
 # linux-ci.yml, release.yml and scripts/package-in-container.sh all call this,
@@ -46,7 +46,8 @@ rpm)
         qt6-qtbase-devel qt6-qtdeclarative-devel qt6-qtsvg-devel qt6-qttools-devel \
         libsodium-devel SDL2-devel openssl-devel opus-devel dbus-devel \
         libcurl-devel \
-        librsvg2-tools desktop-file-utils libappstream-glib gzip
+        librsvg2-tools desktop-file-utils libappstream-glib gzip \
+        rpm-sign gnupg2
     # The image carries curl-minimal, which conflicts with the full curl the
     # Sentry upload step uses.
     dnf -y install --allowerasing curl
@@ -75,7 +76,7 @@ CONF
 repos)
     apt-get update
     DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-        apt-utils createrepo-c gnupg gzip zstd ca-certificates
+        apt-utils createrepo-c rpm gnupg gzip zstd ca-certificates
     ;;
 arch)
     pacman -Syu --noconfirm --needed git pacman-contrib gnupg

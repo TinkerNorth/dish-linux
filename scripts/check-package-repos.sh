@@ -14,7 +14,8 @@
 # with the run, then reads them back the way a client does: apt fetches and
 # verifies the signed index and downloads the package, and the DNF metadata's
 # signature and checksums are checked against the package. Nothing is
-# published.
+# published. scripts/install-from-repos.sh then installs from the tree this
+# writes, as a user would.
 #
 # Needs apt-utils, apt, createrepo_c and gpg (Debian/Ubuntu), and root or sudo
 # for apt. linux-ci.yml's repos job runs it on the runner the publish jobs run
@@ -58,7 +59,9 @@ echo "=== APT repository ==="
 DISH_APT_ARCH="${deb_arch}" packaging/repo/build-apt-repo.sh "${pages}" "${staging}"
 
 echo "=== DNF repository ==="
-DISH_RPM_ARCH="${rpm_arch}" REPO_BASE_URL="file://${pages}" \
+# file:///pages: the path scripts/install-from-repos.sh mounts this tree at, so
+# the .repo file it installs resolves inside its Fedora container.
+DISH_RPM_ARCH="${rpm_arch}" REPO_BASE_URL="file:///pages" \
     packaging/repo/build-dnf-repo.sh "${pages}" "${staging}"
 
 echo "=== apt reads the repository back ==="
@@ -100,14 +103,17 @@ repodata="${pages}/rpm/${rpm_arch}/repodata"
 gpg --batch --verify "${repodata}/repomd.xml.asc" "${repodata}/repomd.xml" \
     || fail "repomd.xml's signature does not verify"
 primary="$(find "${repodata}" -name '*primary.xml*' -print -quit)"
-sum="$(sha256sum "${rpm}" | cut -d' ' -f1)"
+# The pool's copy: build-dnf-repo.sh signed it, so its bytes, not the staged
+# file's, are what the metadata describes and what dnf installs.
+pooled="${pages}/rpm/${rpm_arch}/$(basename "${rpm}")"
+sum="$(sha256sum "${pooled}" | cut -d' ' -f1)"
 case "${primary}" in
 *.gz) contents="$(gzip -dc "${primary}")" ;;
 *.zst) contents="$(zstd -dc "${primary}")" ;;
 *) contents="$(cat "${primary}")" ;;
 esac
 grep -q "<name>dish</name>" <<<"${contents}" || fail "the DNF metadata lists no dish package"
-grep -q "${sum}" <<<"${contents}" || fail "the DNF metadata's checksum is not the .rpm's"
-grep -q "baseurl=file://${pages}/rpm/${rpm_arch}" "${pages}/rpm/dish.repo" || fail "dish.repo points somewhere else"
+grep -q "${sum}" <<<"${contents}" || fail "the DNF metadata's checksum is not the pooled .rpm's"
+grep -qx "baseurl=file:///pages/rpm/${rpm_arch}" "${pages}/rpm/dish.repo" || fail "dish.repo points somewhere else"
 
 echo "::notice::APT and DNF repositories built, signed and read back; nothing published"

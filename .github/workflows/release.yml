@@ -251,6 +251,24 @@ jobs:
           SENTRY_PROJECT: ${{ vars.SENTRY_PROJECT }}
         run: ./scripts/sentry-cli.sh symbols build-package
 
+      # dnf refuses an unsigned package from the DNF repository, whose .repo
+      # sets gpgcheck=1, so the .rpm is signed with the repository key before
+      # it is hardened: the downloadable file and the repository's copy are
+      # then the same bytes. linux-ci.yml's rpm job rehearses this step with
+      # a throwaway key (scripts/check-rpm-signing.sh).
+      - name: Sign the .rpm with the repository key
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+          GPG_KEY_ID: ${{ secrets.GPG_KEY_ID }}
+        run: |
+          set -euo pipefail
+          if [ -z "${GPG_PRIVATE_KEY:-}" ] || [ -z "${GPG_KEY_ID:-}" ]; then
+            echo "::warning::GPG_PRIVATE_KEY / GPG_KEY_ID not set; the .rpm ships unsigned and rpm-publish skips."
+            exit 0
+          fi
+          printf '%s' "$GPG_PRIVATE_KEY" | gpg --batch --import
+          ./packaging/repo/sign-rpm.sh dist/dish-[0-9]*.rpm
+
       # Payload, udev scriptlet, install and launch (with Qt's journald
       # logging sent back to stderr): the script linux-ci.yml's rpm job runs.
       - name: Check, install and launch the .rpm
@@ -625,9 +643,9 @@ jobs:
             echo "skip=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Install apt-utils + GPG
+      - name: Install the repository tools
         if: steps.gate.outputs.skip != 'true'
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends apt-utils gnupg
+        run: sudo main/scripts/package-deps.sh repos
 
       - name: Import signing key
         if: steps.gate.outputs.skip != 'true'
@@ -736,9 +754,9 @@ jobs:
             echo "skip=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Install createrepo_c + GPG
+      - name: Install the repository tools
         if: steps.gate.outputs.skip != 'true'
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends createrepo-c gnupg
+        run: sudo main/scripts/package-deps.sh repos
 
       - name: Import signing key
         if: steps.gate.outputs.skip != 'true'
