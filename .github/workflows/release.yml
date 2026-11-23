@@ -444,11 +444,15 @@ jobs:
           export QT_QPA_PLATFORM=offscreen
           export XDG_RUNTIME_DIR=/tmp/dish-runtime
           mkdir -p "$XDG_RUNTIME_DIR"
+          # Fedora builds Qt with journald logging, and Qt then writes its
+          # messages to the journal whenever stderr is not a terminal: the
+          # log this step reads stayed empty, so every check on it was blind.
+          export QT_FORCE_STDERR_LOGGING=1
           # The SVG handler is a run-time plugin, so its absence shows up as
           # "Unsupported image format" per glyph rather than as a link error.
           echo "--- Qt image-format plugins ---"
-          ls -1 /usr/lib/*/qt6/plugins/imageformats/ 2>/dev/null || echo "(no imageformats directory)"
-          dpkg -S /usr/lib/*/qt6/plugins/imageformats/libqsvg.so 2>/dev/null \
+          ls -1 /usr/lib64/qt6/plugins/imageformats/ 2>/dev/null || echo "(no imageformats directory)"
+          rpm -qf /usr/lib64/qt6/plugins/imageformats/libqsvg.so 2>/dev/null \
             || echo "libqsvg.so is absent — no package here provides it"
           # Signalled by hand rather than through `timeout`, which reports 124
           # whether the child shut down cleanly or had to be killed — the one
