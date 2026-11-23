@@ -54,8 +54,8 @@ launch each one in the container CI uses. For a tarball,
 
 | Format | Built by | Targets | Notes |
 |---|---|---|---|
-| `.deb` | CPack `DEB` (`scripts/build-deb.sh`), in a `debian:13.7` container | Debian 13+, derivatives with Qt ≥ 6.7 | `dpkg-shlibdeps` computes the Qt/SDL/sodium versions; the QML modules and the platform plugin are listed by hand in `DISH_DEB_RUNTIME_DEPENDS` because nothing links them |
-| `.rpm` | CPack `RPM` (`scripts/build-rpm.sh`), in a `fedora:44` container | Fedora, RHEL, openSUSE | rpmbuild's soname scanner does the same job |
+| `.deb` | CPack `DEB` (`scripts/build-deb.sh`), in a `debian:13.7` container | Debian 13; tested on Ubuntu 25.10 and 26.04 | `dpkg-shlibdeps` computes the Qt/SDL/sodium versions; the QML modules and the platform plugin are listed by hand in `DISH_DEB_RUNTIME_DEPENDS` because nothing links them |
+| `.rpm` | CPack `RPM` (`scripts/build-rpm.sh`), in a `fedora:44` container | Fedora 44 and 45 | rpmbuild's soname scanner does the same job, and it carries Fedora 44's glibc 2.43 and Qt 6.11 symbol versions, so Fedora 43 cannot install it |
 | AppImage | `scripts/build-appimage.sh` on Ubuntu 22.04, with Qt 6.12.1 and SDL2 2.32.10 bundled | everything else with glibc 2.35 or newer, including an LTS below the Qt floor | Cannot install a udev rule; carries it at `usr/share/dish/` and prints how to install it. Needs FUSE 2 to run in place, or `--appimage-extract-and-run` |
 | Flatpak | `scripts/build-flatpak.sh` from `packaging/flatpak/com.tinkernorth.Dish.yml` on `org.kde.Platform//6.11` | old LTS, and anyone who wants the sandbox | Needs `--device=all` for hidraw; there is no hidraw portal. Like the AppImage, it cannot install a udev rule: until `packaging/udev/70-dish-hidraw.rules` is on the host (`sudo install -m 644 70-dish-hidraw.rules /etc/udev/rules.d/ && sudo udevadm control --reload-rules && sudo udevadm trigger`), every USB-direct claim, the third-party pads the controller database names included, returns PermissionDenied and the pad stays on SDL |
 | `.tar.gz` | CPack `TGZ` | packagers laying the tree down under their own prefix | |
@@ -63,6 +63,29 @@ launch each one in the container CI uses. For a tarball,
 Build each native package on the distro it targets. Both dependency scanners
 read the built binary, so a `.deb` built against the aqtinstall Qt would demand
 a Qt no Debian ships.
+
+### Which releases each package installs on
+
+The packages depend on Qt's public ABI only. The QML is compiled to bytecode
+(`QT_QMLCACHEGEN_ARGUMENTS --only-bytecode` in `CMakeLists.txt`), because the
+C++ qmlcachegen writes otherwise calls one private Qt symbol
+(`QQmlPrivate::compositeMetaType`, symbol version `Qt_6_PRIVATE_API`), and a
+private symbol ties the package to the exact Qt build: 2.8.1's `.deb` requires
+`qt6-declarative-private-abi (= 6.8.2)`, and its `.rpm` requires
+`libQt6Qml.so.6(Qt_6.10_PRIVATE_API)`, which on an up-to-date Fedora 44 makes
+dnf downgrade the system's Qt to install it.
+
+Tested by installing the package and launching it (`scripts/launch-check.sh`)
+in each release's container:
+
+| Package | Built on | Installs and starts on | Does not install on |
+|---|---|---|---|
+| `.deb` | Debian 13 | Debian 13, Ubuntu 25.10, Ubuntu 26.04 | Debian testing (its libsodium has moved on); Ubuntu 24.04 (Qt 6.4.2) |
+| `.rpm` | Fedora 44 | Fedora 44, Fedora 45 | Fedora 43 (glibc 2.42, Qt 6.10; end of life 2026-12-01): the AppImage or the Flatpak |
+
+One `.rpm` serves both supported Fedora releases: Fedora 45 carries the same
+Qt 6.11 and a newer glibc. When a Fedora release moves past the build host's
+Qt minor or glibc, it gets its own `.rpm`.
 
 The `.deb` and `.rpm` jobs, in pull requests and in the release, **install
 their own package and launch it** (`scripts/test-package.sh`), and the
@@ -90,8 +113,8 @@ Publishing is a channel, not a format. Every stable release tag feeds:
 
 | Channel | Who it serves | How it updates |
 |---|---|---|
-| APT repo (`https://tinkernorth.github.io/dish-linux/debian`) | Debian 13+ | `apt upgrade` |
-| DNF repo (`https://tinkernorth.github.io/dish-linux/rpm`) | Fedora/RHEL/openSUSE | `dnf upgrade` |
+| APT repo (`https://tinkernorth.github.io/dish-linux/debian`) | Debian 13 (and the Ubuntu releases above) | `apt upgrade` |
+| DNF repo (`https://tinkernorth.github.io/dish-linux/rpm`) | Fedora 44 and 45 | `dnf upgrade` |
 | pacman repo (`https://tinkernorth.github.io/dish-linux/arch/$arch`) | Arch | `pacman -Syu` (`arch-publish` builds `dish-bin` from [`packaging/aur/`](../packaging/aur/) each release) |
 | GitHub Releases | everyone else, Ubuntu LTS and Steam Deck included | the AppImage self-updates via zsync (AppImageUpdate, Gear Lever); the `.flatpak` bundle and the packages are manual |
 
@@ -195,7 +218,7 @@ launches is Debian 13's 6.8, in the `.deb` lane.
 | Distro | Ships | Status |
 |---|---|---|
 | Debian 13 | 6.8 | fine |
-| Fedora 40+ | 6.7 | fine |
+| Fedora 44 and 45 | 6.11 | fine |
 | Arch | current | fine |
 | Ubuntu 24.04 LTS | 6.4.2 | **too old**: the AppImage or the Flatpak |
 

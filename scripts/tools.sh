@@ -27,6 +27,8 @@
 # down (QTBUG-142514, DISH-LINUX-1), which 6.10.3 and later turn into a thrown
 # TypeError. Upstream's regression test for that bug (tst_qmlcppcodegen's
 # deadContext cases) was re-run against 6.12.1 when it was pinned and passed.
+# The QML is now compiled to bytecode only (CMakeLists.txt), so no AOT code
+# ships at all.
 export DISH_QT_VERSION="6.12.1"
 export DISH_AQTINSTALL_VERSION="3.3.0"
 
