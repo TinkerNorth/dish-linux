@@ -144,6 +144,15 @@ void ControllerDbStore::load() {
     }
     active_ = cdb::chooseActive(bundled_, loadCache());
     publish();
+    // Once at start, so a package whose binary lost the compiled-in resource (bundled version 0)
+    // fails its install-and-launch check instead of shipping.
+    const int bundledVersion = bundled_ != nullptr ? bundled_->dbVersion() : 0;
+    const qsizetype bundledRecords =
+        bundled_ != nullptr ? static_cast<qsizetype>(bundled_->db().records.size()) : 0;
+    const int activeVersion = active_ != nullptr ? active_->dbVersion() : 0;
+    qCInfo(lcDishControllerDb).nospace()
+        << "controller database: bundled dbVersion " << bundledVersion << " with " << bundledRecords
+        << " records; in force dbVersion " << activeVersion;
 }
 
 cdb::CatalogPtr ControllerDbStore::loadCache() const {
