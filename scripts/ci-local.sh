@@ -28,10 +28,15 @@
 # -Wold-style-cast diverge materially); reproduce the other leg with
 # --compiler clang.
 #
+# The security gates run here through the same shared scripts _security.yml
+# runs (check-action-pins.sh, security-allowlist.py, osv-scan.sh) and the same
+# gitleaks command, with OSV-Scanner and gitleaks at the versions
+# scripts/tools.sh pins (Linux x86_64 and macOS arm64), fetched into
+# build/tools/. Python 3.11+ with PyYAML.
+#
 # CI-only, with the reason:
-#   the action-pin lint, OSV-Scanner, gitleaks, dependency review and the
-#     allowlist expiry (security.yml, through _security.yml): they read GitHub
-#     state or the full history; the pin lint below is the same awk.
+#   dependency review (security.yml): a GitHub API over the pull request's
+#     dependency graph; off until the repository's Dependency graph setting is.
 #   CodeQL (codeql.yml): GitHub's analyzer, not installable as a gate.
 #   the AppImage and its dish-bin package (appimage-ci.yml): an x86_64 jammy
 #     host; locally, scripts/package-in-container.sh arch takes a built AppImage.
@@ -119,28 +124,28 @@ if have clang-format; then
 fi
 
 step "Action pin lint (40-char SHA required)"
-# The same awk _security.yml runs, over the same two directories.
-fail=0
-while IFS= read -r -d '' file; do
-    awk '
-    /^[[:space:]]*#/ { next }
-    { sub(/[[:space:]]+#.*$/, "", $0) }
-    /^[[:space:]]*-?[[:space:]]*uses:[[:space:]]+[^[:space:]]+/ {
-      line = $0
-      sub(/^[[:space:]]*-?[[:space:]]*uses:[[:space:]]+/, "", line)
-      sub(/[[:space:]]+$/, "", line)
-      if (line ~ /^\.\//) { next }
-      if (line ~ /^docker:\/\/[^@]+@sha256:[0-9a-f]{64}$/) { next }
-      if (line !~ /@[0-9a-f]{40}$/) { printf "%s: %s\n", FILENAME, line; exit 2 }
-      if (line ~ /@0{40}$/) { printf "%s: %s (all-zero placeholder)\n", FILENAME, line; exit 2 }
-    }
-  ' "$file" || fail=1
-done < <(find .github/workflows .github/actions -type f \( -name '*.yml' -o -name '*.yaml' \) -print0)
-[ "$fail" -eq 0 ] || {
-    echo "unpinned action reference" >&2
+# The shared script _security.yml runs, over the same directories.
+sh scripts/check-action-pins.sh
+
+step "Vulnerability allowlist expiry check"
+python3 scripts/security-allowlist.py check
+
+step "OSV-Scanner (vendored + manifest deps)"
+# The pinned binaries from scripts/tools.sh, with the arguments security.yml
+# passes _security.yml.
+tools_dir="build/tools"
+if fetch_security_tools "${tools_dir}"; then
+    OSV_SCANNER="${tools_dir}/osv-scanner" \
+        bash scripts/osv-scan.sh --lockfile-script scripts/osv-lockfile.sh -- .
+
+    step "Secret scan (gitleaks)"
+    "${tools_dir}/gitleaks" git --config=.gitleaks.toml --redact --exit-code=1 .
+elif [ "$ALLOW_MISSING" -eq 1 ]; then
+    echo "::notice:: no pinned OSV-Scanner or gitleaks for this platform; CI gates both. Skipping (--allow-missing)."
+else
+    echo "No pinned OSV-Scanner or gitleaks for this platform, and CI gates both. Re-run with --allow-missing." >&2
     exit 1
-}
-echo "action pins: OK"
+fi
 
 step "Configure (Debug, preset debug)"
 cmake --preset debug

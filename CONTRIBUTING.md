@@ -368,7 +368,7 @@ is known to work at all.
 
 ## What CI runs
 
-`linux-ci.yml`, nine jobs:
+`linux-ci.yml`, ten jobs:
 
 - `ci` ("Build, test, lint, format"), once per compiler (gcc and clang):
   `scripts/check-format.sh`, the Debug build and `ctest`,
@@ -394,6 +394,10 @@ is known to work at all.
   container: the payload, the udev reload scriptlet, the install and launch
   (with `QT_FORCE_STDERR_LOGGING=1`, because Fedora's Qt logs to journald when
   stderr is not a terminal).
+- `release-dry-run`: the shared `_release_harden.yml` in dry-run mode over
+  those two packages: Grype, the SBOMs, `SHA256SUMS`, and every file signed
+  into a Sigstore bundle with a throwaway key and verified. Nothing leaves the
+  runner.
 - `repos`: the APT and DNF repositories built from those two packages by the
   scripts `apt-publish` and `rpm-publish` run, signed with a throwaway key
   and read back as apt and dnf would (`scripts/check-package-repos.sh`).
@@ -429,9 +433,13 @@ path, and on every release; see [`tools/bench/README.md`](tools/bench/README.md)
 
 Security gates (also blocking):
 
-- `security.yml`: action-pin lint, vulnerability allowlist expiry,
-  OSV-Scanner against the worktree, gitleaks secret scan, GitHub
-  `dependency-review-action`.
+- `security.yml`, through the shared `_security.yml`:
+  `scripts/check-action-pins.sh`, the allowlist gate
+  (`scripts/security-allowlist.py`), OSV-Scanner through `scripts/osv-scan.sh`
+  over the tree and the components `scripts/osv-lockfile.sh` names by
+  upstream commit, and gitleaks over the full history. Dependency review is
+  off (`dependency_review_enabled: false`) until the repository's Dependency
+  graph setting is on.
 - `codeql.yml`: CodeQL `cpp` analysis (security-extended and
   security-and-quality query packs), blocking, with the results uploaded to
   code scanning.
@@ -448,51 +456,42 @@ suppression.
 
 ### Running security checks locally
 
+`scripts/ci-local.sh` runs them after the version check, through the scripts
+`_security.yml` runs, with OSV-Scanner and gitleaks at the versions
+`scripts/tools.sh` pins (fetched into `build/tools/`, Linux x86_64 and macOS
+arm64). By hand, from the repository root:
+
 ```bash
-# Action-pin lint (40-char SHA enforcement on every uses: line)
-grep -REn '^\s*uses:' .github/workflows/ \
-  | grep -vE '@[0-9a-f]{40}\b' \
-  || echo "all pinned"
-
-# Allowlist expiry
-python3 - <<'PY'
-import datetime, yaml, sys
-data = yaml.safe_load(open('.security/allowlist.yaml').read()) or {}
-for e in data.get('exceptions', []) or []:
-    if datetime.date.fromisoformat(str(e['expires'])) < datetime.date.today():
-        print('EXPIRED:', e); sys.exit(1)
-PY
-
-# OSV-Scanner
-osv-scanner --recursive --skip-git .
-
-# Gitleaks
-gitleaks detect --no-banner --redact --source .
+sh scripts/check-action-pins.sh                   # every uses: pinned to a SHA with # vX.Y.Z
+python3 scripts/security-allowlist.py check        # Python 3.11+ with PyYAML
+OSV_SCANNER=build/tools/osv-scanner \
+  bash scripts/osv-scan.sh --lockfile-script scripts/osv-lockfile.sh -- .
+build/tools/gitleaks git --config=.gitleaks.toml --redact --exit-code=1 .
 ```
 
 ### Verifying a release artifact
 
 Each GitHub Release ships the `.deb`, the `.rpm`, the AppImage (with its
 `.zsync` and `.sha256`) and the Flatpak bundle, each under its versioned name
-and its stable name, `latest.json`, a cosign keyless `.sig` and `.crt` for each,
-`SHA256SUMS` with its own `.sig` and `.crt`, the SPDX and CycloneDX SBOMs,
+and its stable name, `latest.json`, `SHA256SUMS`, the SPDX and CycloneDX
+SBOMs, one cosign keyless Sigstore bundle `<file>.sigstore.json` per file,
 `dish-linux.intoto.jsonl` (SLSA L3 provenance) and the release measurements.
-The signing runs in `_release_harden.yml`, so that is the certificate
-identity:
+The signing runs in `_release_harden.yml`, so that workflow at the tag is the
+certificate identity:
 
 ```bash
-sha256sum -c SHA256SUMS
-
+TAG=X.Y.Z
 cosign verify-blob \
-  --certificate SHA256SUMS.crt \
-  --signature   SHA256SUMS.sig \
-  --certificate-identity-regexp '^https://github\.com/TinkerNorth/dish-linux/\.github/workflows/_release_harden\.yml@refs/tags/[0-9]+\.[0-9]+\.[0-9]+$' \
-  --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
+  --bundle SHA256SUMS.sigstore.json \
+  --certificate-identity "https://github.com/TinkerNorth/dish-linux/.github/workflows/_release_harden.yml@refs/tags/$TAG" \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
   SHA256SUMS
+sha256sum --ignore-missing -c SHA256SUMS
 ```
 
-Both pass against release 2.8.1. `slsa-verifier` currently rejects the
-provenance; [`SECURITY.md`](SECURITY.md) has the full recipe and the reason.
+Releases up to 2.8.1 carry `.sig` and `.crt` instead of bundles;
+[`SECURITY.md`](SECURITY.md) has the full recipe, the older form (run against
+2.8.1), and why `slsa-verifier` currently rejects the provenance.
 
 ## Cutting a release
 
@@ -546,14 +545,21 @@ The procedure:
 4. **Check the published release.** Download it, run the verification recipe
    above, and install the `.deb` or `.rpm` and launch it.
 
-A failed release run publishes nothing. A `workflow_dispatch` on the tag runs
-the tag's own `release.yml`, and the repository jobs only run for a tag push,
-so a release whose workflow needed a fix ships as the next patch version.
+A failed release run publishes nothing. To re-run a release, dispatch it on
+the tag ref, `gh workflow run release.yml --ref X.Y.Z -f tag=X.Y.Z`: the
+signing certificate names the ref the run is on, so a dispatch from `main`
+would sign as `@refs/heads/main`, and `_release_harden.yml` refuses to sign
+off a tag. A dispatch on the tag runs the tag's own `release.yml`, and the
+repository jobs only run for a tag push, so a release whose workflow needed a
+fix ships as the next patch version.
 Every tag-time job has a pull-request twin (`package`, `rpm`, `repos`,
 `appimage`, `arch`, `flatpak`, `sentry-sdk`), so the tag should not be the
-first time any of them runs. What a pull request cannot exercise: the signing
-and provenance (they need the tag's OIDC identity), the Sentry uploads (they
-need the secrets), and the `gh-pages` push.
+first time any of them runs. `linux-ci.yml`'s `release-dry-run` runs the
+shared hardening over the pull request's `.deb` and `.rpm` with a throwaway
+key. What a pull request cannot exercise: the keyless signing through Fulcio
+and Rekor, the code-scanning upload and the SLSA provenance (they need the
+tag's OIDC identity), the Sentry uploads (they need the secrets), and the
+`gh-pages` push.
 
 ## Touching the hot path
 

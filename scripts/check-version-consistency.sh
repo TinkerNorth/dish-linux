@@ -18,7 +18,9 @@
 #   Catch2            the tests/CMakeLists.txt fallback pin -> licenses.json
 #   the KDE runtime   scripts/tools.sh DISH_KDE_RUNTIME -> both Flatpak manifests,
 #                     docs/PACKAGING.md, and no other org.kde.Platform// branch anywhere
-#   the Flatpak deps  the Flathub template's modules match the sideload manifest's
+#   libsodium, ENet   scripts/tools.sh -> both Flatpak manifests, THIRD_PARTY.md, licenses.json
+#   security tools    scripts/tools.sh OSV-Scanner and gitleaks -> the shared _security.yml
+#   the tools table   THIRD_PARTY.md section 11 -> scripts/tools.sh and the shared workflows
 #   containers        scripts/tools.sh images -> every workflow `container:` line
 #   clang-format      scripts/tools.sh -> .clang-format's header
 #   the protocol      kProtocolVersion -> docs/contract.md, CONTRIBUTING.md
@@ -152,12 +154,42 @@ stale=$(git grep -nE "runtime-version: '[0-9]" -- packaging | grep -vF "runtime-
 [ -z "${stale}" ] || err "a manifest names another runtime-version:
 ${stale}"
 
-# --- the Flathub template keeps the sideload manifest's dependencies ---------
-for pin in \
-    "$(grep -E '^\s+url: https://github.com/jedisct1/libsodium/' "${sideload}")" \
-    "$(grep -A1 -E '^\s+url: https://github.com/jedisct1/libsodium/' "${sideload}" | tail -1)"
+# --- libsodium (Flatpak module) and ENet (vendored) ---------------------------
+echo "libsodium ${DISH_LIBSODIUM_VERSION}, ENet ${DISH_ENET_COMMIT:0:7}"
+for manifest in "${sideload}" "${flathub}"; do
+    has "${manifest}" "libsodium/releases/download/${DISH_LIBSODIUM_VERSION}-RELEASE/libsodium-${DISH_LIBSODIUM_VERSION}.tar.gz" \
+        "the libsodium module is not ${DISH_LIBSODIUM_VERSION}"
+done
+[ "$(license_version libsodium)" = "${DISH_LIBSODIUM_VERSION}" ] \
+    || err "${licenses}: libsodium version is not ${DISH_LIBSODIUM_VERSION}"
+has THIRD_PARTY.md "\`${DISH_ENET_COMMIT}\`" "does not name the vendored ENet commit ${DISH_ENET_COMMIT}"
+has THIRD_PARTY.md "commit \`${DISH_ENET_COMMIT:0:7}\`" "the summary row does not name ENet commit ${DISH_ENET_COMMIT:0:7}"
+[ "$(license_version enet)" = "${DISH_ENET_COMMIT:0:7}" ] || err "${licenses}: enet version is not ${DISH_ENET_COMMIT:0:7}"
+
+# --- the security tools: the shared _security.yml against scripts/tools.sh ----
+security=.github/workflows/_security.yml
+echo "OSV-Scanner ${DISH_OSV_SCANNER_VERSION}, gitleaks ${DISH_GITLEAKS_VERSION}"
+has "${security}" "OSV_SCANNER_VERSION: \"${DISH_OSV_SCANNER_VERSION}\"" "does not pin OSV-Scanner ${DISH_OSV_SCANNER_VERSION}"
+has "${security}" "\"${DISH_OSV_SCANNER_SHA256_LINUX_AMD64}\"" "its OSV-Scanner SHA-256 is not scripts/tools.sh's"
+has "${security}" "GITLEAKS_VERSION: \"${DISH_GITLEAKS_VERSION}\"" "does not pin gitleaks ${DISH_GITLEAKS_VERSION}"
+has "${security}" "\"${DISH_GITLEAKS_SHA256_LINUX_AMD64}\"" "its gitleaks SHA-256 is not scripts/tools.sh's"
+
+# --- THIRD_PARTY.md's tool table against the pins -------------------------------
+harden=.github/workflows/_release_harden.yml
+for row in \
+    "AppImage type2-runtime|${DISH_APPIMAGE_RUNTIME_VERSION}" \
+    "appimagetool|${DISH_APPIMAGETOOL_VERSION}" \
+    "linuxdeploy|${DISH_LINUXDEPLOY_VERSION}" \
+    "linuxdeploy-plugin-qt|${DISH_LINUXDEPLOY_QT_VERSION}" \
+    "Qt (official binaries via aqtinstall)|${DISH_QT_VERSION}" \
+    "OSV-Scanner|${DISH_OSV_SCANNER_VERSION}" \
+    "gitleaks|${DISH_GITLEAKS_VERSION}" \
+    "clang-format|${DISH_CLANG_FORMAT_VERSION}" \
+    "cosign|$(sed -nE 's/^ +COSIGN_VERSION: "([0-9.]+)".*/\1/p' "${harden}")" \
+    "Syft|$(sed -nE 's/^ +SYFT_VERSION: "([0-9.]+)".*/\1/p' "${harden}")" \
+    "Grype|$(sed -nE 's/^ +GRYPE_VERSION: "([0-9.]+)".*/\1/p' "${harden}")"
 do
-    has "${flathub}" "${pin#"${pin%%[![:space:]]*}"}" "differs from ${sideload} on libsodium"
+    has THIRD_PARTY.md "| ${row%%|*} | ${row#*|} |" "the tools table does not give ${row%%|*} ${row#*|}"
 done
 
 # --- containers --------------------------------------------------------------

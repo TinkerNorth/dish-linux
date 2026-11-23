@@ -63,6 +63,19 @@ the repos share a version number.
   at numbered releases and fail on a SHA-256 mismatch, instead of `continuous`
   with a warning. The AppImage's smoke test now also requires the controller
   database line.
+- The security gates and the release hardening are the fleet's shared
+  `_security.yml` and `_release_harden.yml`, byte-identical in every
+  repository, with the shared `check-action-pins.sh`, `osv-scan.sh` and
+  `security-allowlist.py` that `scripts/ci-local.sh` runs too. OSV-Scanner
+  2.7.1 now scans the sources this tree builds (ENet, SDL2, libsodium,
+  sentry-native, Catch2) by upstream commit through `scripts/osv-lockfile.sh`;
+  before, it found no packages and passed. Releases are signed with cosign
+  3.1.4 into one `<file>.sigstore.json` bundle per file instead of a `.sig`
+  and a `.crt`, scanned with Grype 0.122.1 and described by Syft 1.57.2, and
+  every pull request runs the hardening in dry-run mode on its own packages.
+- The Catch2 fallback moves to v3.16.1, and the coverage lane builds against
+  it. The AppImage build resolves the app's own QML module for linuxdeploy's
+  scanner and fails on any linuxdeploy error.
 - CodeQL blocks and uploads its results. Containers are pinned to release
   tags, every checkout drops its credentials, the release tag pattern is
   `[0-9]*.[0-9]*.[0-9]*`, and clang-format moves to 23.1.5 (no source change).

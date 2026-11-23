@@ -510,6 +510,34 @@ Deliberately NOT consulted, to keep this LGPL-3.0 project clear of GPL-3.0
 Moonlight code: moonlight-common-c, moonlight-qt, moonlight-android, Sunshine,
 Apollo. Wolf's documentation and MIT source were sufficient.
 
+## 11. Build, packaging and release tools
+
+None of these is linked into `dish`. They build, check or sign it, and the
+pins live in `scripts/tools.sh` or in the shared `_security.yml` and
+`_release_harden.yml`, which `scripts/check-version-consistency.sh` holds to
+these rows. One reaches users: the AppImage runtime is the executable header
+of every AppImage.
+
+| Tool | Version | SPDX | Role |
+|---|---|---|---|
+| AppImage type2-runtime | 20251108 | `MIT` | The AppImage's runtime, embedded in every AppImage by appimagetool. |
+| appimagetool | 1.9.1 | `MIT` | Packs the AppDir into the AppImage and writes its `.zsync`. |
+| linuxdeploy | 1-alpha-20251107-1 | `MIT` | Collects the AppImage's libraries. |
+| linuxdeploy-plugin-qt | 1-alpha-20250213-1 | `MIT` | Collects Qt's plugins and QML modules for the AppImage. |
+| Qt (official binaries via aqtinstall) | 6.12.1 | `LGPL-3.0-only` | CI's and the AppImage's Qt; section 2 covers its terms. |
+| cosign | 3.1.4 | `Apache-2.0` | Signs every release file into a Sigstore bundle. |
+| Syft | 1.57.2 | `Apache-2.0` | Writes the release SBOMs. |
+| Grype | 0.122.1 | `Apache-2.0` | Scans the release files for known vulnerabilities. |
+| OSV-Scanner | 2.7.1 | `Apache-2.0` | Scans the tree and the pinned sources on every pull request. |
+| gitleaks | 8.30.1 | `MIT` | Scans the history for secrets on every pull request. |
+| clang-format | 23.1.5 | `Apache-2.0 WITH LLVM-exception` | The formatter gate. |
+
+The AppImage runtime's notice (its `LICENSE`, MIT):
+
+```
+Copyright (c) 2004-23 probonopd
+```
+
 ---
 
 ## Keeping this in sync

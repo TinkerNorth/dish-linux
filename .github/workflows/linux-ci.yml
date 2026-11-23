@@ -269,10 +269,12 @@ jobs:
       - name: Check, install and launch the .deb
         run: ./scripts/test-package.sh deb
 
+      # Named as release.yml's deb job names its upload, so the release-dry-run
+      # job below hardens what a tag would.
       - name: Upload the .deb
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: dish-deb-debian13
+          name: linux-deb
           path: dist/*.deb
           retention-days: 14
 
@@ -310,7 +312,7 @@ jobs:
       - name: Upload the .rpm
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: dish-rpm-fedora44
+          name: linux-rpm
           path: dist/*.rpm
           retention-days: 14
 
@@ -337,17 +339,35 @@ jobs:
       - name: Download the .deb
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          name: dish-deb-debian13
+          name: linux-deb
           path: staging
 
       - name: Download the .rpm
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          name: dish-rpm-fedora44
+          name: linux-rpm
           path: staging
 
       - name: Build and read back the repositories
         run: ./scripts/check-package-repos.sh staging
+
+  # The pull-request run of release.yml's harden job: the shared
+  # _release_harden.yml in dry-run mode over the two packages above, so the
+  # Grype scan, the SBOMs, SHA256SUMS and the signing and verifying loop run
+  # before a tag needs them. Signing uses a key made in the run and nothing
+  # leaves the runner. What it cannot exercise: Fulcio, Rekor and the keyless
+  # identity (no id-token on a pull request), the code-scanning SARIF upload,
+  # and the SLSA generator (it needs id-token and a tag).
+  release-dry-run:
+    name: Release hardening (dry run)
+    needs: [package, rpm]
+    permissions:
+      contents: read
+    uses: ./.github/workflows/_release_harden.yml
+    with:
+      artifact-pattern: linux-*
+      product: dish
+      dry-run: true
 
   coverage:
     name: Coverage

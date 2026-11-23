@@ -74,20 +74,17 @@ concurrency:
 jobs:
   gates:
     name: PR-time gates against tag
-    # Must be a superset of _security.yml's own permissions block: a called
-    # workflow asking for more than the caller holds fails the run outright.
+    # Exactly what _security.yml declares: a called workflow asking for more
+    # than the caller holds fails the run outright.
     permissions:
       contents: read
       pull-requests: read
-      security-events: write
     uses: ./.github/workflows/_security.yml
     with:
-      osv_scan_paths: |
-        .
-      gitleaks_enabled: true
+      osv_scan_paths: .
+      # The same inputs as security.yml, with the same reasons.
+      osv_lockfile_script: scripts/osv-lockfile.sh
       dependency_review_enabled: false
-      action_pin_lint_enabled: true
-      allowlist_expiry_enabled: true
 
   required-secrets:
     name: Required release secrets gate

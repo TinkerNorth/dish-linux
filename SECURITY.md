@@ -102,16 +102,28 @@ Each repo runs the same shape of gates.
 
 **On every PR** (blocking):
 
-- Action-pin lint: every `uses:` line must reference a 40-character SHA.
-- Allowlist expiry: `.security/allowlist.yaml` entries must be unexpired.
-- Dependency review: GitHub advisory database (PR only).
-- OSV-Scanner: vendored components and manifest dependencies, scoped per
-  ecosystem (see each repo's `security.yml`).
-- Gitleaks: secret scanning over the worktree.
+The jobs live in the shared `_security.yml`, byte-identical in every repo.
+
+- Action-pin lint: every `uses:` line must reference a 40-character SHA with
+  a `# vX.Y.Z` comment.
+- Allowlist expiry: `.security/allowlist.yaml` entries must be complete,
+  unexpired and at most 90 days out; the allowlist is the only place a
+  vulnerability is accepted.
+- Dependency review: GitHub advisory database (PR only). Off in every repo
+  until its Dependency graph setting is switched on.
+- OSV-Scanner 2.7.1: manifest dependencies, and code vendored or built from
+  source named by its upstream commit (for `dish-linux`: ENet, SDL2,
+  libsodium, sentry-native and Catch2, through `scripts/osv-lockfile.sh`).
+  "No packages found" fails.
+- Gitleaks: secret scanning over the full history.
 - CodeQL: `cpp` for `satellite`, `dish-windows` and `dish-linux`, `swift`
   for `dish-mac` and `dish-ios`, `java-kotlin` and `cpp` for `dish-android`.
 
 **On every tagged release** (also blocking):
+
+The hardening lives in the shared `_release_harden.yml`; every pull request
+runs it in dry-run mode on that pull request's own packages, signed with a
+throwaway key.
 
 - A re-run of every PR-time gate against the tagged commit.
 - Required-secrets gate: refuses to publish if the platform signing secret
@@ -119,12 +131,14 @@ Each repo runs the same shape of gates.
   notarization, Android keystore). Linux binaries carry no platform
   signature, so for `dish-linux` the gate enforces that the cosign keyless
   flow can authenticate.
-- Artifact-level vulnerability scan: Anchore Grype, fails on CRITICAL and
+- Artifact-level vulnerability scan: Grype 0.122.1, fails on CRITICAL and
   HIGH.
-- SBOM generation: Syft, both SPDX-JSON and CycloneDX-JSON.
-- `SHA256SUMS` over every artifact, its signatures and the SBOMs.
-- Cosign keyless signing: every artifact and `SHA256SUMS` get a `.sig` and
-  a `.crt`, anchored in the Sigstore transparency log.
+- SBOM generation: Syft 1.57.2, both SPDX-JSON and CycloneDX-JSON.
+- `SHA256SUMS` over every artifact and the SBOMs.
+- Cosign 3.1.4 keyless signing: every artifact and `SHA256SUMS` get one
+  Sigstore bundle, `<file>.sigstore.json`, anchored in the transparency log.
+  Releases signed before this (Dish for Linux up to 2.8.1) carry a `.sig` and
+  a `.crt` instead.
 - SLSA L3 build provenance: `slsa-framework/slsa-github-generator` emits
   `<repo>.intoto.jsonl`.
 
@@ -135,14 +149,14 @@ the release before any artifact lands on the GitHub Release page.
 
 ## Verifying a release artifact (consumer recipe)
 
-The commands below are for Dish for Linux and were run against release
-2.8.1. The other repos follow the same steps with their own file names and
-signing workflow; each repo's own `SECURITY.md` carries its recipe.
+The commands below are for Dish for Linux. The other repos follow the same
+steps with their own file names; each repo's own `SECURITY.md` carries its
+recipe.
 
 ### 0) Pre-requisites
 
 ```bash
-# cosign (2.x or 3.x; both verify these signatures)
+# cosign 3.x
 brew install cosign            # macOS
 go install github.com/sigstore/cosign/v3/cmd/cosign@latest
 
@@ -152,79 +166,79 @@ go install github.com/slsa-framework/slsa-verifier/v2/cli/slsa-verifier@latest
 
 ### 1) Download every file from the Release
 
-For tag `X.Y.Z`:
-
 ```bash
-gh release download X.Y.Z -R TinkerNorth/dish-linux -D ./release
-cd release
-ls
+TAG=X.Y.Z
+gh release download "$TAG" -R TinkerNorth/dish-linux -D "dish-linux-$TAG"
+cd "dish-linux-$TAG"
 ```
 
-You should see, for 2.8.1:
+A release carries the `.deb` (`dish_X.Y.Z_amd64.deb` and `dish-amd64.deb`),
+the `.rpm` (`dish-X.Y.Z-1.x86_64.rpm` and `dish-x86_64.rpm`), the AppImage
+(`Dish-X.Y.Z-x86_64.AppImage` and `Dish-x86_64.AppImage`, with `.zsync` and
+`.sha256`), the Flatpak bundle (`Dish-X.Y.Z-x86_64.flatpak` and
+`Dish-x86_64.flatpak`), `latest.json`, `SHA256SUMS`,
+`dish.sbom.spdx.json` and `dish.sbom.cdx.json`, one `<file>.sigstore.json` per
+file, `dish-linux.intoto.jsonl` (SLSA L3 provenance), and
+`measurements-X.Y.Z.md` and `.json`, attached after hardening and so not in
+`SHA256SUMS`.
 
-```
-dish_2.8.1_amd64.deb          dish-amd64.deb          # the .deb, versioned and stable name
-dish-2.8.1-1.x86_64.rpm       dish-x86_64.rpm         # the .rpm
-Dish-2.8.1-x86_64.AppImage    Dish-x86_64.AppImage    # the AppImage, plus .zsync and .sha256
-Dish-2.8.1-x86_64.flatpak     Dish-x86_64.flatpak     # the Flatpak bundle
-latest.json                                           # the in-app update manifest
-*.sig  *.crt                                          # a cosign signature and certificate per file
-SHA256SUMS  SHA256SUMS.sig  SHA256SUMS.crt
-dish.sbom.spdx.json  dish.sbom.cdx.json
-dish-linux.intoto.jsonl                               # SLSA L3 provenance
-measurements-2.8.1.md  measurements-2.8.1.json        # attached after hardening, not in SHA256SUMS
-```
-
-### 2) Verify the checksum bundle
-
-```bash
-sha256sum -c SHA256SUMS         # Linux
-shasum -a 256 -c SHA256SUMS     # macOS
-```
-
-Every line must say `OK` (13 lines for 2.8.1). A failure here means the
-artifact was modified after release.
-
-### 3) Verify cosign signed `SHA256SUMS` from the right workflow
-
-The signing step runs in the reusable `_release_harden.yml` that
-`release.yml` calls, so that workflow is the certificate identity:
+### 2) Verify that this repository's release workflow signed `SHA256SUMS`, on this tag
 
 ```bash
 cosign verify-blob \
-  --certificate SHA256SUMS.crt \
-  --signature   SHA256SUMS.sig \
-  --certificate-identity-regexp '^https://github\.com/TinkerNorth/dish-linux/\.github/workflows/_release_harden\.yml@refs/tags/[0-9]+\.[0-9]+\.[0-9]+$' \
-  --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
+  --bundle SHA256SUMS.sigstore.json \
+  --certificate-identity "https://github.com/TinkerNorth/dish-linux/.github/workflows/_release_harden.yml@refs/tags/$TAG" \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
   SHA256SUMS
 ```
 
-Output ends with `Verified OK`. The identity binds the signature to that
-workflow on `TinkerNorth/dish-linux` at a release tag; the Sigstore
-transparency log (`https://search.sigstore.dev/`) carries the same record.
+Output ends with `Verified OK`. The identity is exact and names
+`_release_harden.yml`, because the Fulcio certificate's identity is the
+workflow that ran the signing step (its Build Config URI extension names the
+calling `release.yml`); the tag is bare `X.Y.Z`. The Sigstore transparency log
+(`https://search.sigstore.dev/`) carries the same record.
 
-To verify each package individually (not just `SHA256SUMS`):
+### 3) Verify every file against it
 
 ```bash
-for f in *.deb *.rpm *.AppImage *.flatpak; do
-  [ -f "$f" ] || continue
-  cosign verify-blob \
-    --certificate "$f.crt" \
-    --signature   "$f.sig" \
-    --certificate-identity-regexp '^https://github\.com/TinkerNorth/dish-linux/\.github/workflows/_release_harden\.yml@refs/tags/[0-9]+\.[0-9]+\.[0-9]+$' \
-    --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
-    "$f"
-done
+sha256sum --ignore-missing -c SHA256SUMS         # Linux
+shasum -a 256 --ignore-missing -c SHA256SUMS     # macOS
+```
+
+Every line must say `OK`. A failure means the file was modified after
+release. One file's own bundle verifies the same way as step 2:
+
+```bash
+cosign verify-blob \
+  --bundle dish_X.Y.Z_amd64.deb.sigstore.json \
+  --certificate-identity "https://github.com/TinkerNorth/dish-linux/.github/workflows/_release_harden.yml@refs/tags/$TAG" \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  dish_X.Y.Z_amd64.deb
+```
+
+### Releases up to 2.8.1: `.sig` and `.crt`
+
+Releases signed before the bundles carry a detached signature and a
+certificate per file. cosign 3 still verifies them with the older flags (it
+prints two deprecation lines). Run against 2.8.1, these print `Verified OK`:
+
+```bash
+TAG=2.8.1
+cosign verify-blob \
+  --certificate SHA256SUMS.crt --signature SHA256SUMS.sig \
+  --certificate-identity "https://github.com/TinkerNorth/dish-linux/.github/workflows/_release_harden.yml@refs/tags/$TAG" \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  SHA256SUMS
+shasum -a 256 -c SHA256SUMS    # 13 lines, all OK for 2.8.1
 ```
 
 ### 4) Verify the SLSA L3 provenance
 
 ```bash
-slsa-verifier verify-artifact \
+slsa-verifier verify-artifact dish_X.Y.Z_amd64.deb \
   --provenance-path dish-linux.intoto.jsonl \
   --source-uri      github.com/TinkerNorth/dish-linux \
-  --source-tag      X.Y.Z \
-  dish_X.Y.Z_amd64.deb
+  --source-tag      "$TAG"
 ```
 
 This is meant to end with `PASSED: SLSA verification passed`. It does not
@@ -249,17 +263,22 @@ diff <(jq -S . prev-release/dish.sbom.spdx.json) \
 - **The SLSA provenance does not verify with slsa-verifier.** Against 2.8.1,
   step 4 fails with `invalid ref: "f7dd8c54c2067bafc12ca7a55595d5ee9b75204a":
   unexpected ref type: ""`. `release.yml` calls the SLSA generator by commit
-  SHA, and slsa-verifier accepts only a generator called at a release tag.
-  The provenance file is genuine and signed; until the call changes, steps 2
-  and 3 are the verification that passes.
+  SHA, and the generator's own documentation says its workflows "MUST be
+  referenced by tag in order for the `slsa-verifier` to be able to verify the
+  ref of the trusted builder/generator's reusable workflow", as `@vX.Y.Z`
+  (slsa-verifier issue 12 tracks verifying a SHA-pinned call). The fleet's
+  action-pin lint requires every `uses:` to be a commit SHA, so the two rules
+  conflict, and the choice between them is open. The provenance file is
+  genuine and signed; until the call changes, steps 2 and 3 are the
+  verification that passes.
 - **Vendored-header scanners.** `satellite/lib/` and
   `satellite/vigem/include/` are not understood by ecosystem scanners. We
   feed OSV-Scanner a synthetic `osv-scanner.toml` derived from
   [`lib/VENDORED.md` in TinkerNorth/satellite](https://github.com/TinkerNorth/satellite/blob/main/lib/VENDORED.md),
   and the `vendored-freshness` CI job fails if any `Last-vendored:` date is
-  more than 90 days old. dish-linux and dish-windows vendor ENet under
-  `third_party/enet/`, which OSV-Scanner cannot see either; its pinned commit
-  is recorded in `THIRD_PARTY.md`.
+  more than 90 days old. dish-linux names its vendored ENet and the sources it
+  builds (SDL2, libsodium, sentry-native, Catch2) by upstream commit the same
+  way, through `scripts/osv-lockfile.sh`.
 - **macOS virtual pads are entitlement-gated.** The macOS satellite backend
   synthesizes virtual DualShock 4 controllers via `IOHIDUserDevice`, which
   requires the `com.apple.developer.hid.virtual.device` entitlement.

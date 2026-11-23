@@ -52,7 +52,7 @@ fi
 pool_dir="$PAGES_DIR/debian/pool/${COMPONENT}/d/dish"
 mkdir -p "$pool_dir"
 shopt -s nullglob
-debs=("$STAGING_DIR"/dish_*_${ARCH}.deb)
+debs=("$STAGING_DIR"/dish_*_"${ARCH}".deb)
 if [ "${#debs[@]}" -eq 0 ]; then
     echo "::warning::No dish_*_${ARCH}.deb found in $STAGING_DIR; nothing to add"
 else
