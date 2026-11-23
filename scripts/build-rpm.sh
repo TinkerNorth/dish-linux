@@ -3,10 +3,10 @@
 # Copyright (C) 2026 Dish contributors.
 #
 # Build an RPM package for Dish. Same rails as scripts/build-deb.sh (the
-# `package` preset plus cpack), with the generator swapped: release.yml's rpm
-# job calls this inside a fedora container so rpmbuild's soname scanner
-# writes the Requires against Fedora's packages; a local run on another
-# distro proves the CPack wiring and layout only.
+# `package` preset plus cpack), with the generator swapped: release.yml's and
+# linux-ci.yml's rpm jobs call this inside a fedora container so rpmbuild's
+# soname scanner writes the Requires against Fedora's packages; a local run on
+# another distro proves the CPack wiring and layout only.
 #
 # Output: ./dist/dish-<version>.<arch>.rpm
 set -euo pipefail

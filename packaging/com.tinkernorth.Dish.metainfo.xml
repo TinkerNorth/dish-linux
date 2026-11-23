@@ -111,8 +111,8 @@
   <!-- Kept in step with project(Dish VERSION ...); version-consistency.yml
        fails the PR that moves one without the other. -->
   <releases>
-    <release version="2.8.0" date="2026-11-23" type="stable">
-      <url type="details">https://github.com/TinkerNorth/dish-linux/releases/tag/2.8.0</url>
+    <release version="2.8.1" date="2026-11-23" type="stable">
+      <url type="details">https://github.com/TinkerNorth/dish-linux/releases/tag/2.8.1</url>
       <description>
         <p>Dish ships the controller list the whole Dish family now shares, 272 controllers, and checks dish.tinkernorth.com for a newer one ten seconds after it starts and every six hours, with no identifier; Settings turns the check off, and with it off nothing is asked. Each controller's Diagnostics card names the record it matched, whether that record is verified, any known issue for this computer, what the controller's descriptor showed against the record, and the last report Dish wrote to it.</p>
         <p>The controller inspector tests every output a controller's connection carries (rumble, trigger rumble, light bar, player lights, adaptive triggers, mic lamp, speaker tone, haptics and microphone level) and its sticks, puts back what the game had set, and asks "Did it work?" after each test.</p>

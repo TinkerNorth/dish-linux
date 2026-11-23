@@ -16,7 +16,13 @@ the repos share a version number.
 
 ---
 
-## [2.8.0] - 2026-11-23
+## [2.8.1] - 2026-11-23
+
+2.8.0 was tagged and never published: the release's Fedora package check read
+an empty log, because Fedora's Qt writes to the journal when stderr is not a
+terminal, and refused the build. 2.8.1 is that same code as the fixed pipeline
+builds it, and the pull request checks now build, install and start the `.rpm`
+as they do the `.deb`.
 
 ### Added
 

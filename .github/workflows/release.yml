@@ -353,6 +353,9 @@ jobs:
   # =========================================================================
   # .rpm — Fedora, RHEL and openSUSE. Same reasoning as the .deb: build where
   # the Qt comes from, and let rpmbuild's soname scanner write the Requires.
+  # linux-ci.yml's rpm job holds the same dependency install, build and the
+  # two package steps below it, so a pull request proves them before a tag
+  # does; both change together.
   # =========================================================================
   rpm:
     name: Build .rpm (Fedora)
