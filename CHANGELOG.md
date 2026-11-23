@@ -29,12 +29,23 @@ the repos share a version number.
   against its SHA-256 and size, parsed, checked for schema 1 and then swapped
   in atomically under `~/.local/share/TinkerNorth/Dish/controllers/v1/`. Any
   failure keeps the list in force. A newer list applies to a controller at
-  its next attach.
+  its next attach. A later list is taken as this build can read it: a
+  strings file for a language the build does not ship is left out rather
+  than refusing the list, and a record that uses a word this build does not
+  know stays in the list, inert, so the bundled record for that controller
+  stays in force. The log says at start which list was bundled and which is
+  in force, and the package checks refuse a build that lost its bundled list.
 - **Settings: "Check for controller updates automatically"** (on by default,
   the Flatpak included) and **"Check now"**, which is disabled while the
   switch is off. With the switch off, no request for the list leaves the
   machine. The request carries no identifier, no query and Qt's default
-  `User-Agent`.
+  `User-Agent`, and `Accept-Language: *` instead of the system's languages;
+  the update check sends the same fixed `Accept-Language`. A check whose
+  answer is not 200 or 304 (the list not published yet, a timeout, a busy
+  server) is "could not reach dish.tinkernorth.com", never "the download did
+  not verify", which is kept for bytes that arrived and failed their check.
+  Settings shows the last check's result beside its time, as Diagnostics
+  does.
 - **Each controller's record on the Diagnostics card.** The record it matched,
   its name from the database's strings in your language (English where a
   language has none), a chip for its verification state (Verified, Layout
@@ -43,15 +54,17 @@ the repos share a version number.
 - **A served record drives how a Direct pad decodes.** The gateway that first
   enumerates a pad resolves its model once, at attach: the compiled tables
   first, then the database row in force for its id, then the vendor
-  fallback. The model (family, button order, init kind, whether it goes
-  Direct by itself, a receiver's slots, extended buttons, Steam trackpads,
-  whether releasing it brings back a framework gamepad) is pinned on the
-  pad's record, and the capability solve, the claim, the read loop, the
+  fallback. The model (family, button order, whether it goes Direct by
+  itself, a receiver's slots, extended buttons, Steam trackpads, whether
+  releasing it brings back a framework gamepad) is pinned on the pad's
+  record, and the capability solve, the claim, the read loop, the
   output worker, the health judgement and the SDL path's effect builders all
   read it, so a newer list applies at a pad's next attach and never under a
-  pad in use. A row that needs a family or op this build lacks leaves the
-  bundled row for its id in force; a `flagged` row gives way to a bundled one
-  too. The resolver is an immutable snapshot of the active and bundled
+  pad in use. The record's init kind and output route are read but drive
+  nothing: a pad's init and its write route follow its family, which is right
+  for every family the desktops run. A row that needs a family or op this
+  build lacks leaves the bundled row for its id in force; a `flagged` row
+  gives way to a bundled one too. The resolver is an immutable snapshot of the active and bundled
   catalogs that the app swaps whole when the list changes.
 - **Hardware check at attach.** On the Direct path the record's `expect` is
   compared with the claimed interface's endpoints as sysfs lists them, as
@@ -80,7 +93,7 @@ the repos share a version number.
 - **"Last write" on a Direct controller's card**: the route, the report id,
   whether the pad took it and the kernel's `errno` name when it did not,
   recorded by the claim's output worker without a lock or an allocation.
-- **"Did it work?" after each rumble test** in the controller inspector. The
+- **"Did it work?" after every test** in the controller inspector. The
   answer is kept per controller as `worked` or `didNotWork`, the last twenty,
   for this run, and the last one shows on the inspector and the Diagnostics
   card.
@@ -99,15 +112,22 @@ the repos share a version number.
   and runs `xdg-email --attach <file> --subject <s> --body <b>
   support@tinkernorth.com`, subject `Dish support: <category> · Dish for
   Linux <version> on <PC model>` (the prefix stays English so the mailbox can
-  sort on it), your words first and the Diagnostics summary after, the file
-  attached; where `xdg-email` is missing or no mail app takes it, a `mailto:`
-  link opens and the file manager shows the folder. *Save diagnostics* writes
-  the same file without a report. Nothing is sent until you click Send.
+  sort on it), your words first and the Diagnostics summary after.
+  `xdg-email` attaches the file for Thunderbird only and hands other mail apps
+  the message without it, so the file manager shows the file's folder after
+  every hand-off, and the page names the file the mail should carry; where
+  `xdg-email` is missing or no mail app takes it, a `mailto:` link opens and
+  the folder opens the same way. The `.deb` recommends and the `.rpm`
+  suggests `xdg-utils`. *Save diagnostics* writes the same file without a
+  report. Nothing is sent until you click Send.
 - **Both ends of every host in the file.** While the report page is open,
   each live Satellite of 2.3.0 or later is asked for its own account of the
   session (`GET /api/connections/{id}/diagnostics`, over the session's pinned
   HTTPS and proof, two seconds at most) and the answer is embedded with that
-  host's name and address replaced by its alias wherever they appear. An
+  name and address of every host the file lists replaced by that host's
+  alias wherever they appear, in every snapshot and every log line, keys
+  included, never inside a longer word or number; a host's name and its
+  address are one alias. An
   older Satellite, told by the version its capabilities reported, is not
   asked: the file carries what Dish already fetched from it and says
   `olderSatellite`; one that cannot answer says `offline`, `timeout`,
@@ -136,7 +156,9 @@ the repos share a version number.
 - The file never holds pairing keys, certificate fingerprints, IP addresses,
   Bluetooth addresses, Wi-Fi names, the names of your PCs and devices or the
   machine's host name: hosts appear as "Host 1", "Host 2", and the PC is
-  named by its firmware's model, or "Linux PC".
+  named by its firmware's model, or "Linux PC". In the Flatpak the
+  distribution is the host's, from `/run/host/os-release`, not the KDE
+  runtime's.
 - **The controller inspector tests every item a controller's path carries**
   (dish-website `docs/diagnostics-bundle.md`, "The bench"), from Dish alone
   with no host in the loop, at the strengths and times every client uses:
@@ -146,7 +168,8 @@ the repos share a version number.
   pulsing, for 2 s), the speaker's test tone and the same tone on the HD
   haptics (660 Hz then 880 Hz, 800 ms), the microphone's level (live, up to
   8 s) and the two stick tests. A row shows only where the path carries its
-  item, by the same answer the game's own writes pass; `tests/PARITY.md` §5b
+  item, and a test runs only there (the haptics tone only where the pad's
+  haptics lane is), by the same answer the game's own writes pass; `tests/PARITY.md` §5b
   says why each missing one cannot be carried. Trigger rumble rides SDL alone
   (`SDL_GameControllerRumbleTriggers`, where `SDL_GameControllerHasRumbleTriggers`
   says the driver drives the motors). The tone and the microphone open the
@@ -158,7 +181,9 @@ the repos share a version number.
   written over it. The other surfaces keep following the game. A test's own
   writes are not counted in the file's output lanes, so a rumble test never
   reads as the host's rumble; a game's value held back during a test is
-  counted when it arrives.
+  counted when it arrives. A stick test's end never cuts short another test
+  started meanwhile, and a test still holding a surface at quit gives it back
+  before the pads close.
 - After every test the inspector asks "Did it work?" once; the answer is kept
   under the test's contract name (`triggerRumble.left`, `lightbar.cycle`,
   `stick.drift`, ...) with the time the test ended, and rides in the file.
@@ -214,9 +239,13 @@ the repos share a version number.
   `TrackedMutex`, no allocation, and the ledger's readers never hold a sender
   up. The SDL output mailbox gains a trigger-rumble kind; its fields are
   reordered so its state still copies as five words.
-- The compiled Direct tables (`kKnownModels`, the fast-lane vendors) stay, and
-  a test requires every row to match its database record; they answer first,
-  and a served row only adds an id they lack.
+- The compiled Direct tables (`kKnownModels`, and the five Sony products the
+  parser is chosen for by id) stay, and a test requires every row to match
+  its database record; they answer first. Every other id, the Nintendo,
+  8BitDo and other Sony ids the build reads by vendor rule included, is
+  decided by the served row for it at its next attach, behind the probe;
+  dbVersion 1 changes 48 such ids, all database-only third-party DualShock 4
+  and DualSense pads plus `054c:05c5`.
 - Hot path: the session counts each message kind it sends and receives with
   relaxed atomics. The router records each pad's output lane on every rumble,
   light-bar, player-LED, trigger-effect and mic-lamp message it routes: one `system_clock::now()` read and three relaxed atomic

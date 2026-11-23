@@ -39,6 +39,11 @@
       out to it, and your package manager owns the binary. In the Flatpak that
       check starts off, because Flathub delivers the updates.
     </p>
+    <p>
+      Dish also checks dish.tinkernorth.com for a newer list of the controllers it
+      recognises, shortly after launch and every six hours. The request carries no
+      identifier, and a switch in Settings turns it off.
+    </p>
   </description>
 
   <launchable type="desktop-id">com.tinkernorth.Dish.desktop</launchable>
