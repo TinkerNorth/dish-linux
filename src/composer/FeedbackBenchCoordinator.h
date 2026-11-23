@@ -51,14 +51,17 @@ class FeedbackBenchCoordinator : public QObject {
 
     // Starts the test on the slot's pad, ending whatever test the pad was running first; that
     // one is never asked about. A stick test only opens its run: the inspector's stick bench
-    // measures it and says when it ends (endStickTest).
+    // measures it and says when it ends (endTest).
     void start(const QString& slotId, reducer::BenchTest test);
     // The slot's running test ends now, as if it had run its course: the microphone test the
-    // person stopped early, or a stick test the inspector finished.
+    // person stopped early.
     void endNow(const QString& slotId);
-    // The slot's running test stops and is never asked about: the inspector let go of a stick
-    // test it was measuring.
-    void cancel(const QString& slotId);
+    // `test` ends now as if it had run its course, if it is still the slot's running test: a
+    // stick test the inspector finished. A test started since runs on.
+    void endTest(const QString& slotId, reducer::BenchTest test);
+    // `test` stops and is never asked about, if it is still the slot's running test: the
+    // inspector let go of a stick test it was measuring. A test started since runs on.
+    void cancel(const QString& slotId, reducer::BenchTest test);
     // The person's answer to the slot's ended test.
     void answer(const QString& slotId, bool worked);
 

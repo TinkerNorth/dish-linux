@@ -2065,7 +2065,9 @@ void AppViewModel::startInputInspection(const QString& slotId) {
 // A stick test the inspector stops measuring has no result to ask about.
 void AppViewModel::dropStickTest() {
     const bool measuring = stickBench_.phase() == input::StickTestPhase::Running;
-    if (measuring && !inspectedSlotId_.isEmpty()) { model_->bench()->cancel(inspectedSlotId_); }
+    if (measuring && !inspectedSlotId_.isEmpty()) {
+        model_->bench()->cancel(inspectedSlotId_, benchTestOfStickKind(stickBench_.kind()));
+    }
     stickBench_.clear();
 }
 
@@ -2123,7 +2125,9 @@ void AppViewModel::onInspectionTick() {
     const bool wasRunning = stickBench_.phase() == input::StickTestPhase::Running;
     stickBench_.advance(now);
     const bool justEnded = wasRunning && stickBench_.phase() != input::StickTestPhase::Running;
-    if (justEnded) { model_->bench()->endNow(inspectedSlotId_); }
+    if (justEnded) {
+        model_->bench()->endTest(inspectedSlotId_, benchTestOfStickKind(stickBench_.kind()));
+    }
     publishStickTest(now);
 }
 

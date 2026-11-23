@@ -108,9 +108,15 @@ void FeedbackBenchCoordinator::endNow(const QString& slotId) {
     endRun(slotId, it->second.run.ticket);
 }
 
-void FeedbackBenchCoordinator::cancel(const QString& slotId) {
+void FeedbackBenchCoordinator::endTest(const QString& slotId, reducer::BenchTest test) {
     const auto it = benches_.find(slotId);
-    if (it == benches_.end() || !it->second.run.running.has_value()) { return; }
+    if (it == benches_.end() || it->second.run.running != test) { return; }
+    endRun(slotId, it->second.run.ticket);
+}
+
+void FeedbackBenchCoordinator::cancel(const QString& slotId, reducer::BenchTest test) {
+    const auto it = benches_.find(slotId);
+    if (it == benches_.end() || it->second.run.running != test) { return; }
     stop(slotId, it->second);
     it->second.run.running.reset();
     emit benchChanged();

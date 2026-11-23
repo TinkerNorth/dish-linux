@@ -360,9 +360,29 @@ TEST_CASE("a stick test is a run the inspector's bench ends, and it is asked abo
 TEST_CASE("a stick test the inspector lets go of is never asked about", "[diagnostics][bench]") {
     Bench bench;
     bench.coordinator.start(kSlot, BenchTest::StickRange);
-    bench.coordinator.cancel(kSlot);
+    bench.coordinator.cancel(kSlot, BenchTest::StickRange);
     CHECK_FALSE(bench.coordinator.runFor(kSlot).running.has_value());
     CHECK_FALSE(bench.coordinator.runFor(kSlot).asking.has_value());
+}
+
+// The inspector's stick capture runs on its own clock; a light-bar test started while it ran
+// replaced the stick run, and the capture's end must not cut that test short and ask about it.
+TEST_CASE("a stick test's end leaves a test started meanwhile running", "[diagnostics][bench]") {
+    Bench bench;
+    bench.coordinator.start(kSlot, BenchTest::StickDrift);
+    bench.coordinator.start(kSlot, BenchTest::LightbarCycle);
+    bench.coordinator.endTest(kSlot, BenchTest::StickDrift);
+    CHECK(bench.coordinator.runFor(kSlot).running == BenchTest::LightbarCycle);
+    CHECK_FALSE(bench.coordinator.runFor(kSlot).asking.has_value());
+    SECTION("and so does letting go of the stick test") {
+        bench.coordinator.cancel(kSlot, BenchTest::StickDrift);
+        CHECK(bench.coordinator.runFor(kSlot).running == BenchTest::LightbarCycle);
+    }
+    SECTION("while the stick test's own end still ends it") {
+        bench.coordinator.start(kSlot, BenchTest::StickDrift);
+        bench.coordinator.endTest(kSlot, BenchTest::StickDrift);
+        CHECK(bench.coordinator.runFor(kSlot).asking == BenchTest::StickDrift);
+    }
 }
 
 TEST_CASE("an answer with no ended test records nothing", "[diagnostics][bench]") {
