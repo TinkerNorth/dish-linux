@@ -35,6 +35,16 @@ the repos share a version number.
   life in May.
 - **The Licenses screen names ENet and OpenSSL**, which every build carries;
   `THIRD_PARTY.md` now says what the AppImage and the Flatpak bundle.
+- **A new README.** It follows the shape every Dish README now shares: what
+  to download for each distribution, what 2.8.1's packages really need (the
+  .deb Debian 13's own Qt, the .rpm Fedora's Qt 6.10, so not Fedora 44 until
+  the next release), the broken Arch package and the AppImage to use instead,
+  four steps to a working controller, the Moonlight host path, the
+  permissions the udev rule gives, and the three things that can leave the
+  computer. The old one said protocol version 1 and that Dish talks to no
+  TinkerNorth server. Its tray, suspend and lid sections moved to
+  `docs/PACKAGING.md`, the build requirements, the language pick and the
+  manual checklist to `CONTRIBUTING.md`.
 
 ### Fixed
 

@@ -220,3 +220,60 @@ degrades rather than breaks:
 Bluetooth presence and power come from sysfs and BlueZ directly, not a portal,
 because the wizard needs to tell "no adapter" from "adapter off" and only the
 adapter itself can answer that.
+
+The window manager draws the decorations: Dish paints no title bar of its own,
+so the shell's rail and header are the whole chrome.
+
+### Running in the background
+
+Closing the window leaves Dish running behind a tray icon; quit it from that
+icon's menu. The item registers with `org.kde.StatusNotifierWatcher`, and if no
+StatusNotifier host owns that name the close falls back to quitting rather
+than stranding a running process with no window and no menu. *Keep running in
+the background* in Settings turns the whole behaviour off, and the switch reads
+as unavailable on a desktop with no tray.
+
+Bare GNOME is that desktop. It ships no StatusNotifier host, so the tray needs
+the AppIndicator extension; KDE, Xfce, Cinnamon, MATE, LXQt, sway and Waybar
+all carry one already. The `.deb` and `.rpm` name the extension as a
+suggestion rather than a dependency, because Dish works without it: it just
+quits on close.
+
+### Suspend, resume and a closed lid
+
+Dish holds a logind `sleep`/`delay` lock, so on `PrepareForSleep` it closes its
+satellite sessions before the machine goes down, and re-opens them on resume
+rather than waiting out the heartbeat timeout. A resume also rescans, so a
+laptop that wakes on a different network relearns a moved satellite instead of
+retrying a stale address. Moonlight sessions are not re-opened
+([`tests/PARITY.md`](../tests/PARITY.md)).
+
+Settings, Power has a *Keep streaming with the lid closed* switch, off by
+default and shown whenever *Keep the computer awake* is not Never. While it is
+on and Dish is holding the machine awake, Dish takes a second logind lock
+beside its `idle` one, `handle-lid-switch`/`block`, and lets go of it the
+moment the hold ends. A laptop that keeps running shut can get hot in a bag,
+which is why it stays off unless you turn it on.
+
+logind honours that lock whatever `LidSwitchIgnoreInhibited` says.
+`logind.conf(5)`: "Low level inhibitor locks ("handle-power-key",
+"handle-suspend-key", "handle-hibernate-key", "handle-lid-switch",
+"handle-reboot-key"), are always honored, irrespective of this setting."
+`LidSwitchIgnoreInhibited=yes` only overrides the high-level `sleep` locks, so
+it does not undo this one. The upstream polkit policy
+(`org.freedesktop.login1.inhibit-handle-lid-switch`) grants the lock without a
+prompt to active and inactive sessions. A system that refuses it anyway, an
+older logind or a machine without systemd, keeps working: Dish logs a warning
+(`dish.wake`), carries on with the `idle` lock alone, and closing the lid
+suspends as before. `systemd-inhibit --list` shows which locks Dish holds.
+
+Two things the lock does not change. `HoldoffTimeoutSec` (30 s by default)
+still applies: for that long after boot or resume logind does not react to the
+lid at all, with or without Dish. And docked already works untouched, because
+`HandleLidSwitchDocked` defaults to `ignore`.
+
+To keep the lid from suspending for every application, not only while Dish
+streams, set it system-wide in `/etc/systemd/logind.conf` instead
+(`HandleLidSwitch=ignore`, and `HandleLidSwitchExternalPower=ignore` if you
+want it on mains power too), then `sudo systemctl restart systemd-logind`.
+GNOME and KDE expose the same choice in their power settings.

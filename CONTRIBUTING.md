@@ -28,6 +28,20 @@ scripts/ci-local.sh
 `release.yml` drive, and the `scripts/` wrappers drive the same ones. The
 debug preset writes to `build/` (CI's tree name).
 
+What a build needs, which `scripts/install-deps.sh` installs from apt and
+`CMakeLists.txt` checks for:
+
+- a C++20 compiler (CI builds with gcc and clang), CMake 3.21 or newer, Ninja
+  and pkg-config;
+- Qt 6.7 or newer: Core, Gui, Network, DBus, Svg, Quick, Qml, QuickControls2
+  and Concurrent, plus Linguist tools for the translation catalogues;
+- libsodium, SDL2 2.24 or newer, Opus and OpenSSL (libcrypto);
+- Catch2 v3 for the tests, fetched at the pinned commit when the system has
+  none;
+- optionally `rsvg-convert`, which renders the launcher icons below 512x512
+  from the SVG. Without it the build says so and installs only the scalable
+  and 512x512 icons, which is enough for a working menu entry.
+
 `scripts/tools.sh` is the single source of every pinned version: Qt 6.12.1
 and aqtinstall for CI and the AppImage, clang-format, SDL2, sentry-native and
 sentry-cli, the AppImage tools with their SHA-256s, the KDE Flatpak runtime
@@ -140,7 +154,10 @@ surface there in the same commit.
 
 ## Translations
 
-Six catalogues in `translations/`. A new user-facing string needs a catalogue
+Six catalogues in `translations/`: English, Bosnian, German, Spanish, French
+and Brazilian Portuguese. They compile into the binary, and at startup the app
+walks `QLocale::uiLanguages()`, so the desktop's preferred interface language
+wins over the regional format setting. A new user-facing string needs a catalogue
 entry in the same commit: `scripts/check-translations.sh` re-runs `lupdate` in
 CI and fails on any diff. Run it locally and commit the result.
 
@@ -319,6 +336,11 @@ between the two desktop clients keeps its shape.
 
 [`tests/PARITY.md`](tests/PARITY.md) is the cross-client parity ledger: a
 behaviour that differs from a sibling, or is deferred, is a row there.
+
+What CI cannot reach (a real window manager, a real pad, a real satellite) is
+covered by
+[`docs/QML_MANUAL_SMOKE_CHECKLIST.md`](docs/QML_MANUAL_SMOKE_CHECKLIST.md),
+which is run by hand before a release.
 
 ### Test-driven, every flow
 

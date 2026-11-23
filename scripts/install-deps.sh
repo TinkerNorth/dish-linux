@@ -4,7 +4,7 @@
 #
 # Install the Linux build toolchain for Dish: scripts/install-deps.sh [--ci-qt]
 #
-# Default: the distro packages (apt; the README "Build from source" list plus
+# Default: the distro packages (apt; the CONTRIBUTING.md "Getting set up" list plus
 # the lint tools CI gates with, and clang-format at the version scripts/tools.sh
 # pins, through pipx, as every CI lane in the fleet does).
 #
