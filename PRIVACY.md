@@ -34,8 +34,9 @@ do not read one as describing the other.
   and no account. Both checks ask for files and send no identifier with the
   request.
 - **Report a problem** (section 2.6) happens only when you click *Report a
-  problem* or *Ask a question*: Dish saves a file and opens your own mail app
-  with it attached, addressed to `support@tinkernorth.com`. Nothing is sent
+  problem* or *Ask a question*: Dish saves a file, opens your own mail app
+  addressed to `support@tinkernorth.com` with the file attached where the mail
+  app takes it, and shows the folder that holds the file. Nothing is sent
   until you click Send in your mail app.
 - Crash diagnostics are always written to your own disk, at
   `$XDG_STATE_HOME/dish/crash.log` (`~/.local/state/dish/crash.log` by
@@ -117,7 +118,9 @@ delete it (section 2.6).
 The app also **reads** (never writes) the XDG desktop portals for your
 light/dark preference and your reduced-motion preference, and reads
 `/sys/class/bluetooth` and BlueZ over the system bus to tell "no Bluetooth
-adapter" from "adapter switched off".
+adapter" from "adapter switched off", and, for a Bluetooth controller in a
+diagnostics file, to ask BlueZ which HID service the paired controller lists
+(section 2.6).
 
 Held in memory only, never written and never transmitted anywhere except to
 the satellite you bound the controller to:
@@ -349,10 +352,13 @@ app's own `~/.var/app/com.tinkernorth.Dish/data/`) and runs your desktop's
 `xdg-email` to open your own mail app with a new message to
 `support@tinkernorth.com`. The subject is `Dish support: <the category, in
 your language> · Dish for Linux <version> on <PC model>`; the body is your
-own words first, then a summary of the Diagnostics page in your language; the
-file is attached. When `xdg-email` is not installed or no mail app takes the
-message, a `mailto:` link opens with the same subject and body and your file
-manager shows the folder for you to attach the file. *Save diagnostics*
+own words first, then a summary of the Diagnostics page in your language.
+`xdg-email` asks your mail app to attach the file, but only some mail apps
+(Thunderbird among them) do, so your file manager also opens the folder that
+holds the file, and the page names the file to attach if the message arrives
+without it. When `xdg-email` is not installed or no mail app takes the
+message, a `mailto:` link opens with the same subject and body instead, and
+the folder opens the same way. *Save diagnostics*
 writes the same file without a report and opens that folder in your file
 manager. Nothing is sent by the app: the mail leaves only when you click Send
 in your mail app, and you can read or edit it before you do. If you send it,
@@ -530,13 +536,17 @@ do, so this is the equivalent list of what the app touches.
 |---|---|
 | Network sockets: UDP multicast, UDP broadcast listen, UDP unicast, TCP, TLS over TCP | Discovery, pairing, control plane, gamepad stream, for satellites and Moonlight hosts alike. All to your LAN. |
 | HTTPS to `github.com` | The update check, and only the check. Section 2.4. Only while *Check for updates automatically* is on. |
+| HTTPS to `dish.tinkernorth.com` | The controller database check, and only that check. Section 2.5. Only while *Check for controller updates automatically* is on, or when you click *Check now*. |
 | Game-controller device enumeration and IO | Reading controller input, and writing rumble, light, trigger and lamp output back to the controller. `/dev/hidraw*` access is used for reading and writing in USB-direct mode, which needs the udev rule the package installs. |
 | A controller's own audio device, through SDL2's audio | Playing the sound and haptics your PC sends for that controller, and opening its microphone only as section 2.1 describes. Never the computer's own microphone. |
 | `org.freedesktop.ScreenSaver.Inhibit` on the session bus | Preventing sleep while a controller is actively streaming, so input latency stays low. Released when streaming stops. |
 | XDG desktop portals (appearance, settings) | Following your light/dark and reduced-motion preferences. Read only. |
-| `/sys/class/bluetooth` and BlueZ on the system bus | Telling "no Bluetooth adapter" from "adapter switched off" in the setup wizard. Read only. |
+| `/sys/class/bluetooth` and BlueZ on the system bus | Telling "no Bluetooth adapter" from "adapter switched off" in the setup wizard, and asking which HID service (classic HID or HID over GATT) a paired Bluetooth controller lists, for a diagnostics file (section 2.6). Read only. |
+| sysfs reads for a diagnostics file | This PC's model (`/sys/class/dmi/id`), its battery (`/sys/class/power_supply`), its thermal state (`/sys/class/thermal`) and power profile (`/sys/firmware/acpi/platform_profile`), whether it has a USB host controller (`/sys/bus/usb/devices`), and for each controller its USB descriptors (`descriptors`), release number and strings, and its HID report descriptor (`report_descriptor`). Read only, and only into the file described in section 2.6. |
+| Running `xdg-email`, opening a `mailto:` link and a folder | Handing a diagnostics file to your own mail app, and showing the folder that holds it, only when you click *Continue in your mail app* or *Save diagnostics* (section 2.6). The folder and the link open through your desktop's default handler (`xdg-open`, or the desktop portal in the Flatpak). |
 | `~/.config/` read and write | Settings and pairing state, as listed in section 2.1. |
 | `$XDG_STATE_HOME/dish/` file write | The crash log described in section 3. |
+| `~/.local/share/TinkerNorth/Dish/controllers/` and `diagnostics/` file write | A downloaded controller list (section 2.5), and the diagnostics files you save or send (section 2.6). |
 | `~/.local/share/TinkerNorth/Dish/sentry/` file write | The crash reporter's run state and any report not yet sent (section 3), only while *Share crash reports* is on. |
 | Default browser launch | Opening the links listed in section 2.3, only when you click one. |
 

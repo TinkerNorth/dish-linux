@@ -113,8 +113,9 @@ is asked. A controller the list names and Dish's own tables do not decodes on
 the Direct path by its record's family, and a newer list applies to a
 controller the next time it is plugged in. *Report a problem* on the
 Diagnostics page sends nothing itself: it saves a diagnostics file and runs
-`xdg-email` to open your own mail app with the file attached, and the mail
-leaves only when you click Send. For a controller Dish reads directly it can
+`xdg-email` to open your own mail app with the file attached where the mail
+app takes it (Thunderbird does, most others do not), and shows the file's
+folder either way; the mail leaves only when you click Send. For a controller Dish reads directly it can
 first *Capture this controller*: its USB descriptors and twenty reports taken
 while it lies still. [`PRIVACY.md`](PRIVACY.md) sections 2.5 and 2.6 list what
 each one holds.
