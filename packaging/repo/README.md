@@ -7,11 +7,12 @@ pacman repositories on `https://tinkernorth.github.io/dish-linux/`.
 Ported from `TinkerNorth/satellite` `packaging/repo/`; the two directories
 share their layout and scripts; keep them in step.
 
-## End-user install (Debian 13+ and derivatives)
+## End-user install (Debian 13)
 
-The `.deb` targets distros whose Qt meets the 6.7 floor (Debian 13 ships
-6.8). Ubuntu 24.04 LTS ships Qt 6.4.2; its answer is the AppImage or the
-Flatpak, not this repo; see `docs/PACKAGING.md`.
+The `.deb` is built on Debian 13; `docs/PACKAGING.md` lists the releases it
+is tested on (from the release after 2.8.1, Ubuntu 25.10 and 26.04 too).
+Ubuntu 24.04 LTS ships Qt 6.4.2; its answer is the AppImage or the Flatpak,
+not this repo.
 
 ```bash
 # Add the signing key (one-time):
@@ -28,7 +29,11 @@ sudo apt update
 sudo apt install dish
 ```
 
-## End-user install (Fedora / RHEL / Rocky / Alma / openSUSE)
+## End-user install (Fedora 44 and 45)
+
+The `.rpm` is built on Fedora 44 and signed with the repository key, which
+dish.repo's `gpgcheck=1` requires (2.8.1's was not signed, so this path
+refuses 2.8.1; see the README's Download section for what works today).
 
 ```bash
 # Drop the .repo file (it already references the gpg key). One-time:

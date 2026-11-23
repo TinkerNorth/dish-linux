@@ -19,19 +19,18 @@ echo "deb [signed-by=/usr/share/keyrings/dish-archive-keyring.gpg] \
 sudo apt update && sudo apt install dish
 ```
 
-The .deb is built on Debian 13 against Debian's own Qt and asks for that exact Qt build, so on Ubuntu and other derivatives, take the AppImage below.
+The 2.8.1 .deb is built on Debian 13 against Debian's own Qt and asks for that exact Qt build, so on Ubuntu and other derivatives, take the AppImage below. From the next release on, the .deb asks only for Qt's public interface, and also installs on Ubuntu 25.10 and 26.04.
 
-Fedora: add the DNF repository once, and `dnf upgrade` keeps it current.
+Fedora: the 2.8.1 package in Dish's DNF repository is broken. The repository tells dnf to check every package's signature, and the 2.8.1 .rpm is not signed, so `dnf install dish` stops with "The package is not signed". The fix is on its way with the next release. Until then, on Fedora 42 and 43, download the package and install it directly:
 
 ```bash
-sudo curl -fsSL -o /etc/yum.repos.d/dish.repo \
-  https://tinkernorth.github.io/dish-linux/rpm/dish.repo
-sudo dnf install dish
+curl -fsSLO https://github.com/TinkerNorth/dish-linux/releases/latest/download/dish-x86_64.rpm
+sudo dnf install ./dish-x86_64.rpm
 ```
 
-The 2.8.1 .rpm was built on Fedora 42 and needs Fedora's Qt 6.10, so it does not install on Fedora 44, which ships Qt 6.11. The next release is built on Fedora 44; until then, on Fedora 44, use the AppImage.
+dnf notes that it skipped the OpenPGP check for a local file. The 2.8.1 .rpm was built on Fedora 42 against Fedora's Qt 6.10, so on Fedora 44, which has moved to Qt 6.11, dnf would downgrade your system's Qt to install it; there, use the AppImage below. The next release is built on Fedora 44 and signed, and installs from the repository on Fedora 44 and 45.
 
-If you'd rather not add a repository, [dish-amd64.deb](https://github.com/TinkerNorth/dish-linux/releases/latest/download/dish-amd64.deb) and [dish-x86_64.rpm](https://github.com/TinkerNorth/dish-linux/releases/latest/download/dish-x86_64.rpm) install the same package once (`sudo apt install ./dish-amd64.deb` or `sudo dnf install ./dish-x86_64.rpm`), and you install later versions by hand. Both packages install the udev rule described under Requirements.
+If you'd rather not add the APT repository, [dish-amd64.deb](https://github.com/TinkerNorth/dish-linux/releases/latest/download/dish-amd64.deb) installs the same package once (`sudo apt install ./dish-amd64.deb`), and you install later versions by hand. Both packages install the udev rule described under Requirements.
 
 Any other x86_64 Linux, Ubuntu and the Steam Deck included: download **[Dish-x86_64.AppImage](https://github.com/TinkerNorth/dish-linux/releases/latest/download/Dish-x86_64.AppImage)**. It carries its own Qt and runs on glibc 2.35 or newer.
 

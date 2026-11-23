@@ -48,6 +48,22 @@ the repos share a version number.
 
 ### Fixed
 
+- **The DNF repository installs Dish.** Its `dish.repo` turns on `gpgcheck`,
+  and the 2.8.1 .rpm was never signed, so `dnf install dish` from the
+  repository refused 2.8.1 on every Fedora with "The package is not signed".
+  The release now signs the .rpm with the repository key before it is
+  published, so the downloadable file and the repository's copy are the same
+  signed bytes, and the repository build signs anything still unsigned. Every
+  pull request now installs Dish from freshly built APT and DNF repositories
+  in clean Debian and Fedora containers and launches it.
+- **The .deb and .rpm no longer pin one exact Qt build.** The QML's
+  ahead-of-time C++ called a private Qt symbol, so 2.8.1's .deb required
+  `qt6-declarative-private-abi (= 6.8.2)` and its .rpm
+  `Qt_6.10_PRIVATE_API`; the next Debian Qt update would have made the .deb
+  uninstallable, and on an up-to-date Fedora 44 the .rpm downgrades the
+  system's Qt. The QML now ships as bytecode, so the packages need Qt's public
+  interface only. The .deb installs on Debian 13 and Ubuntu 25.10 and 26.04,
+  and the .rpm, built on Fedora 44, on Fedora 44 and 45.
 - **The Arch package carries a working AppImage.** makepkg stripped
   `/opt/dish/Dish.AppImage` as if it were a plain ELF binary, which cut the
   image off the runtime: the `dish-bin` 2.8.1 in the pacman repository holds a
@@ -101,6 +117,12 @@ the repos share a version number.
 - The Catch2 fallback moves to v3.16.1, and the coverage lane builds against
   it. The AppImage build resolves the app's own QML module for linuxdeploy's
   scanner and fails on any linuxdeploy error.
+- The Sentry symbol uploads and the Sentry release are strict: a failed
+  upload or release association fails the release (without the Sentry secrets
+  the steps skip, as in a fork).
+- CodeQL analyses first-party code only: the vendored ENet is built before
+  CodeQL starts tracing, and OSV-Scanner watches it. Dependency review runs on
+  every pull request.
 - CodeQL blocks and uploads its results. Containers are pinned to release
   tags, every checkout drops its credentials, the release tag pattern is
   `[0-9]*.[0-9]*.[0-9]*`, and clang-format moves to 23.1.5 (no source change).
