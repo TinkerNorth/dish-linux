@@ -160,8 +160,6 @@ recipe.
 brew install cosign            # macOS
 go install github.com/sigstore/cosign/v3/cmd/cosign@latest
 
-# slsa-verifier (for the SLSA provenance step)
-go install github.com/slsa-framework/slsa-verifier/v2/cli/slsa-verifier@latest
 ```
 
 ### 1) Download every file from the Release
@@ -232,17 +230,24 @@ cosign verify-blob \
 shasum -a 256 -c SHA256SUMS    # 13 lines, all OK for 2.8.1
 ```
 
-### 4) Verify the SLSA L3 provenance
+### 4) The SLSA L3 provenance
+
+`dish-linux.intoto.jsonl` is a Sigstore bundle whose statement names every
+released file by SHA-256. It is signed by the SLSA generator at the exact
+commit the workflow pins, which `slsa-verifier` refuses ("invalid ref") because
+that is not a release tag, so verify it with cosign, naming the generator's
+commit from the provenance's `builder.id`:
 
 ```bash
-slsa-verifier verify-artifact dish_X.Y.Z_amd64.deb \
-  --provenance-path dish-linux.intoto.jsonl \
-  --source-uri      github.com/TinkerNorth/dish-linux \
-  --source-tag      "$TAG"
+cosign verify-blob-attestation \
+  --bundle dish-linux.intoto.jsonl --new-bundle-format --type slsaprovenance \
+  --certificate-identity "https://github.com/slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@f7dd8c54c2067bafc12ca7a55595d5ee9b75204a" \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  dish_X.Y.Z_amd64.deb
 ```
 
-This is meant to end with `PASSED: SLSA verification passed`. It does not
-today: see [Known gaps](#known-gaps).
+(`Verified OK` against dish-linux 2.8.1. The commit is the generator v2.1.0 the
+workflow pins; use the one in the provenance you are checking.)
 
 ### 5) (Optional) Inspect the SBOM
 
@@ -260,17 +265,6 @@ diff <(jq -S . prev-release/dish.sbom.spdx.json) \
 
 ## Known gaps
 
-- **The SLSA provenance does not verify with slsa-verifier.** Against 2.8.1,
-  step 4 fails with `invalid ref: "f7dd8c54c2067bafc12ca7a55595d5ee9b75204a":
-  unexpected ref type: ""`. `release.yml` calls the SLSA generator by commit
-  SHA, and the generator's own documentation says its workflows "MUST be
-  referenced by tag in order for the `slsa-verifier` to be able to verify the
-  ref of the trusted builder/generator's reusable workflow", as `@vX.Y.Z`
-  (slsa-verifier issue 12 tracks verifying a SHA-pinned call). The fleet's
-  action-pin lint requires every `uses:` to be a commit SHA, so the two rules
-  conflict, and the choice between them is open. The provenance file is
-  genuine and signed; until the call changes, steps 2 and 3 are the
-  verification that passes.
 - **Vendored-header scanners.** `satellite/lib/` and
   `satellite/vigem/include/` are not understood by ecosystem scanners. We
   feed OSV-Scanner a synthetic `osv-scanner.toml` derived from

@@ -490,8 +490,8 @@ sha256sum --ignore-missing -c SHA256SUMS
 ```
 
 Releases up to 2.8.1 carry `.sig` and `.crt` instead of bundles;
-[`SECURITY.md`](SECURITY.md) has the full recipe, the older form (run against
-2.8.1), and why `slsa-verifier` currently rejects the provenance.
+[`SECURITY.md`](SECURITY.md) has the full recipe, the older form, and the
+provenance check (both run against 2.8.1).
 
 ## Cutting a release
 

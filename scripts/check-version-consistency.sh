@@ -21,6 +21,7 @@
 #   libsodium, ENet   scripts/tools.sh -> both Flatpak manifests, THIRD_PARTY.md, licenses.json
 #   security tools    scripts/tools.sh OSV-Scanner and gitleaks -> the shared _security.yml
 #   the tools table   THIRD_PARTY.md section 11 -> scripts/tools.sh and the shared workflows
+#   SLSA generator    release.yml's pinned commit -> SECURITY.md's provenance recipe
 #   containers        scripts/tools.sh images -> every workflow `container:` line
 #   clang-format      scripts/tools.sh -> .clang-format's header
 #   the protocol      kProtocolVersion -> docs/contract.md, CONTRIBUTING.md
@@ -191,6 +192,15 @@ for row in \
 do
     has THIRD_PARTY.md "| ${row%%|*} | ${row#*|} |" "the tools table does not give ${row%%|*} ${row#*|}"
 done
+
+# --- the SLSA generator: SECURITY.md's recipe names the commit release.yml pins ---
+generator=$(sed -nE 's#^ +uses: slsa-framework/slsa-github-generator/\.github/workflows/generator_generic_slsa3\.yml@([0-9a-f]{40}) .*#\1#p' .github/workflows/release.yml)
+if [ -z "${generator}" ]; then
+    err ".github/workflows/release.yml: no SHA-pinned generator_generic_slsa3.yml call"
+else
+    echo "SLSA generator ${generator:0:12}"
+    has SECURITY.md "generator_generic_slsa3.yml@${generator}\"" "the provenance recipe does not name the generator commit release.yml pins"
+fi
 
 # --- containers --------------------------------------------------------------
 echo "containers ${DISH_DEB_IMAGE} ${DISH_RPM_IMAGE} ${DISH_ARCH_IMAGE}"

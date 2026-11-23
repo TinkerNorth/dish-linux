@@ -48,7 +48,10 @@ the repos share a version number.
 - **The release verification recipe works.** `SECURITY.md` and
   `CONTRIBUTING.md` named `v`-prefixed tags and the wrong signing workflow, so
   following them failed on a good release; the commands now match the bare
-  tags and `_release_harden.yml`, and were run against 2.8.1.
+  tags and `_release_harden.yml`, and were run against 2.8.1. The SLSA
+  provenance, which `slsa-verifier` rejects because the generator is pinned by
+  commit, is verified with `cosign verify-blob-attestation` naming that
+  commit.
 
 ### Build and CI
 
