@@ -93,10 +93,10 @@ bool DiagnosticsHandoff::send(const DiagnosticsMail& mail) {
     switch (diagnostics::firstMailStep(!program.isEmpty())) {
     case diagnostics::MailStep::RunXdgEmail:
         break;
-    case diagnostics::MailStep::Done:
+    case diagnostics::MailStep::RevealFolder:
     case diagnostics::MailStep::OpenMailtoAndRevealFolder:
         openMailtoAndReveal(mail);
-        emit handedOff(false);
+        emit handedOff(false, QFileInfo(mail.attachmentPath).fileName());
         return true;
     }
     busy_ = true;
@@ -119,7 +119,7 @@ void DiagnosticsHandoff::onFinished(int exitCode, QProcess::ExitStatus status) {
     const int code = exited ? exitCode : kCrashedCode;
     const diagnostics::MailStep step =
         diagnostics::nextStepAfterXdgEmail(diagnostics::XdgEmailEnd::Exited, code);
-    conclude(step == diagnostics::MailStep::Done);
+    conclude(step == diagnostics::MailStep::RevealFolder);
 }
 
 // Only a process that never started ends here without a finished() to follow.
@@ -127,21 +127,25 @@ void DiagnosticsHandoff::onErrorOccurred(QProcess::ProcessError error) {
     if (!busy_ || sender() != process_ || error != QProcess::FailedToStart) { return; }
     const diagnostics::MailStep step =
         diagnostics::nextStepAfterXdgEmail(diagnostics::XdgEmailEnd::FailedToStart, 0);
-    conclude(step == diagnostics::MailStep::Done);
+    conclude(step == diagnostics::MailStep::RevealFolder);
 }
 
 void DiagnosticsHandoff::onGraceExpired() {
     if (!busy_) { return; }
     const diagnostics::MailStep step =
         diagnostics::nextStepAfterXdgEmail(diagnostics::XdgEmailEnd::StillRunning, 0);
-    conclude(step == diagnostics::MailStep::Done);
+    conclude(step == diagnostics::MailStep::RevealFolder);
 }
 
 void DiagnosticsHandoff::conclude(bool viaMailClient) {
     busy_ = false;
     grace_->stop();
-    if (!viaMailClient) { openMailtoAndReveal(pending_); }
-    emit handedOff(viaMailClient);
+    if (viaMailClient) {
+        revealFolderOf(pending_.attachmentPath, open_);
+    } else {
+        openMailtoAndReveal(pending_);
+    }
+    emit handedOff(viaMailClient, QFileInfo(pending_.attachmentPath).fileName());
 }
 
 void DiagnosticsHandoff::openMailtoAndReveal(const DiagnosticsMail& mail) {

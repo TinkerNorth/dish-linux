@@ -4281,6 +4281,10 @@
         <translation>Sie enthält nie Kopplungsschlüssel, Zertifikat-Fingerabdrücke, IP-Adressen, WLAN-Namen oder die Namen deiner PCs und Geräte. Nichts wird gesendet, bis du in deiner Mail-App auf Senden klickst.</translation>
     </message>
     <message>
+        <source>Your mail should carry the file %1. If it does not, attach it from the folder that just opened.</source>
+        <translation>Deine Mail sollte die Datei %1 im Anhang haben. Falls nicht, hänge sie aus dem Ordner an, der sich gerade geöffnet hat.</translation>
+    </message>
+    <message>
         <source>Asking each Satellite for its side of the session…</source>
         <translation>Jeder Satellit wird nach seiner Seite der Sitzung gefragt…</translation>
     </message>

@@ -4281,6 +4281,10 @@
         <translation>It never holds pairing keys, certificate fingerprints, IP addresses, Wi-Fi names or the names of your PCs and devices. Nothing is sent until you click Send in your mail app.</translation>
     </message>
     <message>
+        <source>Your mail should carry the file %1. If it does not, attach it from the folder that just opened.</source>
+        <translation>Your mail should carry the file %1. If it does not, attach it from the folder that just opened.</translation>
+    </message>
+    <message>
         <source>Asking each Satellite for its side of the session…</source>
         <translation>Asking each Satellite for its side of the session…</translation>
     </message>

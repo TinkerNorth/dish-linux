@@ -778,8 +778,8 @@ class AppViewModel : public QObject {
     // A bench run started, stepped, ended or was answered, or the microphone's level moved.
     void benchChanged();
     // After sendReport: true when xdg-email handed it to the mail client, false when the mailto:
-    // fallback opened and the file manager shows the file to attach.
-    void diagnosticsMailHandedOff(bool viaMailClient);
+    // fallback opened. The file manager shows the file's folder either way; `fileName` is the file.
+    void diagnosticsMailHandedOff(bool viaMailClient, const QString& fileName);
     void reportReadyChanged();
     void controllerCaptureChanged();
 

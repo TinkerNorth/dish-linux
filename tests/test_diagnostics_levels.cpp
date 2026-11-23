@@ -144,7 +144,7 @@ TEST_CASE("mail: xdg-email first where it is on the PATH, the mailto fallback wh
 }
 
 TEST_CASE("mail: which way the mail goes after xdg-email answers", "[diagnostics][mail]") {
-    CHECK(nextStepAfterXdgEmail(XdgEmailEnd::Exited, 0) == MailStep::Done);
+    CHECK(nextStepAfterXdgEmail(XdgEmailEnd::Exited, 0) == MailStep::RevealFolder);
     // 1 syntax, 2 no such file, 3 a tool it needs is missing, 4 the action failed, 5 no access.
     for (const int code : {1, 2, 3, 4, 5, -1}) {
         INFO(code);
@@ -154,7 +154,7 @@ TEST_CASE("mail: which way the mail goes after xdg-email answers", "[diagnostics
     CHECK(nextStepAfterXdgEmail(XdgEmailEnd::FailedToStart, 0) ==
           MailStep::OpenMailtoAndRevealFolder);
     // A mail client xdg-email runs in the foreground has the compose window open.
-    CHECK(nextStepAfterXdgEmail(XdgEmailEnd::StillRunning, 0) == MailStep::Done);
+    CHECK(nextStepAfterXdgEmail(XdgEmailEnd::StillRunning, 0) == MailStep::RevealFolder);
 }
 
 TEST_CASE("mail: xdg-email is given the file, the subject, the body and the address, in that order",

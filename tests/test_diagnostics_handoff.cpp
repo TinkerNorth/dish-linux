@@ -40,6 +40,7 @@ struct MailRig {
     QTemporaryDir dir;
     OpenedUrls opened;
     std::optional<bool> handedOff;
+    QString handedFileName;
 
     QString scriptPath() const { return dir.filePath(QStringLiteral("xdg-email")); }
     QString argsPath() const { return dir.filePath(QStringLiteral("args")); }
@@ -67,12 +68,15 @@ struct MailRig {
         return QString::fromUtf8(args.readAll()).split(QLatin1Char('\n'), Qt::SkipEmptyParts);
     }
 
-    void onHandedOff(bool viaMailClient) { handedOff = viaMailClient; }
+    void onHandedOff(bool viaMailClient, const QString& fileName) {
+        handedOff = viaMailClient;
+        handedFileName = fileName;
+    }
 };
 
 void listen(DiagnosticsHandoff& handoff, MailRig& rig) {
     QObject::connect(&handoff, &DiagnosticsHandoff::handedOff, &handoff,
-                     [&rig](bool via) { rig.onHandedOff(via); });
+                     [&rig](bool via, const QString& name) { rig.onHandedOff(via, name); });
 }
 
 dish::source::UrlOpener recorderOf(MailRig& rig) {
@@ -83,7 +87,11 @@ bool answered(const MailRig& rig) { return rig.handedOff.has_value(); }
 
 } // namespace
 
-TEST_CASE("handoff: xdg-email that takes the mail is the whole hand-off", "[diagnostics][mail]") {
+// xdg-utils 1.1.3 turns --attach into a mailto: link's `attach=` parameter, and only Thunderbird
+// makes that an attachment: every other mail app gets the link without the file while xdg-email
+// still exits 0. So a hand-off that went still shows the folder, and opens no mailto: of its own.
+TEST_CASE("handoff: xdg-email that takes the mail also shows the file's folder",
+          "[diagnostics][mail]") {
     MailRig rig;
     REQUIRE(rig.dir.isValid());
     rig.writeScript("exit 0");
@@ -93,7 +101,9 @@ TEST_CASE("handoff: xdg-email that takes the mail is the whole hand-off", "[diag
     REQUIRE(handoff.send(rig.mail()));
     REQUIRE(dish::test::spinFor([&rig] { return answered(rig); }));
     CHECK(*rig.handedOff);
-    CHECK(rig.opened.urls.empty());
+    REQUIRE(rig.opened.urls.size() == 1U);
+    CHECK(rig.opened.urls[0] == QUrl::fromLocalFile(rig.dir.path()));
+    CHECK(rig.handedFileName == QStringLiteral("dish-diagnostics.json"));
     CHECK(rig.recordedArgs() == QStringList{QStringLiteral("--attach"), rig.mail().attachmentPath,
                                             QStringLiteral("--subject"), rig.mail().subject,
                                             QStringLiteral("--body"), QStringLiteral("line 1"),
@@ -112,6 +122,7 @@ TEST_CASE("handoff: xdg-email that fails opens mailto and the folder", "[diagnos
     REQUIRE(handoff.send(rig.mail()));
     REQUIRE(dish::test::spinFor([&rig] { return answered(rig); }));
     CHECK_FALSE(*rig.handedOff);
+    CHECK(rig.handedFileName == QStringLiteral("dish-diagnostics.json"));
     REQUIRE(rig.opened.urls.size() == 2U);
     CHECK(rig.opened.urls[0].scheme() == QStringLiteral("mailto"));
     CHECK(rig.opened.urls[0].path() == QStringLiteral("support@tinkernorth.com"));

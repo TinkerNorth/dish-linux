@@ -4281,6 +4281,10 @@
         <translation>Ele nunca contém chaves de pareamento, impressões digitais de certificados, endereços IP, nomes de redes Wi-Fi nem os nomes dos seus PCs e dispositivos. Nada é enviado até você clicar em Enviar no seu app de e-mail.</translation>
     </message>
     <message>
+        <source>Your mail should carry the file %1. If it does not, attach it from the folder that just opened.</source>
+        <translation>Seu e-mail deve levar o arquivo %1 anexado. Se não levar, anexe-o a partir da pasta que acabou de abrir.</translation>
+    </message>
+    <message>
         <source>Asking each Satellite for its side of the session…</source>
         <translation>Perguntando a cada Satélite sobre o lado dele da sessão…</translation>
     </message>

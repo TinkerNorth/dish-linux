@@ -6,9 +6,10 @@
 // data folder, then handed to the person's own mail client through
 // `xdg-email --attach <file> --subject <s> --body <b> support@tinkernorth.com`;
 // when xdg-email is missing or does not take it, a mailto: link opens with the
-// subject and the body and the folder is revealed, so the person attaches the
-// file. Nothing leaves the machine until they press Send. The decisions are
-// here; starting the processes is the system layer's.
+// subject and the body. Either way the folder is revealed, so the person can
+// attach the file when the mail app leaves it out. Nothing leaves the machine
+// until they press Send. The decisions are here; starting the processes is the
+// system layer's.
 
 #pragma once
 
@@ -95,7 +96,9 @@ inline std::string bundleFileName(const CivilTime& local) {
 
 inline constexpr std::string_view kXdgEmail = "xdg-email";
 
-enum class MailStep : std::uint8_t { RunXdgEmail, Done, OpenMailtoAndRevealFolder };
+// RevealFolder follows a hand-off that went: xdg-utils 1.1.3 attaches the file for Thunderbird
+// only and hands every other mail app a mailto: link without it, exiting 0 all the same.
+enum class MailStep : std::uint8_t { RunXdgEmail, RevealFolder, OpenMailtoAndRevealFolder };
 
 // The first step: xdg-email where it is on the PATH (xdg-utils is no hard dependency of any
 // package, and a minimal desktop or a sandbox may not have it), the mailto: fallback where it is
@@ -111,7 +114,8 @@ enum class XdgEmailEnd : std::uint8_t { FailedToStart, Exited, StillRunning };
 // xdg-email's exit codes (xdg-utils): 0 the mail client took the message; 1 a syntax error, 2 a
 // file that does not exist, 3 a tool it needs is missing, 4 the action failed, 5 no permission
 // to read the file. Only 0 hands the mail over; everything else falls back. A process still
-// running has a compose window open, so it is handed over too.
+// running has a compose window open, so it is handed over too. 0 does not mean the file is
+// attached (see RevealFolder).
 inline constexpr int kXdgEmailSuccess = 0;
 
 inline MailStep nextStepAfterXdgEmail(XdgEmailEnd end, int exitCode) {
@@ -119,9 +123,10 @@ inline MailStep nextStepAfterXdgEmail(XdgEmailEnd end, int exitCode) {
     case XdgEmailEnd::FailedToStart:
         return MailStep::OpenMailtoAndRevealFolder;
     case XdgEmailEnd::Exited:
-        return exitCode == kXdgEmailSuccess ? MailStep::Done : MailStep::OpenMailtoAndRevealFolder;
+        return exitCode == kXdgEmailSuccess ? MailStep::RevealFolder
+                                            : MailStep::OpenMailtoAndRevealFolder;
     case XdgEmailEnd::StillRunning:
-        return MailStep::Done;
+        return MailStep::RevealFolder;
     }
     return MailStep::OpenMailtoAndRevealFolder;
 }

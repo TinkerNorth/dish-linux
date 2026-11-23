@@ -4281,6 +4281,10 @@
         <translation>Il ne contient jamais de clés d’appairage, d’empreintes de certificats, d’adresses IP, de noms de réseaux Wi-Fi ni les noms de vos PC et appareils. Rien n’est envoyé tant que vous ne cliquez pas sur Envoyer dans votre application de messagerie.</translation>
     </message>
     <message>
+        <source>Your mail should carry the file %1. If it does not, attach it from the folder that just opened.</source>
+        <translation>Votre message devrait avoir le fichier %1 en pièce jointe. Sinon, joignez-le depuis le dossier qui vient de s’ouvrir.</translation>
+    </message>
+    <message>
         <source>Asking each Satellite for its side of the session…</source>
         <translation>Chaque Satellite est interrogé sur son côté de la session…</translation>
     </message>

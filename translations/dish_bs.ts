@@ -4300,6 +4300,10 @@
         <translation>Nikada ne sadrži ključeve uparivanja, otiske certifikata, IP adrese, imena Wi-Fi mreža niti imena vaših računara i uređaja. Ništa se ne šalje dok ne kliknete Pošalji u svojoj aplikaciji za poštu.</translation>
     </message>
     <message>
+        <source>Your mail should carry the file %1. If it does not, attach it from the folder that just opened.</source>
+        <translation>Vaša poruka bi trebala imati priloženu datoteku %1. Ako je nema, priložite je iz mape koja se upravo otvorila.</translation>
+    </message>
+    <message>
         <source>Asking each Satellite for its side of the session…</source>
         <translation>Pitamo svaki Satelit za njegovu stranu sesije…</translation>
     </message>
