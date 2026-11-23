@@ -310,6 +310,10 @@ target_compile_definitions(DishTests PRIVATE
 # from, which a tampering case copies and edits.
 target_compile_definitions(DishTests PRIVATE
     DISH_CONTROLLER_DB_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../assets/controllers/v1")
+# The future-reader set: a dbVersion 2 the website may publish later, byte for byte as the
+# website's contract round gave it, which test_controller_db_fetch serves to the check.
+target_compile_definitions(DishTests PRIVATE
+    DISH_FUTURE_DB_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/controllerdb-future")
 
 # tests/MoonlightFakeHost.h stands up a real ENet listener, so a session can be
 # driven all the way to Streaming and the requests it does or does not make are

@@ -15,9 +15,11 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <iterator>
 #include <optional>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace dish::controllerdb {
 
@@ -88,7 +90,7 @@ inline ReplyVerdict replyVerdict(bool transportFailed, int httpStatus) {
     return ReplyVerdict::Invalid;
 }
 
-// The files a schema 1 manifest may name, and so the only paths ever fetched or written.
+// The files this build fetches and writes, and so the only paths ever fetched or written.
 inline constexpr std::array<std::string_view, 7> kDbFilePaths{
     "controllers.json", "strings/en.json", "strings/bs.json",   "strings/de.json",
     "strings/es.json",  "strings/fr.json", "strings/pt-BR.json"};
@@ -99,6 +101,31 @@ inline bool isDbFilePath(std::string_view path) {
 
 namespace detail {
 
+inline bool isLocaleCharacter(char ch) {
+    const bool letter = (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z');
+    const bool digit = ch >= '0' && ch <= '9';
+    return letter || digit || ch == '-';
+}
+
+// "strings/<locale>.json" with a locale of letters, digits and hyphens that starts with a letter:
+// a strings file a later database may add for a locale this build does not ship. It is never
+// fetched, so nothing a manifest names here becomes a path on disk.
+inline bool isLaterStringsPath(std::string_view path) {
+    constexpr std::string_view kPrefix = "strings/";
+    constexpr std::string_view kSuffix = ".json";
+    constexpr std::size_t kMaxLocaleLength = 35;
+    const bool shaped = path.size() > kPrefix.size() + kSuffix.size() &&
+                        path.substr(0, kPrefix.size()) == kPrefix &&
+                        path.substr(path.size() - kSuffix.size()) == kSuffix;
+    if (!shaped) { return false; }
+    const std::string_view locale =
+        path.substr(kPrefix.size(), path.size() - kPrefix.size() - kSuffix.size());
+    const bool startsWithALetter = (locale.front() >= 'a' && locale.front() <= 'z') ||
+                                   (locale.front() >= 'A' && locale.front() <= 'Z');
+    const bool localeCharacters = std::all_of(locale.begin(), locale.end(), &isLocaleCharacter);
+    return startsWithALetter && localeCharacters && locale.size() <= kMaxLocaleLength;
+}
+
 inline bool isLowerHex64(std::string_view text) {
     constexpr std::size_t kSha256HexLength = 64;
     if (text.size() != kSha256HexLength) { return false; }
@@ -108,7 +135,7 @@ inline bool isLowerHex64(std::string_view text) {
 }
 
 inline bool fileIsWellFormed(const ManifestFile& file) {
-    const bool knownPath = isDbFilePath(file.path);
+    const bool knownPath = isDbFilePath(file.path) || isLaterStringsPath(file.path);
     const bool hexDigest = isLowerHex64(file.sha256);
     const bool plausibleSize = file.bytes > 0 && file.bytes <= kFileMaxBytes;
     return knownPath && hexDigest && plausibleSize;
@@ -122,7 +149,8 @@ inline bool names(const DbManifest& manifest, std::string_view path) {
 } // namespace detail
 
 // A manifest worth acting on: schema 1, a positive dbVersion, the records and the English
-// strings among its files, and every file a known path with a digest and a sane size.
+// strings among its files, and every file a database path (one this build ships, or a strings
+// file for a locale it does not) with a digest and a sane size.
 inline bool manifestIsUsable(const DbManifest& manifest) {
     const bool schemaOne = manifest.schema == kSchema;
     const bool versioned = manifest.dbVersion > 0;
@@ -131,6 +159,15 @@ inline bool manifestIsUsable(const DbManifest& manifest) {
     const bool everyFileWellFormed =
         std::all_of(manifest.files.begin(), manifest.files.end(), &detail::fileIsWellFormed);
     return schemaOne && versioned && hasRecords && hasEnglish && everyFileWellFormed;
+}
+
+// The manifest's files this build fetches, verifies and stores, in the manifest's order: a
+// strings file for a locale it does not ship is left out, never a reason to refuse the set.
+inline std::vector<ManifestFile> filesThisBuildFetches(const DbManifest& manifest) {
+    std::vector<ManifestFile> out;
+    std::copy_if(manifest.files.begin(), manifest.files.end(), std::back_inserter(out),
+                 [](const ManifestFile& file) { return isDbFilePath(file.path); });
+    return out;
 }
 
 // After a usable manifest: nothing to do unless it publishes a later database than the one in

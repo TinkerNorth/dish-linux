@@ -148,6 +148,10 @@ struct ControllerRecord {
     Verification verification = Verification::Guessed;
     Transport verificationTransport = Transport::Usb;
     std::vector<Issue> issues;
+    // False when a section past the identity held a word or a shape this build does not read (a
+    // direct rule, a verification state or transport, `requires`, `init.kind`): the row is kept,
+    // inert, so the bundled row for its id stays in force.
+    bool decoded = true;
 
     bool operator==(const ControllerRecord&) const = default;
 };
@@ -156,7 +160,9 @@ struct ControllerDb {
     int schema = kSchema;
     int dbVersion = 0;
     std::vector<ControllerRecord> records;
-    // Rows the parser could not decode and left out: "a row that does not decode is not applied".
+    // Rows the parser left out because they name no id it can index (no record, no id, a schema it
+    // does not read, an identity that does not decode). A row it can index but not read is kept,
+    // inert (ControllerRecord::decoded).
     int droppedRows = 0;
 
     bool operator==(const ControllerDb&) const = default;

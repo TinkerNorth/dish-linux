@@ -92,6 +92,11 @@ TEST_CASE("bundled controller db: it verifies against its own manifest and holds
     CHECK(catalog->dbVersion() == 1);
     CHECK(catalog->db().records.size() == kRecordsInDbVersion1);
     CHECK(catalog->db().droppedRows == 0);
+    // A row the reader cannot read is kept, inert; no row of the build's own copy may be one.
+    const bool everyRowRead =
+        std::all_of(catalog->db().records.begin(), catalog->db().records.end(),
+                    [](const ControllerRecord& record) { return record.decoded; });
+    CHECK(everyRowRead);
 }
 
 TEST_CASE("bundled controller db: every record has a unique id and an English name",

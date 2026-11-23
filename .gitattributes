@@ -3,3 +3,6 @@
 # ship an app that refuses its bundled copy. Never normalised, never diffed as source.
 assets/controllers/** -text
 assets/controllers/** linguist-vendored=true
+# The future-reader set (a published dbVersion 2 a reader released today must take) is a fixture
+# held to its manifest's SHA-256 the same way.
+tests/fixtures/controllerdb-future/** -text

@@ -71,9 +71,9 @@ std::optional<std::string> stringsLocaleOf(const std::string& path) {
     return path.substr(prefix.size(), path.size() - prefix.size() - suffix.size());
 }
 
-// Each promised file at its promised size and digest.
+// Each promised file this build fetches at its promised size and digest.
 bool everyFileAsPromised(const cdb::DbManifest& manifest, const DbFiles& files) {
-    for (const cdb::ManifestFile& promised : manifest.files) {
+    for (const cdb::ManifestFile& promised : cdb::filesThisBuildFetches(manifest)) {
         const auto it = files.files.find(pathOf(promised.path));
         if (it == files.files.end()) { return false; }
         const QByteArray& bytes = it.value();
@@ -85,7 +85,7 @@ bool everyFileAsPromised(const cdb::DbManifest& manifest, const DbFiles& files) 
 std::optional<std::map<std::string, cdb::StringsTable>> stringsOf(const cdb::DbManifest& manifest,
                                                                   const DbFiles& files) {
     std::map<std::string, cdb::StringsTable> out;
-    for (const cdb::ManifestFile& promised : manifest.files) {
+    for (const cdb::ManifestFile& promised : cdb::filesThisBuildFetches(manifest)) {
         const std::optional<std::string> locale = stringsLocaleOf(promised.path);
         if (!locale.has_value()) { continue; }
         auto parsed = parseStringsTable(files.files.value(pathOf(promised.path)));
