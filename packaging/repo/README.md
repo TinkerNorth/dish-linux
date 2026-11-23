@@ -1,8 +1,8 @@
 # Linux package repositories on GitHub Pages
 
 This directory holds everything needed to publish the `dish` `.deb`
-and `.rpm` releases as proper APT and DNF/YUM repositories on
-`https://tinkernorth.github.io/dish-linux/`.
+and `.rpm` releases and the `dish-bin` pacman package as APT, DNF/YUM and
+pacman repositories on `https://tinkernorth.github.io/dish-linux/`.
 
 Ported from `TinkerNorth/satellite` `packaging/repo/`; the two directories
 share their layout and scripts; keep them in step.
@@ -83,18 +83,27 @@ have pinned breaks `apt update` for them; announce first.
 
 ## How publishing works in CI
 
-The `release.yml` workflow runs an `apt-publish` and `rpm-publish` job
-after the main `publish` job succeeds. Both:
+The `release.yml` workflow runs `apt-publish`, `rpm-publish` and
+`arch-publish`, one after the other because all three push `gh-pages`, after
+the main `publish` job succeeds, on stable tags only. Each:
 
 1. Check out the `gh-pages` branch into a working directory (creating an
    orphan branch with this directory's `index.html` on first publish).
 2. Import the GPG signing key from the `GPG_PRIVATE_KEY` secret and skip
    gracefully (with a warning) when it is absent, because unsigned repo
    metadata is worse than no repo at all.
-3. Run `build-apt-repo.sh` / `build-dnf-repo.sh` from this directory to
-   stage the new package, regenerate indices, and sign them.
+3. Run `build-apt-repo.sh`, `build-dnf-repo.sh` or `build-pacman-repo.sh`
+   from this directory to stage the new package, regenerate indices, and
+   sign them.
 4. Commit and push `gh-pages`.
 
+Every pull request runs the same three scripts without publishing:
+`linux-ci.yml`'s `repos` job builds the APT and DNF repositories from that
+run's packages and `appimage-ci.yml`'s `arch` job builds the pacman one, each
+signed with a throwaway key and read back by apt, dnf metadata checks and
+pacman. Locally, `scripts/package-in-container.sh repos <dir>` and
+`arch <AppImage>` run them in the CI containers.
+
 One-time repo setup: GitHub Pages must be enabled for the `gh-pages`
-branch (Settings → Pages → Deploy from branch → `gh-pages` / root) after
+branch (Settings, Pages, Deploy from branch, `gh-pages` / root) after
 the first release creates it.

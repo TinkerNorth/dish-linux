@@ -22,13 +22,13 @@ its launcher by desktop-file id, which `main()` sets with
 `QGuiApplication::setDesktopFileName`, and Flatpak requires the app id for the
 entry, the icon and the AppStream file alike.
 
-Everything else — the brand glyphs, Inter, the license manifest, the compiled
-translation catalogues — is inside the binary as Qt resources, so there is no
+Everything else (the brand glyphs, Inter, the license manifest, the compiled
+translation catalogues) is inside the binary as Qt resources, so there is no
 runtime data directory to get out of sync with the executable.
 
 `DISH_UDEV_RULES_DIR` moves the rule (default `lib/udev/rules.d`, relative to
 the prefix) and `DISH_INSTALL_UDEV_RULES=OFF` drops it, which is what the
-Flatpak and the AppImage do — neither can own a directory on the host. Configure
+Flatpak and the AppImage do: neither can own a directory on the host. Configure
 warns when the resolved path is not one udev scans, because the failure is
 otherwise silent.
 
@@ -40,26 +40,34 @@ hypothetical: the hand-rolled `.deb` this replaced copied two files and
 therefore shipped no icon, no udev rule and no licence text.
 
 ```sh
-cmake -S . -B build-release -DCMAKE_BUILD_TYPE=Release \
-      -DCMAKE_INSTALL_PREFIX=/usr -DDISH_BUILD_TESTS=OFF
-cmake --build build-release --parallel
-cpack --config build-release/CPackConfig.cmake -G DEB   # or RPM, or TGZ
+scripts/build-deb.sh        # the `package` preset, then cpack -G DEB, into dist/
+scripts/build-rpm.sh        # the same preset, cpack -G RPM
+scripts/build-appimage.sh   # dist/Dish-<version>-x86_64.AppImage, with its .zsync
+scripts/build-flatpak.sh    # dist/Dish-<version>-x86_64.flatpak
 ```
+
+The `.deb` and `.rpm` belong in the distribution they target;
+`scripts/package-in-container.sh deb` and `rpm` build, check, install and
+launch each one in the container CI uses. For a tarball,
+`cpack --config build-package/CPackConfig.cmake -G TGZ` after
+`cmake --preset package && cmake --build --preset package`.
 
 | Format | Built by | Targets | Notes |
 |---|---|---|---|
-| `.deb` | CPack `DEB`, in a `debian:trixie` container | Debian 13+, derivatives with Qt ≥ 6.7 | `dpkg-shlibdeps` computes the Qt/SDL/sodium versions; the QML modules and the platform plugin are listed by hand in `DISH_DEB_RUNTIME_DEPENDS` because nothing links them |
-| `.rpm` | CPack `RPM`, in a `fedora` container | Fedora, RHEL, openSUSE | rpmbuild's soname scanner does the same job |
-| AppImage | `scripts/build-appimage.sh` | everything else, including an LTS below the Qt floor | Cannot install a udev rule; carries it at `usr/share/dish/` and prints how to install it |
-| Flatpak | `packaging/flatpak/com.tinkernorth.Dish.yml` on `org.kde.Platform//6.10` | old LTS, and anyone who wants the sandbox | Needs `--device=all` for hidraw; there is no hidraw portal. Like the AppImage, it cannot install a udev rule: until `packaging/udev/70-dish-hidraw.rules` is on the host (`sudo install -m 644 70-dish-hidraw.rules /etc/udev/rules.d/ && sudo udevadm control --reload-rules && sudo udevadm trigger`), every USB-direct claim, the third-party pads the controller database names included, returns PermissionDenied and the pad stays on SDL |
+| `.deb` | CPack `DEB` (`scripts/build-deb.sh`), in a `debian:13.7` container | Debian 13+, derivatives with Qt ≥ 6.7 | `dpkg-shlibdeps` computes the Qt/SDL/sodium versions; the QML modules and the platform plugin are listed by hand in `DISH_DEB_RUNTIME_DEPENDS` because nothing links them |
+| `.rpm` | CPack `RPM` (`scripts/build-rpm.sh`), in a `fedora:44` container | Fedora, RHEL, openSUSE | rpmbuild's soname scanner does the same job |
+| AppImage | `scripts/build-appimage.sh` on Ubuntu 22.04, with Qt 6.12.1 and SDL2 2.32.10 bundled | everything else with glibc 2.35 or newer, including an LTS below the Qt floor | Cannot install a udev rule; carries it at `usr/share/dish/` and prints how to install it. Needs FUSE 2 to run in place, or `--appimage-extract-and-run` |
+| Flatpak | `scripts/build-flatpak.sh` from `packaging/flatpak/com.tinkernorth.Dish.yml` on `org.kde.Platform//6.11` | old LTS, and anyone who wants the sandbox | Needs `--device=all` for hidraw; there is no hidraw portal. Like the AppImage, it cannot install a udev rule: until `packaging/udev/70-dish-hidraw.rules` is on the host (`sudo install -m 644 70-dish-hidraw.rules /etc/udev/rules.d/ && sudo udevadm control --reload-rules && sudo udevadm trigger`), every USB-direct claim, the third-party pads the controller database names included, returns PermissionDenied and the pad stays on SDL |
 | `.tar.gz` | CPack `TGZ` | packagers laying the tree down under their own prefix | |
 
 Build each native package on the distro it targets. Both dependency scanners
 read the built binary, so a `.deb` built against the aqtinstall Qt would demand
 a Qt no Debian ships.
 
-The `.deb` and `.rpm` release jobs **install their own package and launch it**
-before uploading. Nothing else can stand in for that: unit tests, lints and a
+The `.deb` and `.rpm` jobs, in pull requests and in the release, **install
+their own package and launch it** (`scripts/test-package.sh`), and the
+AppImage's build launches the unpacked bundle, all through
+`scripts/launch-check.sh`. Nothing else can stand in for that: unit tests, lints and a
 file-contents check all pass against a build tree, and a build tree is exactly
 where a QML module resolves from the Qt install instead of from a `Depends:`
 line. dish-windows shipped two releases of a bundle that could not start for
@@ -78,19 +86,33 @@ so.
 
 ## Where users get the packages
 
-Publishing is a channel, not a format. Every release tag feeds:
+Publishing is a channel, not a format. Every stable release tag feeds:
 
 | Channel | Who it serves | How it updates |
 |---|---|---|
 | APT repo (`https://tinkernorth.github.io/dish-linux/debian`) | Debian 13+ | `apt upgrade` |
 | DNF repo (`https://tinkernorth.github.io/dish-linux/rpm`) | Fedora/RHEL/openSUSE | `dnf upgrade` |
-| pacman repo (`https://tinkernorth.github.io/dish-linux/arch/$arch`) | Arch | `pacman -Syu` (`arch-publish` builds `dish-bin` from [`packaging/aur/`](../packaging/aur/) each release; an AUR listing waits on registration reopening) |
-| Flathub | Ubuntu LTS, Steam Deck, software-center users | store-automatic ([submission runbook](FLATHUB.md)) |
-| GitHub Releases | everyone else | AppImage self-updates via zsync (AppImageUpdate/Gear Lever); manual otherwise |
+| pacman repo (`https://tinkernorth.github.io/dish-linux/arch/$arch`) | Arch | `pacman -Syu` (`arch-publish` builds `dish-bin` from [`packaging/aur/`](../packaging/aur/) each release) |
+| GitHub Releases | everyone else, Ubuntu LTS and Steam Deck included | the AppImage self-updates via zsync (AppImageUpdate, Gear Lever); the `.flatpak` bundle and the packages are manual |
 
-The APT and DNF trees live on the `gh-pages` branch, regenerated and
-GPG-signed by the `apt-publish` / `rpm-publish` jobs in `release.yml` using
-[`packaging/repo/`](../packaging/repo/) (key fingerprint and rotation story in
+Two channels are prepared and not live, and whether either goes live is
+undecided:
+
+- **Flathub.** Not submitted; no listing exists. The template manifest
+  [`packaging/flatpak/flathub/com.tinkernorth.Dish.yml`](../packaging/flatpak/flathub/com.tinkernorth.Dish.yml)
+  builds nowhere today and still names release 0.1.0 as its source; its
+  runtime and dependency pins are held to the sideload manifest's. The
+  [submission runbook](FLATHUB.md) is the procedure if it happens.
+- **The AUR.** `dish-bin` is not on the AUR (registration was closed when it
+  was tried); [`packaging/aur/`](../packaging/aur/) is the PKGBUILD the pacman
+  repository is built from, and would be the AUR package if it is submitted.
+
+The APT, DNF and pacman trees live on the `gh-pages` branch, regenerated and
+GPG-signed by the `apt-publish`, `rpm-publish` and `arch-publish` jobs in
+`release.yml` using [`packaging/repo/`](../packaging/repo/). Every pull
+request builds all three from that run's packages with a throwaway key and
+reads them back (`linux-ci.yml`'s `repos` job, `appimage-ci.yml`'s `arch`
+job), so a tag is not the first time the scripts run (key fingerprint and rotation story in
 its README). The AppImage embeds gh-releases-zsync update information, and
 the release uploads the matching `.zsync` beside it; the draft-then-flip publish
 keeps `releases/latest` atomic so neither the updater manifest nor the zsync
@@ -102,12 +124,12 @@ pattern ever sees a half-uploaded release.
 read/write to claim a pad, so without
 [`packaging/udev/70-dish-hidraw.rules`](../packaging/udev/70-dish-hidraw.rules)
 the claim fails and the FSM keeps the pad on the SDL path. That is a *degraded*
-outcome, not a broken one — the pad still streams, just rate-capped — and it is
+outcome, not a broken one (the pad still streams, just rate-capped), and it is
 why `HidrawGateway::claim` distinguishes `PermissionDenied` from `Busy`: the two
 need different copy, and only one of them is fixable by the user.
 
 Dish never asks for root and never installs the rule itself. A package installs
-it into `/usr/lib/udev/rules.d` (the vendor directory — `/etc` belongs to the
+it into `/usr/lib/udev/rules.d` (the vendor directory; `/etc` belongs to the
 administrator); a from-source build with a prefix udev does not scan installs it
 with:
 
@@ -135,7 +157,7 @@ USB lines to match, so they are keyed on the hid device's own name instead.
 ## Dish does not update itself
 
 The updater checks and stops. `UpdateChecker` fetches `latest.json`, compares
-version triples, and the UI surfaces a pill linking to the release page — there
+version triples, and the UI surfaces a pill linking to the release page. There
 is no download gateway, no staging directory, and no boot-time apply, because
 the package manager owns the binary and a self-applying updater would fight it.
 
@@ -147,7 +169,7 @@ correspondingly smaller here: six reachable phases instead of nine.
 `latest.json` is emitted by the `manifest` job in `.github/workflows/release.yml`
 and published as a release asset under the fixed name the client fetches. That
 job also refuses to run when the git tag and `project(Dish VERSION ...)`
-disagree — a manifest naming a version the shipped binary does not report would
+disagree: a manifest naming a version the shipped binary does not report would
 re-offer the same update forever. `minimumSupportedVersion` comes from
 [`packaging/update-policy.json`](../packaging/update-policy.json), which is
 reviewed input rather than something the job derives.
@@ -164,16 +186,18 @@ overrides.
 Qt 6.7. The QML module uses `qt_standard_project_setup(REQUIRES 6.7)` and the
 kit is written against that type surface.
 
-CI builds two minors above the floor (`.github/actions/setup-qt`) because the
-translation gate needs `lupdate` 6.9 — see CONTRIBUTING.md. The code itself
-still builds and tests clean at 6.7, which is what this table is about.
+CI and the AppImage build with Qt 6.12.1 (`DISH_QT_VERSION` in
+`scripts/tools.sh`), the current LTS, well above the floor; the translation
+gate needs `lupdate` 6.9 or newer, see CONTRIBUTING.md. The floor is the
+API surface the code is written against; the lowest Qt a CI lane builds and
+launches is Debian 13's 6.8, in the `.deb` lane.
 
 | Distro | Ships | Status |
 |---|---|---|
 | Debian 13 | 6.8 | fine |
 | Fedora 40+ | 6.7 | fine |
 | Arch | current | fine |
-| Ubuntu 24.04 LTS | 6.4.2 | **too old** — needs a backport, or a Flatpak build |
+| Ubuntu 24.04 LTS | 6.4.2 | **too old**: the AppImage or the Flatpak |
 
 Flatpak on the KDE runtime is the portable answer and is the recommended way to
 ship to older LTS distros. Note that a sandboxed build needs `--device=all` (or

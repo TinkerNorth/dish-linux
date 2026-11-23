@@ -103,6 +103,9 @@ have() {
     exit 1
 }
 
+step "Version mirrors and pins"
+scripts/check-version-consistency.sh
+
 step "clang-format (check only)"
 if have clang-format; then
     # A formatter of another version disagrees on layout, and a green run with

@@ -16,6 +16,57 @@ the repos share a version number.
 
 ---
 
+## [Unreleased]
+
+### Changed
+
+- **Built with Qt 6.12.1, the current LTS.** CI and the AppImage move from
+  Qt 6.10.3 (out of support since April) to 6.12.1. The 6.10.3 pin existed
+  for a crash in Qt 6.9's compiled QML (QTBUG-142514); upstream's regression
+  test for it passes on 6.12.1, which throws the same TypeError 6.10.3 does.
+  The Flatpak moves to the KDE 6.11 runtime, the newest on Flathub.
+- **SDL2 2.32.10** in the AppImage and the Flatpak (from 2.30.9), and **one
+  SDL2 floor**: CMake now requires 2.24, the release that added the
+  `SDL_GameControllerPath` the code reads, and the documents and the Licenses
+  screen say the same. libsodium 1.0.22 in the Flatpak (from 1.0.20).
+- **sentry-native 0.17.6** in release builds (from 0.16.3), sentry-cli 3.8.2 for
+  the symbol uploads.
+- **The .rpm is built and tested on Fedora 44.** Fedora 42 reached its end of
+  life in May.
+- **The Licenses screen names ENet and OpenSSL**, which every build carries;
+  `THIRD_PARTY.md` now says what the AppImage and the Flatpak bundle.
+
+### Fixed
+
+- **The release verification recipe works.** `SECURITY.md` and
+  `CONTRIBUTING.md` named `v`-prefixed tags and the wrong signing workflow, so
+  following them failed on a good release; the commands now match the bare
+  tags and `_release_harden.yml`, and were run against 2.8.1.
+
+### Build and CI
+
+- Every pin lives in `scripts/tools.sh`, and
+  `scripts/check-version-consistency.sh` (run by `version-consistency.yml` and
+  first by `scripts/ci-local.sh`) fails a change that moves a copy without its
+  source: the version, the Qt and SDL2 floors, the Qt, SDL2, sentry-native and
+  KDE runtime pins, the container images, clang-format and the protocol
+  number.
+- One build path: every CI gate is a script under `scripts/` that
+  `scripts/ci-local.sh` runs too, and `scripts/package-in-container.sh` runs
+  the .deb, .rpm, Arch and repository lanes locally in CI's containers. The
+  `scripts/ci_local.sh` forwarder is gone; `--no-tidy` is now `--quick`.
+- The APT, DNF and pacman repositories, the `dish-bin` package, the AppImage
+  and the Flatpak are built on every pull request, so a tag is not the first
+  time any of them runs. The repositories are signed with a throwaway key and
+  read back; nothing is published.
+- linuxdeploy, its Qt plugin, appimagetool and the AppImage runtime are fetched
+  at numbered releases and fail on a SHA-256 mismatch, instead of `continuous`
+  with a warning. The AppImage's smoke test now also requires the controller
+  database line.
+- CodeQL blocks and uploads its results. Containers are pinned to release
+  tags, every checkout drops its credentials, the release tag pattern is
+  `[0-9]*.[0-9]*.[0-9]*`, and clang-format moves to 23.1.5 (no source change).
+
 ## [2.8.1] - 2026-11-23
 
 2.8.0 was tagged and never published: the release's Fedora package check read

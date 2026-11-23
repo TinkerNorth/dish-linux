@@ -25,13 +25,17 @@ assignees: ''
 <!-- If applicable, add screenshots to help explain your problem -->
 
 ## Environment
-- Distribution: [e.g. Ubuntu 24.04, Fedora 40, Arch]
+- Distribution: [e.g. Debian 13, Fedora 44, Ubuntu 24.04, Arch, SteamOS]
+- Package: [.deb from the APT repository, .rpm, AppImage, Flatpak, dish-bin, built from source]
 - Display server: [Wayland / X11]
-- Qt version: [e.g. 6.6.2]
-- libsodium version: [e.g. 1.0.19]
-- SDL2 version: [e.g. 2.30.3]
-- App version / commit: [e.g. 0.1 / 8a3f2c]
-- Controller: [e.g. Xbox Series X, DualSense]
+- App version: [Settings, About; e.g. 2.8.1]
+- Controller: [e.g. Xbox Series X, DualSense, Steam Controller] and how it is connected [USB, Bluetooth, USB direct]
+- Satellite version, if the bug involves a session: [e.g. 2.3.0]
+
+## Diagnostics
+<!-- The Diagnostics page's "Save diagnostics" button writes a diagnostics file: attach it.
+     For a crash, add the backtrace in $XDG_STATE_HOME/dish/crash.log (usually
+     ~/.local/state/dish/crash.log) and a `journalctl --user -e` excerpt. -->
 
 ## Additional Context
 <!-- Add any other context about the problem here -->

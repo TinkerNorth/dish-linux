@@ -64,6 +64,7 @@ It adds no behaviour of its own.
 | `onlineCount` | `int` | `stateChanged` | Connections whose link is `Connected`. |
 | `connectionCount` | `int` | `stateChanged` | Total remembered plus live connections. |
 | `slotCount` | `int` | `stateChanged` | Rows in `slotModel`, mirrored so a binding never pokes the model for a count. |
+| `defaultPadSlotId` | `string` | `stateChanged` | The pad the setup wizard adopts when nothing seeded it; empty with no pads. |
 | `boundSlotCount` | `int` | `stateChanged` | Slots currently bound to a connection. |
 | `streamingSlotCount` | `int` | `stateChanged` | Slots bound **and** whose link is `Connected`. The same pure `composer::streamingSlotCount` rule the wake controller keys its hold on, so the header, the streaming pill and the quit confirm cannot disagree. |
 | `firstOnlineName` | `string` | `stateChanged` | Label of the first `Connected` connection; empty when none. |
@@ -116,6 +117,22 @@ already has a `connectionModel` row. A box gets exactly one row in the UI: once
 it is remembered, its reachability shows as that row's chip, not as a duplicate
 FOUND entry. The two lists are disjoint by construction.
 
+### Moonlight hosts
+
+A sibling of the satellite pool, for Sunshine, Apollo and Wolf hosts. **Trust is
+not liveness**: a Moonlight host never reports a connection state, so nothing
+here may be drawn as a pulsing dot. The words are what the client remembers and
+what the last client-initiated probe confirmed.
+
+| Property | Type | NOTIFY | Meaning |
+|---|---|---|---|
+| `moonlightHosts` | `list` | `moonlightChanged` | One entry per host: `uuid`, `name`, `address`, `paired`, `discovered`, `link` (`idle` / `linking` / `live` / `failed`), the richer phase token the row chip reads, the trust word (`paired` / `remembered` / `notPaired`), how many controllers ride it, and the app the session settled on. |
+| `moonlightScanning` | `bool` | `moonlightChanged` | A Moonlight host scan is in flight. |
+| `moonlightPairingActive` | `bool` | `moonlightChanged` | A Moonlight pairing is in progress. |
+| `moonlightPairingPin` | `string` | `moonlightChanged` | The 4-digit PIN the user must type into the host's UI while pairing. |
+| `moonlightPairingHost` | `string` | `moonlightChanged` | The host being paired. |
+| `moonlightAutoType` | `int` | CONSTANT | The Auto controller-type sentinel, `0xFF`, so the picker cannot fork the value the wire and the store agree on. Deliberately not `0`, which is the wire's `CONTROLLER_TYPE_UNKNOWN`. |
+
 ### Emulate catalog lifecycle
 
 The catalog fetch is an `AsyncState<CatalogDto, CatalogError>`. These three
@@ -133,14 +150,16 @@ project it so the type picker can tell loading from empty from failed.
 |---|---|---|---|
 | `themeMode` | `int` (RW) | `themeModeChanged` | `0` Light, `1` Dark, `2` System. |
 | `crashReportingEnabled` | `bool` (RW) | `crashReportingChanged` | Crash-reporting opt-out. Default on. |
+| `hasCrashReport` | `bool` | `crashReportChanged` | The last run left a backtrace on disk. Drives the whole crash-report card: no crash, no card. |
+| `runningInFlatpak` | `bool` | CONSTANT | Running inside a Flatpak sandbox, which keeps the udev rule inside the sandbox, so the copy names a different path there. |
 | `runInBackground` | `bool` (RW) | `runInBackgroundChanged` | Closing the window keeps Dish streaming behind the tray item. Default on, but inert without `trayAvailable`. |
 | `trayAvailable` | `bool` | `trayAvailableChanged` | A StatusNotifier host owns the watcher name. False disables the `runInBackground` row and forces a close to quit. Can flip at runtime when a panel restarts. |
 | `railCollapsed` | `bool` (RW) | `railCollapsedChanged` | The nav rail's persisted collapse state. The rail-head toggle writes it. |
 | `lightbarFollowGame` | `bool` (RW) | `lightbarChanged` | Light-bar forwarding: true is "Follow game", false is "Off". |
 | `keepAwakeMode` | `int` (RW) | `keepAwakePrefsChanged` | `0` Never, `1` While playing (streaming **and** a controller actuated inside the idle window), `2` While connected (streaming, however long the pad sits still). Out-of-range reads back as `1`: a bad value must never pin the machine awake. |
 | `keepAwakeTimeoutMinutes` | `int` (RW) | `keepAwakePrefsChanged` | Minutes of stillness before mode `1` lets go. Clamped to 1..180 on both read and write, so a hand-edited config cannot produce a zero-minute or unbounded window. Inert in modes `0` and `2`. |
-| `keepDisplayAwake` | `bool` (RW) | `keepAwakePrefsChanged` | Whether the hold covers the screen as well as the machine. Default off — forwarding a pad needs the machine, not the panel. Widens a hold; never creates one. |
-| `keepAwakeWithLidClosed` | `bool` (RW) | `keepAwakePrefsChanged` | Whether the hold also takes logind's `handle-lid-switch` lock, so closing the lid does not suspend. Default off — a laptop running shut can overheat in a bag. Widens a hold; never creates one. Persisted as `keep_awake_lid`. |
+| `keepDisplayAwake` | `bool` (RW) | `keepAwakePrefsChanged` | Whether the hold covers the screen as well as the machine. Default off: forwarding a pad needs the machine, not the panel. Widens a hold; never creates one. |
+| `keepAwakeWithLidClosed` | `bool` (RW) | `keepAwakePrefsChanged` | Whether the hold also takes logind's `handle-lid-switch` lock, so closing the lid does not suspend. Default off: a laptop running shut can overheat in a bag. Widens a hold; never creates one. Persisted as `keep_awake_lid`. |
 | `onboardingNeeded` | `bool` | `onboardingNeededChanged` | The first-run welcome has not completed. Flips false after `markOnboardingComplete()`. |
 | `appVersion` | `string` | CONSTANT | The CMake project version. |
 | `controllerDbChecksEnabled` | `bool` (RW) | `controllerDbChanged` | "Check for controller updates automatically". Default on. Off means no request for the controller list leaves the machine, `checkControllerDbNow()` included. |
@@ -152,6 +171,20 @@ project it so the type picker can tell loading from empty from failed.
 | `donateSponsorsUrl` | `string` | CONSTANT | GitHub Sponsors URL. |
 | `donateKofiUrl` | `string` | CONSTANT | Ko-fi URL. |
 | `donateBmacUrl` | `string` | CONSTANT | Buy Me a Coffee URL. |
+
+### Updates
+
+Tokens only, never sentences: every word the user reads is composed in QML.
+
+| Property | Type | NOTIFY | Meaning |
+|---|---|---|---|
+| `updatePhase` | `string` | `updateChanged` | `disabled` / `idle` / `checking` / `upToDate` / `available` / `failed`. |
+| `updateVersion` | `string` | `updateChanged` | The target version; `""` when there is nothing to offer. |
+| `updateErrorToken` | `string` | `updateChanged` | `""` / `offline` / `http` / `manifestInvalid`. Empty in every phase but `failed`. |
+| `updateNotesUrl` | `string` | `updateChanged` | The release notes URL from the manifest; `openReleaseNotes()` falls back to the releases page when it is empty. |
+| `updateRequired` | `bool` | `updateChanged` | The running build is below the manifest's `minimumSupportedVersion`. |
+| `updateLastCheck` | `datetime` | `updateChanged` | When the last check ended; an invalid date means never checked. |
+| `updateChecksEnabled` | `bool` (RW) | `updatePrefsChanged` | Whether Dish checks for updates automatically. |
 
 ### Bluetooth radio
 
@@ -203,6 +236,12 @@ Republished at the inspector's 33 ms poll while an inspection is armed (see
 | `emulateStateChanged` | | The catalog fetch moved. |
 | `themeModeChanged` | | `themeMode` moved. |
 | `crashReportingChanged` | | `crashReportingEnabled` moved. |
+| `crashReportChanged` | | `hasCrashReport` moved. |
+| `moonlightChanged` | | Any `moonlight*` property moved. |
+| `moonlightAppsChanged` | `string uuid` | The `/applist` read for one host moved: in flight, arrived, or failed. Re-pull `moonlightApps(uuid)`. |
+| `updateChanged` | | Any `update*` status property moved. |
+| `updatePrefsChanged` | | `updateChecksEnabled` moved. |
+| `updateNotice` | `string token, string version` | `token` is `available` or `unsupported`; edge-detected, so it fires once per version per session. Periodic check failures never reach it: they live in Settings. |
 | `runInBackgroundChanged` | | `runInBackground` flipped. |
 | `trayAvailableChanged` | | A StatusNotifier host appeared or went away. |
 | `showWindowRequested` | | The tray menu's Show item, or an activation on the item. The window must `show()`, `raise()` and `requestActivate()`. |
@@ -237,6 +276,8 @@ Republished at the inspector's 33 ms poll while an inspection is armed (see
 | `bindSlot(slotId, connectionId)` | `string, string` | Bind a slot to a connection. |
 | `unbindSlot(slotId)` | `string` | Unbind the slot. |
 | `setSlotPath(slotId, choice)` | `string, string` | Force the slot's USB input path: `"standard"` (SDL owns the pad), `"direct"` (raw-HID claim), `"auto"` (clear the override and let the resolution policy decide). No-op when the slot has no resolvable `(vid, pid)`. The slot roles refresh on the next `stateChanged`. Gate the control on the `pathSupported` role. |
+| `carriedPads(connectionId)` | `string` → `list` | The pads riding that connection, as `{ name, emulateName }` rows: the manifest a Forget confirm shows before it drops them. |
+| `slotOrdinal(slotId, connectionId)` | `string, string` → `int` | 1-based position of the slot among the pads riding that connection, `0` when it rides none. The same join as `carriedPads`, so the two always agree. |
 | `availableConnectionsForSlot(slotId)` | `string` → `list` | Connections this slot may bind to, as `{ connectionId, label, dotColor, glyph }`. Computed by the pure `reducer::connectionsVisibleInPicker`: connections bound to another slot are excluded, live unbound ones are offered, and the slot's own current binding is held over even when offline. Read it once when a chooser opens; there is no NOTIFY. Gate a Bind button on this list being non-empty, not on `connectionModel.count`. |
 
 ### Emulation types
@@ -273,6 +314,29 @@ because the slot-keyed reads vend nothing before a binding exists.
 | `clearPairingTarget()` | | Drop the one-shot pairing trigger. Call before opening the pairing sheet to avoid re-entry. |
 | `requestReversePairing(serverId)` | `string` | Start host-initiated pairing: the dish shows a 4-digit PIN and the operator approves on the satellite. A second call cancels the first. |
 | `cancelReversePairing()` | | Abort an in-flight reverse pair. Safe when idle. |
+
+### Moonlight hosts
+
+| Method | Args | Effect |
+|---|---|---|
+| `scanMoonlight()` | | Begin a Moonlight host scan; watch `moonlightScanning`. |
+| `addMoonlightHost(address, name)` | `string, string` | Add a host by the IP or host name the user typed, with the standard 47989/47984 ports. `name` is optional. |
+| `pairMoonlight(uuid)` | `string` | Start pairing; `moonlightPairingPin` is the PIN the user types into the host's UI. The PIN is minted in C++ because it is security relevant. |
+| `cancelMoonlightPairing()` | | Abort a pairing in progress. |
+| `forgetMoonlight(uuid)` | `string` | Forget the host. |
+| `probeMoonlightHost(uuid)` | `string` | Ask the host whether it is reachable, still paired and still itself. Client-initiated by definition: call it on entering a screen and before starting a session. Nothing polls. |
+| `refreshMoonlightApps(uuid)` | `string` | `GET /applist`. HTTPS and paired-only, so an unpaired host reports a failure rather than an empty list. Fires `moonlightAppsChanged`. |
+| `moonlightApps(uuid)` | `string` → `list` | The app rows, `{ id, title }`. |
+| `setMoonlightApp(uuid, appId, appName)` | `string, string, string` | The app the next session on this host will run. Per host, not per binding: only the binding that creates a session picks one. |
+| `quitMoonlightApp(uuid)` | `string` | End whatever the host is running, ours or another device's. The way out of "an app is already running" when the host will not hand it over. |
+| `isMoonlightHost(hostId)` | `string` → `bool` | `hostId` names a Moonlight host rather than a satellite. |
+| `moonlightSession(uuid, slotId)` | `string, string` → `map` | Everything the Moonlight session section renders for one host seen from one binding (`slotId` may be empty for a binding that does not exist yet): `{ state, blocksApply, hostName, appId, appName, controllers, controllerNumber, trust, pairingReason, refusal }`. `state` is one of the lowercase tokens in `core/moonlight/MoonlightSessionUi.h`, which QML localizes. `pairingReason` is `""` unless `state` is `pairingRefused`, and then it is the `pairingFinished` token that says which refusal it was. |
+| `moonlightResolvedType(slotId, candidateType)` | `string, int` → `int` | What Auto resolves to for this pad: a source with a gyro or accelerometer becomes PlayStation, everything else Xbox. Returns the wire type byte. |
+| `moonlightBoundHost(slotId)` | `string` → `string` | The Moonlight host this slot drives, or `""`. |
+| `moonlightBindingType(hostId, slotId)` | `string, string` → `int` | The type a Moonlight binding sends: the pick stored for this pad on this host, Auto while it has none. Per binding, never the host's last pick. |
+| `setMoonlightControllerType(uuid, type)` | `string, int` | The host's own seed for the next binding's type pick. |
+| `bindMoonlight(slotId, uuid)` | `string, string` | Route the slot's live input to a Moonlight host. |
+| `unbindMoonlight(slotId)` | `string` | Stop routing the slot to its Moonlight host. |
 
 **Both pairing paths run at once.** Forward pairing is the operator reading a
 PIN off the dish and typing it here. Reverse pairing is the inverse: the dish
@@ -343,10 +407,11 @@ when leaving the page, or capture keeps streaming.
 
 ```qml
 App.capabilityForCandidate(slotId, type, hostKind, hostId,
-                           desiredPath, motionOn, rumbleOn, touchpadMode)
+                           desiredPath, motionOn, rumbleOn, touchpadMode,
+                           micOn, speakerOn)
 ```
 
-`hostKind` is `"satellite"` or `"bluetooth"`. `hostId` is the stable satellite
+`hostKind` is `"satellite"`, `"bluetooth"` or `"moonlight"` (a Moonlight destination waits on no catalog: the type layer is a fixed table and the host layer always carries). `hostId` is the stable satellite
 id, and `""` means no destination chosen. `desiredPath` is `"standard"` or
 `"direct"`. `touchpadMode` is `0` off, `1` pad, `2` mouse.
 
@@ -396,12 +461,16 @@ vends a sentence; QML localizes.
 | `touchpadRoutingFor(slotId)` → `"off"` / `"pad"` / `"mouse"` | Real. What the slot's binding declares, from the runtime's own answer: a satellite descriptor's touchpad mode, or for a Moonlight binding whether its arrival carries the touchpad (`"pad"`). The binding strip reads this, never the pick. |
 | `rumbleEnabledFor(slotId)` | Real. Per-slot store; `true` when never switched. A draft seeds from it, so applying cannot silently turn rumble back on. |
 | `setRumbleEnabled(slotId, on)` | Real. Off stops the slot's motors at once and turns every rumble a host sends it into a stop; the descriptor still offers rumble, as on Android. |
+| `micEnabledFor(slotId)` → `bool` | Real. Controller audio, persisted per slot like motion. Defaults **off**: capture is opt-in per binding. |
+| `setMicEnabled(slotId, on)` | Real. |
+| `speakerEnabledFor(slotId)` → `bool` | Real. Defaults **on**. |
+| `setSpeakerEnabled(slotId, on)` | Real. |
 
 ### Apply
 
 ```qml
 App.applyBinding(slotId, connectionId, type, desiredPath,
-                 motionOn, rumbleOn, touchpadMode)
+                 motionOn, rumbleOn, touchpadMode, micOn, speakerOn)
 App.cancelApply()
 ```
 
@@ -429,7 +498,7 @@ the reason goes in a toast, and the primary action is live again. The wire
 renders as `transmitting`, never `live`, until success, because showing a
 connection that never existed is worse than showing none.
 
-### Bluetooth, licenses, onboarding, links
+### Bluetooth, licenses, onboarding, links, settings, updates, crash report
 
 | Method | Effect |
 |---|---|
@@ -441,10 +510,23 @@ connection that never existed is worse than showing none.
 | `setThemeMode(mode)` | Apply an appearance mode. Also available as the `themeMode` property write. |
 | `setCrashReportingEnabled(on)` | Also available as the property write. |
 | `setRunInBackground(on)` | Also available as the property write. |
-| `requestWindowClose()` | Returns true when the shell should `hide()` the window instead of quitting. **Not a query** — the first call that answers true spends the one-time "Dish is still running" desktop notification. Call it exactly once per close intent. |
+| `requestWindowClose()` | Returns true when the shell should `hide()` the window instead of quitting. **Not a query**: the first call that answers true spends the one-time "Dish is still running" desktop notification. Call it exactly once per close intent. |
 | `setWindowVisible(visible)` | Report the window's visibility; the tray item is derived from it. |
 | `setRailCollapsed(collapsed)` | Also available as the property write. |
 | `setLightbarFollowGame(on)` | Also available as the property write. |
+| `setKeepAwakeMode(mode)` | Also available as the property write. |
+| `setKeepAwakeTimeoutMinutes(minutes)` | Also available as the property write. |
+| `setKeepDisplayAwake(on)` | Also available as the property write. |
+| `setKeepAwakeWithLidClosed(on)` | Also available as the property write. |
+| `setControllerDbChecksEnabled(on)` | Also available as the property write. |
+| `setUpdateChecksEnabled(on)` | Also available as the property write. |
+| `checkForUpdatesNow()` | Run one update check now. |
+| `skipUpdate()` | Skip the offered version. |
+| `openReleaseNotes()` | Open the release notes, or the releases page when the manifest carried no notes URL. |
+| `crashReportText()` | The redacted crash report, exactly as it would be sent. Shown before any send so the user approves what leaves the machine. |
+| `copyCrashReport()` | Put that same text on the clipboard. |
+| `openCrashIssue()` | Open a prefilled GitHub issue in the browser. Nothing is uploaded by Dish itself: the browser is the transport and the user submits. |
+| `discardCrashReport()` | Delete the log, which is what makes the crash-report card go away. |
 
 The setter invokables exist alongside the property writes because QML can only
 assign a `WRITE` accessor, and the pages call these as functions.

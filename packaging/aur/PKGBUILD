@@ -1,15 +1,18 @@
 # Maintainer: TinkerNorth <https://github.com/TinkerNorth/dish-linux>
 #
-# dish-bin: Arch User Repository package that re-bundles the upstream
-# AppImage. Build it locally with `makepkg -si`, or install via an AUR
-# helper:
+# dish-bin: a pacman package that re-bundles the upstream AppImage.
 #
-#   yay -S dish-bin
-#   paru -S dish-bin
+# It is NOT on the AUR. The live Arch channel is the signed pacman repository
+# at https://tinkernorth.github.io/dish-linux/arch/x86_64, which release.yml's
+# arch-publish job builds from this file on every stable tag, through
+# scripts/build-arch-package.sh; every pull request builds it too, from that
+# run's AppImage (appimage-ci.yml's arch job). Whether to submit it to the AUR
+# is undecided; packaging/aur/README.md has the status.
 #
-# Updating: bump pkgver, refresh `sha256sums` from the release's
-# SHA256SUMS asset (`updpkgsums` does it), then regenerate .SRCINFO with
-# `makepkg --printsrcinfo > .SRCINFO`.
+# pkgver=0.1.0 and the zero checksums below are placeholders on purpose:
+# scripts/build-arch-package.sh writes the version and `updpkgsums` writes the
+# checksums from the release's files. A hand build of a published release:
+# set pkgver, run `updpkgsums`, then `makepkg -si`.
 #
 # Why -bin? A from-source Arch package would drag in Qt 6 / SDL2 /
 # libsodium headers at build time, and the AppImage is already a bundled
@@ -49,10 +52,9 @@ source_x86_64=(
     "com.tinkernorth.Dish.metainfo.xml::https://raw.githubusercontent.com/TinkerNorth/dish-linux/${pkgver}/packaging/com.tinkernorth.Dish.metainfo.xml"
     "70-dish-hidraw.rules::https://raw.githubusercontent.com/TinkerNorth/dish-linux/${pkgver}/packaging/udev/70-dish-hidraw.rules"
 )
-# PLACEHOLDERS: the 0.1.0 release is not published yet. Before the first
-# AUR push, run `updpkgsums` against the real release and cross-check the
-# AppImage line against the release's SHA256SUMS asset. SKIP is not
-# acceptable here: the whole premise of a -bin package is redistributing an
+# PLACEHOLDERS, filled per build by `updpkgsums` (see the header). Before
+# any AUR push, cross-check the AppImage line against the release's
+# SHA256SUMS asset. SKIP is not acceptable here: the whole premise of a -bin package is redistributing an
 # upstream binary, and the release ships cosign signatures and SLSA
 # provenance; verifying nothing on the way in would throw that away.
 sha256sums_x86_64=(
