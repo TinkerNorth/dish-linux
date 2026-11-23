@@ -498,6 +498,11 @@ void SDLGamepadBridge::runLoop() {
         schedule.advance(pump::Clock::now());
     }
 
+    // Once, at exit: a post that landed after the last cycle's drain (a bench test's give-back at
+    // quit, which comes just before stop()) still reaches its pad before the pads close. The
+    // acquire pairs with stop()'s exchange, so every post made before it is seen.
+    const bool stopped = !running_.load(std::memory_order_acquire);
+    if (stopped) { drainMailboxes(); }
     closeAllDevices();
     SDL_QuitSubSystem(SDL_INIT_GAMECONTROLLER | SDL_INIT_JOYSTICK);
     // SDL frees a thread's own storage (its error buffer) only on threads it started; this one is

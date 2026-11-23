@@ -531,6 +531,27 @@ TEST_CASE("a pad that leaves while the bench holds its bar is given back, and th
     CHECK(hp::pumpUntil([&] { return next.lastLed() == packedRgb(0x07, 0x08, 0x09); }));
 }
 
+// At quit the bench gives its surface back just before the SDL thread stops; a give-back posted
+// after the thread's last cycle drained the mailbox still reaches the pad before it closes. The
+// window is a few hundred nanoseconds wide, so this pins the quit path rather than the race.
+TEST_CASE("a give-back posted just before the SDL thread stops reaches the pad",
+          "[slot-router][bench]") {
+    Seen seen;
+    hp::HotPathRig rig(1, countInto(seen));
+    REQUIRE(rig.startBridge());
+    const hp::VirtualPad pad("Router bench quit pad");
+    REQUIRE(pad.ok());
+    const QString padId = pad.deviceId();
+    REQUIRE(hp::pumpUntil([&] { return !rig.bridge().devices().isEmpty(); }));
+    rig.router().republish({padId});
+    rig.router().holdSurface(padId, dish::reducer::BenchSurface::Lightbar);
+    rig.router().writeSurface(padId, kBenchRed);
+    REQUIRE(hp::pumpUntil([&] { return pad.lastLed() == packedRgb(0xFF, 0, 0); }));
+    rig.router().giveBackSurface(padId, dish::reducer::BenchSurface::Lightbar);
+    rig.bridge().stop();
+    CHECK(pad.lastLed() == 0U);
+}
+
 TEST_CASE("the bench's buzz reaches the motors and is not counted as the game's rumble",
           "[slot-router][bench]") {
     Seen seen;
