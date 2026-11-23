@@ -62,7 +62,11 @@ fail() {
     exit 1
 }
 
-if grep -qE 'is not installed|failed to load component|Cannot load library|[Nn]o such file' "${log}"; then
+# Qt's own loader phrases. Not "No such file or directory" with a capital: the
+# OS says that for things the app probes and does without (a container has no
+# system bus and no JACK), and Qt's library failures already read "Cannot load
+# library".
+if grep -qE 'is not installed|failed to load component|Cannot load library|no such file' "${log}"; then
     fail "the app cannot load its Qt/QML runtime"
 fi
 # The app renders no iconography at all when this fires, and the only symptom
