@@ -23,8 +23,14 @@ struct MachineIdentity {
 };
 
 inline constexpr const char* kDmiDir = "/sys/class/dmi/id";
+// Where a Flatpak sandbox publishes the host's os-release; it is not there outside one.
+inline constexpr const char* kHostOsRelease = "/run/host/os-release";
 
-// `dmiDir` is the folder sys_vendor and product_name are read from; a test points it elsewhere.
-MachineIdentity readMachineIdentity(const QString& dmiDir = QString::fromLatin1(kDmiDir));
+// `dmiDir` is the folder sys_vendor and product_name are read from, `hostOsRelease` the host's
+// os-release, whose PRETTY_NAME names the distribution where the file exists (QSysInfo's answer
+// otherwise, which inside a sandbox names the runtime); a test points both elsewhere.
+MachineIdentity
+readMachineIdentity(const QString& dmiDir = QString::fromLatin1(kDmiDir),
+                    const QString& hostOsRelease = QString::fromLatin1(kHostOsRelease));
 
 } // namespace dish::source

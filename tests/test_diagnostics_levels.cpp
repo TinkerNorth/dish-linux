@@ -247,6 +247,31 @@ TEST_CASE("host identity: a machine whose firmware publishes no DMI is a Linux P
     CHECK(unreadable.model != QSysInfo::machineHostName());
 }
 
+// Inside the Flatpak QSysInfo reads the runtime's os-release and names the KDE runtime; the
+// sandbox publishes the host's at /run/host/os-release, which names the person's distribution.
+TEST_CASE("host identity: a sandbox names the host's distribution, not its runtime",
+          "[diagnostics][identity]") {
+    DmiFolder host;
+    REQUIRE(host.dir.isValid());
+    host.write("os-release", "NAME=\"Fedora Linux\"\nVERSION_ID=41\n"
+                             "PRETTY_NAME=\"Fedora Linux 41 (Workstation Edition)\"\n");
+    const dish::source::MachineIdentity machine = dish::source::readMachineIdentity(
+        host.dir.path(), host.dir.filePath(QStringLiteral("os-release")));
+    CHECK(machine.os == QStringLiteral("Fedora Linux 41 (Workstation Edition) (%1)")
+                            .arg(QSysInfo::kernelVersion()));
+    SECTION("unquoted, as os-release allows") {
+        host.write("os-release", "PRETTY_NAME=Arch Linux\n");
+        CHECK(dish::source::readMachineIdentity(host.dir.path(),
+                                                host.dir.filePath(QStringLiteral("os-release")))
+                  .os.startsWith(QStringLiteral("Arch Linux (")));
+    }
+    SECTION("outside a sandbox there is no such file, and Qt's own answer stands") {
+        const dish::source::MachineIdentity outside = dish::source::readMachineIdentity(
+            host.dir.path(), QStringLiteral("/no/such/os-release"));
+        CHECK(outside.os.startsWith(QSysInfo::prettyProductName()));
+    }
+}
+
 TEST_CASE("host identity: the build code reads the way Android's versionCode does",
           "[diagnostics][identity]") {
     CHECK(buildCodeOf("2.8.0") == "20800");
