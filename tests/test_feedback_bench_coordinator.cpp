@@ -267,6 +267,21 @@ TEST_CASE("the haptics tone plays on the actuator pair alone", "[diagnostics][be
     CHECK(loudestOn(playback->queued, 3, 4) > 0);
 }
 
+// The offer gates haptics.play on the haptics lane (slotCarriesHapticPlayout), so the run does too:
+// a speaker endpoint that carries no actuator lanes plays no haptics tone.
+TEST_CASE("the haptics tone runs only where the haptics lane is", "[diagnostics][bench]") {
+    Bench bench;
+    bench.routeToPadEndpoint();
+    bench.actuators.route.haptics = false;
+    bench.coordinator.start(kSlot, BenchTest::HapticsPlay);
+    CHECK(bench.audio.openPlaybackCount() == 0);
+    CHECK(bench.coordinator.unavailableFor(kSlot) == BenchTest::HapticsPlay);
+    SECTION("while the speaker's tone still plays there") {
+        bench.coordinator.start(kSlot, BenchTest::TonePlay);
+        CHECK(bench.audio.openPlaybackCount() == 1);
+    }
+}
+
 TEST_CASE("a tone whose endpoint refuses to open ends at once and asks nothing",
           "[diagnostics][bench]") {
     Bench bench;

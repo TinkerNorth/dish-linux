@@ -53,6 +53,12 @@ int toneLaneOffset(reducer::BenchTest test) {
                                                                      : audio::kSpeakerLaneOffset;
 }
 
+// The lane the offer gates the test on (slotCarriesSpeakerPlayout, slotCarriesHapticPlayout).
+bool routeCarriesToneOf(const audio::PadAudioRoute& route, reducer::BenchTest test) {
+    const bool haptics = reducer::benchItemOf(test) == reducer::BenchItem::Haptics;
+    return haptics ? route.haptics : route.speaker;
+}
+
 } // namespace
 
 FeedbackBenchCoordinator::FeedbackBenchCoordinator(BenchActuators* actuators,
@@ -180,7 +186,7 @@ void FeedbackBenchCoordinator::startTone(const QString& slotId, std::uint64_t ti
     const int channels =
         route.playbackChannels > 0 ? route.playbackChannels : proto::kAudioSpeakerChannels;
     const std::vector<std::int16_t> tone = audio::benchTone(channels, toneLaneOffset(test));
-    const bool playable = route.speaker && !tone.empty();
+    const bool playable = routeCarriesToneOf(route, test) && !tone.empty();
     const int handle = playable ? audio_->openPlayback(route.playbackDeviceName, channels)
                                 : source::audio::kNoAudioDevice;
     if (handle == source::audio::kNoAudioDevice) {
