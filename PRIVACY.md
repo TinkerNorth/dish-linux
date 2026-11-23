@@ -386,8 +386,10 @@ and how many reports went in and out of it), the audio switches it grants, its
 message counters, the state of its own controller list, and this connection's
 lines of its log. Satellite removes from it every machine name, every other
 client's name and address and every secret, and names your device "this
-connection"; Dish then replaces that host's name and address with its alias
-wherever either still appears. A Moonlight host (Sunshine, Apollo, Wolf) is
+connection"; Dish then replaces the name and the address of every host it
+lists with that host's alias wherever either still appears, in every
+snapshot and every line of the log, a host's name and its address being one
+alias. A Moonlight host (Sunshine, Apollo, Wolf) is
 not asked anything: the file holds the version its last answer to Dish gave.
 
 **What the file holds.** Your report, as above; the app's version and how it

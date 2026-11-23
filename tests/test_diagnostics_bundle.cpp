@@ -89,7 +89,7 @@ struct BundleFixture {
             BundleLogEvent{1795122100000, "linkAppeared", kHostName, true, "", {"", "connected"}});
         facts.log.push_back(
             BundleLogEvent{1795122110000, "padBound", "Wireless Controller", false, kHostName, {}});
-        // A host the list no longer has, named by its address because it never had a name.
+        // A line whose subject is the listed host's address: the same host as its label.
         facts.log.push_back(
             BundleLogEvent{1795122120000, "linkRemoved", kHostAddress, true, "", {}});
         facts.log.push_back(BundleLogEvent{
@@ -135,9 +135,10 @@ TEST_CASE("diagnostics bundle: hosts are aliases, in the log as in the host list
           QStringLiteral("Host 1 connected"));
     CHECK(log[1].toObject()[QStringLiteral("message")].toString() ==
           QStringLiteral("Wireless Controller Host 1"));
-    CHECK(log[2].toObject()[QStringLiteral("message")].toString() == QStringLiteral("Host 2"));
+    // A host's label and its address are one alias; a label the list no longer has gets the next.
+    CHECK(log[2].toObject()[QStringLiteral("message")].toString() == QStringLiteral("Host 1"));
     CHECK(log[3].toObject()[QStringLiteral("message")].toString() ==
-          QStringLiteral("Wireless Controller Host 3"));
+          QStringLiteral("Wireless Controller Host 2"));
     CHECK(log[1].toObject()[QStringLiteral("tag")].toString() == QStringLiteral("padBound"));
 }
 
@@ -364,6 +365,62 @@ TEST_CASE("diagnostics bundle: a Satellite's own snapshot is embedded, scrubbed 
           QStringLiteral("served by Host 1 at Host 1"));
     CHECK(snapshot[QStringLiteral("Host 1")].toBool());
     CHECK(host[QStringLiteral("snapshotError")].isNull());
+}
+
+namespace {
+
+constexpr const char* kSecondAddress = "10.0.0.1";
+
+// Two listed hosts, and a first host's snapshot that names the second, by label and by address,
+// in its values and its keys, beside an address that only begins like the second's.
+BundleFixture twoHostFixture() {
+    BundleFixture fixture;
+    BundleHost second;
+    second.kind = "satellite";
+    fixture.facts.hosts.push_back(second);
+    fixture.facts.hostLabels.push_back(kSecondHost);
+    fixture.facts.hostAddresses.push_back(kSecondAddress);
+    Json peers = Json::object();
+    peers.set("note", std::string("also saw ") + kSecondHost + " at " + kSecondAddress +
+                          ", and a stranger at 10.0.0.17 and 210.0.0.1");
+    peers.set(kSecondAddress, true);
+    Json snapshot = carelessSnapshot();
+    snapshot.set("peers", std::move(peers));
+    fixture.facts.hosts[0].hostSnapshot = std::move(snapshot);
+    fixture.facts.log.push_back(BundleLogEvent{1795122140000,
+                                               "linkChanged",
+                                               "Wireless Controller",
+                                               false,
+                                               "",
+                                               {std::string("via ") + kSecondAddress}});
+    return fixture;
+}
+
+} // namespace
+
+TEST_CASE("diagnostics bundle: every listed host is scrubbed from every snapshot and log line",
+          "[diagnostics][bundle]") {
+    const BundleFixture fixture = twoHostFixture();
+    const QJsonObject root = fixture.parsed();
+    const QJsonObject peers = root[QStringLiteral("hosts")]
+                                  .toArray()[0]
+                                  .toObject()[QStringLiteral("snapshot")]
+                                  .toObject()[QStringLiteral("peers")]
+                                  .toObject();
+    CHECK(peers[QStringLiteral("note")].toString() ==
+          QStringLiteral("also saw Host 2 at Host 2, and a stranger at 10.0.0.17 and 210.0.0.1"));
+    CHECK(peers[QStringLiteral("Host 2")].toBool());
+    const QJsonArray log = root[QStringLiteral("log")].toArray();
+    CHECK(log.last().toObject()[QStringLiteral("message")].toString() ==
+          QStringLiteral("Wireless Controller via Host 2"));
+}
+
+TEST_CASE("diagnostics bundle: an address is never found inside a longer number",
+          "[diagnostics][bundle]") {
+    const std::string bundle = buildDiagnosticsBundle(twoHostFixture().facts);
+    CHECK(bundle.find("10.0.0.17") != std::string::npos);
+    CHECK(bundle.find("210.0.0.1") != std::string::npos);
+    CHECK(bundle.find("Host 27") == std::string::npos);
 }
 
 TEST_CASE("diagnostics bundle: an older Satellite is described from what this client fetched",
