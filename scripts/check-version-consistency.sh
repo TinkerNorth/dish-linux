@@ -25,6 +25,13 @@
 #   containers        scripts/tools.sh images -> every workflow `container:` line
 #   clang-format      scripts/tools.sh -> .clang-format's header
 #   the protocol      kProtocolVersion -> docs/contract.md, CONTRIBUTING.md
+#   README.md         every relative link -> a path in the tree; every X.Y.Z -> the
+#                     version, or the Qt pin after "Qt"; the Qt floor; the Debian
+#                     and Fedora the packages are built on -> the container pins;
+#                     glibc -> docs/PACKAGING.md; the family's shared blocks ->
+#                     tests/fixtures/readme-family/, word for word. The distro
+#                     Qt versions it quotes (Ubuntu's, Fedora's) are facts about
+#                     those distributions, not pins, and are not checked.
 #
 # Prints every drift it finds, then fails if there was any.
 set -euo pipefail
@@ -224,6 +231,65 @@ else
     has docs/contract.md "protocol version ${protocol}" "does not name protocol version ${protocol}"
     has CONTRIBUTING.md "protocol version ${protocol}" "does not name protocol version ${protocol}"
 fi
+
+# --- README.md ---------------------------------------------------------------
+readme_out=$(python3 - "${ver}" "${floor}" "${DISH_QT_VERSION}" "${DISH_DEB_IMAGE}" "${DISH_RPM_IMAGE}" <<'PY'
+import os, re, sys
+ver, floor, qt_pin, deb_image, rpm_image = sys.argv[1:]
+readme = open("README.md", encoding="utf-8").read()
+problems = []
+
+# Every relative link points at a file or directory in the tree.
+for target in re.findall(r"\]\(([^)\s]+)\)", readme):
+    if re.match(r"[a-z][a-z0-9+.-]*:", target) or target.startswith("#"):
+        continue
+    path = target.split("#", 1)[0]
+    if path and not os.path.exists(path):
+        problems.append(f"links to {target}, which does not exist")
+
+# The release it names is the project version, wherever a version appears
+# outside a Qt number.
+if f"Dish for Linux {ver} is the current release." not in readme:
+    problems.append(f"does not say Dish for Linux {ver} is the current release")
+for m in re.finditer(r"(Qt )?\b(\d+\.\d+\.\d+)\b", readme):
+    if m.group(1):
+        if m.group(2) != qt_pin:
+            problems.append(f"names Qt {m.group(2)}; the pin is Qt {qt_pin}")
+    elif m.group(2) != ver:
+        problems.append(f"names version {m.group(2)}; the project version is {ver}")
+
+# The Qt floor, and the distributions the packages are built on.
+if f"the Qt {floor} Dish needs" not in readme:
+    problems.append(f"does not give the Qt {floor} floor as 'the Qt {floor} Dish needs'")
+deb_major = deb_image.split(":")[1].split(".")[0]
+if f"built on Debian {deb_major} " not in readme:
+    problems.append(f"does not say the .deb is built on Debian {deb_major} ({deb_image})")
+rpm_major = rpm_image.split(":")[1].split(".")[0]
+if not re.search(rf"(next release is|\.rpm is) built on Fedora {rpm_major}\b", readme):
+    problems.append(f"does not say the .rpm is built on Fedora {rpm_major} ({rpm_image})")
+
+# The AppImage's glibc floor is the one docs/PACKAGING.md states.
+packaging = open("docs/PACKAGING.md", encoding="utf-8").read()
+glibc = set(re.findall(r"glibc (\d+\.\d+)", packaging))
+for g in re.findall(r"glibc (\d+\.\d+)", readme):
+    if g not in glibc:
+        problems.append(f"names glibc {g}; docs/PACKAGING.md says glibc {', '.join(sorted(glibc))}")
+
+# The blocks every Dish README shares, word for word, against the canonical
+# copy in tests/fixtures/readme-family/.
+fixtures = "tests/fixtures/readme-family"
+for name in sorted(os.listdir(fixtures)):
+    block = open(os.path.join(fixtures, name), encoding="utf-8").read().rstrip("\n")
+    if block not in readme:
+        problems.append(f"does not carry the family's shared block {fixtures}/{name} word for word")
+
+print("\n".join(problems))
+PY
+)
+echo "README.md against the tree"
+while IFS= read -r line; do
+    [ -n "${line}" ] && err "README.md ${line}"
+done <<<"${readme_out}"
 
 if [ "${fail}" -ne 0 ]; then
     echo "::error::Drift between a source and its copies. scripts/check-version-consistency.sh names each source; CONTRIBUTING.md, 'Cutting a release', has the list."

@@ -70,7 +70,12 @@ the repos share a version number.
   first by `scripts/ci-local.sh`) fails a change that moves a copy without its
   source: the version, the Qt and SDL2 floors, the Qt, SDL2, sentry-native and
   KDE runtime pins, the container images, clang-format and the protocol
-  number.
+  number. It also holds `README.md` to the tree: every relative link
+  resolves, every version it names is the project's or the Qt pin, the Qt
+  floor, the Debian and Fedora it says the packages are built on and the
+  AppImage's glibc match their sources, and the blocks every Dish README
+  shares match the canonical copy in `tests/fixtures/readme-family/` word
+  for word.
 - One build path: every CI gate is a script under `scripts/` that
   `scripts/ci-local.sh` runs too, and `scripts/package-in-container.sh` runs
   the .deb, .rpm, Arch and repository lanes locally in CI's containers. The
