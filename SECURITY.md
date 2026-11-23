@@ -240,7 +240,7 @@ commit from the provenance's `builder.id`:
 
 ```bash
 cosign verify-blob-attestation \
-  --bundle dish-linux.intoto.jsonl --new-bundle-format --type slsaprovenance \
+  --bundle dish-linux.intoto.jsonl --type slsaprovenance \
   --certificate-identity "https://github.com/slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@f7dd8c54c2067bafc12ca7a55595d5ee9b75204a" \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
   dish_X.Y.Z_amd64.deb
