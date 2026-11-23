@@ -331,7 +331,7 @@ between the two desktop clients keeps its shape.
 | `tests/test_lock_laws.cpp` (`DishLockLawTests`) | that no hot-path thread takes a tracked lock | the `DISH_LOCK_STATS` lanes, plain and under both sanitizers |
 | `tests/test_measurements_report.py` | the release measurements report | the gcc `ci` leg |
 | `tools/bench` | the input path's latency and its locks | `ctest`'s `--smoke` in the Release leg; the full run in `measurements.yml` |
-| `scripts/check-version-consistency.sh` | every fact the documents repeat from code: the version, the Qt and SDL2 floors, the pins, the KDE runtime branch, the containers, the protocol number | `version-consistency.yml`, first in `scripts/ci-local.sh` |
+| `scripts/check-version-consistency.sh` | every fact the documents repeat from code: the version, the Qt and SDL2 floors, the pins, the KDE runtime branch, the containers, the protocol number, `README.md`'s links, versions and shared blocks | `version-consistency.yml`, first in `scripts/ci-local.sh` |
 | `scripts/launch-check.sh` | the shipped package or bundle starts, loads its QML, its SVGs and its controller database, and exits 0 on SIGTERM | the `.deb`, `.rpm` and AppImage lanes |
 
 [`tests/PARITY.md`](tests/PARITY.md) is the cross-client parity ledger: a
@@ -448,7 +448,10 @@ mirrors are `packaging/com.tinkernorth.Dish.metainfo.xml`'s `<release>` and
 the `CHANGELOG.md` heading. It also holds the Qt floor in `docs/PACKAGING.md`,
 `README.md`, `THIRD_PARTY.md` and `assets/licenses/licenses.json`, the SDL2
 floor, the pins in `scripts/tools.sh` against their copies, the KDE runtime
-branch, the container images and the protocol number.
+branch, the container images and the protocol number, and `README.md`: its
+links, the version and pins it names, and the blocks every Dish README shares,
+against `tests/fixtures/readme-family/`. A change to a shared block is made in
+all six READMEs and their fixtures together.
 
 `measurements.yml`: the input-path bench on pull requests that touch the hot
 path, and on every release; see [`tools/bench/README.md`](tools/bench/README.md).
@@ -553,7 +556,8 @@ The procedure:
    `CMakeLists.txt`, `## [Unreleased]` turned into the `## [X.Y.Z] - YYYY-MM-DD`
    heading, and a `<release version="X.Y.Z">` with a description paragraph in
    `packaging/com.tinkernorth.Dish.metainfo.xml` (`appstreamcli validate
-   --no-net` must pass). `version-consistency.yml` fails a PR that moves one
+   --no-net` must pass), and `README.md`'s current-release line with the
+   package notes that name the old version. `version-consistency.yml` fails a PR that moves one
    without the others. Update `PRIVACY.md` first if anything about data
    collection changed.
 2. **Mind the fleet order.** The website (`https://dish.tinkernorth.com`) is
