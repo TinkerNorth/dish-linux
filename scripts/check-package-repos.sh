@@ -65,7 +65,14 @@ echo "=== apt reads the repository back ==="
 work="$(mktemp -d)"
 gpg --batch --dearmor < "${pages}/gpg.key" > "${work}/dish.gpg"
 echo "deb [arch=${deb_arch} signed-by=${work}/dish.gpg] file://${pages}/debian stable main" > "${work}/dish.list"
-mkdir -p "${work}/lists/partial" "${work}/archives/partial"
+mkdir -p "${work}/lists/partial" "${work}/archives/partial" "${work}/download"
+# apt fetches as its unprivileged _apt user, as it does into /var/lib/apt: the
+# directories it writes are that user's, and the rest is readable, or apt
+# falls back to fetching as root and says so.
+chmod 755 "${work}"
+if id _apt >/dev/null 2>&1; then
+    ${sudo} chown -R _apt "${work}/lists" "${work}/archives" "${work}/download"
+fi
 apt_opts=(
     -o "Dir::Etc::SourceList=${work}/dish.list"
     -o "Dir::Etc::SourceParts=/nonexistent"
@@ -82,8 +89,11 @@ fi
 version="$(dpkg-deb -f "${deb}" Version)"
 apt-cache "${apt_opts[@]}" policy dish | tee "${work}/policy.log"
 grep -q "Candidate: ${version}" "${work}/policy.log" || fail "apt does not offer dish ${version} from the repository"
-(cd "${work}" && ${sudo} apt-get "${apt_opts[@]}" download "dish=${version}")
-cmp -s "${work}/dish_${version}_${deb_arch}.deb" "${deb}" || fail "apt downloaded a different .deb than the one published"
+(cd "${work}/download" && ${sudo} apt-get "${apt_opts[@]}" download "dish=${version}") 2>&1 | tee "${work}/download.log"
+if grep -qE '^(W|E):' "${work}/download.log"; then
+    fail "apt reported a problem downloading from the repository"
+fi
+cmp -s "${work}/download/dish_${version}_${deb_arch}.deb" "${deb}" || fail "apt downloaded a different .deb than the one published"
 
 echo "=== DNF metadata ==="
 repodata="${pages}/rpm/${rpm_arch}/repodata"
