@@ -50,15 +50,15 @@ symbols)
     # The build-tree binary is the unstripped one; packaging strips its own copy.
     bin="$(find "${target}" -maxdepth 2 -type f -name dish -perm -u+x -print -quit)"
     if [ -z "${bin}" ]; then
-        echo "::warning::no dish binary under ${target}"
-        exit 0
+        echo "::error::no dish binary under ${target} to upload symbols for" >&2
+        exit 1
     fi
     "${cli}" debug-files upload --include-sources "${bin}"
     ;;
 debug-tree)
     if [ ! -d "${target}" ]; then
-        echo "::warning::no debug tree at ${target}"
-        exit 0
+        echo "::error::no debug tree at ${target} to upload" >&2
+        exit 1
     fi
     "${cli}" debug-files upload "${target}"
     ;;

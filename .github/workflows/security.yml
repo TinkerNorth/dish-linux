@@ -34,7 +34,6 @@ jobs:
       # vendored, SDL2 and libsodium as Flatpak modules, sentry-native and Catch2 through
       # FetchContent), so the script names each by its upstream commit.
       osv_lockfile_script: scripts/osv-lockfile.sh
-      # The repository's Dependency graph setting is off (Settings, Code security), so the
-      # action cannot run; it has never run in any repository of the fleet. Turning the
-      # setting on is the maintainer's call, then this becomes true.
-      dependency_review_enabled: false
+      # Dependency review runs on every pull request: the repository's Dependency graph and
+      # Dependabot alerts are on.
+      dependency_review_enabled: true

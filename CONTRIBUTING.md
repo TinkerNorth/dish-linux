@@ -462,9 +462,8 @@ Security gates (also blocking):
   `scripts/check-action-pins.sh`, the allowlist gate
   (`scripts/security-allowlist.py`), OSV-Scanner through `scripts/osv-scan.sh`
   over the tree and the components `scripts/osv-lockfile.sh` names by
-  upstream commit, and gitleaks over the full history. Dependency review is
-  off (`dependency_review_enabled: false`) until the repository's Dependency
-  graph setting is on.
+  upstream commit, gitleaks over the full history, and GitHub's dependency
+  review on pull requests.
 - `codeql.yml`: CodeQL `cpp` analysis (security-extended and
   security-and-quality query packs), blocking, with the results uploaded to
   code scanning.
@@ -529,7 +528,8 @@ a tag input. In order:
    reports whether the GPG and Sentry secrets are set.
 2. `deb`, `rpm`, `appimage` and `flatpak` build each package through the
    scripts the pull-request lanes run, with the `SENTRY_DSN` secret, upload
-   each build's debug symbols to Sentry (best effort), and install and launch
+   each build's debug symbols to Sentry (a failed upload fails the release;
+   without the Sentry secrets the step skips with a notice), and install and launch
    the `.deb` and `.rpm` (the AppImage launches inside its build script).
    `manifest` writes `latest.json` and fails if the tag is not
    `project(Dish VERSION)`.

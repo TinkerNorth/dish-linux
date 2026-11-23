@@ -82,7 +82,9 @@ jobs:
     uses: ./.github/workflows/_security.yml
     with:
       osv_scan_paths: .
-      # The same inputs as security.yml, with the same reasons.
+      # The same OSV inputs as security.yml, with the same reasons. Dependency
+      # review compares a pull request's dependency changes, and _security.yml
+      # runs it only on pull_request, so a tag passes false.
       osv_lockfile_script: scripts/osv-lockfile.sh
       dependency_review_enabled: false
 
@@ -180,9 +182,10 @@ jobs:
           DISH_SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
         run: ./scripts/build-deb.sh
 
-      # Best effort: a symbol-upload hiccup must not fail a release.
+      # Strict: a release whose crashes cannot be symbolicated is not finished,
+      # so a failed upload fails the job (scripts/sentry-cli.sh skips, with a
+      # notice, only when the Sentry secrets are absent, as in a fork).
       - name: Upload debug symbols to Sentry
-        continue-on-error: true
         env:
           SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
@@ -241,9 +244,10 @@ jobs:
           DISH_SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
         run: ./scripts/build-rpm.sh
 
-      # Best effort: a symbol-upload hiccup must not fail a release.
+      # Strict: a release whose crashes cannot be symbolicated is not finished,
+      # so a failed upload fails the job (scripts/sentry-cli.sh skips, with a
+      # notice, only when the Sentry secrets are absent, as in a fork).
       - name: Upload debug symbols to Sentry
-        continue-on-error: true
         env:
           SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
@@ -318,9 +322,10 @@ jobs:
           DISH_SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
         run: scripts/build-appimage.sh
 
-      # Best effort: a symbol-upload hiccup must not fail a release.
+      # Strict: a release whose crashes cannot be symbolicated is not finished,
+      # so a failed upload fails the job (scripts/sentry-cli.sh skips, with a
+      # notice, only when the Sentry secrets are absent, as in a fork).
       - name: Upload debug symbols to Sentry
-        continue-on-error: true
         env:
           SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
@@ -382,11 +387,10 @@ jobs:
           # Stable-name copy for the /releases/latest/download/ permalink.
           cp "dist/Dish-${TAG}-x86_64.flatpak" dist/Dish-x86_64.flatpak
 
-      # Best effort, like the package jobs. flatpak-builder strips the app
+      # Strict, like the package jobs. flatpak-builder strips the app
       # into /app/lib/debug while finishing the module, so the .debug files
       # under the build tree carry the build-id Sentry matches a crash to.
       - name: Upload debug symbols to Sentry
-        continue-on-error: true
         env:
           SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
@@ -593,7 +597,6 @@ jobs:
           persist-credentials: false
 
       - name: Create the release and associate commits
-        continue-on-error: true
         env:
           SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}

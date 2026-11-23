@@ -36,7 +36,7 @@
 #
 # CI-only, with the reason:
 #   dependency review (security.yml): a GitHub API over the pull request's
-#     dependency graph; off until the repository's Dependency graph setting is.
+#     dependency graph.
 #   CodeQL (codeql.yml): GitHub's analyzer, not installable as a gate.
 #   the AppImage and its dish-bin package (appimage-ci.yml): an x86_64 jammy
 #     host; locally, scripts/package-in-container.sh arch takes a built AppImage.

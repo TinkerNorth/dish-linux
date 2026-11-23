@@ -22,6 +22,7 @@
 #   security tools    scripts/tools.sh OSV-Scanner and gitleaks -> the shared _security.yml
 #   the tools table   THIRD_PARTY.md section 11 -> scripts/tools.sh and the shared workflows
 #   SLSA generator    release.yml's pinned commit -> SECURITY.md's provenance recipe
+#   vendored code     every third_party/ directory -> THIRD_PARTY.md and codeql.yml's pre-trace build
 #   containers        scripts/tools.sh images -> every workflow `container:` line
 #   clang-format      scripts/tools.sh -> .clang-format's header
 #   the protocol      kProtocolVersion -> docs/contract.md, CONTRIBUTING.md
@@ -208,6 +209,13 @@ else
     echo "SLSA generator ${generator:0:12}"
     has SECURITY.md "generator_generic_slsa3.yml@${generator}\"" "the provenance recipe does not name the generator commit release.yml pins"
 fi
+
+# --- vendored code: THIRD_PARTY.md and CodeQL's pre-trace build know every directory ---
+for dir in third_party/*/; do
+    dir="${dir%/}"
+    has THIRD_PARTY.md "\`${dir}/\`" "does not describe the vendored ${dir}"
+    has .github/workflows/codeql.yml "${dir}" "does not build the vendored ${dir} before CodeQL traces"
+done
 
 # --- containers --------------------------------------------------------------
 echo "containers ${DISH_DEB_IMAGE} ${DISH_RPM_IMAGE} ${DISH_ARCH_IMAGE}"

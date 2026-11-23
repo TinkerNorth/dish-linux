@@ -109,8 +109,8 @@ The jobs live in the shared `_security.yml`, byte-identical in every repo.
 - Allowlist expiry: `.security/allowlist.yaml` entries must be complete,
   unexpired and at most 90 days out; the allowlist is the only place a
   vulnerability is accepted.
-- Dependency review: GitHub advisory database (PR only). Off in every repo
-  until its Dependency graph setting is switched on.
+- Dependency review: GitHub advisory database (PR only), in each repo
+  whose Dependency graph setting is on (`dish-linux`: on).
 - OSV-Scanner 2.7.1: manifest dependencies, and code vendored or built from
   source named by its upstream commit (for `dish-linux`: ENet, SDL2,
   libsodium, sentry-native and Catch2, through `scripts/osv-lockfile.sh`).
