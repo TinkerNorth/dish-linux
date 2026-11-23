@@ -80,6 +80,19 @@ export APPIMAGE_EXTRACT_AND_RUN=1
 # is compiled into the binary by qt_add_qml_module, so without this the AppImage
 # builds clean and dies at startup on `module "QtQuick" is not installed`.
 export QML_SOURCES_PATHS="${repo_root}/src/qml"
+# Every page imports Dish.Chrome, the app's own module, compiled into the binary
+# under qrc:/qt/qml/Dish/Chrome. The scanner only searches Qt's qml directory,
+# so it reported the module missing. Hand it the module's qmldir and qmltypes
+# (and nothing else) as an import path: the scanner then resolves it, follows
+# its dependencies, and deploys just those two files, whose generated qmldir
+# says `prefer :/qt/qml/Dish/Chrome/`, so the engine still loads the compiled
+# module from the binary.
+chrome_module="${build_dir}/cmake/Dish/Chrome"
+scan_imports="${build_dir}/qml-imports"
+mkdir -p "${scan_imports}/Dish/Chrome"
+cp "${chrome_module}/qmldir" "${scan_imports}/Dish/Chrome/"
+cp "${chrome_module}"/*.qmltypes "${scan_imports}/Dish/Chrome/"
+export QML_MODULES_PATHS="${scan_imports}"
 # Qt6::Svg is linked, but the image-format plugin that renders the window icon
 # is loaded at run time and has no DT_NEEDED to be found by.
 export EXTRA_QT_MODULES="svg"
@@ -106,13 +119,17 @@ fi
 # from the distribution; nothing but this line puts it in the AppImage.
 export EXTRA_PLATFORM_PLUGINS="${wayland_platforms};libqoffscreen.so"
 
+# Its log is kept: an ERROR from linuxdeploy or its Qt plugin (a QML module it
+# could not find, a library it could not resolve) fails the build below rather
+# than scrolling past.
+deploy_log="${build_dir}/linuxdeploy.log"
 "${tools_dir}/linuxdeploy" \
     --appdir "${appdir}" \
     --executable "${appdir}/usr/bin/dish" \
     --desktop-file "${appdir}/usr/share/applications/com.tinkernorth.Dish.desktop" \
     --icon-file "${appdir}/usr/share/icons/hicolor/scalable/apps/com.tinkernorth.Dish.svg" \
     --icon-file "${appdir}/usr/share/icons/hicolor/512x512/apps/com.tinkernorth.Dish.png" \
-    --plugin qt
+    --plugin qt 2>&1 | tee "${deploy_log}"
 
 # linuxdeploy-plugin-qt's newest numbered release predates Qt 6.10's Wayland
 # layout: it deploys the platform plugin but none of the Wayland plugin
@@ -129,7 +146,16 @@ for wayland_dir in wayland-graphics-integration-client wayland-shell-integration
     fi
 done
 "${tools_dir}/linuxdeploy" --appdir "${appdir}" \
-    --desktop-file "${appdir}/usr/share/applications/com.tinkernorth.Dish.desktop"
+    --desktop-file "${appdir}/usr/share/applications/com.tinkernorth.Dish.desktop" \
+    2>&1 | tee -a "${deploy_log}"
+if grep -E '(^|\] )ERROR:' "${deploy_log}"; then
+    echo "::error::linuxdeploy reported an error while building the AppDir (above)" >&2
+    exit 1
+fi
+if ! grep -q 'prefer :/qt/qml/Dish/Chrome/' "${appdir}/usr/qml/Dish/Chrome/qmldir" 2>/dev/null; then
+    echo "::error::the AppDir's Dish/Chrome/qmldir does not defer to the compiled module" >&2
+    exit 1
+fi
 must_have=(
     "platforms/libqxcb.so"
     "platforms/libqoffscreen.so"

@@ -15,6 +15,7 @@
 #   the SDL2 pin      scripts/tools.sh -> both Flatpak manifests (url and sha256)
 #   sentry-native     scripts/tools.sh -> CMakeLists.txt, both Flatpak manifests,
 #                     THIRD_PARTY.md, licenses.json
+#   Catch2            the tests/CMakeLists.txt fallback pin -> licenses.json
 #   the KDE runtime   scripts/tools.sh DISH_KDE_RUNTIME -> both Flatpak manifests,
 #                     docs/PACKAGING.md, and no other org.kde.Platform// branch anywhere
 #   the Flatpak deps  the Flathub template's modules match the sideload manifest's
@@ -124,6 +125,16 @@ grep -Eq "^\| \[sentry-native\]\(#sentry-native\) \| ${DISH_SENTRY_NATIVE_VERSIO
     || err "${licenses}: sentry-native version is not ${DISH_SENTRY_NATIVE_VERSION}"
 if grep -rnE 'sentry-cli/releases/download/' .github scripts | grep -v 'DISH_SENTRY_CLI_VERSION'; then
     err "a sentry-cli download outside scripts/sentry-cli.sh names its own version"
+fi
+
+# --- Catch2: the FetchContent fallback and the Licenses screen ---------------
+catch2=$(sed -nE 's/^[[:space:]]+GIT_TAG[[:space:]]+[0-9a-f]{40}\) # v([0-9.]+)$/\1/p' tests/CMakeLists.txt)
+if [ -z "${catch2}" ]; then
+    err "tests/CMakeLists.txt: the Catch2 fallback is not pinned to a commit with a '# vX.Y.Z' comment"
+else
+    echo "Catch2 fallback ${catch2}"
+    [ "$(license_version Catch2)" = "${catch2}" ] || err "${licenses}: Catch2 version is not ${catch2}"
+    has THIRD_PARTY.md "Catch2 v${catch2}" "does not name the Catch2 v${catch2} fallback"
 fi
 
 # --- the KDE runtime ---------------------------------------------------------

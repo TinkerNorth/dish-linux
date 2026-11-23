@@ -363,11 +363,11 @@ What the OFL requires here:
 
 ## 5. Catch2
 
-Catch2 v3.5.4. SPDX `BSL-1.0`. Upstream: <https://github.com/catchorg/Catch2>.
+Catch2 v3.16.1 (the fallback pin; CI's distribution package is older). SPDX `BSL-1.0`. Upstream: <https://github.com/catchorg/Catch2>.
 
 **Test-only. Not linked into `dish`.** It
 is resolved by `tests/CMakeLists.txt` through `find_package(Catch2 3)` with a
-`FetchContent` fallback pinned to tag `v3.5.4`, and it links only into the
+`FetchContent` fallback pinned to the v3.16.1 release commit, and it links only into the
 `DishTests` executable, which is built when `DISH_BUILD_TESTS=ON` and is switched
 off for the release configuration.
 

@@ -12,9 +12,13 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+# CMAKE_DISABLE_FIND_PACKAGE_Catch2: this lane builds the suite against the
+# FetchContent Catch2 tests/CMakeLists.txt pins, the copy a contributor without
+# the distribution package gets, so the fallback is not an untested path.
 cmake -S . -B build-cov -G Ninja \
     -DCMAKE_BUILD_TYPE=Debug \
     -DDISH_BUILD_TESTS=ON \
+    -DCMAKE_DISABLE_FIND_PACKAGE_Catch2=ON \
     -DCMAKE_CXX_FLAGS="--coverage -fprofile-abs-path -fprofile-update=atomic" \
     -DCMAKE_EXE_LINKER_FLAGS="--coverage"
 cmake --build build-cov --parallel
