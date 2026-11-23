@@ -457,6 +457,80 @@ TEST_CASE("a bar the game never set goes back dark when the bench gives it back"
     CHECK(hp::pumpUntil([&] { return pad.lastLed() == 0U; }));
 }
 
+// The ledger belongs to the slot, not to the session: a host that leaves and another that binds the
+// pad while a test holds the bar meet the same hold, and the give-back hands the bar to the host
+// that has it now.
+TEST_CASE("a host that binds the pad while the bench holds the bar gets the bar back after it",
+          "[slot-router][bench]") {
+    Seen seen;
+    hp::HotPathRig rig(2, countInto(seen));
+    REQUIRE(rig.startBridge());
+    const hp::VirtualPad pad("Router bench host change pad");
+    REQUIRE(pad.ok());
+    const QString padId = pad.deviceId();
+    REQUIRE(hp::pumpUntil([&] { return !rig.bridge().devices().isEmpty(); }));
+    REQUIRE(rig.connectAll());
+    REQUIRE(rig.bind(padId, 0));
+    REQUIRE(hp::pumpUntil([&] { return rig.satellite(0).knowsDish(); }));
+    rig.router().republish({padId});
+    sendLightbar(rig.satellite(0), 0x10, 0x20, 0x30);
+    REQUIRE(hp::pumpUntil([&] { return pad.lastLed() == packedRgb(0x10, 0x20, 0x30); }));
+
+    rig.router().holdSurface(padId, dish::reducer::BenchSurface::Lightbar);
+    rig.router().writeSurface(padId, kBenchRed);
+    REQUIRE(hp::pumpUntil([&] { return pad.lastLed() == packedRgb(0xFF, 0, 0); }));
+    rig.unbind(padId);
+    REQUIRE(rig.bind(padId, 1));
+    REQUIRE(hp::pumpUntil([&] { return rig.satellite(1).knowsDish(); }));
+    rig.router().republish({padId});
+    sendLightbar(rig.satellite(1), 0x01, 0x02, 0x03);
+    std::this_thread::sleep_for(std::chrono::milliseconds(kQuietMs));
+    CHECK(pad.lastLed() == packedRgb(0xFF, 0, 0));
+
+    rig.router().giveBackSurface(padId, dish::reducer::BenchSurface::Lightbar);
+    CHECK(hp::pumpUntil([&] { return pad.lastLed() == packedRgb(0x01, 0x02, 0x03); }));
+    sendLightbar(rig.satellite(1), 0x04, 0x05, 0x06);
+    CHECK(hp::pumpUntil([&] { return pad.lastLed() == packedRgb(0x04, 0x05, 0x06); }));
+}
+
+// A pad that leaves mid-test is still given back when the test's time is up (the bench's clock
+// runs on, FeedbackBenchCoordinator), with nothing to write to; the pad that comes next takes the
+// game's colour at once.
+TEST_CASE("a pad that leaves while the bench holds its bar is given back, and the next pad takes "
+          "the game's colour",
+          "[slot-router][bench]") {
+    Seen seen;
+    hp::HotPathRig rig(1, countInto(seen));
+    REQUIRE(rig.startBridge());
+    REQUIRE(rig.connectAll());
+    QString leftId;
+    {
+        const hp::VirtualPad leaving("Router bench leaving pad");
+        REQUIRE(leaving.ok());
+        leftId = leaving.deviceId();
+        REQUIRE(hp::pumpUntil([&] { return !rig.bridge().devices().isEmpty(); }));
+        REQUIRE(rig.bind(leftId, 0));
+        rig.router().republish({leftId});
+        rig.router().holdSurface(leftId, dish::reducer::BenchSurface::Lightbar);
+        rig.router().writeSurface(leftId, kBenchRed);
+        REQUIRE(hp::pumpUntil([&] { return leaving.lastLed() == packedRgb(0xFF, 0, 0); }));
+    }
+    REQUIRE(hp::pumpUntil([&] { return rig.bridge().devices().isEmpty(); }));
+    rig.router().republish({});
+    rig.router().giveBackSurface(leftId, dish::reducer::BenchSurface::Lightbar);
+
+    const hp::VirtualPad next("Router bench next pad");
+    REQUIRE(next.ok());
+    const QString nextId = next.deviceId();
+    REQUIRE(hp::pumpUntil([&] { return !rig.bridge().devices().isEmpty(); }));
+    rig.unbind(leftId);
+    REQUIRE(rig.bind(nextId, 0));
+    REQUIRE(hp::pumpUntil([&] { return rig.satellite(0).knowsDish(); }));
+    rig.router().republish({nextId});
+    sendLightbar(rig.satellite(0), 0x07, 0x08, 0x09);
+    CHECK(hp::pumpUntil([&] { return next.lastLed() == packedRgb(0x07, 0x08, 0x09); }));
+}
+
 TEST_CASE("the bench's buzz reaches the motors and is not counted as the game's rumble",
           "[slot-router][bench]") {
     Seen seen;
