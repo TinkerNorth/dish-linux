@@ -9,6 +9,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <cstdint>
@@ -219,4 +220,75 @@ TEST_CASE("no colour the game sent while a test held the bar is lost when the te
     sender.stopAndJoin();
     CHECK(pad.load() == sender.lastSent());
     CHECK(countOf(ledger.snapshot().surfaces.values.lightbar) == sender.lastSent());
+}
+
+namespace {
+
+// Every byte of both trigger blocks set to `fill`: the value spans several of the ledger's words.
+TriggerEffectsValue effectFilledWith(std::uint8_t fill) {
+    TriggerEffectsValue value;
+    value.left.fill(fill);
+    value.right.fill(fill);
+    return value;
+}
+
+// Readers that never stop: each copies the ledger out as fast as it can, and counts a copy whose
+// trigger bytes disagree, which only a torn read could give.
+class BusyReaders {
+  public:
+    explicit BusyReaders(const SurfaceLedger& ledger) : ledger_(ledger) {
+        for (auto& thread : threads_) { thread = std::thread(&BusyReaders::run, this); }
+    }
+    BusyReaders(const BusyReaders&) = delete;
+    BusyReaders& operator=(const BusyReaders&) = delete;
+    BusyReaders(BusyReaders&&) = delete;
+    BusyReaders& operator=(BusyReaders&&) = delete;
+    ~BusyReaders() { stopAndJoin(); }
+
+    void stopAndJoin() {
+        stop_.store(true);
+        for (auto& thread : threads_) {
+            if (thread.joinable()) { thread.join(); }
+        }
+    }
+    int tornCopies() const { return torn_.load(); }
+
+  private:
+    void run() {
+        while (!stop_.load()) {
+            const TriggerEffectsValue effects = ledger_.snapshot().surfaces.values.triggerEffects;
+            const bool whole = effects == effectFilledWith(effects.left[0]);
+            if (!whole) { torn_.fetch_add(1); }
+        }
+    }
+
+    const SurfaceLedger& ledger_;
+    std::atomic<bool> stop_{false};
+    std::atomic<int> torn_{0};
+    std::array<std::thread, 3> threads_;
+};
+
+} // namespace
+
+// The readers (a test's give-back, the bundle) copy the ledger out under its generation and take
+// no turn on the writers' flag, so no amount of reading can hold a sender up: only another
+// sender's few stores can (CONTRIBUTING.md, "Touching the hot path").
+TEST_CASE("a sender never waits on a reader of the ledger", "[diagnostics][bench]") {
+    constexpr int kWrites = 20'000;
+    constexpr auto kCeiling = std::chrono::seconds(10);
+    SurfaceLedger ledger;
+    BusyReaders readers(ledger);
+    const auto start = std::chrono::steady_clock::now();
+    bool everyWriteWentThrough = true;
+    int written = 0;
+    for (; written < kWrites; ++written) {
+        if (std::chrono::steady_clock::now() - start > kCeiling) { break; }
+        const auto fill = static_cast<std::uint8_t>(written);
+        const bool wrote = ledger.rememberTriggerEffects(effectFilledWith(fill));
+        everyWriteWentThrough = everyWriteWentThrough && wrote;
+    }
+    readers.stopAndJoin();
+    CHECK(written == kWrites);
+    CHECK(everyWriteWentThrough);
+    CHECK(readers.tornCopies() == 0);
 }

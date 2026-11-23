@@ -129,9 +129,11 @@ inline bool writesThrough(std::uint8_t heldMask, BenchSurface surface) {
 }
 
 // One pad's ledger, shared by every thread that routes the pad's feedback (a session's receive
-// thread, a Moonlight control thread, the GUI for the mute lamp) and the GUI's bench. No lock and
-// no allocation: a sender takes turns with the others on a flag held for a few stores, as
-// OutputMailbox's do, and a reader copies the values out under a generation. Every generation and
+// thread, a Moonlight control thread, the GUI for the mute lamp) and the GUI's bench. No
+// TrackedMutex and no allocation: a sender takes turns with the other senders on a flag held for
+// a few stores, as OutputMailbox's producers do (a spin that yields only when two senders meet,
+// the producers' turn flag CONTRIBUTING.md allows), and a reader copies the values out under a
+// generation without taking a turn. Every generation and
 // hold operation is sequentially consistent, which is what giveBack leans on: a sender that found
 // its surface held stored its value before the test released it, so the snapshot after the
 // release sees that value.
@@ -167,8 +169,9 @@ class SurfaceLedger {
         return !writesThrough(held_.load(std::memory_order_seq_cst), surface);
     }
 
-    // One whole write's values and its generation. A sender is never held up by this: the
-    // reader is the one that waits out a write in progress, a few stores long.
+    // One whole write's values and its generation. A reader takes no turn on the senders' flag,
+    // so it never holds a sender up; it waits out a write in progress, a few stores long. A
+    // sender waits only for another sender's turn (lockWriters).
     Snapshot snapshot() const noexcept {
         for (;;) {
             const std::uint32_t before = generation_.load(std::memory_order_seq_cst);

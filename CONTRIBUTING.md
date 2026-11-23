@@ -388,6 +388,15 @@ you are modifying `SDLGamepadBridge`, `GamepadInputProcessor`,
   (`SlotRouter`'s table, read inside a grace epoch; the bridge's inputs through
   `LatestValue`) or through a seqlock or a single-consumer queue
   (`core/thread/`). Nothing on the path takes a `TrackedMutex`.
+- One shape of waiting is allowed, and only between producers: a turn flag
+  that several producers of one pad's feedback take for a fixed handful of
+  stores, with no call, allocation or syscall inside, spinning with a yield
+  only when two producers meet (`OutputMailbox::post`,
+  `SurfaceLedger::rememberWith`). Its consumer or reader never takes it, so
+  the thread that drives the pad never waits on a producer, and no producer
+  waits on a reader. It is not a `TrackedMutex`, so the lock laws do not
+  count it; a new one names itself here and gets a test that its reader
+  takes no turn.
 - Buffers live on the stack or in fixed records; nothing on the path allocates.
 - No `QObject::connect` cross-thread signals on the send path.
 - Both rules are enforced, not hoped for: `tests/test_lock_laws.cpp`

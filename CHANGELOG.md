@@ -206,18 +206,24 @@ the repos share a version number.
   and picks the pad's handle by a switch on the kind already in its record;
   no lock, no allocation and no extra lookup per command.
 - Hot path (the bench): each light-bar, player-LED, trigger-effect and
-  mic-lamp message a session's receive thread or a Moonlight control thread
-  routes now passes its slot's ledger first: one flag taken for a few
-  sequentially consistent stores, and one load of the test's hold bits, never
-  a lock or an allocation. Rumble messages and input reports are untouched.
-  The SDL output mailbox gains a trigger-rumble kind; its fields are reordered
-  so its state still copies as five words.
+  mic-lamp message a session's receive thread, a Moonlight control thread or
+  the GUI's mute lamp routes now passes its slot's surface ledger first: the
+  senders' turn flag (a compare-and-swap that yields only when two senders of
+  one pad meet), a generation bumped around about five sequentially
+  consistent word stores, and one load of the test's hold bits. No
+  `TrackedMutex`, no allocation, and the ledger's readers never hold a sender
+  up. The SDL output mailbox gains a trigger-rumble kind; its fields are
+  reordered so its state still copies as five words.
 - The compiled Direct tables (`kKnownModels`, the fast-lane vendors) stay, and
   a test requires every row to match its database record; they answer first,
   and a served row only adds an id they lack.
-- Hot path: the session counts each message kind it sends and receives, and
-  the router counts each pad's output lanes, with relaxed atomics only; no
-  thread on the input, USB, receive or mic path takes a new lock. A Direct
+- Hot path: the session counts each message kind it sends and receives with
+  relaxed atomics. The router records each pad's output lane on every rumble,
+  light-bar, player-LED, trigger-effect and mic-lamp message it routes: one `system_clock::now()` read and three relaxed atomic
+  operations. A Direct pad's output worker records a verdict after every
+  write: one clock read, one seqlock write of the verdict, and the report
+  writer's store of the call's `errno` (or of 0). No thread on the input, USB,
+  receive or mic path takes a new lock or allocates. A Direct
   pad's read loop now loads one word per report that holds both its running
   flag and the capture's armed flag (relaxed, where it was a sequentially
   consistent load of the running flag alone), and a report is copied only
