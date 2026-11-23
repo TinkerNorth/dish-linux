@@ -2,21 +2,30 @@ version: 2
 updates:
   - package-ecosystem: "github-actions"
     # "/" covers .github/workflows only. The composite actions pin their own
-    # `uses:` lines (actions/cache in both), and those sat two majors behind
-    # the workflows, into a Node 20 deprecation notice on every job, until
-    # their directories were listed here too.
+    # `uses:` lines (actions/cache in two of them), so their directories are
+    # listed too.
     directories:
       - "/"
       - "/.github/actions/*"
     schedule:
       interval: "weekly"
+      day: "monday"
     open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(deps)"
     labels:
+      - "dependencies"
       - "ci"
-    # One PR per week for every action bump together (the way dish-android's
-    # arrive): the bumps are independent one-liners, and with "require branches
-    # to be up to date" on main, N separate PRs cost N full CI cycles.
+    # One PR per week for every action bump together: the bumps are
+    # independent one-liners, and with "require branches to be up to date" on
+    # main, N separate PRs cost N full CI cycles.
     groups:
       github-actions:
         patterns:
           - "*"
+
+# Nothing else here is a Dependabot ecosystem: Qt, SDL2, sentry-native,
+# sentry-cli, the AppImage tools, clang-format, the KDE runtime and the
+# container images are pinned in scripts/tools.sh (and the copies
+# scripts/check-version-consistency.sh holds to it), and the C++ libraries
+# come from the distribution or the Flatpak manifests. Those move by hand.

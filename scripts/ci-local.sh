@@ -3,16 +3,21 @@
 # Copyright (C) 2026 Dish contributors.
 #
 # Runs the gates Linux CI runs, in the same order, against the local tree, so a
-# green run here means a green run there. Mirrors .github/workflows/linux-ci.yml
-# via the same CMakePresets.json presets the workflow drives.
+# green run here means a green run there. Every gate is a script under
+# scripts/ that the workflow step calls too, and the configure lines are the
+# CMakePresets.json presets the workflow drives.
 #
-#   scripts/ci-local.sh                    every ci-job gate
-#   scripts/ci-local.sh --no-tidy          skip clang-tidy (fastest loop)
-#   scripts/ci-local.sh --with-package     also build and lint the .deb
-#   scripts/ci-local.sh --with-lock-stats  also run the lock-statistics build
-#   scripts/ci-local.sh --with-sanitizers  also run the ASan/UBSan and TSan legs
-#   scripts/ci-local.sh --allow-missing    downgrade a missing tool to a notice
-#   scripts/ci-local.sh --compiler clang   set CC/CXX for this run
+#   scripts/ci-local.sh                     every gate of linux-ci.yml's ci job
+#   scripts/ci-local.sh --quick             skip clang-tidy and the Release leg (fastest loop)
+#   scripts/ci-local.sh --with-sanitizers   also the ASan+UBSan and TSan legs, lock laws included
+#   scripts/ci-local.sh --with-lock-stats   also the lock-statistics build
+#   scripts/ci-local.sh --with-coverage     also the lcov build
+#   scripts/ci-local.sh --with-sentry       also the build with the Sentry SDK
+#   scripts/ci-local.sh --with-package      also the .deb and .rpm lanes, in their
+#                                           containers (scripts/package-in-container.sh;
+#                                           needs Docker)
+#   scripts/ci-local.sh --allow-missing     downgrade a missing tool to a notice
+#   scripts/ci-local.sh --compiler clang    set CC/CXX for this run (gcc or clang)
 #
 # Without --allow-missing a gate whose tool is absent FAILS rather than printing
 # a notice and continuing: a "green" run that silently skipped four gates is
@@ -21,73 +26,100 @@
 # One run covers one compiler. CI's ci job is a gcc/clang matrix (the lint
 # steps run on gcc; the clang leg exists because -Wconversion, -Wshadow and
 # -Wold-style-cast diverge materially); reproduce the other leg with
-# --compiler clang. The optional sanitizer and package legs run after the core
-# ci-job mirror, in the order CI's parallel jobs are listed.
+# --compiler clang.
+#
+# CI-only, with the reason:
+#   the action-pin lint, OSV-Scanner, gitleaks, dependency review and the
+#     allowlist expiry (security.yml, through _security.yml): they read GitHub
+#     state or the full history; the pin lint below is the same awk.
+#   CodeQL (codeql.yml): GitHub's analyzer, not installable as a gate.
+#   the AppImage and its dish-bin package (appimage-ci.yml): an x86_64 jammy
+#     host; locally, scripts/package-in-container.sh arch takes a built AppImage.
+#   the Flatpak (flatpak-ci.yml): scripts/build-flatpak.sh, needs flatpak-builder.
+#   the APT and DNF repositories (linux-ci.yml's repos job): run them with
+#     scripts/package-in-container.sh repos <dir> on the .deb and .rpm that
+#     --with-package leaves under dist/container/.
+#   measurements.yml: tools/bench, see tools/bench/README.md.
 set -euo pipefail
 cd "$(dirname "$0")/.."
+# shellcheck source=scripts/tools.sh
+source scripts/tools.sh
 
-TIDY=1
+QUICK=0
 PACKAGE=0
 LOCK_STATS=0
 SANITIZE=0
+COVERAGE=0
+SENTRY=0
 ALLOW_MISSING=0
 COMPILER=""
 while [ "$#" -gt 0 ]; do
-  case "$1" in
-    --no-tidy) TIDY=0 ;;
+    case "$1" in
+    --quick) QUICK=1 ;;
     --with-package) PACKAGE=1 ;;
     --with-lock-stats) LOCK_STATS=1 ;;
     --with-sanitizers) SANITIZE=1 ;;
-    --allow-missing|--allow-missing-tools) ALLOW_MISSING=1 ;;
+    --with-coverage) COVERAGE=1 ;;
+    --with-sentry) SENTRY=1 ;;
+    --allow-missing) ALLOW_MISSING=1 ;;
     --compiler)
-      shift
-      COMPILER="${1:-}"
-      ;;
+        shift
+        COMPILER="${1:-}"
+        ;;
     --compiler=*) COMPILER="${1#--compiler=}" ;;
-    *) echo "unknown flag: $1" >&2; exit 2 ;;
-  esac
-  shift
+    *)
+        echo "unknown flag: $1" >&2
+        exit 2
+        ;;
+    esac
+    shift
 done
 
 case "$COMPILER" in
-  "") ;;
-  gcc)   export CC=gcc   CXX=g++     ;;
-  clang) export CC=clang CXX=clang++ ;;
-  *) echo "--compiler takes gcc or clang (got '$COMPILER')" >&2; exit 2 ;;
+"") ;;
+gcc) export CC=gcc CXX=g++ ;;
+clang) export CC=clang CXX=clang++ ;;
+*)
+    echo "--compiler takes gcc or clang (got '$COMPILER')" >&2
+    exit 2
+    ;;
 esac
 
-step() { echo ""; echo "=== $1 ==="; }
+step() {
+    echo ""
+    echo "=== $1 ==="
+}
 
 # Returns 0 when the caller should run the gate, 1 when it was skipped by
 # permission, and exits when a tool CI gates on is missing.
 have() {
-  local tool="$1"
-  if command -v "$tool" >/dev/null 2>&1; then return 0; fi
-  if [ "$ALLOW_MISSING" -eq 1 ]; then
-    echo "::notice:: $tool is not installed; CI gates this. Skipping (--allow-missing)."
-    return 1
-  fi
-  echo "$tool is not installed and CI gates it. Install it (scripts/install-deps.sh), or re-run with --allow-missing." >&2
-  exit 1
+    local tool="$1"
+    if command -v "$tool" >/dev/null 2>&1; then return 0; fi
+    if [ "$ALLOW_MISSING" -eq 1 ]; then
+        echo "::notice:: $tool is not installed; CI gates this. Skipping (--allow-missing)."
+        return 1
+    fi
+    echo "$tool is not installed and CI gates it. Install it (scripts/install-deps.sh), or re-run with --allow-missing." >&2
+    exit 1
 }
 
 step "clang-format (check only)"
 if have clang-format; then
-  # CI pins 22.1.4; Ubuntu's 18 disagrees on braced-init lists, which is why the
-  # pin exists. Treat a surprise from another version with suspicion.
-  want=22.1.4
-  got="$(clang-format --version | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
-  if [ "$got" != "$want" ]; then
-    echo "::notice:: clang-format $got, CI pins $want — disagreements are the version, not the code."
-  fi
-  bash scripts/check-format.sh
+    # A formatter of another version disagrees on layout, and a green run with
+    # it proves nothing about CI's verdict, so a mismatch fails.
+    got="$(clang-format --version | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
+    if [ "$got" != "$DISH_CLANG_FORMAT_VERSION" ]; then
+        echo "clang-format $got, CI pins $DISH_CLANG_FORMAT_VERSION: pipx install clang-format==$DISH_CLANG_FORMAT_VERSION" >&2
+        exit 1
+    fi
+    scripts/check-format.sh
 fi
 
 step "Action pin lint (40-char SHA required)"
 # The same awk _security.yml runs, over the same two directories.
 fail=0
 while IFS= read -r -d '' file; do
-  awk '
+    awk '
     /^[[:space:]]*#/ { next }
     { sub(/[[:space:]]+#.*$/, "", $0) }
     /^[[:space:]]*-?[[:space:]]*uses:[[:space:]]+[^[:space:]]+/ {
@@ -101,7 +133,10 @@ while IFS= read -r -d '' file; do
     }
   ' "$file" || fail=1
 done < <(find .github/workflows .github/actions -type f \( -name '*.yml' -o -name '*.yaml' \) -print0)
-[ "$fail" -eq 0 ] || { echo "unpinned action reference" >&2; exit 1; }
+[ "$fail" -eq 0 ] || {
+    echo "unpinned action reference" >&2
+    exit 1
+}
 echo "action pins: OK"
 
 step "Configure (Debug, preset debug)"
@@ -116,120 +151,68 @@ step "Run tests (Debug)"
 ctest --preset debug --parallel
 
 step "qmllint (QML static analysis)"
-if have qmllint; then
-  # git's * crosses directory levels; 'src/qml/**/*.qml' would miss the
-  # top-level Main and AppShell. -I "${QT_ROOT_DIR}/qml" matches CI (setup-qt
-  # exports QT_ROOT_DIR); without it a distro qmllint may resolve Qt's own
-  # modules differently than CI's.
-  qt_qml_args=()
-  if [ -n "${QT_ROOT_DIR:-}" ] && [ -d "${QT_ROOT_DIR}/qml" ]; then
-    qt_qml_args=(-I "${QT_ROOT_DIR}/qml")
-  fi
-  mapfile -t qml_files < <(git ls-files 'src/qml/*.qml')
-  # Every category at its default level, `unqualified` included: App, Theme and
-  # Tokens are all module singletons the generated qmltypes describes, so every
-  # name a page reads resolves statically.
-  qmllint -I build "${qt_qml_args[@]+"${qt_qml_args[@]}"}" \
-    "${qml_files[@]}"
-fi
+if have qmllint; then scripts/check-qml.sh; fi
 
 step "QML literal scanner"
-./scripts/qml-lint-literals.sh --mode error
+scripts/qml-lint-literals.sh --mode error
 
 step "Translation catalogues in sync"
-if have lupdate; then ./scripts/check-translations.sh; fi
+if have lupdate; then scripts/check-translations.sh; fi
 
-if [ "$TIDY" -eq 1 ]; then
-  step "clang-tidy (src, UI + qml excluded — mirrors CI)"
-  if have clang-tidy; then
-    # Same build/ the gates above used: CMakeLists exports the compile database
-    # globally, so a second tree would only re-derive the same src/ entries.
-    # --warnings-as-errors keeps the sweep-clean check set gated without
-    # forking the fleet-canonical .clang-tidy (WarningsAsErrors: '').
-    find src -type f \( -name '*.cpp' -o -name '*.h' \) \
-      ! -path 'src/UI/*' \
-      ! -path 'src/qml/*' \
-      -print0 | xargs -0 -n1 -P"$(nproc)" \
-        clang-tidy -p build --quiet --warnings-as-errors='*'
-  fi
-fi
+if [ "$QUICK" -eq 0 ]; then
+    step "clang-tidy (src, UI + qml excluded)"
+    if have clang-tidy; then scripts/check-tidy.sh; fi
 
-step "Configure + build + test (Release)"
-# -O3 plus LTO is a different compiler: undefined behaviour that Debug
-# tolerates surfaces here, and the suite must pass against the configuration
-# that actually ships. The input-path bench builds here too, for its --smoke.
-cmake --preset release -DDISH_BUILD_BENCH=ON
-cmake --build --preset release --parallel
-ctest --preset release --parallel
+    step "Configure + build + test (Release)"
+    # -O3 plus LTO is a different compiler: undefined behaviour that Debug
+    # tolerates surfaces here, and the suite must pass against the
+    # configuration that actually ships. The input-path bench builds here too,
+    # for its --smoke.
+    cmake --preset release -DDISH_BUILD_BENCH=ON
+    cmake --build --preset release --parallel
+    ctest --preset release --parallel
 
-step "Measurements report tests"
-DISH_BENCH_JSON=build-release/tools/bench/bench_input_path_smoke.json \
-  python3 -m unittest discover -s tests -p 'test_measurements_report.py'
+    step "Measurements report tests"
+    DISH_BENCH_JSON=build-release/tools/bench/bench_input_path_smoke.json \
+        python3 -m unittest discover -s tests -p 'test_measurements_report.py'
 
-step "Hardening flags reached the binary"
-readelf -lW  build-release/dish | grep -q 'GNU_RELRO'         || { echo "no RELRO" >&2; exit 1; }
-readelf -dW  build-release/dish | grep -qE 'BIND_NOW|FLAGS.*NOW' || { echo "no full RELRO" >&2; exit 1; }
-readelf -lW  build-release/dish | grep -qE 'GNU_STACK.*RW '   || { echo "executable stack" >&2; exit 1; }
-readelf -hW  build-release/dish | grep -q 'Type:.*DYN'        || { echo "not PIE" >&2; exit 1; }
-
-if [ "$LOCK_STATS" -eq 1 ]; then
-  step "Lock statistics (Debug, DISH_LOCK_STATS)"
-  # Mirrors linux-ci.yml's lock-stats job: the lock laws and the statistics
-  # half of the tracked-mutex tests, and the whole suite in that build.
-  cmake --preset debug -B build-lockstats -DDISH_LOCK_STATS=ON
-  cmake --build build-lockstats --parallel --target DishTests DishLockLawTests
-  ( cd build-lockstats && QT_QPA_PLATFORM=offscreen ctest --output-on-failure --parallel )
+    step "Hardening flags reached the binary"
+    scripts/check-hardening.sh build-release/dish
 fi
 
 if [ "$SANITIZE" -eq 1 ]; then
-  for san in address+undefined thread; do
-    step "Sanitizer: ${san}"
-    # The sanitizer flag is matrix-injected in CI and deliberately not a
-    # preset; keep these flags in step with linux-ci.yml's sanitize job.
-    cmake -S . -B "build-san-${san}" -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo \
-      -DDISH_BUILD_TESTS=ON -DDISH_SANITIZER="${san}"
-    # DishTests only: the Qt Quick app target adds qmlcachegen output where GCC
-    # refuses atomic_thread_fence under TSan, and the suite never runs it.
-    cmake --build "build-san-${san}" --parallel --target DishTests
-    ( cd "build-san-${san}" && \
-      QT_QPA_PLATFORM=offscreen \
-      ASAN_OPTIONS=detect_leaks=1:abort_on_error=1 \
-      UBSAN_OPTIONS=print_stacktrace=1:halt_on_error=1 \
-      TSAN_OPTIONS="halt_on_error=1:suppressions=$(pwd)/../tests/tsan.suppressions" \
-      ctest --output-on-failure --parallel 1 )
+    for san in address+undefined thread; do
+        step "Sanitizer: ${san}"
+        scripts/sanitize.sh "${san}"
+        step "Lock laws under sanitizer: ${san}"
+        scripts/sanitize.sh "${san}" lock-laws
+    done
+fi
 
-    step "Lock laws under sanitizer: ${san}"
-    # Mirrors linux-ci.yml's lock-laws-sanitize job.
-    cmake -S . -B "build-san-lockstats-${san}" -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo \
-      -DDISH_BUILD_TESTS=ON -DDISH_LOCK_STATS=ON -DDISH_SANITIZER="${san}"
-    cmake --build "build-san-lockstats-${san}" --parallel --target DishLockLawTests
-    ( cd "build-san-lockstats-${san}" && \
-      QT_QPA_PLATFORM=offscreen \
-      ASAN_OPTIONS=detect_leaks=1:abort_on_error=1 \
-      UBSAN_OPTIONS=print_stacktrace=1:halt_on_error=1 \
-      TSAN_OPTIONS="halt_on_error=1:suppressions=$(pwd)/../tests/tsan.suppressions" \
-      ctest --output-on-failure --parallel 1 -R "^lock law" )
-  done
+if [ "$LOCK_STATS" -eq 1 ]; then
+    step "Lock statistics and the lock laws"
+    scripts/lock-stats.sh
 fi
 
 if [ "$PACKAGE" -eq 1 ]; then
-  step "Packaging metadata"
-  if have desktop-file-validate; then desktop-file-validate packaging/dish.desktop; fi
-  if have appstreamcli; then
-    appstreamcli validate --no-net packaging/com.tinkernorth.Dish.metainfo.xml
-  fi
-
-  step "Build and lint the .deb"
-  # CI does this in a debian:trixie container against Debian's Qt; locally it
-  # still proves the CPack wiring, the install layout and the lintian tags.
-  if have dpkg-deb && have cpack; then
-    rm -rf build-package/packages
-    bash scripts/build-deb.sh
-    if have lintian; then
-      lintian --fail-on error --tag-display-limit 0 build-package/packages/*.deb
+    if have docker; then
+        step ".deb in ${DISH_DEB_IMAGE}: build, lint, install, launch"
+        scripts/package-in-container.sh deb
+        step ".rpm in ${DISH_RPM_IMAGE}: build, install, launch"
+        scripts/package-in-container.sh rpm
     fi
-    dpkg-deb -c build-package/packages/*.deb | grep -E 'udev/rules.d|metainfo|applications|copyright'
-  fi
+fi
+
+if [ "$COVERAGE" -eq 1 ]; then
+    if have lcov; then
+        step "Coverage"
+        scripts/coverage.sh
+    fi
+fi
+
+if [ "$SENTRY" -eq 1 ]; then
+    step "Build with the Sentry SDK (dummy DSN)"
+    scripts/check-sentry-build.sh
 fi
 
 echo ""

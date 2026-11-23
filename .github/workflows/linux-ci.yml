@@ -6,19 +6,26 @@ on:
   pull_request:
     branches: [main]
 
+# A superseded pull-request run is cancelled; a run on main never is, so every
+# merge keeps its own record.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 # The artifact upload goes through the Actions API, not contents.
 permissions:
   contents: read
 
+# Every gate below is a script under scripts/ that scripts/ci-local.sh runs in
+# the same order, so a green local run is a green run here. The ccache
+# launcher comes from .github/actions/setup-build-deps, through CMake's
+# environment variables rather than the presets, because a local box need not
+# have ccache.
+
 jobs:
   ci:
     name: Build, test, lint, format (${{ matrix.compiler }})
     runs-on: ubuntu-24.04
-    # Cap a hung step instead of burning the 6h default on a billed runner.
     # This job provisions Qt, builds ~285 sources twice, runs the suite twice
     # and sweeps clang-tidy over src/. An hour still catches a hung step; it
     # does not fail the build over a mirror having a bad afternoon.
@@ -31,13 +38,15 @@ jobs:
       CC: ${{ matrix.compiler == 'clang' && 'clang' || 'gcc' }}
       CXX: ${{ matrix.compiler == 'clang' && 'clang++' || 'g++' }}
       # -Werror has only ever been evaluated by gcc; -Wconversion, -Wshadow and
-      # -Wold-style-cast all diverge materially between gcc 13 and clang 18, and
+      # -Wold-style-cast all diverge materially between gcc and clang, and
       # clang-tidy reading the gcc compile database is not a substitute.
       DISH_LINTS: ${{ matrix.compiler == 'gcc' }}
 
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Set up build dependencies
         uses: ./.github/actions/setup-build-deps
@@ -56,32 +65,23 @@ jobs:
         with:
           python-version: "3.12"
 
-      # Pinned to match satellite + dish-android + dish-mac. Ubuntu 24.04 ships
-      # clang-format 18 which disagrees with brew's 22.x on braced-init lists,
-      # so we pull the matching wheel from PyPI to keep the four repos in sync.
-      - name: Install clang-format (pinned 22.1.4)
+      # The version every C++ repo in the fleet pins (DISH_CLANG_FORMAT_VERSION
+      # in scripts/tools.sh): Ubuntu's own clang-format disagrees with it on
+      # layout, so the matching wheel comes from PyPI.
+      - name: Install clang-format (pinned)
         if: env.DISH_LINTS == 'true'
         run: |
-          pipx install clang-format==22.1.4
-          pipx ensurepath
+          set -euo pipefail
+          source scripts/tools.sh
+          pipx install "clang-format==${DISH_CLANG_FORMAT_VERSION}"
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
-      # The gate itself lives in scripts/check-format.sh so this workflow and
-      # scripts/ci-local.sh cannot drift on the file set or the invocation.
       - name: clang-format (check only)
         if: env.DISH_LINTS == 'true'
         run: ./scripts/check-format.sh
 
-      # The configure line lives in CMakePresets.json (preset debug), shared
-      # with scripts/build.sh and scripts/ci-local.sh. The ccache launcher is
-      # layered on top here rather than in the preset because a local box need
-      # not have ccache; CC/CXX come from the matrix env, which CMake respects
-      # natively.
       - name: Configure (Debug, tests on)
-        run: |
-          cmake --preset debug \
-            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
-            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+        run: cmake --preset debug
 
       - name: Build
         run: cmake --build --preset debug --parallel
@@ -93,18 +93,11 @@ jobs:
 
       - name: qmllint (QML static analysis)
         if: env.DISH_LINTS == 'true'
-        run: |
-          # git's * crosses directory levels; 'src/qml/**/*.qml' would miss the
-          # top-level Main and AppShell.
-          # Every category at its default level, `unqualified` included: App,
-          # Theme and Tokens are all module singletons the generated qmltypes
-          # describes, so every name a page reads resolves statically.
-          qmllint -I build -I "${QT_ROOT_DIR}/qml" \
-            $(git ls-files 'src/qml/*.qml')
+        run: ./scripts/check-qml.sh
 
       # qmllint checks a QML file RESOLVES; this checks it used the design
       # tokens. A hard-coded `#4FE3FF` or `radius: 8` still renders, it just
-      # stops tracking the palette — no other gate would catch it.
+      # stops tracking the palette, and no other gate would catch it.
       - name: QML literal scanner
         if: env.DISH_LINTS == 'true'
         run: ./scripts/qml-lint-literals.sh --mode error
@@ -117,36 +110,18 @@ jobs:
 
       - name: clang-tidy
         if: env.DISH_LINTS == 'true'
-        run: |
-          # Reads the Debug tree built above rather than configuring and
-          # building a second one. CMakeLists exports the compile database
-          # globally, so build/ already has one whose src/ entries are the same
-          # a tests-off tree produces, and its mocs are already generated.
-          # --warnings-as-errors keeps the sweep-clean check set gated without
-          # forking the fleet-canonical .clang-tidy (WarningsAsErrors: '').
-          find src -type f \( -name '*.cpp' -o -name '*.h' \) \
-            ! -path 'src/UI/*' \
-            ! -path 'src/qml/*' \
-            -print0 | xargs -0 -n1 -P"$(nproc)" \
-              clang-tidy -p build --quiet --warnings-as-errors='*'
+        run: ./scripts/check-tidy.sh
 
-      # The configure line lives in CMakePresets.json (preset release); same
-      # ccache-on-top note as the Debug configure above. The input-path bench
-      # (tools/bench) builds here too, so ctest runs its --smoke against the
-      # configuration that ships.
+      # The input-path bench (tools/bench) builds here too, so ctest runs its
+      # --smoke against the configuration that ships.
       - name: Configure (Release, tests on)
-        run: |
-          cmake --preset release \
-            -DDISH_BUILD_BENCH=ON \
-            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
-            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+        run: cmake --preset release -DDISH_BUILD_BENCH=ON
 
       - name: Build release
         run: cmake --build --preset release --parallel
 
       # -O3 plus LTO is a different compiler: undefined behaviour that Debug
-      # tolerates surfaces here, and until now nothing ever ran the suite
-      # against the configuration that actually ships.
+      # tolerates surfaces here.
       - name: Run tests (Release)
         run: ctest --preset release --parallel
 
@@ -158,18 +133,9 @@ jobs:
           DISH_BENCH_JSON: build-release/tools/bench/bench_input_path_smoke.json
         run: python3 -m unittest discover -s tests -p 'test_measurements_report.py'
 
-      # Ubuntu patches PIE, partial RELRO and stack protection into its gcc
-      # defaults, so these pass by accident on this runner and would silently
-      # stop passing anywhere else. Assert the linker actually applied them.
       - name: Assert hardening flags reached the binary
         if: env.DISH_LINTS == 'true'
-        run: |
-          set -euo pipefail
-          bin=build-release/dish
-          readelf -lW  "$bin" | grep -q 'GNU_RELRO'        || { echo "::error::no RELRO"; exit 1; }
-          readelf -dW  "$bin" | grep -q 'BIND_NOW\|FLAGS.*NOW' || { echo "::error::no full RELRO"; exit 1; }
-          readelf -lW  "$bin" | grep -qE 'GNU_STACK.*RW '  || { echo "::error::executable stack"; exit 1; }
-          readelf -hW  "$bin" | grep -q 'Type:.*DYN'       || { echo "::error::not PIE"; exit 1; }
+        run: ./scripts/check-hardening.sh build-release/dish
 
       - name: ccache statistics
         if: always()
@@ -190,13 +156,15 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # thread is not optional here: the app runs four long-lived threads
-        # (SDL bridge, two socket loops, the hidraw reader) over shared atomics
+        # thread is not optional here: the app runs long-lived threads (the
+        # SDL bridge, the socket loops, the hidraw reader) over shared atomics
         # and mutexes, and nothing else in the pipeline would see a race.
         san: ["address+undefined", "thread"]
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Set up build dependencies
         uses: ./.github/actions/setup-build-deps
@@ -206,40 +174,14 @@ jobs:
       - name: Set up Qt
         uses: ./.github/actions/setup-qt
 
-      - name: Configure
-        run: |
-          cmake -S . -B build-san -G Ninja \
-            -DCMAKE_BUILD_TYPE=RelWithDebInfo \
-            -DDISH_BUILD_TESTS=ON \
-            -DDISH_SANITIZER=${{ matrix.san }} \
-            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
-            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
-
-      # DishTests, not everything: the suite covers dish_core, and the Qt Quick
-      # app target adds only qmlcachegen output, where GCC reports
-      # -Wnull-dereference inside Qt's own qglobalstatic.h and refuses
-      # atomic_thread_fence under TSan. Instrumenting it buys no coverage.
-      - name: Build
-        run: cmake --build build-san --parallel --target DishTests
-
-      - name: Run tests
-        working-directory: build-san
+      - name: Build and run the suite under the sanitizer
         env:
-          QT_QPA_PLATFORM: offscreen
-          ASAN_OPTIONS: detect_leaks=1:abort_on_error=1
-          UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
-          # Qt and glib are uninstrumented, so their own cross-thread new/delete
-          # reads as a race. tests/tsan.suppressions says exactly what is
-          # excluded and why.
-          TSAN_OPTIONS: halt_on_error=1:suppressions=${{ github.workspace }}/tests/tsan.suppressions
-        # Serial: two instrumented processes at once is what makes a sanitizer
-        # run flake on a shared runner.
-        run: ctest --output-on-failure --parallel 1
+          SAN: ${{ matrix.san }}
+        run: ./scripts/sanitize.sh "$SAN"
 
   # The lock-law ratchet (tests/test_lock_laws.cpp) and the statistics half of
   # tests/test_tracked_mutex.cpp exist only in a DISH_LOCK_STATS build, which no
-  # other lane configures and no package ships. The whole suite runs in it too,
-  # so counting locks is proven to change nothing else.
+  # other lane configures and no package ships.
   lock-stats:
     name: Lock statistics and the lock laws
     runs-on: ubuntu-24.04
@@ -247,6 +189,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Set up build dependencies
         uses: ./.github/actions/setup-build-deps
@@ -256,22 +200,8 @@ jobs:
       - name: Set up Qt
         uses: ./.github/actions/setup-qt
 
-      - name: Configure (Debug, lock statistics)
-        run: |
-          cmake --preset debug -B build-lockstats \
-            -DDISH_LOCK_STATS=ON \
-            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
-            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
-
-      - name: Build
-        run: cmake --build build-lockstats --parallel --target DishTests DishLockLawTests
-
-      # A failing law prints the set it observed; its list is corrected from that.
-      - name: Run tests
-        working-directory: build-lockstats
-        env:
-          QT_QPA_PLATFORM: offscreen
-        run: ctest --output-on-failure --parallel
+      - name: Build and run the lock-statistics suite
+        run: ./scripts/lock-stats.sh
 
   # The lock laws drive every hot-path thread at once over the real objects
   # (tests/HotPathRig.h, which the bench shares), as no plain-build test does,
@@ -287,6 +217,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Set up build dependencies
         uses: ./.github/actions/setup-build-deps
@@ -296,29 +228,10 @@ jobs:
       - name: Set up Qt
         uses: ./.github/actions/setup-qt
 
-      - name: Configure
-        run: |
-          cmake -S . -B build-san -G Ninja \
-            -DCMAKE_BUILD_TYPE=RelWithDebInfo \
-            -DDISH_BUILD_TESTS=ON \
-            -DDISH_LOCK_STATS=ON \
-            -DDISH_SANITIZER=${{ matrix.san }} \
-            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
-            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
-
-      - name: Build
-        run: cmake --build build-san --parallel --target DishLockLawTests
-
-      # The same options and suppressions as the sanitize job; -R leaves out
-      # the DishTests this tree registers but does not build.
-      - name: Run the lock laws
-        working-directory: build-san
+      - name: Build and run the lock laws under the sanitizer
         env:
-          QT_QPA_PLATFORM: offscreen
-          ASAN_OPTIONS: detect_leaks=1:abort_on_error=1
-          UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
-          TSAN_OPTIONS: halt_on_error=1:suppressions=${{ github.workspace }}/tests/tsan.suppressions
-        run: ctest --output-on-failure --parallel 1 -R "^lock law"
+          SAN: ${{ matrix.san }}
+        run: ./scripts/sanitize.sh "$SAN" lock-laws
 
   package:
     name: Package (.deb) and launch it
@@ -330,161 +243,31 @@ jobs:
         shell: bash
     # Debian 13's Qt is 6.8, above the 6.7 floor, and dpkg-shlibdeps must read a
     # binary linked against the Qt the package will resolve against. Ubuntu
-    # 24.04 LTS is deliberately not a .deb target: its Qt is 6.4.2.
-    container: debian:trixie
+    # 24.04 LTS is deliberately not a .deb target: its Qt is 6.4.2. The tag is
+    # the one scripts/tools.sh names (DISH_DEB_IMAGE), which
+    # scripts/package-in-container.sh runs locally.
+    container: debian:13.7
     timeout-minutes: 45
     steps:
-      - name: Install build and packaging dependencies
-        run: |
-          set -eux
-          cat > /etc/apt/apt.conf.d/99-dish-acquire <<'CONF'
-          Acquire::http::Timeout "15";
-          Acquire::https::Timeout "15";
-          Acquire::Retries "2";
-          CONF
-          apt-get update
-          apt-get install -y --no-install-recommends \
-            git ca-certificates \
-            build-essential cmake ninja-build pkg-config \
-            qt6-base-dev qt6-base-dev-tools qt6-declarative-dev qt6-svg-dev \
-            qt6-tools-dev qt6-tools-dev-tools qt6-l10n-tools \
-            libsodium-dev libsdl2-dev libssl-dev libopus-dev libdbus-1-dev \
-            dpkg-dev fakeroot file gzip \
-            librsvg2-bin desktop-file-utils appstream lintian
-
+      # The image has no git, so this checkout comes through the REST API;
+      # nothing below reads the history.
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
-      # Cheap, and they catch the two mistakes that reach users as "no icon in
-      # the menu" and "missing from GNOME Software" rather than as a build error.
-      - name: Validate desktop entry and AppStream metadata
-        run: |
-          set -euo pipefail
-          desktop-file-validate packaging/dish.desktop
-          appstreamcli validate --no-net packaging/com.tinkernorth.Dish.metainfo.xml
+      - name: Install build and packaging dependencies
+        run: ./scripts/package-deps.sh deb
 
       # Configure + build + cpack live in scripts/build-deb.sh (the `package`
-      # preset), the same path release.yml's deb job and a local
-      # `scripts/build-deb.sh` run.
+      # preset), the same path release.yml's deb job runs.
       - name: Build the .deb
         run: ./scripts/build-deb.sh
 
-      # A lintian error means the package is malformed, not merely untidy.
-      - name: lintian
-        run: lintian --fail-on error --tag-display-limit 0 dist/*.deb
-
-      # The udev rule is the payload whose absence silently degrades a whole
-      # feature, and it has shipped to the wrong path before.
-      - name: Assert package contents
-        run: |
-          set -euo pipefail
-          contents="$(dpkg-deb -c dist/*.deb)"
-          for path in \
-            ./usr/bin/dish \
-            ./usr/lib/udev/rules.d/70-dish-hidraw.rules \
-            ./usr/share/applications/com.tinkernorth.Dish.desktop \
-            ./usr/share/metainfo/com.tinkernorth.Dish.metainfo.xml \
-            ./usr/share/icons/hicolor/scalable/apps/com.tinkernorth.Dish.svg \
-            ./usr/share/doc/dish/copyright
-          do
-            grep -qE " ${path}\$" <<<"${contents}" \
-              || { echo "::error::${path} missing from the .deb"; exit 1; }
-          done
-          icon="$(sed -n 's/^Icon=//p' packaging/dish.desktop)"
-          grep -q "/apps/${icon}\." <<<"${contents}" \
-            || { echo "::error::Icon=${icon} names no installed icon"; exit 1; }
-
-      # The gate nothing else can stand in for. Unit tests, lints and a
-      # contents check all pass against a build tree, and a build tree is
-      # exactly what hides a missing runtime dependency: a QML module resolves
-      # from the Qt install during development and from a Depends: line after.
-      - name: Install the .deb and launch it
-        run: |
-          set -euo pipefail
-          apt-get install -y ./dist/*.deb
-          # No seat, no bus, no display in a container; offscreen is enough to
-          # prove the QML engine resolved every import it needs.
-          export QT_QPA_PLATFORM=offscreen
-          export XDG_RUNTIME_DIR=/tmp/dish-runtime
-          mkdir -p "$XDG_RUNTIME_DIR"
-          # The SVG handler is a run-time plugin, so its absence shows up as
-          # "Unsupported image format" per glyph rather than as a link error.
-          echo "--- Qt image-format plugins ---"
-          ls -1 /usr/lib/*/qt6/plugins/imageformats/ 2>/dev/null || echo "(no imageformats directory)"
-          # Costs nothing once the Depends: line is right, because it only runs
-          # while the plugin is still missing. Naming the package from here beats
-          # guessing it from outside the distribution.
-          if ! ls /usr/lib/*/qt6/plugins/imageformats/libqsvg.so >/dev/null 2>&1; then
-            echo "--- libqsvg.so is absent; asking the archive which package ships it ---"
-            dpkg -L libqt6svg6 2>/dev/null | grep -i plugins || echo "libqt6svg6 ships no plugins"
-            apt-get install -y --no-install-recommends apt-file >/dev/null 2>&1 \
-              && apt-file update >/dev/null 2>&1 \
-              && apt-file search -x 'qt6/plugins/imageformats/libqsvg\.so$' \
-              || echo "apt-file could not answer"
-          fi
-          # Signalled by hand rather than through `timeout`, which reports 124
-          # whether the child shut down cleanly or had to be killed — the one
-          # distinction this step exists to make. Every wait below is bounded,
-          # because an unbounded one is how this step once sat for 40 minutes
-          # and took the job's timeout with it.
-          set +e
-          dish >/tmp/launch.log 2>&1 &
-          app=$!
-          sleep 20
-          started=0
-          kill -0 "$app" 2>/dev/null && started=1
-          needed_kill=0
-          if [ "$started" = 1 ]; then
-            kill -TERM "$app"
-            waited=0
-            while [ "$waited" -lt 15 ] && kill -0 "$app" 2>/dev/null; do
-              sleep 1
-              waited=$((waited + 1))
-            done
-            if kill -0 "$app" 2>/dev/null; then
-              kill -KILL "$app"
-              needed_kill=1
-            fi
-          fi
-          wait "$app"
-          rc=$?
-          set -e
-          cat /tmp/launch.log
-          if grep -qE 'is not installed|failed to load component|Cannot load library|no such file' /tmp/launch.log; then
-            echo "::error::the installed package cannot load its Qt/QML runtime"
-            exit 1
-          fi
-          # Fatal: the app renders no iconography at all when this fires, and
-          # the only symptom is a log flood nobody reads. It stayed a warning
-          # only until the Depends: line was right.
-          if grep -q 'Error decoding:' /tmp/launch.log; then
-            echo "::error::the installed app cannot decode its brand SVGs — the Qt SVG image plugin is missing or unloadable"
-            exit 1
-          fi
-          # The bundled controller database is a resource compiled into the static dish_core. A
-          # binary that lost it still starts, with no controller list and "bundled version 0" on
-          # the Diagnostics page, so only its own start-up line can tell.
-          if ! grep -qE 'controller database: bundled dbVersion [1-9][0-9]* with [1-9][0-9]* records' /tmp/launch.log; then
-            echo "::error::the installed app did not load its bundled controller database"
-            exit 1
-          fi
-          if [ "$started" != 1 ]; then
-            echo "::error::dish exited on its own (${rc}) instead of staying up"
-            exit 1
-          fi
-          # SIGTERM is what a logout sends. Ignoring it means ~AppModel never
-          # runs, so the input thread is not stopped and QSettings never writes
-          # what the session changed — the user loses their settings every time
-          # they log out, and nothing else in CI would notice.
-          if [ "$needed_kill" = 1 ]; then
-            echo "::error::dish did not exit on SIGTERM; it needed SIGKILL"
-            exit 1
-          fi
-          if [ "$rc" != 0 ]; then
-            echo "::error::dish shut down on SIGTERM but exited ${rc}"
-            exit 1
-          fi
-          echo "::notice::dish came up, shut down on SIGTERM and exited 0"
+      # Desktop entry and AppStream validation, lintian, the payload, then the
+      # install and launch: scripts/test-package.sh, as release.yml runs it.
+      - name: Check, install and launch the .deb
+        run: ./scripts/test-package.sh deb
 
       - name: Upload the .deb
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -493,142 +276,78 @@ jobs:
           path: dist/*.deb
           retention-days: 14
 
-  # The .rpm twin of the package job. release.yml's rpm job holds the same
-  # dependency install, build and the two steps after it, and both change
-  # together: until this job existed the rpm path ran for the first time on a
-  # public tag, which is how 2.8.0's empty Fedora launch log was found.
+  # The .rpm twin of the package job, through the same scripts release.yml's
+  # rpm job runs: until this job existed the rpm path ran for the first time on
+  # a public tag, which is how 2.8.0's empty Fedora launch log was found.
   rpm:
     name: Package (.rpm) and launch it
     runs-on: ubuntu-24.04
-    # A container job's default shell is `sh`, which has neither `<<<` nor
-    # `pipefail`; every step here assumes bash.
     defaults:
       run:
         shell: bash
     # Fedora's own Qt, for the same reason as the .deb: rpmbuild's soname
     # scanner writes the Requires against the Qt the package will resolve.
-    container: fedora:42
+    # DISH_RPM_IMAGE in scripts/tools.sh.
+    container: fedora:44
     timeout-minutes: 45
     steps:
-      - name: Install build and packaging dependencies
-        run: |
-          set -eux
-          dnf -y install --setopt=install_weak_deps=False \
-            git-core ca-certificates \
-            gcc-c++ cmake ninja-build pkgconf-pkg-config rpm-build \
-            qt6-qtbase-devel qt6-qtdeclarative-devel qt6-qtsvg-devel qt6-qttools-devel \
-            libsodium-devel SDL2-devel openssl-devel opus-devel dbus-devel \
-            libcurl-devel \
-            librsvg2-tools desktop-file-utils libappstream-glib gzip
-          dnf -y install --allowerasing curl
-
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
-      # Configure + build + cpack live in scripts/build-rpm.sh (the `package`
-      # preset with the generator swapped), the same path release.yml's rpm
-      # job runs. No DSN here, so the Sentry SDK is neither fetched nor built.
+      - name: Install build and packaging dependencies
+        run: ./scripts/package-deps.sh rpm
+
+      # No DSN here, so the Sentry SDK is neither fetched nor built.
       - name: Build the .rpm
         run: ./scripts/build-rpm.sh
 
-      - name: Assert package contents and scriptlets
-        run: |
-          set -euo pipefail
-          rpm -qlp dist/*.rpm
-          rpm -qp --requires dist/*.rpm
-          # Without the reload a pad plugged in before the install keeps its
-          # root-only node and every USB-direct claim fails.
-          rpm -qp --scripts dist/*.rpm | grep -q 'udevadm control' \
-            || { echo "::error::rpm carries no udev reload scriptlet"; exit 1; }
-          rpm -qlp dist/*.rpm | grep -qx '/usr/lib/udev/rules.d/70-dish-hidraw.rules' \
-            || { echo "::error::udev rule missing or at the wrong path"; exit 1; }
-
-      - name: Install the package and launch it
-        run: |
-          set -euo pipefail
-          dnf -y install ./dist/*.rpm
-          export QT_QPA_PLATFORM=offscreen
-          export XDG_RUNTIME_DIR=/tmp/dish-runtime
-          mkdir -p "$XDG_RUNTIME_DIR"
-          # Fedora builds Qt with journald logging, and Qt then writes its
-          # messages to the journal whenever stderr is not a terminal: the
-          # log this step reads stayed empty, so every check on it was blind.
-          export QT_FORCE_STDERR_LOGGING=1
-          # The SVG handler is a run-time plugin, so its absence shows up as
-          # "Unsupported image format" per glyph rather than as a link error.
-          echo "--- Qt image-format plugins ---"
-          ls -1 /usr/lib64/qt6/plugins/imageformats/ 2>/dev/null || echo "(no imageformats directory)"
-          rpm -qf /usr/lib64/qt6/plugins/imageformats/libqsvg.so 2>/dev/null \
-            || echo "libqsvg.so is absent — no package here provides it"
-          # Signalled by hand rather than through `timeout`, which reports 124
-          # whether the child shut down cleanly or had to be killed — the one
-          # distinction this step exists to make. Every wait below is bounded,
-          # because an unbounded one is how this step once sat for 40 minutes
-          # and took the job's timeout with it.
-          set +e
-          dish >/tmp/launch.log 2>&1 &
-          app=$!
-          sleep 20
-          started=0
-          kill -0 "$app" 2>/dev/null && started=1
-          needed_kill=0
-          if [ "$started" = 1 ]; then
-            kill -TERM "$app"
-            waited=0
-            while [ "$waited" -lt 15 ] && kill -0 "$app" 2>/dev/null; do
-              sleep 1
-              waited=$((waited + 1))
-            done
-            if kill -0 "$app" 2>/dev/null; then
-              kill -KILL "$app"
-              needed_kill=1
-            fi
-          fi
-          wait "$app"
-          rc=$?
-          set -e
-          cat /tmp/launch.log
-          if grep -qE 'is not installed|failed to load component|Cannot load library|no such file' /tmp/launch.log; then
-            echo "::error::the installed package cannot load its Qt/QML runtime"
-            exit 1
-          fi
-          # Fatal: the app renders no iconography at all when this fires, and
-          # the only symptom is a log flood nobody reads. It stayed a warning
-          # only until the Depends: line was right.
-          if grep -q 'Error decoding:' /tmp/launch.log; then
-            echo "::error::the installed app cannot decode its brand SVGs — the Qt SVG image plugin is missing or unloadable"
-            exit 1
-          fi
-          # The bundled controller database is a resource compiled into the static dish_core. A
-          # binary that lost it still starts, with no controller list and "bundled version 0" on
-          # the Diagnostics page, so only its own start-up line can tell.
-          if ! grep -qE 'controller database: bundled dbVersion [1-9][0-9]* with [1-9][0-9]* records' /tmp/launch.log; then
-            echo "::error::the installed app did not load its bundled controller database"
-            exit 1
-          fi
-          if [ "$started" != 1 ]; then
-            echo "::error::dish exited on its own (${rc}) instead of staying up"
-            exit 1
-          fi
-          # SIGTERM is what a logout sends. Ignoring it means ~AppModel never
-          # runs, so the input thread is not stopped and QSettings never writes
-          # what the session changed.
-          if [ "$needed_kill" = 1 ]; then
-            echo "::error::dish did not exit on SIGTERM; it needed SIGKILL"
-            exit 1
-          fi
-          if [ "$rc" != 0 ]; then
-            echo "::error::dish shut down on SIGTERM but exited ${rc}"
-            exit 1
-          fi
-          echo "::notice::dish came up, shut down on SIGTERM and exited 0"
+      # The payload, the udev reload scriptlet, then the install and launch.
+      - name: Check, install and launch the .rpm
+        run: ./scripts/test-package.sh rpm
 
       - name: Upload the .rpm
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: dish-rpm-fedora42
+          name: dish-rpm-fedora44
           path: dist/*.rpm
           retention-days: 14
+
+  # release.yml's apt-publish and rpm-publish run only on a stable tag, and a
+  # tag is too late to learn that one of them no longer works (a release was
+  # lost to exactly that on 2026-11-23). This builds both repositories from the
+  # two packages above through the same scripts, on the runner the publish
+  # jobs use, signs them with a throwaway key and reads them back as apt and
+  # dnf would. Nothing is published.
+  repos:
+    name: APT and DNF repositories (built, not published)
+    needs: [package, rpm]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install the repository tools
+        run: sudo ./scripts/package-deps.sh repos
+
+      - name: Download the .deb
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: dish-deb-debian13
+          path: staging
+
+      - name: Download the .rpm
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: dish-rpm-fedora44
+          path: staging
+
+      - name: Build and read back the repositories
+        run: ./scripts/check-package-repos.sh staging
 
   coverage:
     name: Coverage
@@ -637,6 +356,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Set up build dependencies
         uses: ./.github/actions/setup-build-deps
@@ -647,35 +368,14 @@ jobs:
       - name: Set up Qt
         uses: ./.github/actions/setup-qt
 
-      # -fprofile-update=atomic: gcov's counters are non-atomic by default, so
-      # the threaded tests race them and geninfo aborts on a negative count.
-      # Timing-dependent, so it passes until it doesn't.
-      - name: Configure and build
-        run: |
-          cmake -S . -B build-cov -G Ninja \
-            -DCMAKE_BUILD_TYPE=Debug \
-            -DDISH_BUILD_TESTS=ON \
-            -DCMAKE_CXX_FLAGS="--coverage -fprofile-abs-path -fprofile-update=atomic" \
-            -DCMAKE_EXE_LINKER_FLAGS="--coverage"
-          cmake --build build-cov --parallel
-
-      - name: Run tests
-        working-directory: build-cov
-        env:
-          QT_QPA_PLATFORM: offscreen
-        run: ctest --output-on-failure --parallel
-
-      - name: Report
+      - name: Build, run and report
         run: |
           set -euo pipefail
-          lcov --capture --directory build-cov --output-file cov.info \
-               --ignore-errors mismatch,gcov,source
-          lcov --remove cov.info '/usr/*' '*/build-cov/*' '*/tests/*' \
-               --output-file cov.info --ignore-errors unused
+          ./scripts/coverage.sh | tee coverage-summary.txt
           {
             echo '### Coverage'
             echo '```'
-            lcov --summary cov.info 2>&1
+            sed -n '/^Summary coverage rate/,$p' coverage-summary.txt
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
@@ -693,10 +393,11 @@ jobs:
     name: Build with the Sentry SDK (dummy DSN)
     runs-on: ubuntu-24.04
     timeout-minutes: 60
-
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Set up build dependencies
         uses: ./.github/actions/setup-build-deps
@@ -707,19 +408,5 @@ jobs:
       - name: Set up Qt
         uses: ./.github/actions/setup-qt
 
-      - name: Configure with a DSN that resolves nowhere
-        run: |
-          cmake --preset release \
-            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
-            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
-            -DDISH_SENTRY_DSN="https://public@o0.ingest.sentry.invalid/0"
-
-      - name: Build the app
-        run: cmake --build --preset release --target Dish --parallel
-
-      - name: Verify the SDK is linked and the binary carries debug info
-        run: |
-          bin="$(find build-release -maxdepth 2 -type f -name dish -perm -u+x | head -1)"
-          [ -n "$bin" ] || { echo "::error::no dish binary built"; exit 1; }
-          nm "$bin" | grep -q 'sentry_init' || { echo "::error::sentry_init is not linked"; exit 1; }
-          readelf -S "$bin" | grep -q '\.debug_info' || { echo "::error::no debug info for the symbol upload"; exit 1; }
+      - name: Build and check the Sentry build
+        run: ./scripts/check-sentry-build.sh

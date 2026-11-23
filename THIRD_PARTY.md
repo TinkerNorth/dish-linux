@@ -5,10 +5,23 @@ third-party component that is linked into `dish`, embedded in it as a resource,
 or used only to build and test it. It also states what someone redistributing
 the binary has to do.
 
-Nothing is bundled. Qt, SDL2, libsodium and Opus are dynamically linked against
-the system copies your distribution provides, so a redistributor of a package
-built from this tree is redistributing those libraries under their own
-distribution's terms, not through this repository.
+What is bundled depends on the package:
+
+- The `.deb`, the `.rpm` and a build from source bundle nothing. Qt, SDL2,
+  libsodium and Opus are dynamically linked against the system copies the
+  distribution provides, so a redistributor of those packages is
+  redistributing the libraries under their own distribution's terms.
+- The AppImage bundles its own copies: Qt (the official binaries CI installs),
+  SDL2 2.32.10 built from source, and the build host's libsodium, libopus and
+  their dependencies, all as shared libraries that linuxdeploy copies into the
+  image. The Arch `dish-bin` package repackages that AppImage.
+- The Flatpak takes Qt and Opus from the KDE runtime and bundles libsodium and
+  SDL2 2.32.10, built from source as modules of
+  [`packaging/flatpak/com.tinkernorth.Dish.yml`](packaging/flatpak/com.tinkernorth.Dish.yml).
+
+The AppImage and the Flatpak therefore redistribute LGPL Qt and the other
+libraries themselves. Every bundled library stays a separate shared object, so
+a user can replace it, and the notices and license texts below cover each one.
 
 The app has an in-app version of this list at Settings, Licenses, rendered from
 [`assets/licenses/licenses.json`](assets/licenses/licenses.json). That manifest
@@ -22,15 +35,15 @@ today.
 
 | Component | Version | SPDX | How it reaches the user | Attribution obligation |
 |---|---|---|---|---|
-| [Qt 6](#2-qt-6) | CMake requires >= 6.7 | `LGPL-3.0-only` | Dynamically linked against the system Qt. Nothing is bundled. | Notice, license text, relink freedom. See section 2. |
-| [SDL2](#sdl2) | >= 2.0.18 | `Zlib` | Dynamically linked against the system SDL2. | Keep the notice, do not claim authorship |
-| [libsodium](#libsodium) | >= 1.0.18 | `ISC` | Dynamically linked against the system libsodium. | Keep the copyright and permission notice |
-| [Opus](#opus) | >= 1.3 | `BSD-3-Clause` | Dynamically linked against the system libopus. | Keep the copyright notice and disclaimer |
+| [Qt 6](#2-qt-6) | CMake requires >= 6.7 | `LGPL-3.0-only` | Dynamically linked: the system Qt for the `.deb` and `.rpm`, the KDE runtime's in the Flatpak, a bundled shared copy in the AppImage. | Notice, license text, relink freedom. See section 2. |
+| [SDL2](#sdl2) | >= 2.24 | `Zlib` | Dynamically linked: the system SDL2 for the `.deb` and `.rpm`, a bundled SDL2 2.32.10 built from source in the AppImage and the Flatpak. | Keep the notice, do not claim authorship |
+| [libsodium](#libsodium) | >= 1.0.18 | `ISC` | Dynamically linked: the system copy, bundled in the AppImage and the Flatpak. | Keep the copyright and permission notice |
+| [Opus](#opus) | >= 1.3 | `BSD-3-Clause` | Dynamically linked: the system libopus (the runtime's in the Flatpak), bundled in the AppImage. | Keep the copyright notice and disclaimer |
 | [Inter](#4-inter) | 4.001 | `OFL-1.1` | Four `.ttf` faces embedded in `dish` as Qt resources under `:/fonts/`. | Ship the license text with every copy. See section 4. |
 | [Catch2](#5-catch2) | 3.x | `BSL-1.0` | Test binary only. Not linked into `dish`. | None for redistributors of the app |
-| [ENet (cgutman fork)](#9-enet) | commit `4cde9cc` | `MIT` | Vendored C sources under `third_party/enet/`, compiled into `dish`. | Ship the copyright + permission notice |
-| [OpenSSL libcrypto](#10-openssl-libcrypto) | system | `Apache-2.0` | Dynamically linked against the system libcrypto for the Moonlight-host crypto. | Keep the notice; nothing bundled |
-| [sentry-native](#sentry-native) | 0.16.3 | `MIT` | Official release builds only, the Flatpak included: built from the hash-pinned release bundle and statically linked into `dish`. Absent from source and PR builds. | Keep the copyright and permission notice |
+| [ENet (cgutman fork)](#8-enet) | commit `4cde9cc` | `MIT` | Vendored C sources under `third_party/enet/`, compiled into `dish`. | Ship the copyright + permission notice |
+| [OpenSSL libcrypto](#9-openssl-libcrypto) | system | `Apache-2.0` | Dynamically linked against the system libcrypto for the Moonlight-host crypto. | Keep the notice; nothing bundled |
+| [sentry-native](#sentry-native) | 0.17.6 | `MIT` | Official release builds only, the Flatpak included: built from the hash-pinned release bundle and statically linked into `dish`. Absent from source and PR builds. | Keep the copyright and permission notice |
 | [libcurl](#libcurl) | system | `curl` | Official release builds only: dynamically linked against the system libcurl (the runtime's, in the Flatpak) as sentry-native's transport. | Keep the notice; nothing bundled |
 
 Three further items are reuse of published facts rather than of code, and are
@@ -43,7 +56,7 @@ The Moonlight (GameStream) host protocol support under `src/core/moonlight/` and
 `src/source/moonlight/` is an original implementation. Its wire framing, crypto
 construction and pairing algorithm were learned from the documentation and the
 MIT-licensed host implementation of Wolf (games-on-whales/wolf); that reuse of
-adapted logic is recorded in [section 11](#11-wolf-moonlight-protocol-reference).
+adapted logic is recorded in [section 10](#10-wolf-moonlight-protocol-reference).
 No GPL-licensed Moonlight code (moonlight-common-c, moonlight-qt, Sunshine,
 Apollo) was consulted or copied.
 
@@ -136,7 +149,8 @@ obligations on redistribution.
 
 SDL2, libsodium and Opus are found through `pkg-config` and dynamically linked
 against whatever the build host provides. None of them is vendored into this
-tree and none is bundled with the binary. Official release builds add two
+tree; the AppImage and the Flatpak bundle shared copies, as the opening of this
+file describes. Official release builds add two
 more, described at the end of this section: sentry-native, compiled in, and
 the system libcurl it uses as its transport.
 
@@ -144,6 +158,10 @@ the system libcurl it uses as its transport.
 
 Simple DirectMedia Layer. SPDX `Zlib`. Upstream:
 <https://github.com/libsdl-org/SDL>.
+
+CMake requires 2.24 or newer: the code reads `SDL_GameControllerPath`. The
+AppImage and the Flatpak build SDL2 2.32.10 from its release tarball
+(`scripts/build-sdl2.sh`, the Flatpak manifest's `sdl2` module).
 
 Used for controller enumeration, input polling, motion, rumble and light-bar
 output, and battery reporting on every path other than the raw-HID USB-direct
@@ -243,7 +261,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ### sentry-native
 
-sentry-native 0.16.3. SPDX `MIT`. Upstream:
+sentry-native 0.17.6. SPDX `MIT`. Upstream:
 <https://github.com/getsentry/sentry-native>.
 
 The crash reporter behind the *Share crash reports* switch. Only the official
@@ -314,7 +332,7 @@ Inter 4.001, by Rasmus Andersson and the Inter Project Authors. SPDX `OFL-1.1`.
 Upstream: <https://rsms.me/inter/>.
 
 Four faces are bundled and embedded into `dish` as Qt resources by
-`packaging/dish.qrc`: Regular, Medium, SemiBold, Bold. They are loaded at startup
+`resources/icons.qrc`: Regular, Medium, SemiBold, Bold. They are loaded at startup
 through `QFontDatabase` so the UI matches the design system on machines without
 Inter installed.
 
@@ -429,7 +447,7 @@ license and carry no third-party attribution.
 
 ---
 
-## 9. ENet
+## 8. ENet
 
 The cgutman fork of ENet, SPDX `MIT`. Upstream:
 <https://github.com/cgutman/enet>, vendored at commit
@@ -456,20 +474,20 @@ modifications were made to the vendored sources.
 
 ---
 
-## 10. OpenSSL libcrypto
+## 9. OpenSSL libcrypto
 
 OpenSSL, SPDX `Apache-2.0`. Upstream: <https://www.openssl.org/>.
 
 The Moonlight-host support needs AES-128 (ECB and GCM), RSA sign/verify and
-self-signed X.509 generation — primitives libsodium deliberately does not
-provide — so `dish` links the system OpenSSL's `libcrypto` for them (only
+self-signed X.509 generation, primitives libsodium deliberately does not
+provide, so `dish` links the system OpenSSL's `libcrypto` for them (only
 `libcrypto`; the TLS client itself remains Qt Network's). Nothing is bundled:
 this is your distribution's OpenSSL, and its notice travels with that package,
 as it already does for the Qt build `Qt6::Network` runs against.
 
 ---
 
-## 11. Wolf (Moonlight protocol reference)
+## 10. Wolf (Moonlight protocol reference)
 
 Wolf, SPDX `MIT`. Upstream: <https://github.com/games-on-whales/wolf>.
 
@@ -498,12 +516,17 @@ Apollo. Wolf's documentation and MIT source were sufficient.
 
 [`assets/licenses/licenses.json`](assets/licenses/licenses.json) is the manifest
 the in-app Licenses screen renders, parsed by `src/UI/licenses/LicenseManifest.*`.
-It is hand-authored, not generated, so it can drift. It currently lists Qt 6,
-SDL2, libsodium, Opus, ENet, OpenSSL, sentry-native, libcurl, Catch2 and
-Inter, which is the same set as this file, with the same licenses. One difference is worth knowing about:
+It is hand-authored, not generated. It lists Qt 6, SDL2, libsodium, Opus,
+Catch2, Inter, ENet, OpenSSL libcrypto, sentry-native and libcurl, the same
+set as this file, with the same licenses. Two differences are worth knowing
+about:
 
 - The manifest lists Catch2, which is test-only and is not in the shipped
   binary. Showing it to a user is harmless but inaccurate.
+- The versions it shows for Qt and SDL2 are the floors (`6.7+`, `2.24+`);
+  sentry-native's is the pinned release. `scripts/check-version-consistency.sh`
+  holds those three, and the matching rows of the summary table, to
+  `CMakeLists.txt` and `scripts/tools.sh`.
 
 When a dependency is added, changed or dropped, update
 [`CMakeLists.txt`](CMakeLists.txt), the manifest, and this file together.

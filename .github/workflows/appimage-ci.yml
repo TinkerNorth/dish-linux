@@ -1,37 +1,21 @@
 name: AppImage CI
 
 #
-# The bundle release.yml ships, built when something that feeds it changes:
-# the script, the host it runs on, the Qt pin, the files it packs, or this
-# file. The release lane is the only other place the script runs, and a tag
-# is a late place to learn that the Qt it now pins lays its plugins out
-# differently.
+# The bundle release.yml ships, and the dish-bin pacman package built from it,
+# on every pull request. The release lane is the only other place either
+# script runs, and a tag is a late place to learn that the Qt it now pins lays
+# its plugins out differently or that the PKGBUILD no longer builds. Not
+# path-filtered: what feeds the bundle is most of the tree.
 
 on:
   push:
     branches: [main]
-    paths:
-      - "scripts/build-appimage.sh"
-      - ".github/actions/setup-appimage-host/**"
-      - ".github/actions/setup-qt/**"
-      - ".github/workflows/appimage-ci.yml"
-      - "CMakeLists.txt"
-      - "packaging/**"
-      - "!packaging/flatpak/**"
   pull_request:
     branches: [main]
-    paths:
-      - "scripts/build-appimage.sh"
-      - ".github/actions/setup-appimage-host/**"
-      - ".github/actions/setup-qt/**"
-      - ".github/workflows/appimage-ci.yml"
-      - "CMakeLists.txt"
-      - "packaging/**"
-      - "!packaging/flatpak/**"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
@@ -45,6 +29,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Set up the AppImage build host
         uses: ./.github/actions/setup-appimage-host
@@ -73,3 +59,40 @@ jobs:
           path: dist/*.AppImage
           retention-days: 7
           if-no-files-found: error
+
+  # The pull-request rehearsal of release.yml's arch-publish job: the same
+  # PKGBUILD through scripts/build-arch-package.sh, from this tree and the
+  # AppImage above, a pacman repository signed with a throwaway key through
+  # packaging/repo/build-pacman-repo.sh, and pacman installing dish-bin from
+  # it with signature checking on. Nothing is published.
+  arch:
+    name: Build the dish-bin package and its pacman repository
+    needs: [appimage]
+    runs-on: ubuntu-24.04
+    # DISH_ARCH_IMAGE in scripts/tools.sh, the tag release.yml's arch-publish uses.
+    container: archlinux:base-devel-20261108.0.623074
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install tooling
+        run: ./scripts/package-deps.sh arch
+
+      - name: Download the AppImage
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: linux-appimage-ci
+          path: appimage
+
+      - name: Build, sign, serve and install dish-bin
+        run: |
+          set -euo pipefail
+          appimage="$(find appimage -maxdepth 1 -name 'Dish-*-x86_64.AppImage' -print -quit)"
+          [ -n "${appimage}" ] || { echo "::error::no AppImage downloaded"; exit 1; }
+          ./scripts/check-arch-package.sh "${appimage}"

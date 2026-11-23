@@ -56,3 +56,9 @@ runs:
         ccache --set-config hash_dir=false
         ccache --set-config sloppiness=locale,time_macros
         ccache --zero-stats
+        # CMake reads these as the launcher defaults, so the presets and the
+        # scripts stay free of ccache.
+        {
+          echo "CMAKE_C_COMPILER_LAUNCHER=ccache"
+          echo "CMAKE_CXX_COMPILER_LAUNCHER=ccache"
+        } >> "$GITHUB_ENV"

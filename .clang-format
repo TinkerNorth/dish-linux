@@ -1,6 +1,6 @@
 # TinkerNorth — canonical clang-format configuration.
 # This exact file is shared by satellite, dish-android (JNI), dish-linux,
-# and dish-mac (any C/C++ source). Pinned to clang-format 22.1.4 in CI;
+# and dish-mac (any C/C++ source). Pinned to clang-format 23.1.5 in CI;
 # older versions may produce small diffs on braced-init lists.
 # Run:  clang-format -i <files>
 

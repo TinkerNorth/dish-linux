@@ -138,7 +138,9 @@ find_package(Qt6 6.7 QUIET OPTIONAL_COMPONENTS LinguistTools)
 
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(SODIUM REQUIRED IMPORTED_TARGET libsodium)
-pkg_check_modules(SDL2   REQUIRED IMPORTED_TARGET sdl2)
+# 2.24: SDLGamepadBridge reads SDL_GameControllerPath. THIRD_PARTY.md and
+# licenses.json state the same floor (scripts/check-version-consistency.sh).
+pkg_check_modules(SDL2   REQUIRED IMPORTED_TARGET sdl2>=2.24)
 # Controller audio (source/audio/OpusAudioCodec): the reference Opus codec,
 # found the same pkg-config way as the two above — every distro ships opus.pc.
 pkg_check_modules(OPUS   REQUIRED IMPORTED_TARGET opus)
@@ -649,8 +651,8 @@ else()
     set(SENTRY_BUILD_TESTS OFF CACHE BOOL "" FORCE)
     set(SENTRY_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
     FetchContent_Declare(sentry
-        URL https://github.com/getsentry/sentry-native/releases/download/0.16.3/sentry-native.zip
-        URL_HASH SHA256=21380c182dde677794a7b6c57e8d6e03d79ec5a03eec67514ffa7522f7e161b5
+        URL https://github.com/getsentry/sentry-native/releases/download/0.17.6/sentry-native.zip
+        URL_HASH SHA256=40b4b70cbada5bfae5b73f8267831dd023ec676d9676fb0d890878f31d2b5055
         DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
     FetchContent_MakeAvailable(sentry)
     message(STATUS "dish: Sentry SDK built from source, inproc backend (${DISH_SENTRY_RELEASE})")
