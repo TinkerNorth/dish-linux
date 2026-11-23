@@ -16,7 +16,7 @@ the repos share a version number.
 
 ---
 
-## [2.8.0] - 2026-11-19
+## [2.8.0] - 2026-11-23
 
 ### Added
 
