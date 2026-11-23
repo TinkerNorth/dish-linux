@@ -24,6 +24,8 @@ namespace {
 
 void applyCommonRequestPolicy(QNetworkRequest& request) {
     request.setRawHeader(QByteArrayLiteral("User-Agent"), updateUserAgent().toUtf8());
+    // Fixed, or Qt fills it from the system's languages (PRIVACY.md 2.4 lists what is sent).
+    request.setRawHeader(QByteArrayLiteral("Accept-Language"), QByteArrayLiteral("*"));
     // https-only redirects. Qt 6's default, stated explicitly because the
     // design leans on the release host's 302 being safe.
     request.setAttribute(QNetworkRequest::RedirectPolicyAttribute,

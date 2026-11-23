@@ -39,6 +39,21 @@ qint64 capFor(const QString& path) {
 
 } // namespace
 
+QNetworkRequest controllerDbRequest(const QUrl& url, const QByteArray& ifNoneMatch) {
+    QNetworkRequest request{url};
+    request.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
+                         QNetworkRequest::NoLessSafeRedirectPolicy);
+    request.setAttribute(QNetworkRequest::CacheLoadControlAttribute,
+                         QNetworkRequest::AlwaysNetwork);
+    request.setAttribute(QNetworkRequest::CacheSaveControlAttribute, false);
+    request.setTransferTimeout(kTransferTimeoutMs);
+    request.setRawHeader(QByteArrayLiteral("Accept-Language"), QByteArray(kDbAcceptLanguage));
+    if (!ifNoneMatch.isEmpty()) {
+        request.setRawHeader(QByteArrayLiteral("If-None-Match"), ifNoneMatch);
+    }
+    return request;
+}
+
 HttpControllerDbGateway::HttpControllerDbGateway(QObject* parent)
     : QObject(parent), nam_(new QNetworkAccessManager(this)) {
     nam_->setCookieJar(nullptr);
@@ -54,18 +69,7 @@ void HttpControllerDbGateway::get(const QString& path, const QByteArray& ifNoneM
     cap_ = capFor(path);
     tooLarge_ = false;
 
-    QNetworkRequest request{urlFor(path)};
-    request.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
-                         QNetworkRequest::NoLessSafeRedirectPolicy);
-    request.setAttribute(QNetworkRequest::CacheLoadControlAttribute,
-                         QNetworkRequest::AlwaysNetwork);
-    request.setAttribute(QNetworkRequest::CacheSaveControlAttribute, false);
-    request.setTransferTimeout(kTransferTimeoutMs);
-    if (!ifNoneMatch.isEmpty()) {
-        request.setRawHeader(QByteArrayLiteral("If-None-Match"), ifNoneMatch);
-    }
-
-    QNetworkReply* reply = nam_->get(request);
+    QNetworkReply* reply = nam_->get(controllerDbRequest(urlFor(path), ifNoneMatch));
     reply_ = reply;
     QObject::connect(reply, &QNetworkReply::downloadProgress, this,
                      &HttpControllerDbGateway::onProgress);

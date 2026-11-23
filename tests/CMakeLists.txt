@@ -278,6 +278,7 @@ set(DISH_TEST_SOURCES
     test_controller_db_json.cpp
     test_controller_db_bundled.cpp
     test_controller_db_fetch.cpp
+    test_controller_db_gateway.cpp
     test_controller_record_rows.cpp
     test_diagnostics_levels.cpp
     test_diagnostics_bundle.cpp

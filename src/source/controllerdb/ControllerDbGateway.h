@@ -9,8 +9,9 @@
 // The HTTP implementation owns a QNetworkAccessManager of its own with Qt's
 // default certificate validation, no cookie jar and no cache, and sends no
 // query, no identifier and Qt's default User-Agent (section 6.8), never the
-// update check's product string. net::HTTPClient must not carry it: that one
-// skips certificate validation for LAN satellites.
+// update check's product string, and a fixed Accept-Language in place of the
+// one Qt would build from the system's languages. net::HTTPClient must not
+// carry it: that one skips certificate validation for LAN satellites.
 
 #pragma once
 
@@ -23,6 +24,8 @@
 
 class QNetworkAccessManager;
 class QNetworkReply;
+class QNetworkRequest;
+class QUrl;
 
 namespace dish::source::controllerdb {
 
@@ -32,6 +35,14 @@ struct DbReply {
     QByteArray body;
     QByteArray etag;
 };
+
+// The Accept-Language every database request carries, whatever the system's languages: Qt
+// otherwise sends them ("de-DE,en,*" under LANG=de_DE), and the request names no one.
+inline constexpr const char* kDbAcceptLanguage = "*";
+
+// The GET for one database file at `url`: If-None-Match when `ifNoneMatch` is not empty, the fixed
+// Accept-Language, https-only redirects, no cache, a transfer timeout.
+QNetworkRequest controllerDbRequest(const QUrl& url, const QByteArray& ifNoneMatch);
 
 class ControllerDbPort {
   public:
