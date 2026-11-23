@@ -114,15 +114,22 @@ export EXTRA_PLATFORM_PLUGINS="${wayland_platforms};libqoffscreen.so"
     --icon-file "${appdir}/usr/share/icons/hicolor/512x512/apps/com.tinkernorth.Dish.png" \
     --plugin qt
 
-# The qt plugin deploys wayland-shell-integration and the decoration plugin
-# but not the client buffer integrations, and a Wayland session with zero
-# buffer integrations aborts at the first expose ("Available client buffer
-# integrations: QList()", then QRhi fails and Qt Quick qFatals). Copy the
-# directory it forgets; the packaging pass below pulls its libraries.
-if [ -d "${qt_plugin_dir}/wayland-graphics-integration-client" ]; then
-    cp -r "${qt_plugin_dir}/wayland-graphics-integration-client" \
-        "${appdir}/usr/plugins/"
-fi
+# linuxdeploy-plugin-qt's newest numbered release predates Qt 6.10's Wayland
+# layout: it deploys the platform plugin but none of the Wayland plugin
+# directories, and a Wayland session without them aborts at the first expose
+# (with zero client buffer integrations, "Available client buffer
+# integrations: QList()", then QRhi fails and Qt Quick qFatals; with no shell
+# integration the window never maps). Copy each directory the Qt has, then let
+# a second linuxdeploy pass pull in the libraries they link.
+for wayland_dir in wayland-graphics-integration-client wayland-shell-integration \
+    wayland-decoration-client; do
+    if [ -d "${qt_plugin_dir}/${wayland_dir}" ]; then
+        rm -rf "${appdir}/usr/plugins/${wayland_dir}"
+        cp -r "${qt_plugin_dir}/${wayland_dir}" "${appdir}/usr/plugins/"
+    fi
+done
+"${tools_dir}/linuxdeploy" --appdir "${appdir}" \
+    --desktop-file "${appdir}/usr/share/applications/com.tinkernorth.Dish.desktop"
 must_have=(
     "platforms/libqxcb.so"
     "platforms/libqoffscreen.so"
