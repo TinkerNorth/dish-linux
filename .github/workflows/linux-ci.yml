@@ -493,6 +493,143 @@ jobs:
           path: dist/*.deb
           retention-days: 14
 
+  # The .rpm twin of the package job. release.yml's rpm job holds the same
+  # dependency install, build and the two steps after it, and both change
+  # together: until this job existed the rpm path ran for the first time on a
+  # public tag, which is how 2.8.0's empty Fedora launch log was found.
+  rpm:
+    name: Package (.rpm) and launch it
+    runs-on: ubuntu-24.04
+    # A container job's default shell is `sh`, which has neither `<<<` nor
+    # `pipefail`; every step here assumes bash.
+    defaults:
+      run:
+        shell: bash
+    # Fedora's own Qt, for the same reason as the .deb: rpmbuild's soname
+    # scanner writes the Requires against the Qt the package will resolve.
+    container: fedora:42
+    timeout-minutes: 45
+    steps:
+      - name: Install build and packaging dependencies
+        run: |
+          set -eux
+          dnf -y install --setopt=install_weak_deps=False \
+            git-core ca-certificates \
+            gcc-c++ cmake ninja-build pkgconf-pkg-config rpm-build \
+            qt6-qtbase-devel qt6-qtdeclarative-devel qt6-qtsvg-devel qt6-qttools-devel \
+            libsodium-devel SDL2-devel openssl-devel opus-devel dbus-devel \
+            libcurl-devel \
+            librsvg2-tools desktop-file-utils libappstream-glib gzip
+          dnf -y install --allowerasing curl
+
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # Configure + build + cpack live in scripts/build-rpm.sh (the `package`
+      # preset with the generator swapped), the same path release.yml's rpm
+      # job runs. No DSN here, so the Sentry SDK is neither fetched nor built.
+      - name: Build the .rpm
+        run: ./scripts/build-rpm.sh
+
+      - name: Assert package contents and scriptlets
+        run: |
+          set -euo pipefail
+          rpm -qlp dist/*.rpm
+          rpm -qp --requires dist/*.rpm
+          # Without the reload a pad plugged in before the install keeps its
+          # root-only node and every USB-direct claim fails.
+          rpm -qp --scripts dist/*.rpm | grep -q 'udevadm control' \
+            || { echo "::error::rpm carries no udev reload scriptlet"; exit 1; }
+          rpm -qlp dist/*.rpm | grep -qx '/usr/lib/udev/rules.d/70-dish-hidraw.rules' \
+            || { echo "::error::udev rule missing or at the wrong path"; exit 1; }
+
+      - name: Install the package and launch it
+        run: |
+          set -euo pipefail
+          dnf -y install ./dist/*.rpm
+          export QT_QPA_PLATFORM=offscreen
+          export XDG_RUNTIME_DIR=/tmp/dish-runtime
+          mkdir -p "$XDG_RUNTIME_DIR"
+          # Fedora builds Qt with journald logging, and Qt then writes its
+          # messages to the journal whenever stderr is not a terminal: the
+          # log this step reads stayed empty, so every check on it was blind.
+          export QT_FORCE_STDERR_LOGGING=1
+          # The SVG handler is a run-time plugin, so its absence shows up as
+          # "Unsupported image format" per glyph rather than as a link error.
+          echo "--- Qt image-format plugins ---"
+          ls -1 /usr/lib64/qt6/plugins/imageformats/ 2>/dev/null || echo "(no imageformats directory)"
+          rpm -qf /usr/lib64/qt6/plugins/imageformats/libqsvg.so 2>/dev/null \
+            || echo "libqsvg.so is absent — no package here provides it"
+          # Signalled by hand rather than through `timeout`, which reports 124
+          # whether the child shut down cleanly or had to be killed — the one
+          # distinction this step exists to make. Every wait below is bounded,
+          # because an unbounded one is how this step once sat for 40 minutes
+          # and took the job's timeout with it.
+          set +e
+          dish >/tmp/launch.log 2>&1 &
+          app=$!
+          sleep 20
+          started=0
+          kill -0 "$app" 2>/dev/null && started=1
+          needed_kill=0
+          if [ "$started" = 1 ]; then
+            kill -TERM "$app"
+            waited=0
+            while [ "$waited" -lt 15 ] && kill -0 "$app" 2>/dev/null; do
+              sleep 1
+              waited=$((waited + 1))
+            done
+            if kill -0 "$app" 2>/dev/null; then
+              kill -KILL "$app"
+              needed_kill=1
+            fi
+          fi
+          wait "$app"
+          rc=$?
+          set -e
+          cat /tmp/launch.log
+          if grep -qE 'is not installed|failed to load component|Cannot load library|no such file' /tmp/launch.log; then
+            echo "::error::the installed package cannot load its Qt/QML runtime"
+            exit 1
+          fi
+          # Fatal: the app renders no iconography at all when this fires, and
+          # the only symptom is a log flood nobody reads. It stayed a warning
+          # only until the Depends: line was right.
+          if grep -q 'Error decoding:' /tmp/launch.log; then
+            echo "::error::the installed app cannot decode its brand SVGs — the Qt SVG image plugin is missing or unloadable"
+            exit 1
+          fi
+          # The bundled controller database is a resource compiled into the static dish_core. A
+          # binary that lost it still starts, with no controller list and "bundled version 0" on
+          # the Diagnostics page, so only its own start-up line can tell.
+          if ! grep -qE 'controller database: bundled dbVersion [1-9][0-9]* with [1-9][0-9]* records' /tmp/launch.log; then
+            echo "::error::the installed app did not load its bundled controller database"
+            exit 1
+          fi
+          if [ "$started" != 1 ]; then
+            echo "::error::dish exited on its own (${rc}) instead of staying up"
+            exit 1
+          fi
+          # SIGTERM is what a logout sends. Ignoring it means ~AppModel never
+          # runs, so the input thread is not stopped and QSettings never writes
+          # what the session changed.
+          if [ "$needed_kill" = 1 ]; then
+            echo "::error::dish did not exit on SIGTERM; it needed SIGKILL"
+            exit 1
+          fi
+          if [ "$rc" != 0 ]; then
+            echo "::error::dish shut down on SIGTERM but exited ${rc}"
+            exit 1
+          fi
+          echo "::notice::dish came up, shut down on SIGTERM and exited 0"
+
+      - name: Upload the .rpm
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: dish-rpm-fedora42
+          path: dist/*.rpm
+          retention-days: 14
+
   coverage:
     name: Coverage
     runs-on: ubuntu-24.04

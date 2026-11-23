@@ -288,6 +288,9 @@ Build + style — `linux-ci.yml`, four jobs:
   runtime dependency: every other check passes against a build tree, which is
   exactly where a QML module resolves from the Qt install rather than from a
   `Depends:` line.
+- `rpm`: the same for the `.rpm`, in a `fedora:42` container with the steps
+  `release.yml`'s rpm job runs: build, assert the payload and the udev reload
+  scriptlet, then install the package and launch it.
 - `coverage`: lcov over the Debug suite, summarised into the job page.
 
 `version-consistency.yml` fails a PR that moves the version in one place and not
