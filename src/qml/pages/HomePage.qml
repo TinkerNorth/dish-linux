@@ -718,7 +718,7 @@ Kit.Page {
             return qsTr("idle");
         var parts = [];
         if (row.gamepadHzShown) {
-            var rate = rateFormat.rateText(row.gamepadHz, row.gamepadHzLive);
+            const rate = rateFormat.rateText(row.gamepadHz, row.gamepadHzLive);
             if (rate.length > 0)
                 parts.push(rate);
         }
@@ -759,7 +759,7 @@ Kit.Page {
             chips.push({ text: qsTr("no touchpad · pad"), tone: Kit.CapabilityChip.Absent,
                          reason: qsTr("No touchpad on this controller.") });
         } else {
-            var mode = App.touchpadRoutingFor(row.slotId);
+            const mode = App.touchpadRoutingFor(row.slotId);
             chips.push(mode === "off"
                        ? { text: qsTr("touchpad off"), tone: Kit.CapabilityChip.Neutral,
                            reason: qsTr("Touchpad routing is off for this binding.") }
@@ -795,7 +795,7 @@ Kit.Page {
     // The dead-zone row for a slot. The slot id IS the SDL bridge device id, so
     // the two lists join directly; a USB-direct synthetic pad has no row.
     function deadzoneRowFor(slotId) {
-        for (var i = 0; i < page.deadzoneRows.length; ++i) {
+        for (let i = 0; i < page.deadzoneRows.length; ++i) {
             if (page.deadzoneRows[i].id === slotId)
                 return page.deadzoneRows[i];
         }

@@ -139,7 +139,7 @@ Kit.Page {
     function adoptHost(row, isChosen) {
         if (isChosen) {
             page.hostRow = row;
-            draft.hostName = row.label;
+            bindingDraft.hostName = row.label;
         } else if (page.hostRow === row) {
             page.hostRow = null;
         }
@@ -147,17 +147,12 @@ Kit.Page {
 
     // ── The draft (one file, two editors) ───────────────────────────────────
     BindingDraft {
-        id: draft
+        id: bindingDraft
         slotId: page.slotId
         // A Pending row is a retry rather than a wait once the fetch has failed
         // outright with nothing cached.
         catalogFailed: page.catalogBroken
     }
-
-    // Named so a child that declares its own `draft` property can still be
-    // handed THIS one: an unqualified `draft` inside such a child resolves to
-    // the child's own property and binds to itself.
-    readonly property BindingDraft boundDraft: draft
 
     // The snapshot the page opened with; `dirty` is read off it, so a rail click
     // never confirms on a page the user only looked at.
@@ -167,25 +162,25 @@ Kit.Page {
     property bool seeded: false
 
     readonly property bool dirty: page.openedWith !== null
-        && (draft.hostId !== page.openedWith.hostId
-            || draft.type !== page.openedWith.type
-            || draft.desiredPath !== page.openedWith.desiredPath
-            || draft.motionOn !== page.openedWith.motionOn
-            || draft.rumbleOn !== page.openedWith.rumbleOn
-            || draft.micOn !== page.openedWith.micOn
-            || draft.speakerOn !== page.openedWith.speakerOn
-            || draft.touchpadMode !== page.openedWith.touchpadMode)
+        && (bindingDraft.hostId !== page.openedWith.hostId
+            || bindingDraft.type !== page.openedWith.type
+            || bindingDraft.desiredPath !== page.openedWith.desiredPath
+            || bindingDraft.motionOn !== page.openedWith.motionOn
+            || bindingDraft.rumbleOn !== page.openedWith.rumbleOn
+            || bindingDraft.micOn !== page.openedWith.micOn
+            || bindingDraft.speakerOn !== page.openedWith.speakerOn
+            || bindingDraft.touchpadMode !== page.openedWith.touchpadMode)
 
     function snapshot() {
         page.openedWith = {
-            "hostId": draft.hostId,
-            "type": draft.type,
-            "desiredPath": draft.desiredPath,
-            "motionOn": draft.motionOn,
-            "rumbleOn": draft.rumbleOn,
-            "micOn": draft.micOn,
-            "speakerOn": draft.speakerOn,
-            "touchpadMode": draft.touchpadMode
+            "hostId": bindingDraft.hostId,
+            "type": bindingDraft.type,
+            "desiredPath": bindingDraft.desiredPath,
+            "motionOn": bindingDraft.motionOn,
+            "rumbleOn": bindingDraft.rumbleOn,
+            "micOn": bindingDraft.micOn,
+            "speakerOn": bindingDraft.speakerOn,
+            "touchpadMode": bindingDraft.touchpadMode
         };
     }
 
@@ -197,7 +192,7 @@ Kit.Page {
         }
         page.seeded = true;
 
-        draft.chooseInput(page.slotId, page.padRow.name,
+        bindingDraft.chooseInput(page.slotId, page.padRow.name,
                           page.padRow.desiredPath === "direct" ? "direct" : "standard",
                           page.padClaimable);
 
@@ -206,30 +201,30 @@ Kit.Page {
             // The real label arrives later with the host row. The kind is asked
             // of the subsystem that owns the id, because the two destination
             // families keep separate books and only one of them will know it.
-            draft.chooseDestination(boundId, boundId,
+            bindingDraft.chooseDestination(boundId, boundId,
                                     App.isMoonlightHost(boundId) ? "moonlight" : "satellite");
             // Keyed on the DESTINATION, never on the pad: in bind mode the pad has
             // no binding, and the slot-keyed read resolves through one.
             page.refreshCatalog();
-            if (draft.hostIsMoonlight) {
+            if (bindingDraft.hostIsMoonlight) {
                 // The binding's own type, never the host's last pick: two pads on one host keep
                 // their own.
                 const moonType = App.moonlightBindingType(boundId, page.slotId);
-                draft.chooseType(moonType, linkWords.moonlightTypeName(moonType, page.autoType));
+                bindingDraft.chooseType(moonType, linkWords.moonlightTypeName(moonType, page.autoType));
             } else {
                 const current = App.emulateCurrentTypeForHost(boundId, page.slotId);
                 if (current >= 0) {
-                    draft.chooseType(current, page.typeNameFor(current));
+                    bindingDraft.chooseType(current, page.typeNameFor(current));
                 }
             }
         }
-        draft.motionOn = App.motionEnabledFor(page.slotId);
-        draft.rumbleOn = App.rumbleEnabledFor(page.slotId);
-        draft.micOn = App.micEnabledFor(page.slotId);
-        draft.speakerOn = App.speakerEnabledFor(page.slotId);
+        bindingDraft.motionOn = App.motionEnabledFor(page.slotId);
+        bindingDraft.rumbleOn = App.rumbleEnabledFor(page.slotId);
+        bindingDraft.micOn = App.micEnabledFor(page.slotId);
+        bindingDraft.speakerOn = App.speakerEnabledFor(page.slotId);
         page.reloadTrackpads();
 
-        draft.sanitize();
+        bindingDraft.sanitize();
         page.snapshot();
     }
 
@@ -246,33 +241,33 @@ Kit.Page {
 
     // A Moonlight destination waits on nothing: no host reports what its
     // emulated devices carry, so the four types are protocol constants.
-    readonly property bool catalogLoading: App.emulateLoading && !draft.hostIsMoonlight
+    readonly property bool catalogLoading: App.emulateLoading && !bindingDraft.hostIsMoonlight
     readonly property bool catalogBroken: App.emulateError.length > 0 && page.types.length === 0
-                                          && !draft.hostIsMoonlight
+                                          && !bindingDraft.hostIsMoonlight
 
     readonly property int autoType: App.moonlightAutoType
     LinkVocabulary { id: linkWords }
     readonly property var moonlightTypes: linkWords.moonlightTypes(page.autoType)
-    readonly property int autoResolved: draft.hasInput
+    readonly property int autoResolved: bindingDraft.hasInput
         ? App.moonlightResolvedType(page.slotId, page.autoType) : 1
     readonly property string autoResolvedName:
         linkWords.moonlightTypeName(page.autoResolved, page.autoType)
 
     function reloadTypes() {
-        page.types = draft.hostIsMoonlight ? page.moonlightTypes
-                                           : App.emulateTypesForHost(draft.hostId);
+        page.types = bindingDraft.hostIsMoonlight ? page.moonlightTypes
+                                           : App.emulateTypesForHost(bindingDraft.hostId);
     }
 
     // A different destination is a different catalog.
     function refreshCatalog() {
-        if (draft.hasDestination && !draft.hostIsBluetooth && !draft.hostIsMoonlight) {
-            App.refreshEmulateForHost(draft.hostId);
+        if (bindingDraft.hasDestination && !bindingDraft.hostIsBluetooth && !bindingDraft.hostIsMoonlight) {
+            App.refreshEmulateForHost(bindingDraft.hostId);
         }
         page.reloadTypes();
     }
 
     Connections {
-        target: draft
+        target: bindingDraft
         function onHostIdChanged() {
             if (page.seeded) {
                 page.refreshCatalog();
@@ -284,7 +279,7 @@ Kit.Page {
     // Trust is verified lazily, so entering a Moonlight destination is one of
     // the three moments that re-ask the host. Nothing polls.
     function refreshSession() {
-        if (draft.hostIsMoonlight) {
+        if (bindingDraft.hostIsMoonlight) {
             sessionSection.activated();
         }
     }
@@ -293,7 +288,7 @@ Kit.Page {
     // shape the preview pills read. `revision` is named at the call site so the
     // draft is a binding dependency: a plain call is not one.
     function moonlightPreview(candidateType, revision) {
-        const rows = draft.rowsFor(candidateType);
+        const rows = bindingDraft.rowsFor(candidateType);
         const out = [];
         for (let i = 0; i < rows.length; ++i) {
             out.push({ "feature": rows[i].feature, "supported": rows[i].typeOk });
@@ -338,10 +333,10 @@ Kit.Page {
         function onEmulateStateChanged() {
             page.reloadTypes();
             // The type name may only now be resolvable for a pre-seeded type.
-            if (draft.type >= 0 && draft.typeName.length === 0) {
-                draft.typeName = page.typeNameFor(draft.type);
+            if (bindingDraft.type >= 0 && bindingDraft.typeName.length === 0) {
+                bindingDraft.typeName = page.typeNameFor(bindingDraft.type);
             }
-            draft.sanitize();
+            bindingDraft.sanitize();
         }
 
         function onApplyFinished(ok, reasonToken, directFellBack) {
@@ -351,10 +346,10 @@ Kit.Page {
 
     // ── The matrix ──────────────────────────────────────────────────────────
     // capabilityRows()/annotate() are FUNCTION CALLS and therefore not binding
-    // dependencies: `draft.revision` is what makes this re-evaluate (see the
+    // dependencies: `bindingDraft.revision` is what makes this re-evaluate (see the
     // REACTIVITY note in shared/BindingDraft.qml).
-    readonly property var matrixRows: draft.revision >= 0
-                                      ? draft.annotate(draft.capabilityRows(), true) : []
+    readonly property var matrixRows: bindingDraft.revision >= 0
+                                      ? bindingDraft.annotate(bindingDraft.capabilityRows(), true) : []
 
     readonly property int carriedCount: {
         let n = 0;
@@ -411,9 +406,9 @@ Kit.Page {
     // in the wire's own words.
     readonly property string panelFooter: [
         qsTr("slot %1").arg(page.slotId),
-        draft.desiredPath,
-        draft.hostId.length > 0 ? draft.hostId : qsTr("unbound"),
-        draft.type >= 0 ? qsTr("type %1").arg(draft.type) : qsTr("type —")
+        bindingDraft.desiredPath,
+        bindingDraft.hostId.length > 0 ? bindingDraft.hostId : qsTr("unbound"),
+        bindingDraft.type >= 0 ? qsTr("type %1").arg(bindingDraft.type) : qsTr("type —")
     ].join(" · ")
 
     // ── Tune rows ───────────────────────────────────────────────────────────
@@ -425,7 +420,7 @@ Kit.Page {
     // against a host whose probe said yes.
     readonly property bool micTunable: page.carries("mic")
     readonly property bool speakerTunable: page.carries("speaker")
-    readonly property bool nothingTunable: draft.hasDestination && draft.hasType
+    readonly property bool nothingTunable: bindingDraft.hasDestination && bindingDraft.hasType
                                            && !page.motionTunable && !page.rumbleTunable
                                            && !page.touchpadTunable && !page.micTunable
                                            && !page.speakerTunable
@@ -453,9 +448,9 @@ Kit.Page {
         page.steamTrackpads = App.steamTrackpadsFor(page.slotId);
         page.trackpadPick = App.trackpadPickFor(page.slotId);
         page.trackpadPickChoices = App.trackpadPickChoicesFor(page.slotId);
-        draft.steamTrackpads = page.steamTrackpads;
+        bindingDraft.steamTrackpads = page.steamTrackpads;
         if (page.trackpadsTunable)
-            draft.touchpadMode = App.trackpadPickDraftModeFor(page.slotId);
+            bindingDraft.touchpadMode = App.trackpadPickDraftModeFor(page.slotId);
     }
     function pickTrackpads(word) {
         const index = page.trackpadPickWords.indexOf(word);
@@ -465,7 +460,7 @@ Kit.Page {
         page.reloadTrackpads();
     }
 
-    readonly property bool mouseOffered: draft.offersMouse(page.matrixRows)
+    readonly property bool mouseOffered: bindingDraft.offersMouse(page.matrixRows)
     readonly property var touchpadOptions: page.mouseOffered
                                            ? [qsTr("Off"), qsTr("Pad"), qsTr("Mouse")]
                                            : [qsTr("Off"), qsTr("Pad")]
@@ -572,18 +567,18 @@ Kit.Page {
     // (not paired, unreachable, refused, dropped) still saves the binding: a
     // binding is a durable intent and the session is attempted when the pad is
     // used, not when the user presses Apply.
-    readonly property bool moonlightBlocked: draft.hostIsMoonlight && sessionSection.blocked
-    readonly property bool canApply: page.padRow !== null && draft.hasDestination
-                                     && draft.hasType && !page.moonlightBlocked
+    readonly property bool moonlightBlocked: bindingDraft.hostIsMoonlight && sessionSection.blocked
+    readonly property bool canApply: page.padRow !== null && bindingDraft.hasDestination
+                                     && bindingDraft.hasType && !page.moonlightBlocked
     readonly property bool noHosts: App.connectionModel.count === 0
                                     && App.moonlightHosts.length === 0
     property bool applyRequested: false
 
-    readonly property string actionHint: !draft.hasDestination
+    readonly property string actionHint: !bindingDraft.hasDestination
         ? qsTr("Pick a destination to continue.")
         : page.moonlightBlocked
-          ? qsTr("Unbind a controller on %1 to make room.").arg(draft.hostName)
-          : !draft.hasType ? qsTr("Waiting on the controller catalog.")
+          ? qsTr("Unbind a controller on %1 to make room.").arg(bindingDraft.hostName)
+          : !bindingDraft.hasType ? qsTr("Waiting on the controller catalog.")
                            : qsTr("Nothing is sent until you apply.")
 
     function stepState(token) {
@@ -597,7 +592,7 @@ Kit.Page {
             "label": qsTr("Connection"),
             "meta": App.applyConnectionState === "skipped"
                     ? qsTr("standard · kept")
-                    : (draft.desiredPath === "direct" ? qsTr("claiming") : qsTr("standard")),
+                    : (bindingDraft.desiredPath === "direct" ? qsTr("claiming") : qsTr("standard")),
             "state": page.stepState(App.applyConnectionState)
         },
         {
@@ -610,9 +605,9 @@ Kit.Page {
     function apply() {
         page.applyRequested = true;
         applyOverlay.open();
-        App.applyBinding(page.slotId, draft.hostId, draft.type, draft.desiredPath,
-                         draft.motionOn, draft.rumbleOn, draft.touchpadModeToApply(),
-                         draft.micOn, draft.speakerOn);
+        App.applyBinding(page.slotId, bindingDraft.hostId, bindingDraft.type, bindingDraft.desiredPath,
+                         bindingDraft.motionOn, bindingDraft.rumbleOn, bindingDraft.touchpadModeToApply(),
+                         bindingDraft.micOn, bindingDraft.speakerOn);
     }
 
     function failureText(reasonToken) {
@@ -622,9 +617,9 @@ Kit.Page {
                      .arg(page.padName);
         case "hostUnreachable":
             return qsTr("Couldn’t reach %1. Make sure it’s on and on your network.")
-                     .arg(draft.hostName);
+                     .arg(bindingDraft.hostName);
         case "bindRejected":
-            return qsTr("%1 refused the binding.").arg(draft.hostName);
+            return qsTr("%1 refused the binding.").arg(bindingDraft.hostName);
         case "cancelled":
             return qsTr("Apply cancelled. Nothing was changed.");
         }
@@ -644,7 +639,7 @@ Kit.Page {
         }
         if (ok) {
             page.notify(qsTr("Controller bound — %1 is live on %2.")
-                          .arg(page.padName).arg(draft.hostName), "success");
+                          .arg(page.padName).arg(bindingDraft.hostName), "success");
             page.snapshot();
             page.popSelf();
         } else {
@@ -802,8 +797,8 @@ Kit.Page {
                                         small: true
                                         busy: page.padClaiming
                                         options: page.pathOptions
-                                        value: page.pathOptions[draft.desiredPath === "direct" ? 1 : 0]
-                                        onPicked: option => draft.choosePath(
+                                        value: page.pathOptions[bindingDraft.desiredPath === "direct" ? 1 : 0]
+                                        onPicked: option => bindingDraft.choosePath(
                                                       page.pathOptions.indexOf(option) === 1
                                                       ? "direct" : "standard")
                                     }
@@ -828,7 +823,7 @@ Kit.Page {
 
                                 Kit.Callout {
                                     visible: page.padClaimable && !page.padVerified
-                                             && draft.desiredPath === "direct"
+                                             && bindingDraft.desiredPath === "direct"
                                     Layout.fillWidth: true
                                     tone: Kit.Callout.Warning
                                     text: qsTr("Not recognised. Direct mode guesses this controller’s layout, so some inputs may read wrong. You can switch back anytime.")
@@ -944,7 +939,7 @@ Kit.Page {
 
                                 readonly property bool offerable: hostOption.boundSlotId.length === 0
                                                                   || hostOption.boundSlotId === page.slotId
-                                readonly property bool chosen: draft.hostId === hostOption.connectionId
+                                readonly property bool chosen: bindingDraft.hostId === hostOption.connectionId
                                 // Latency is drawn only on a genuinely live link with
                                 // samples — never "~0 ms".
                                 readonly property bool showLatency: hostOption.latencySamples > 0
@@ -963,7 +958,7 @@ Kit.Page {
                                 chipText: page.chipText(hostOption.chip)
                                 chipTone: page.chipTone(hostOption.chip)
 
-                                onPicked: draft.chooseDestination(hostOption.connectionId,
+                                onPicked: bindingDraft.chooseDestination(hostOption.connectionId,
                                                                   hostOption.label, "satellite")
 
                                 onChosenChanged: page.adoptHost(hostOption, hostOption.chosen)
@@ -991,21 +986,21 @@ Kit.Page {
                                 required property var modelData
 
                                 Layout.fillWidth: true
-                                selected: draft.hostId === moonOption.modelData.uuid
+                                selected: bindingDraft.hostId === moonOption.modelData.uuid
                                 title: moonOption.modelData.name
                                 subtitle: qsTr("Moonlight host · %1")
                                             .arg(moonOption.modelData.address)
                                 chipText: page.trustText(moonOption.modelData.trust)
                                 chipTone: page.trustTone(moonOption.modelData.trust)
 
-                                onPicked: draft.chooseDestination(moonOption.modelData.uuid,
+                                onPicked: bindingDraft.chooseDestination(moonOption.modelData.uuid,
                                                                   moonOption.modelData.name,
                                                                   "moonlight")
                             }
                         }
 
                         Kit.Callout {
-                            visible: draft.hostIsBluetooth
+                            visible: bindingDraft.hostIsBluetooth
                             Layout.fillWidth: true
                             tone: Kit.Callout.Info
                             text: qsTr("This machine pairs as a Bluetooth gamepad. Gyro, touchpad and mouse need a Satellite host.")
@@ -1017,15 +1012,15 @@ Kit.Page {
                         // one host.
                         WizardSessionPage {
                             id: sessionSection
-                            visible: draft.hostIsMoonlight
-                            draft: page.boundDraft
+                            visible: bindingDraft.hostIsMoonlight
+                            draft: bindingDraft
                             shellApi: page.shellApi
                             Layout.fillWidth: true
                             Layout.topMargin: Tokens.s2
                         }
 
                         RowLayout {
-                            visible: draft.hasDestination
+                            visible: bindingDraft.hasDestination
                             Layout.fillWidth: true
                             spacing: Tokens.s4
 
@@ -1062,7 +1057,7 @@ Kit.Page {
                         }
 
                         RowLayout {
-                            visible: draft.hasDestination
+                            visible: bindingDraft.hasDestination
                             Layout.fillWidth: true
                             spacing: Tokens.s4
 
@@ -1101,13 +1096,13 @@ Kit.Page {
 
                         // ── BINDING ─────────────────────────────────────────────────
                         Kit.SectionHeader {
-                            visible: draft.hasDestination
+                            visible: bindingDraft.hasDestination
                             label: qsTr("Binding")
                             Layout.topMargin: Tokens.s2
                         }
 
                         Kit.Eyebrow {
-                            visible: draft.hasDestination
+                            visible: bindingDraft.hasDestination
                             mutedTone: true
                             text: qsTr("Emulate as")
                         }
@@ -1115,7 +1110,7 @@ Kit.Page {
                         // Bluetooth destination: not a question. The HID profile fixes
                         // the type, so the page states it rather than asking.
                         RowLayout {
-                            visible: draft.hasDestination && draft.hostIsBluetooth
+                            visible: bindingDraft.hasDestination && bindingDraft.hostIsBluetooth
                             Layout.fillWidth: true
                             spacing: Tokens.s4
 
@@ -1134,16 +1129,16 @@ Kit.Page {
 
                         // Loading: never a guessed default, and never a bare spinner.
                         Kit.LoadingSpinner {
-                            visible: draft.hasDestination && !draft.hostIsBluetooth && page.catalogLoading
+                            visible: bindingDraft.hasDestination && !bindingDraft.hostIsBluetooth && page.catalogLoading
                             Layout.fillWidth: true
                             running: page.catalogLoading
-                            text: qsTr("Reading the controller catalog from %1…").arg(draft.hostName)
+                            text: qsTr("Reading the controller catalog from %1…").arg(bindingDraft.hostName)
                         }
 
                         // Failed with nothing cached: tap to retry, Apply stays disabled
-                        // because draft.hasType is false.
+                        // because bindingDraft.hasType is false.
                         Kit.ErrorBanner {
-                            visible: draft.hasDestination && !draft.hostIsBluetooth && page.catalogBroken
+                            visible: bindingDraft.hasDestination && !bindingDraft.hostIsBluetooth && page.catalogBroken
                             Layout.fillWidth: true
                             text: qsTr("Couldn’t load types.")
                             detail: App.emulateError
@@ -1152,7 +1147,7 @@ Kit.Page {
                         }
 
                         Repeater {
-                            model: draft.hasDestination && !draft.hostIsBluetooth
+                            model: bindingDraft.hasDestination && !bindingDraft.hostIsBluetooth
                                    && !page.catalogLoading && !page.catalogBroken ? page.types : []
 
                             delegate: Kit.SelectRow {
@@ -1163,23 +1158,23 @@ Kit.Page {
                                 // A Moonlight host advertises nothing, so its
                                 // pills come from the hard-coded table through
                                 // the same solver the matrix reads.
-                                readonly property var preview: draft.hostIsMoonlight
+                                readonly property var preview: bindingDraft.hostIsMoonlight
                                     ? page.moonlightPreview(typeOption.modelData.type,
-                                                            draft.revision)
-                                    : App.typeFeatureSummary(draft.hostId,
+                                                            bindingDraft.revision)
+                                    : App.typeFeatureSummary(bindingDraft.hostId,
                                                              typeOption.modelData.type)
 
                                 Layout.fillWidth: true
-                                selected: draft.type === typeOption.modelData.type
+                                selected: bindingDraft.type === typeOption.modelData.type
                                 title: typeOption.modelData.name
-                                subtitle: draft.hostIsMoonlight
+                                subtitle: bindingDraft.hostIsMoonlight
                                           ? (typeOption.modelData.type === page.autoType
                                              ? qsTr("Auto sends %1 for this controller.")
                                                  .arg(page.autoResolvedName)
                                              : "")
                                           : typeOption.modelData.description
 
-                                onPicked: draft.chooseType(typeOption.modelData.type,
+                                onPicked: bindingDraft.chooseType(typeOption.modelData.type,
                                                            typeOption.modelData.name)
 
                                 // What the TYPE layer alone offers.
@@ -1200,7 +1195,7 @@ Kit.Page {
                                                 || previewChip.modelData.feature === "lightbar"
 
                                             visible: previewChip.interesting
-                                            text: draft.featureName(previewChip.modelData.feature)
+                                            text: bindingDraft.featureName(previewChip.modelData.feature)
                                             tone: previewChip.modelData.supported
                                                   ? Kit.CapabilityChip.Present : Kit.CapabilityChip.Absent
                                         }
@@ -1213,7 +1208,7 @@ Kit.Page {
                         // feature — the matrix beside it names the ones that do not, so
                         // a dead control here would be a second, worse explanation.
                         Kit.Card {
-                            visible: draft.hasDestination
+                            visible: bindingDraft.hasDestination
                                      && (page.motionTunable || page.touchpadTunable
                                          || page.rumbleTunable || page.micTunable
                                          || page.speakerTunable || page.nothingTunable)
@@ -1227,8 +1222,8 @@ Kit.Page {
                                     Layout.fillWidth: true
                                     label: qsTr("Motion")
                                     description: qsTr("Tilt and gyro aiming on the host.")
-                                    checked: draft.motionOn
-                                    onToggled: checked => draft.setMotion(checked)
+                                    checked: bindingDraft.motionOn
+                                    onToggled: checked => bindingDraft.setMotion(checked)
                                 }
 
                                 Rectangle {
@@ -1271,8 +1266,8 @@ Kit.Page {
                                     Kit.SegmentedControl {
                                         small: true
                                         options: page.touchpadOptions
-                                        value: page.touchpadOptions[draft.touchpadMode]
-                                        onPicked: option => draft.setTouchpad(
+                                        value: page.touchpadOptions[bindingDraft.touchpadMode]
+                                        onPicked: option => bindingDraft.setTouchpad(
                                                       page.touchpadOptions.indexOf(option))
                                     }
                                 }
@@ -1289,8 +1284,8 @@ Kit.Page {
                                     Layout.fillWidth: true
                                     label: qsTr("Rumble")
                                     description: qsTr("Feedback from the host drives the pad’s motors.")
-                                    checked: draft.rumbleOn
-                                    onToggled: checked => draft.setRumble(checked)
+                                    checked: bindingDraft.rumbleOn
+                                    onToggled: checked => bindingDraft.setRumble(checked)
                                 }
 
                                 Rectangle {
@@ -1305,8 +1300,8 @@ Kit.Page {
                                     Layout.fillWidth: true
                                     label: qsTr("Microphone")
                                     description: qsTr("The pad’s mic carries your voice to the host. Off sends nothing.")
-                                    checked: draft.micOn
-                                    onToggled: checked => draft.setMic(checked)
+                                    checked: bindingDraft.micOn
+                                    onToggled: checked => bindingDraft.setMic(checked)
                                 }
 
                                 // The LIVE mute, distinct from the durable
@@ -1337,8 +1332,8 @@ Kit.Page {
                                     Layout.fillWidth: true
                                     label: qsTr("Controller sound")
                                     description: qsTr("Audio from the host plays on the pad’s speaker or headset.")
-                                    checked: draft.speakerOn
-                                    onToggled: checked => draft.setSpeaker(checked)
+                                    checked: bindingDraft.speakerOn
+                                    onToggled: checked => bindingDraft.setSpeaker(checked)
                                 }
 
                                 Label {
@@ -1490,10 +1485,10 @@ Kit.Page {
         id: blocker
         kind: page.padGone ? Kit.BlockerDialog.ControllerUnplugged
                            : Kit.BlockerDialog.ConnectionLost
-        hostName: draft.hostName
+        hostName: bindingDraft.hostName
         onReconnectRequested: {
             blocker.close();
-            App.reconnectConnection(draft.hostId);
+            App.reconnectConnection(bindingDraft.hostId);
         }
     }
 }

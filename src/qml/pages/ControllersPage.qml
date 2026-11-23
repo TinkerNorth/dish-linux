@@ -410,7 +410,7 @@ Kit.Page {
         var parts = [];
         parts.push(row.bluetooth ? qsTr("Bluetooth") : qsTr("USB"));
         if (row.gamepadHzShown) {
-            var rate = rateFormat.rateText(row.gamepadHz, row.gamepadHzLive);
+            const rate = rateFormat.rateText(row.gamepadHz, row.gamepadHzLive);
             if (rate.length > 0)
                 parts.push(rate);
         }
