@@ -1049,6 +1049,29 @@
     </message>
 </context>
 <context>
+    <name>ControllerDbVocabulary</name>
+    <message>
+        <source>up to date</source>
+        <translation>aktuell</translation>
+    </message>
+    <message>
+        <source>updated</source>
+        <translation>aktualisiert</translation>
+    </message>
+    <message>
+        <source>could not reach dish.tinkernorth.com</source>
+        <translation>dish.tinkernorth.com nicht erreichbar</translation>
+    </message>
+    <message>
+        <source>the download did not verify</source>
+        <translation>der Download hat die Prüfung nicht bestanden</translation>
+    </message>
+    <message>
+        <source>checks are off</source>
+        <translation>Prüfungen sind aus</translation>
+    </message>
+</context>
+<context>
     <name>ControllersPage</name>
     <message>
         <source>Controllers</source>
@@ -1898,26 +1921,6 @@
     <message>
         <source>Last test</source>
         <translation>Letzter Test</translation>
-    </message>
-    <message>
-        <source>up to date</source>
-        <translation>aktuell</translation>
-    </message>
-    <message>
-        <source>updated</source>
-        <translation>aktualisiert</translation>
-    </message>
-    <message>
-        <source>could not reach dish.tinkernorth.com</source>
-        <translation>dish.tinkernorth.com nicht erreichbar</translation>
-    </message>
-    <message>
-        <source>the download did not verify</source>
-        <translation>der Download hat die Prüfung nicht bestanden</translation>
-    </message>
-    <message>
-        <source>checks are off</source>
-        <translation>Prüfungen sind aus</translation>
     </message>
     <message>
         <source>%1 · downloaded</source>
@@ -4350,6 +4353,10 @@
     <message>
         <source>Controller list v%1 · last checked %2</source>
         <translation>Controller-Liste v%1 · zuletzt geprüft %2</translation>
+    </message>
+    <message>
+        <source>Controller list v%1 · last checked %2: %3</source>
+        <translation>Controller-Liste v%1 · zuletzt geprüft %2: %3</translation>
     </message>
     <message>
         <source>Setup &amp; help</source>

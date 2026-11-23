@@ -1057,6 +1057,29 @@
     </message>
 </context>
 <context>
+    <name>ControllerDbVocabulary</name>
+    <message>
+        <source>up to date</source>
+        <translation>ažurno</translation>
+    </message>
+    <message>
+        <source>updated</source>
+        <translation>ažurirano</translation>
+    </message>
+    <message>
+        <source>could not reach dish.tinkernorth.com</source>
+        <translation>dish.tinkernorth.com nije dostupan</translation>
+    </message>
+    <message>
+        <source>the download did not verify</source>
+        <translation>preuzimanje nije prošlo provjeru</translation>
+    </message>
+    <message>
+        <source>checks are off</source>
+        <translation>provjere su isključene</translation>
+    </message>
+</context>
+<context>
     <name>ControllersPage</name>
     <message>
         <source>Controllers</source>
@@ -1910,26 +1933,6 @@
     <message>
         <source>Last test</source>
         <translation>Posljednji test</translation>
-    </message>
-    <message>
-        <source>up to date</source>
-        <translation>ažurno</translation>
-    </message>
-    <message>
-        <source>updated</source>
-        <translation>ažurirano</translation>
-    </message>
-    <message>
-        <source>could not reach dish.tinkernorth.com</source>
-        <translation>dish.tinkernorth.com nije dostupan</translation>
-    </message>
-    <message>
-        <source>the download did not verify</source>
-        <translation>preuzimanje nije prošlo provjeru</translation>
-    </message>
-    <message>
-        <source>checks are off</source>
-        <translation>provjere su isključene</translation>
     </message>
     <message>
         <source>%1 · downloaded</source>
@@ -4369,6 +4372,10 @@
     <message>
         <source>Controller list v%1 · last checked %2</source>
         <translation>Lista kontrolera v%1 · posljednja provjera %2</translation>
+    </message>
+    <message>
+        <source>Controller list v%1 · last checked %2: %3</source>
+        <translation>Lista kontrolera v%1 · posljednja provjera %2: %3</translation>
     </message>
     <message>
         <source>Setup &amp; help</source>

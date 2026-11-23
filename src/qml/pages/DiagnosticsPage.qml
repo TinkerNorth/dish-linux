@@ -31,6 +31,8 @@ Kit.Page {
     readonly property int keyColumn: 150
     // The log shows its newest lines; Copy takes all of them.
     readonly property int shownEvents: 30
+
+    ControllerDbVocabulary { id: dbWords }
     // The battery chip's wire status codes.
     readonly property int batteryCharging: 2
     readonly property int batteryFull: 3
@@ -399,29 +401,13 @@ Kit.Page {
         return lines;
     }
 
-    function resultText(token) {
-        switch (token) {
-        case "upToDate":
-            return qsTr("up to date");
-        case "updated":
-            return qsTr("updated");
-        case "offline":
-            return qsTr("could not reach dish.tinkernorth.com");
-        case "invalid":
-            return qsTr("the download did not verify");
-        case "off":
-            return qsTr("checks are off");
-        }
-        return "";
-    }
-
     function databaseLines(db) {
         const active = db.source === "cache"
             ? qsTr("%1 · downloaded").arg(qsTr("v%1").arg(db.activeVersion))
             : qsTr("%1 · bundled").arg(qsTr("v%1").arg(db.activeVersion));
         const checked = db.lastCheckAtMs > 0
             ? qsTr("%1 · %2").arg(Qt.formatDateTime(new Date(db.lastCheckAtMs), "yyyy-MM-dd HH:mm"))
-                             .arg(page.resultText(db.lastCheckResult))
+                             .arg(dbWords.resultText(db.lastCheckResult))
             : qsTr("never");
         return [
             { "key": qsTr("In use"), "value": active },

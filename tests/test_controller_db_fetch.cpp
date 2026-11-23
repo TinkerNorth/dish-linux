@@ -167,8 +167,12 @@ TEST_CASE("controller db fetch: a reply's transport and status, before its body"
     CHECK(replyVerdict(false, 503) == ReplyVerdict::Offline);
     CHECK(replyVerdict(false, 304) == ReplyVerdict::NotModified);
     CHECK(replyVerdict(false, 200) == ReplyVerdict::Body);
-    CHECK(replyVerdict(false, 404) == ReplyVerdict::Invalid);
-    CHECK(replyVerdict(false, 413) == ReplyVerdict::Invalid);
+    // Nothing arrived to verify: the database is not there (404, until the site deploys), the
+    // request timed out (408) or was turned away (429, 413). Offline, as Android and the Mac say.
+    for (const int status : {404, 408, 413, 429, 301, 403, 418}) {
+        INFO(status);
+        CHECK(replyVerdict(false, status) == ReplyVerdict::Offline);
+    }
 }
 
 TEST_CASE("controller db fetch: a usable manifest", "[controllerdb][fetch]") {
@@ -365,6 +369,22 @@ TEST_CASE("controller db check: an unreachable host is offline", "[controllerdb]
         rig.port.replies[QStringLiteral("manifest.json")] = DbReply{false, 502, {}, {}};
         rig.coordinator.checkNow();
         CHECK(rig.lastResult() == std::optional<CheckResult>(CheckResult::Offline));
+    }
+}
+
+TEST_CASE("controller db check: a database that is not there yet is offline, not invalid",
+          "[controllerdb][check]") {
+    CheckRig rig;
+    rig.port.replies[QStringLiteral("manifest.json")] = DbReply{false, 404, {}, {}};
+    rig.coordinator.checkNow();
+    CHECK(rig.lastResult() == std::optional<CheckResult>(CheckResult::Offline));
+    SECTION("and a file the manifest names that is not there") {
+        const DbFiles v2 = republished(readDbFolder(QStringLiteral(DISH_CONTROLLER_DB_DIR)), 2);
+        rig.serve(v2);
+        rig.port.replies[QStringLiteral("strings/de.json")] = DbReply{false, 429, {}, {}};
+        rig.coordinator.checkNow();
+        CHECK(rig.lastResult() == std::optional<CheckResult>(CheckResult::Offline));
+        CHECK(rig.store.state().value().activeVersion == 1);
     }
 }
 

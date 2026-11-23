@@ -76,18 +76,19 @@ inline std::optional<std::string> ifNoneMatchFor(const std::string& savedEtag, i
     return sameDatabase ? std::optional<std::string>(savedEtag) : std::nullopt;
 }
 
-// What a reply's transport and status come to before its body is looked at. A reply that never
-// arrived or a server error is offline; any other status but 200 and 304 is a wrong answer.
-enum class ReplyVerdict : std::uint8_t { Body, NotModified, Offline, Invalid };
+// What a reply's transport and status come to before its body is looked at. Only 200 brings
+// bytes to verify and 304 says nothing is new; a reply that never arrived and every other status
+// (a 404 before the site deploys, a 408, a 429, a server error) is offline, because nothing came
+// that could fail verification. "invalid" is for bytes that arrived and did not verify.
+enum class ReplyVerdict : std::uint8_t { Body, NotModified, Offline };
 
 inline ReplyVerdict replyVerdict(bool transportFailed, int httpStatus) {
     constexpr int kOk = 200;
     constexpr int kNotModified = 304;
-    constexpr int kFirstServerError = 500;
-    if (transportFailed || httpStatus >= kFirstServerError) { return ReplyVerdict::Offline; }
+    if (transportFailed) { return ReplyVerdict::Offline; }
     if (httpStatus == kNotModified) { return ReplyVerdict::NotModified; }
     if (httpStatus == kOk) { return ReplyVerdict::Body; }
-    return ReplyVerdict::Invalid;
+    return ReplyVerdict::Offline;
 }
 
 // The files this build fetches and writes, and so the only paths ever fetched or written.

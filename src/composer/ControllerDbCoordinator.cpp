@@ -92,9 +92,6 @@ void ControllerDbCoordinator::onManifest(const cdbsrc::DbReply& reply) {
     case cdb::ReplyVerdict::Offline:
         finish(cdb::CheckResult::Offline);
         return;
-    case cdb::ReplyVerdict::Invalid:
-        finish(cdb::CheckResult::Invalid);
-        return;
     case cdb::ReplyVerdict::NotModified:
         finish(cdb::CheckResult::UpToDate);
         return;
@@ -134,7 +131,7 @@ void ControllerDbCoordinator::onFile(const cdbsrc::DbReply& reply) {
     case cdb::ReplyVerdict::Offline:
         finish(cdb::CheckResult::Offline);
         return;
-    case cdb::ReplyVerdict::Invalid:
+    // A file is asked for without an ETag, so a 304 for it is an answer to a request never sent.
     case cdb::ReplyVerdict::NotModified:
         finish(cdb::CheckResult::Invalid);
         return;
