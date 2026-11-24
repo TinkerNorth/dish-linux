@@ -3,6 +3,7 @@
 
 #include "source/moonlight/MoonlightDiscovery.h"
 
+#include "core/Bits.h"
 #include "source/connection/MdnsDiscovery.h" // net::detail::skipName / readName
 #include "source/connection/MdnsScan.h"
 
@@ -22,9 +23,7 @@ constexpr std::uint16_t kTypePtr = 12;
 constexpr std::uint16_t kTypeSrv = 33;
 constexpr std::uint16_t kClassInQu = 0x8001;
 
-std::uint16_t read16(const std::uint8_t* p) {
-    return static_cast<std::uint16_t>((p[0] << 8) | p[1]);
-}
+std::uint16_t read16(const std::uint8_t* p) { return bits::loadBe16(p); }
 
 std::vector<std::uint8_t> buildQuery() {
     std::vector<std::uint8_t> q;
@@ -36,10 +35,10 @@ std::vector<std::uint8_t> buildQuery() {
         q.insert(q.end(), label, label + len);
     }
     q.push_back(0);
-    q.push_back(static_cast<std::uint8_t>(kTypePtr >> 8));
-    q.push_back(static_cast<std::uint8_t>(kTypePtr & 0xFF));
-    q.push_back(static_cast<std::uint8_t>(kClassInQu >> 8));
-    q.push_back(static_cast<std::uint8_t>(kClassInQu & 0xFF));
+    q.push_back(bits::byteOf(bits::u32(kTypePtr), 1U));
+    q.push_back(bits::byteOf(bits::u32(kTypePtr), 0U));
+    q.push_back(bits::byteOf(bits::u32(kClassInQu), 1U));
+    q.push_back(bits::byteOf(bits::u32(kClassInQu), 0U));
     return q;
 }
 

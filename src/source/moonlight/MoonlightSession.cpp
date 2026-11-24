@@ -3,6 +3,7 @@
 
 #include "source/moonlight/MoonlightSession.h"
 
+#include "core/Bits.h"
 #include "core/moonlight/MoonlightHostIdentity.h"
 
 #include "Util/Hex.h"
@@ -50,7 +51,7 @@ constexpr std::uint32_t kSpeakerFrontRight = 0x2;
 constexpr std::uint32_t kStereoChannelCount = 2;
 
 constexpr std::uint32_t surroundAudioInfo(std::uint32_t channelMask, std::uint32_t channelCount) {
-    return (channelMask << 16) | channelCount;
+    return (channelMask << 16U) | channelCount;
 }
 
 constexpr std::uint32_t kStereoAudio =
@@ -443,9 +444,7 @@ bool MoonlightSession::ensureRikey() {
         !mooncrypto::randomBytes(id.data(), id.size())) {
         return false;
     }
-    rikeyId_ = static_cast<std::uint32_t>(id[0]) | (static_cast<std::uint32_t>(id[1]) << 8) |
-               (static_cast<std::uint32_t>(id[2]) << 16) |
-               (static_cast<std::uint32_t>(id[3]) << 24);
+    rikeyId_ = bits::loadLe32(id.data());
     rikeyReady_ = true;
     return true;
 }
@@ -773,10 +772,9 @@ bool MoonlightSession::sendMotion(std::uint8_t controllerNumber, std::uint8_t mo
 }
 
 void MoonlightSession::setMotionAllowed(std::uint8_t controllerNumber, bool allowed) {
-    const auto bit = static_cast<std::uint16_t>(1U << controllerNumber);
-    const std::uint16_t off = motionOffMask_.load(std::memory_order_relaxed);
-    motionOffMask_.store(allowed ? static_cast<std::uint16_t>(off & ~bit)
-                                 : static_cast<std::uint16_t>(off | bit),
+    const std::uint32_t bit = 1U << bits::u32(controllerNumber);
+    const std::uint32_t off = bits::u32(motionOffMask_.load(std::memory_order_relaxed));
+    motionOffMask_.store(bits::low16(allowed ? (off & ~bit) : (off | bit)),
                          std::memory_order_relaxed);
 }
 

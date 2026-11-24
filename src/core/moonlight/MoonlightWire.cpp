@@ -4,6 +4,7 @@
 #include "core/moonlight/MoonlightWire.h"
 
 #include "Util/Endian.h"
+#include "core/Bits.h"
 #include "core/moonlight/MoonlightProtocol.h"
 
 #include <cstring>
@@ -14,17 +15,9 @@ namespace {
 // Little-endian writers. The control stream is little-endian except where a
 // field is explicitly called out as big-endian (the INPUT_DATA size prefix and
 // the mouse deltas).
-void putU16Le(std::uint8_t* dst, std::uint16_t v) noexcept {
-    dst[0] = static_cast<std::uint8_t>(v & 0xFFU);
-    dst[1] = static_cast<std::uint8_t>((v >> 8) & 0xFFU);
-}
+void putU16Le(std::uint8_t* dst, std::uint16_t v) noexcept { bits::storeLe16(dst, v); }
 
-void putU32Le(std::uint8_t* dst, std::uint32_t v) noexcept {
-    dst[0] = static_cast<std::uint8_t>(v & 0xFFU);
-    dst[1] = static_cast<std::uint8_t>((v >> 8) & 0xFFU);
-    dst[2] = static_cast<std::uint8_t>((v >> 16) & 0xFFU);
-    dst[3] = static_cast<std::uint8_t>((v >> 24) & 0xFFU);
-}
+void putU32Le(std::uint8_t* dst, std::uint32_t v) noexcept { bits::storeLe32(dst, v); }
 
 void putI16Le(std::uint8_t* dst, std::int16_t v) noexcept {
     putU16Le(dst, static_cast<std::uint16_t>(v));
@@ -32,15 +25,12 @@ void putI16Le(std::uint8_t* dst, std::int16_t v) noexcept {
 
 void putF32Le(std::uint8_t* dst, float v) noexcept {
     static_assert(sizeof(float) == 4, "netfloat assumes 32-bit IEEE-754 floats");
-    std::uint32_t bits = 0;
-    std::memcpy(&bits, &v, sizeof(bits));
-    putU32Le(dst, bits);
+    std::uint32_t raw = 0;
+    std::memcpy(&raw, &v, sizeof(raw));
+    putU32Le(dst, raw);
 }
 
-std::uint16_t readU16Le(const std::uint8_t* src) noexcept {
-    return static_cast<std::uint16_t>(static_cast<std::uint16_t>(src[0]) |
-                                      (static_cast<std::uint16_t>(src[1]) << 8));
-}
+std::uint16_t readU16Le(const std::uint8_t* src) noexcept { return bits::loadLe16(src); }
 
 // Writes the [type][len] control header plus the INPUT_DATA wrapper: the
 // data size (BIG-endian, covering input type + body) and the input type
@@ -74,7 +64,7 @@ std::size_t encodeControllerMulti(std::uint8_t* out, std::uint8_t controllerNumb
     putU16Le(out + off + 2, static_cast<std::uint16_t>(controllerNumber));
     putU16Le(out + off + 4, activeMask);
     putU16Le(out + off + 6, kMultiMidB);
-    putU16Le(out + off + 8, static_cast<std::uint16_t>(buttonFlags & 0xFFFFU));
+    putU16Le(out + off + 8, bits::low16(buttonFlags));
     out[off + 10] = leftTrigger;
     out[off + 11] = rightTrigger;
     putI16Le(out + off + 12, leftX);
@@ -82,7 +72,7 @@ std::size_t encodeControllerMulti(std::uint8_t* out, std::uint8_t controllerNumb
     putI16Le(out + off + 16, rightX);
     putI16Le(out + off + 18, rightY);
     putU16Le(out + off + 20, kMultiTailA);
-    putU16Le(out + off + 22, static_cast<std::uint16_t>((buttonFlags >> 16) & 0xFFFFU));
+    putU16Le(out + off + 22, bits::low16(buttonFlags >> 16U));
     putU16Le(out + off + 24, kMultiTailB);
     return kControllerMultiSize;
 }

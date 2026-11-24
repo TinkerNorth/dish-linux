@@ -3,6 +3,7 @@
 
 #include "core/moonlight/MoonlightControlCipher.h"
 
+#include "core/Bits.h"
 #include "core/moonlight/MoonlightProtocol.h"
 
 #include <openssl/evp.h>
@@ -16,27 +17,13 @@ namespace {
 constexpr std::size_t kMaxPlaintext = 1024;
 constexpr std::size_t kIvSize = 16;
 
-void putU16Le(std::uint8_t* dst, std::uint16_t v) noexcept {
-    dst[0] = static_cast<std::uint8_t>(v & 0xFFU);
-    dst[1] = static_cast<std::uint8_t>((v >> 8) & 0xFFU);
-}
+void putU16Le(std::uint8_t* dst, std::uint16_t v) noexcept { bits::storeLe16(dst, v); }
 
-void putU32Le(std::uint8_t* dst, std::uint32_t v) noexcept {
-    dst[0] = static_cast<std::uint8_t>(v & 0xFFU);
-    dst[1] = static_cast<std::uint8_t>((v >> 8) & 0xFFU);
-    dst[2] = static_cast<std::uint8_t>((v >> 16) & 0xFFU);
-    dst[3] = static_cast<std::uint8_t>((v >> 24) & 0xFFU);
-}
+void putU32Le(std::uint8_t* dst, std::uint32_t v) noexcept { bits::storeLe32(dst, v); }
 
-std::uint16_t readU16Le(const std::uint8_t* src) noexcept {
-    return static_cast<std::uint16_t>(static_cast<std::uint16_t>(src[0]) |
-                                      (static_cast<std::uint16_t>(src[1]) << 8));
-}
+std::uint16_t readU16Le(const std::uint8_t* src) noexcept { return bits::loadLe16(src); }
 
-std::uint32_t readU32Le(const std::uint8_t* src) noexcept {
-    return static_cast<std::uint32_t>(src[0]) | (static_cast<std::uint32_t>(src[1]) << 8) |
-           (static_cast<std::uint32_t>(src[2]) << 16) | (static_cast<std::uint32_t>(src[3]) << 24);
-}
+std::uint32_t readU32Le(const std::uint8_t* src) noexcept { return bits::loadLe32(src); }
 
 // 16 zero bytes with only the low byte of seq in iv[0]. Wolf assigns the u32
 // seq to a uint8_t slot, and interop with real clients proves both ends do the
