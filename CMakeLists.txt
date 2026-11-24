@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.21)
 project(Dish
-    VERSION 2.8.1
+    VERSION 2.9.0
     DESCRIPTION "Dish Linux client for the Satellite gamepad-over-LAN protocol"
     # C for the vendored ENet fork (third_party/enet), the transport under the
     # Moonlight-host control stream.
@@ -138,7 +138,9 @@ find_package(Qt6 6.7 QUIET OPTIONAL_COMPONENTS LinguistTools)
 
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(SODIUM REQUIRED IMPORTED_TARGET libsodium)
-pkg_check_modules(SDL2   REQUIRED IMPORTED_TARGET sdl2)
+# 2.24: SDLGamepadBridge reads SDL_GameControllerPath. THIRD_PARTY.md and
+# licenses.json state the same floor (scripts/check-version-consistency.sh).
+pkg_check_modules(SDL2   REQUIRED IMPORTED_TARGET sdl2>=2.24)
 # Controller audio (source/audio/OpusAudioCodec): the reference Opus codec,
 # found the same pkg-config way as the two above — every distro ships opus.pc.
 pkg_check_modules(OPUS   REQUIRED IMPORTED_TARGET opus)
@@ -649,8 +651,8 @@ else()
     set(SENTRY_BUILD_TESTS OFF CACHE BOOL "" FORCE)
     set(SENTRY_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
     FetchContent_Declare(sentry
-        URL https://github.com/getsentry/sentry-native/releases/download/0.16.3/sentry-native.zip
-        URL_HASH SHA256=21380c182dde677794a7b6c57e8d6e03d79ec5a03eec67514ffa7522f7e161b5
+        URL https://github.com/getsentry/sentry-native/releases/download/0.17.6/sentry-native.zip
+        URL_HASH SHA256=40b4b70cbada5bfae5b73f8267831dd023ec676d9676fb0d890878f31d2b5055
         DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
     FetchContent_MakeAvailable(sentry)
     message(STATUS "dish: Sentry SDK built from source, inproc backend (${DISH_SENTRY_RELEASE})")
@@ -828,29 +830,18 @@ endif()
 # so their directory has to be on the include path for it to compile.
 target_include_directories(Dish PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src/qml/chrome)
 
-# qmlcachegen compiles every .qml in the module to C++ and adds the result to
-# this target, so Qt's generated translation units inherit dish_warnings and
-# dish_strict. They do not survive them: `text.length > 0` compiles to a
-# qsizetype-to-int assignment that -Wconversion rejects, and generated code
-# admits no source fix. Same carve-out dish_strict already makes for Catch2's
-# headers — the gate is for the code we write.
-get_target_property(_dish_target_sources Dish SOURCES)
-set(_dish_qmlcache_sources "")
-foreach(_source IN LISTS _dish_target_sources)
-    if(_source MATCHES "\\.rcc/qmlcache/.+_qml\\.cpp$")
-        list(APPEND _dish_qmlcache_sources "${_source}")
-    endif()
-endforeach()
-if(_dish_qmlcache_sources)
-    set_source_files_properties(${_dish_qmlcache_sources} PROPERTIES COMPILE_OPTIONS "-w")
-else()
-    # Either this Qt runs no cachegen, in which case there is nothing to carve
-    # out, or it moved the output and the next -Wconversion failure will name
-    # the new path. Say so here rather than fail a configure that may be fine.
-    message(STATUS
-        "No qmlcachegen output on the Dish target; the generated-code warning "
-        "carve-out matched nothing.")
-endif()
+# Bytecode only, no C++ ahead-of-time compilation of the QML. The C++ that
+# qmlcachegen writes calls Qt's private QML API (QQmlPrivate::compositeMetaType
+# carries the Qt_6_PRIVATE_API symbol version), and a binary that imports one
+# private symbol is tied to the exact Qt build it was compiled against:
+# dpkg-shlibdeps wrote `qt6-declarative-private-abi (= 6.8.2)` into 2.8.1's
+# .deb and rpmbuild wrote `Qt_6.10_PRIVATE_API` into its .rpm, so the first
+# distribution Qt update would have made either uninstallable. Bytecode is
+# Qt's portable cache format, checked against the running Qt and recompiled
+# from the embedded source when it differs, so the packages depend on Qt's
+# public ABI only. The translation units it generates hold data, not code, so
+# they also need no warning carve-out.
+set_target_properties(Dish PROPERTIES QT_QMLCACHEGEN_ARGUMENTS "--only-bytecode")
 
 target_link_libraries(Dish PRIVATE Qt6::Quick Qt6::Qml Qt6::QuickControls2)
 

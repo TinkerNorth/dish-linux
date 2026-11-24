@@ -264,9 +264,9 @@ class GamepadInputProcessor {
     static constexpr std::uint32_t kFree = 0;
     static constexpr std::uint32_t kClaimed = 1;
     static constexpr std::uint32_t kLive = 2;
-    static constexpr std::uint32_t kSeenReport = 1U << 0;
-    static constexpr std::uint32_t kSeenMotion = 1U << 1;
-    static constexpr std::uint32_t kSeenTouchpad = 1U << 2;
+    static constexpr std::uint32_t kSeenReport = 1U << 0U;
+    static constexpr std::uint32_t kSeenMotion = 1U << 1U;
+    static constexpr std::uint32_t kSeenTouchpad = 1U << 2U;
 
     struct Record {
         // The registry: Free, then Claimed while one thread writes the id, then Live. The id text

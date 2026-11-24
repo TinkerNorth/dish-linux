@@ -25,6 +25,7 @@
 
 #include "source/usb/UsbDeviceGateway.h"
 
+#include "core/Bits.h"
 #include "core/controllerdb/PadModel.h"
 #include "core/diagnostics/ReportCapture.h"
 #include "core/diagnostics/UsbDescriptors.h"
@@ -122,13 +123,13 @@ inline std::vector<std::pair<std::uint16_t, std::uint16_t>> topLevelUsages(const
     for (std::size_t i = 0; i < len;) {
         const std::uint8_t prefix = desc[i];
         if (prefix == 0xFE) { return found; }
-        const std::uint8_t tag = prefix & 0xFC;
-        std::uint8_t size = prefix & 0x03;
+        const std::uint8_t tag = bits::lowByte(bits::u32(prefix) & 0xFCU);
+        std::uint8_t size = bits::lowByte(bits::u32(prefix) & 0x03U);
         if (size == 3) { size = 4; }
         if (i + 1 + size > len) { return found; }
         std::uint32_t data = 0;
         for (std::uint8_t b = 0; b < size; b++) {
-            data |= static_cast<std::uint32_t>(desc[i + 1 + b]) << (8 * b);
+            data |= bits::u32(desc[i + 1 + b]) << (8U * bits::u32(b));
         }
         switch (tag) {
         case 0x04: // Usage Page (global): survives Main items.

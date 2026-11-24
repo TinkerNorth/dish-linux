@@ -495,14 +495,16 @@ inline SessionReduction onDisconnect(const SessionModel& s) {
     return r;
 }
 
+// The list is built at its final size from an initializer list. With
+// reserve() and push_back the vector's growth path stays in the code, and
+// GCC 13's LTO build reported a write of 1 byte into a region of size 0 inside
+// it (-Wstringop-overflow, through this function from
+// test_satellite_session_machine.cpp).
 inline SessionReduction onForget(const SessionModel& s) {
     const bool live = sessionIsLive(s);
-    SessionReduction r;
-    r.next = std::nullopt;
-    r.effects.reserve(2); // same reason as in toReconnecting
-    if (live) { r.effects.push_back(fx::StopHeartbeat{}); }
-    r.effects.push_back(fx::DropKey{});
-    return r;
+    return SessionReduction{std::nullopt,
+                            live ? std::vector<SessionEffect>{fx::StopHeartbeat{}, fx::DropKey{}}
+                                 : std::vector<SessionEffect>{fx::DropKey{}}};
 }
 
 } // namespace session_detail

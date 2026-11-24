@@ -8,6 +8,8 @@
 
 #pragma once
 
+#include "core/Bits.h"
+
 #include <cstdint>
 
 namespace dish::reducer {
@@ -25,7 +27,7 @@ inline int computeUsbPollRateHz(int epInterval, int epMaxPacketSize) {
         int exp = epInterval - 1;
         if (exp < 0) { exp = 0; }
         if (exp > 15) { exp = 15; }
-        periodMicros = (std::int64_t{1} << exp) * 125;
+        periodMicros = bits::pow2(static_cast<unsigned>(exp)) * 125;
     } else {
         periodMicros = static_cast<std::int64_t>(epInterval) * 1000;
     }

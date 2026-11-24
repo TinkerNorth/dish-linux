@@ -8,6 +8,7 @@
 
 #pragma once
 
+#include "core/Bits.h"
 #include "core/reducer/PathChoice.h"
 #include "core/reducer/UsbPathMachine.h"
 
@@ -35,7 +36,7 @@ struct SlotPathFields {
 
 // Must stay identical to UsbGamepadManager::vpKey; it keys the same map.
 inline int slotPathVpKey(int vendorId, int productId) {
-    return (vendorId << 16) | (productId & 0xFFFF);
+    return bits::packHigh16Low16(vendorId, productId);
 }
 
 // A vid or pid of 0 short-circuits to unsupported, so an identity-less SDL slot
@@ -108,8 +109,9 @@ inline std::optional<std::pair<int, int>> parseSyntheticSlotId(const std::string
     if (id.size() > 10) { return std::nullopt; }
     const long long key = std::stoll(id);
     if (key < 0 || key > 0xFFFFFFFFLL) { return std::nullopt; }
-    const int vendorId = static_cast<int>((key >> 16) & 0xFFFF);
-    const int productId = static_cast<int>(key & 0xFFFF);
+    const auto word = static_cast<std::uint32_t>(key);
+    const int vendorId = static_cast<int>(word >> 16U);
+    const int productId = static_cast<int>(word & 0xFFFFU);
     return std::make_pair(vendorId, productId);
 }
 

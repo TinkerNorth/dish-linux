@@ -8,21 +8,23 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <cstdint>
+
 namespace layout = dish::input::layout;
 
 namespace {
 
-constexpr int BTN_A = 0x0001;
-constexpr int BTN_B = 0x0002;
-constexpr int BTN_X = 0x0004;
-constexpr int BTN_Y = 0x0008;
-constexpr int BTN_LB = 0x0010;
-constexpr int BTN_RB = 0x0020;
-constexpr int BTN_SELECT = 0x0040;
-constexpr int BTN_START = 0x0080;
-constexpr int BTN_LS = 0x0100;
-constexpr int BTN_RS = 0x0200;
-constexpr int BTN_HOME = 0x0400;
+constexpr std::uint32_t BTN_A = 0x0001U;
+constexpr std::uint32_t BTN_B = 0x0002U;
+constexpr std::uint32_t BTN_X = 0x0004U;
+constexpr std::uint32_t BTN_Y = 0x0008U;
+constexpr std::uint32_t BTN_LB = 0x0010U;
+constexpr std::uint32_t BTN_RB = 0x0020U;
+constexpr std::uint32_t BTN_SELECT = 0x0040U;
+constexpr std::uint32_t BTN_START = 0x0080U;
+constexpr std::uint32_t BTN_LS = 0x0100U;
+constexpr std::uint32_t BTN_RS = 0x0200U;
+constexpr std::uint32_t BTN_HOME = 0x0400U;
 
 constexpr int HAT_NONE = 0;
 constexpr int HAT_N = 1;
@@ -34,13 +36,13 @@ constexpr int HAT_SW = 6;
 constexpr int HAT_W = 7;
 constexpr int HAT_NW = 8;
 
-void assertHid(int wButtons, int expectedHid, int expectedHat) {
-    const int packed = layout::xusbToHid(wButtons);
+void assertHid(std::uint32_t wButtons, std::uint32_t expectedHid, int expectedHat) {
+    const std::uint32_t packed = layout::xusbToHid(wButtons);
     REQUIRE(layout::hidButtonsOf(packed) == expectedHid);
     REQUIRE(layout::hidHatOf(packed) == expectedHat);
 }
 
-void assertXusb(int hidButtons, int hat, int expected) {
+void assertXusb(std::uint32_t hidButtons, int hat, std::uint32_t expected) {
     REQUIRE(layout::hidToXusb(hidButtons, hat) == expected);
 }
 
@@ -83,15 +85,15 @@ TEST_CASE("xusb dpad up+left maps to hat NW", "[input][layout]") {
 }
 
 TEST_CASE("xusb with A plus B plus X plus Y sets all four HID face bits", "[input][layout]") {
-    const int packed = layout::xusbToHid(0x1000 | 0x2000 | 0x4000 | 0x8000);
-    const int expected = BTN_A | BTN_B | BTN_X | BTN_Y;
+    const std::uint32_t packed = layout::xusbToHid(0x1000U | 0x2000U | 0x4000U | 0x8000U);
+    const std::uint32_t expected = BTN_A | BTN_B | BTN_X | BTN_Y;
     REQUIRE(layout::hidButtonsOf(packed) == expected);
     REQUIRE(layout::hidHatOf(packed) == HAT_NONE);
 }
 
 TEST_CASE("xusb zero is identity", "[input][layout]") {
-    const int packed = layout::xusbToHid(0);
-    REQUIRE(layout::hidButtonsOf(packed) == 0);
+    const std::uint32_t packed = layout::xusbToHid(0U);
+    REQUIRE(layout::hidButtonsOf(packed) == 0U);
     REQUIRE(layout::hidHatOf(packed) == 0);
 }
 
@@ -105,7 +107,7 @@ TEST_CASE("the mic-mute bit is the one free XUSB value and never leaks", "[input
     // The constant is a cross-repo wire agreement (satellite WBUTTON_MIC_MUTE).
     REQUIRE(layout::kXusbMicMute == 0x0800);
     // It sits in the gap between GUIDE and A, colliding with nothing.
-    constexpr int kAssigned =
+    constexpr std::uint32_t kAssigned =
         layout::kXusbDpadMask | layout::kXusbStart | layout::kXusbBack | layout::kXusbLeftThumb |
         layout::kXusbRightThumb | layout::kXusbLeftShoulder | layout::kXusbRightShoulder |
         layout::kXusbGuide | layout::kXusbA | layout::kXusbB | layout::kXusbX | layout::kXusbY;
@@ -113,7 +115,7 @@ TEST_CASE("the mic-mute bit is the one free XUSB value and never leaks", "[input
 
     // xusbToHid drops it even in company: no HID gamepad descriptor has a mute
     // button, and Moonlight must never see it.
-    const int packed =
+    const std::uint32_t packed =
         layout::xusbToHid(layout::kXusbMicMute | layout::kXusbA | layout::kXusbGuide);
     REQUIRE(layout::hidButtonsOf(packed) == (BTN_A | BTN_HOME));
     REQUIRE(layout::hidHatOf(packed) == HAT_NONE);
@@ -166,10 +168,11 @@ TEST_CASE("HID hat NW maps to xusb dpad up+left", "[input][layout]") {
 }
 
 TEST_CASE("xusbToHid then hidToXusb is identity for every canonical bit", "[input][layout]") {
-    const int xusbBits[] = {0x0001, 0x0002, 0x0004, 0x0008, 0x0010, 0x0020, 0x0040, 0x0080,
-                            0x0100, 0x0200, 0x0400, 0x1000, 0x2000, 0x4000, 0x8000};
-    for (const int bit : xusbBits) {
-        const int packed = layout::xusbToHid(bit);
+    const std::uint32_t xusbBits[] = {0x0001, 0x0002, 0x0004, 0x0008, 0x0010,
+                                      0x0020, 0x0040, 0x0080, 0x0100, 0x0200,
+                                      0x0400, 0x1000, 0x2000, 0x4000, 0x8000};
+    for (const std::uint32_t bit : xusbBits) {
+        const std::uint32_t packed = layout::xusbToHid(bit);
         REQUIRE(layout::hidToXusb(layout::hidButtonsOf(packed), layout::hidHatOf(packed)) == bit);
     }
 }

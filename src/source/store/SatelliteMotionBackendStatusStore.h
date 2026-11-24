@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "core/Bits.h"
 #include "architecture/StateSource.h"
 
 #include <map>
@@ -33,16 +34,17 @@ struct SatelliteMotionBackendStatus {
     bool backendOk = false;
 
     // FLAG_* match satellite/dish-android: the low two bits of the ack flag byte.
-    static constexpr int kFlagSinkSupportedForType = 0x01;
-    static constexpr int kFlagBackendOk = 0x02;
+    static constexpr std::uint32_t kFlagSinkSupportedForType = 0x01U;
+    static constexpr std::uint32_t kFlagBackendOk = 0x02U;
 
     // Both conditions hold => motion actually lands on the host.
     bool effective() const { return sinkSupportedForType && backendOk; }
 
     // Decode a 0..255 flag byte. Reserved upper bits are ignored.
     static SatelliteMotionBackendStatus fromFlags(int flags) {
-        return SatelliteMotionBackendStatus{(flags & kFlagSinkSupportedForType) != 0,
-                                            (flags & kFlagBackendOk) != 0};
+        const std::uint32_t word = bits::asUint32(flags);
+        return SatelliteMotionBackendStatus{bits::anySet(word, kFlagSinkSupportedForType),
+                                            bits::anySet(word, kFlagBackendOk)};
     }
 
     bool operator==(const SatelliteMotionBackendStatus& o) const {

@@ -4,13 +4,16 @@
 rule, desktop entry, icon and AppStream metadata the bare AppImage cannot
 install. Mirrors `TinkerNorth/satellite` `packaging/aur/`.
 
-> **Status:** AUR account registration is currently closed, so this is not
-> on the AUR yet. The live Arch channel is the **self-hosted pacman repo**:
-> the `arch-publish` job in `release.yml` builds `dish-bin` from this
-> PKGBUILD on every stable release and publishes it (GPG-signed) at
-> `https://tinkernorth.github.io/dish-linux/arch/$arch`. The steps below
-> are for the eventual AUR listing, if/when registration reopens; local
-> `makepkg -si` works today regardless.
+> **Status:** not on the AUR. AUR account registration was closed when this
+> was prepared, and whether to submit is undecided. The live Arch channel is
+> the **self-hosted pacman repo**: the `arch-publish` job in `release.yml`
+> builds `dish-bin` from this PKGBUILD (through
+> `scripts/build-arch-package.sh`) on every stable release and publishes it
+> (GPG-signed) at `https://tinkernorth.github.io/dish-linux/arch/$arch`, and
+> every pull request builds it from that run's AppImage. `pkgver=0.1.0` and
+> the zero checksums in the tree are placeholders that the script and
+> `updpkgsums` fill per build. The steps below are for an AUR listing, if it
+> happens; local `makepkg -si` works today regardless.
 
 ## First publish (one-time)
 

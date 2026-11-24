@@ -17,7 +17,7 @@
     {
       "group": "org.libsdl",
       "artifact": "SDL2",
-      "version": "2.32.10",
+      "version": "2.24+",
       "name": "Simple DirectMedia Layer (SDL2)",
       "url": "https://www.libsdl.org/",
       "licenses": [
@@ -56,7 +56,7 @@
     {
       "group": "org.catchorg",
       "artifact": "Catch2",
-      "version": "3.5.4",
+      "version": "3.16.1",
       "name": "Catch2",
       "url": "https://github.com/catchorg/Catch2",
       "licenses": [
@@ -80,9 +80,35 @@
       ]
     },
     {
+      "group": "com.github.cgutman",
+      "artifact": "enet",
+      "version": "4cde9cc",
+      "name": "ENet (cgutman fork)",
+      "url": "https://github.com/cgutman/enet",
+      "licenses": [
+        {
+          "name": "MIT License",
+          "url": "https://opensource.org/license/mit"
+        }
+      ]
+    },
+    {
+      "group": "org.openssl",
+      "artifact": "openssl",
+      "version": "system",
+      "name": "OpenSSL libcrypto",
+      "url": "https://www.openssl.org/",
+      "licenses": [
+        {
+          "name": "Apache License 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0"
+        }
+      ]
+    },
+    {
       "group": "io.sentry",
       "artifact": "sentry-native",
-      "version": "0.16.3",
+      "version": "0.17.6",
       "name": "sentry-native",
       "url": "https://github.com/getsentry/sentry-native",
       "licenses": [

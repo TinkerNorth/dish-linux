@@ -1,350 +1,157 @@
-# Dish Linux
+# Dish for Linux
 
-[![Linux CI](https://github.com/TinkerNorth/dish-linux/actions/workflows/linux-ci.yml/badge.svg)](https://github.com/TinkerNorth/dish-linux/actions/workflows/linux-ci.yml)
+Dish for Linux runs on your Linux computer and sends the controllers plugged into it, or paired with it over Bluetooth, to your gaming PC as wireless controllers.
 
-Turns the gamepads attached to a Linux machine into wireless controllers for
-another machine on the same network. Dish finds
-[Satellite](https://github.com/TinkerNorth/satellite) servers on the LAN, pairs
-with a PIN over HTTPS, and streams encrypted controller input over UDP; the
-satellite plugs a matching virtual pad into the host, so games there see a real
-controller.
+Dish is made of two parts. The Dish apps run on the device that holds your controller, or that is the controller: Dish for Android, Dish for iOS, Dish for macOS, Dish for Windows and Dish for Linux. Satellite is the small server on the PC you play on, and it makes each Dish controller look to your games like a controller plugged into that PC. You need one of each. Everything is free and open source, the website is [dish.tinkernorth.com](https://dish.tinkernorth.com), and I maintain all of it on my own.
 
-**Dish needs a Satellite server running on your LAN.** It is one half of a pair
-and does nothing on its own. It is the Linux sibling of `dish-android`,
-`dish-mac` and `dish-windows`; all four speak the same protocol to the same
-server and look identical to it.
+## Download
 
-Physical controllers only. There is no on-screen touch gamepad; that belongs to
-`dish-android`, where the form factor makes sense.
+Dish for Linux 2.9.0 is the current release. Every link below always points at the newest one. Every build is x86_64.
 
-## What it does
+Debian 13: add the APT repository once, and `apt upgrade` keeps Dish current with the rest of your system.
 
-- LAN discovery over mDNS (`_satellite._udp.local.`) with a UDP broadcast
-  fallback for older satellites
-- PIN pairing over HTTPS against the satellite's self-signed certificate,
-  pinned trust-on-first-use so a swapped certificate aborts the request
-- ChaCha20-Poly1305 input streaming over UDP, sent straight off the input
-  thread
-- SDL2 for every pad, plus an opt-in USB-direct hidraw path for DualSense,
-  DualShock 4, Switch Pro, 8BitDo and Steam Controller (2015, and the 2026 one,
-  ported from SDL and not yet tried on a pad; every controller on a receiver
-  reads as a pad of its own) class pads
-- Motion, battery and touchpad forwarded up; rumble and light bar driven back
-  down by the host
-- Several satellites side by side, with per-slot controller binding
-- Per-device deadzones, button remapping, and a guided setup wizard
-- Keeps the computer awake while a slot is streaming — never, only while a
-  controller is actually being used, or for as long as the link is up — with an
-  optional idle timeout and an opt-in for the display too
-- Keeps streaming with the window closed, behind a tray icon that quits it
-- Closes its sessions on suspend and re-opens them on resume
-- Light and dark themes that follow the desktop, six UI languages
+```bash
+curl -fsSL https://tinkernorth.github.io/dish-linux/gpg.key \
+  | sudo gpg --dearmor -o /usr/share/keyrings/dish-archive-keyring.gpg
+echo "deb [signed-by=/usr/share/keyrings/dish-archive-keyring.gpg] \
+  https://tinkernorth.github.io/dish-linux/debian stable main" \
+  | sudo tee /etc/apt/sources.list.d/dish.list
+sudo apt update && sudo apt install dish
+```
 
-## Install and run
+The .deb is built on Debian 13 against Debian's own Qt and asks only for its public interface, so it also installs on Ubuntu 25.10 and 26.04. The previous release's .deb asked for one exact build of Debian's Qt, so on Ubuntu take this release.
 
-You need a 64-bit Linux desktop, a gamepad, and a reachable Satellite server.
+Fedora 44 and 45: add the DNF repository once, and `dnf upgrade` keeps it current.
 
-The comfortable path is a package repository: add it once and your package
-manager owns updates from then on. Debian 13+, Fedora-family, and Arch
-(pacman repo) instructions all live at
-[tinkernorth.github.io/dish-linux](https://tinkernorth.github.io/dish-linux/).
+```bash
+sudo curl -fsSL -o /etc/yum.repos.d/dish.repo \
+  https://tinkernorth.github.io/dish-linux/rpm/dish.repo
+sudo dnf install dish
+```
 
-Alternatively, every release publishes four standalone packages; pick the one
-that matches your distro.
+The .rpm is built on Fedora 44 and signed with the repository key, which the repository's `gpgcheck` asks for. The previous release's .rpm was not signed, so the repository refused it; this release installs from it. Fedora 43, which reaches its end of life on 2026-12-01, cannot install a package built on Fedora 44: use the AppImage below.
 
-| You run | Take | Then |
-|---|---|---|
-| Debian 13+, or a derivative with Qt 6.7+ | `dish_<version>_amd64.deb` | `sudo apt install ./dish_<version>_amd64.deb` |
-| Fedora, RHEL, openSUSE | `dish-<version>-x86_64.rpm` | `sudo dnf install ./dish-<version>-x86_64.rpm` |
-| Anything else, or an LTS whose Qt is too old | `Dish-<version>-x86_64.AppImage` | `chmod +x` it and run it |
-| You would rather have the sandbox | `Dish-<version>-x86_64.flatpak` | `flatpak install ./Dish-<version>-x86_64.flatpak` |
+If you'd rather not add a repository, [dish-amd64.deb](https://github.com/TinkerNorth/dish-linux/releases/latest/download/dish-amd64.deb) and [dish-x86_64.rpm](https://github.com/TinkerNorth/dish-linux/releases/latest/download/dish-x86_64.rpm) install the same package once (`sudo apt install ./dish-amd64.deb` or `sudo dnf install ./dish-x86_64.rpm`), and you install later versions by hand. Both packages install the udev rule described under Requirements.
 
-The `.deb` and `.rpm` install the udev rule below for you and pull in the Qt
-runtime. The AppImage and the Flatpak carry their own Qt but **cannot** install
-the rule — see the next section.
+Any other x86_64 Linux, Ubuntu and the Steam Deck included: download **[Dish-x86_64.AppImage](https://github.com/TinkerNorth/dish-linux/releases/latest/download/Dish-x86_64.AppImage)**. It carries its own Qt and runs on glibc 2.35 or newer.
 
-Ubuntu 24.04 LTS ships Qt 6.4, below this project's 6.7 floor, so there is no
-`.deb` for it: use the AppImage or the Flatpak.
-[`docs/PACKAGING.md`](docs/PACKAGING.md) has the full per-distro table and what
-each package lays down.
+```bash
+chmod +x Dish-x86_64.AppImage
+./Dish-x86_64.AppImage
+```
 
-Settings persist under `~/.config/com.tinkernorth.Dish/dish.conf`; a crash writes a
-backtrace to `$XDG_STATE_HOME/dish/crash.log`.
+Running it in place needs FUSE; where FUSE is missing, `./Dish-x86_64.AppImage --appimage-extract-and-run` starts it without. It carries update information, so AppImageUpdate or Gear Lever can bring it to the next release. An AppImage can't install the udev rule, so outside SteamOS you install it once yourself; the rule travels inside the AppImage:
 
-### USB-direct needs a udev rule
-
-`/dev/hidraw*` is root-only by default, so the opt-in USB-direct path needs one
-rule installed before it can claim a pad:
-
-```sh
-sudo install -m 644 packaging/udev/70-dish-hidraw.rules /etc/udev/rules.d/
+```bash
+./Dish-x86_64.AppImage --appimage-extract usr/share/dish/70-dish-hidraw.rules
+sudo install -m 644 squashfs-root/usr/share/dish/70-dish-hidraw.rules \
+     /etc/udev/rules.d/
 sudo udevadm control --reload-rules && sudo udevadm trigger
 ```
 
-The `.deb` and `.rpm` install it and reload udev for you; `cmake --install`
-places it too. An AppImage or a Flatpak cannot — they install nothing outside
-themselves — so both carry the rule inside at `usr/share/dish/` for you to copy
-out. Without the rule every claim fails with a permission error and Dish keeps
-the pad on the SDL path, which still works — it is just rate-capped. SteamOS is
-the exception: Valve's own udev rules already open every hidraw node, so a
-Steam Deck needs nothing installed. Dish never
-asks for root.
+If you'd rather have the sandbox, [Dish-x86_64.flatpak](https://github.com/TinkerNorth/dish-linux/releases/latest/download/Dish-x86_64.flatpak) is a Flatpak bundle on the KDE runtime from Flathub. Dish is not on Flathub itself, so the bundle doesn't update, and its update check starts switched off. Like the AppImage it can't install the udev rule; when a controller needs it, Dish names the copy inside the bundle and the commands to install it.
 
-### Updates
+Arch Linux: add the signed pacman repository once, and `pacman -Syu` keeps Dish current. It installs the AppImage above, with the udev rule, the desktop entry and the icon.
 
-Dish does not update itself. Your package manager owns the binary, so the
-updater checks and stops: about 15 seconds after launch and every four hours
-after that it asks GitHub for `latest.json`, and if there is a newer release it
-shows a pill linking to the release page. Nothing is downloaded and nothing is
-applied. *Check for updates automatically* in Settings stops every
-update-related network request when off; inside a Flatpak it starts off, since
-the store that installed Dish also updates it. The AppImage additionally
-carries zsync update metadata, so AppImageUpdate or Gear Lever can delta-update
-it in place. What the check sends is spelled out in [`PRIVACY.md`](PRIVACY.md).
-
-### Controller list and diagnostics
-
-Dish carries the list of controllers the whole Dish family recognises, and ten
-seconds after launch and every six hours it asks `dish.tinkernorth.com` for a
-newer one: a manifest first, and the list only when it is newer, with no
-identifier attached. *Check for controller updates automatically* in Settings
-turns that off, in every build including the Flatpak, and with it off nothing
-is asked. A controller the list names and Dish's own tables do not decodes on
-the Direct path by its record's family, and a newer list applies to a
-controller the next time it is plugged in. *Report a problem* on the
-Diagnostics page sends nothing itself: it saves a diagnostics file and runs
-`xdg-email` to open your own mail app with the file attached where the mail
-app takes it (Thunderbird does, most others do not), and shows the file's
-folder either way; the mail leaves only when you click Send. For a controller Dish reads directly it can
-first *Capture this controller*: its USB descriptors and twenty reports taken
-while it lies still. [`PRIVACY.md`](PRIVACY.md) sections 2.5 and 2.6 list what
-each one holds.
-
-## Build from source
-
-- GCC 12+ or Clang 15+, CMake 3.21+, Ninja
-- Qt 6.7+ (Core, Gui, Network, DBus, Svg, Quick, Qml, QuickControls2; Linguist
-  tools for the translation catalogues)
-- libsodium, SDL2, Opus, OpenSSL (libcrypto), Catch2 v3
-- Optional: `rsvg-convert`, which renders the rest of the launcher-icon ladder
-  from the SVG. Without it the build says so and installs only the scalable and
-  512x512 icons, which is enough for a working menu entry.
-
-Local builds and CI run on the same rails: `CMakePresets.json` carries the
-configure lines every workflow uses (`debug`, `release`, `package`), and the
-scripts under `scripts/` drive those presets. On Debian and Ubuntu:
-
-```sh
-scripts/install-deps.sh   # the apt list above + CI's pinned clang-format;
-                          # --ci-qt adds the exact Qt 6.10.3 CI builds against
-scripts/build.sh release
-./build-release/dish
+```bash
+curl -fsSL https://tinkernorth.github.io/dish-linux/gpg.key | sudo pacman-key --add -
+sudo pacman-key --lsign-key 96FFAACB78FE75D18CEEE332C398179512D6BDF3
+printf '\n[dish]\nSigLevel = Required DatabaseOptional\nServer = https://tinkernorth.github.io/dish-linux/arch/$arch\n' \
+  | sudo tee -a /etc/pacman.conf
+sudo pacman -Syu dish-bin
 ```
 
-`scripts/build.sh debug` builds the `debug` preset into `build/` (CI's tree
-name; earlier versions of this script used `build-debug/`), and
-`scripts/build.sh test` runs ctest after a debug build. Before pushing,
-`scripts/ci-local.sh` runs every `linux-ci.yml` gate in CI's order.
-`CONTRIBUTING.md` has the long-form preset invocation and the hook, format
-and lint setup.
+The previous release's package installed an AppImage cut short, which could not start; this one carries the whole AppImage.
 
-One deliberate difference between distro Qt and CI's Qt: the translation gate
-needs `lupdate` 6.9+ to resolve namespaced classes correctly, so on a distro
-whose Qt Linguist is older, `scripts/check-translations.sh` can report diffs
-CI does not. `scripts/install-deps.sh --ci-qt` installs the same Qt 6.10.3 CI
-uses if you hit that.
+Dish never updates itself. It checks for a new release and shows a notice that links to it, and your package manager or the AppImage's updater does the rest. All files and older versions are on the [releases page](https://github.com/TinkerNorth/dish-linux/releases), and the repositories have their own page at [tinkernorth.github.io/dish-linux](https://tinkernorth.github.io/dish-linux/).
 
-## How it works
+### Satellite and the Dish apps
 
-The app is a unidirectional-dataflow core with a Qt Quick projection on top.
-Sources of truth own state, pure composers derive from it, QML binds and
-renders, and QML sends commands back. `src/qml/` could be deleted and replaced
-with a different front end without touching anything below it.
-
-```
-src/qml/          Qt Quick UI: AppViewModel facade, role models, theme bridges
-src/composer/     Composers (pure derive), Controllers (effects), Coordinators
-src/source/       StateSources and IO gateways: discovery, HTTP, USB, stores
-src/repository/   Durable keyed storage over QSettings
-src/core/         Pure, Qt-free: reducers and FSMs, wire crypto, input math
-src/architecture/ The kernel: Observable, StateSource, Composer, Controller, Repository
-src/Input/        SDL bridge, XUSB packing, controller shadow, touchpad gate
-src/Network/      POSIX UDP session, REST client, pairing, connection pool
-src/UI/           Theme palettes, font probes, crash handler, license manifest
-src/update/       The update check. No download, no staging, no apply.
-```
-
-The window manager draws the decorations: Dish paints no title bar of its own,
-so the shell's rail and header are the whole chrome.
-
-The input hot path is the deliberate exception and is not routed through the
-kernel. An SDL controller event runs `GamepadInputProcessor` and then
-`SatelliteClient::sendReport` inline on the SDL thread: pack the XUSB report,
-encrypt it, and call `sendto()` on a raw POSIX socket. No queue, no Qt event
-hop, no cross-thread signal. The UI thread never appears on the path; it only
-reads counters the input thread publishes lock-free. The USB-direct read loop
-feeds the same `publish` entry point on its own thread.
-
-Layer rules, the state-capture doctrine (`AsyncState<T>` versus a reducer FSM),
-the UI binding contract and the hardening roadmap are in
-[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), the kernel primitives in
-[`src/architecture/README.md`](src/architecture/README.md), the QML surface in
-[`docs/QML_CONTRACT.md`](docs/QML_CONTRACT.md) and
-[`docs/QML_UI_KIT.md`](docs/QML_UI_KIT.md), the design tokens in
-[`DESIGN.md`](DESIGN.md), and how a build becomes an installed Dish in
-[`docs/PACKAGING.md`](docs/PACKAGING.md).
-
-### Running in the background
-
-Closing the window leaves Dish running behind a tray icon; quit it from that
-icon's menu. Nothing is hidden that cannot be reached: the item registers with
-`org.kde.StatusNotifierWatcher`, and if no StatusNotifier host owns that name
-the close falls back to quitting rather than stranding a running process with
-no window and no menu. *Keep running in the background* in Settings turns the
-whole behaviour off, and the switch reads as unavailable on a desktop with no
-tray.
-
-Bare GNOME is that desktop. It ships no StatusNotifier host, so the tray needs
-the AppIndicator extension; KDE, XFCE, Cinnamon, MATE, LXQt, sway and Waybar
-all carry one already. The `.deb` and `.rpm` name the extension as a suggestion
-rather than a dependency, because Dish works without it — it just keeps quitting
-on close.
-
-### Suspend, resume and a closed lid
-
-Dish holds a logind `sleep`/`delay` lock, so on `PrepareForSleep` it closes its
-satellite sessions before the machine goes down, and re-opens them on resume
-rather than waiting out the ~10 s heartbeat death. A resume also rescans, so a
-laptop that wakes on a different network relearns a moved satellite instead of
-retrying a stale address.
-
-**Closing the lid can keep streaming, if you ask for it.** Settings ▸ Power has
-a *Keep streaming with the lid closed* switch, off by default and shown whenever
-*Keep the computer awake* is not Never. While it is on and Dish is holding the
-machine awake, Dish takes a second logind lock beside its `idle` one,
-`handle-lid-switch`/`block`, and lets go of it the moment the hold ends. A
-laptop that keeps running shut can get hot in a bag, which is why it stays off
-unless you turn it on.
-
-logind honours that lock whatever `LidSwitchIgnoreInhibited` says.
-`logind.conf(5)`: "Low level inhibitor locks ("handle-power-key",
-"handle-suspend-key", "handle-hibernate-key", "handle-lid-switch",
-"handle-reboot-key"), are always honored, irrespective of this setting."
-`LidSwitchIgnoreInhibited=yes` only overrides the high-level `sleep` locks, so it
-does not undo this one. The upstream polkit policy
-(`org.freedesktop.login1.inhibit-handle-lid-switch`) grants the lock without a
-prompt to active and inactive sessions. A system that refuses it anyway, an
-older logind or a machine without systemd, keeps working: Dish logs a warning
-(`dish.wake`), carries on with the `idle` lock alone, and closing the lid
-suspends as before. `systemd-inhibit --list` shows which locks Dish holds.
-
-Two things the lock does not change. `HoldoffTimeoutSec` (30 s by default)
-still applies: for that long after boot or resume logind does not react to the
-lid at all, with or without Dish. And docked already works untouched, because
-`HandleLidSwitchDocked` defaults to `ignore`.
-
-To keep the lid from suspending for every application, not only while Dish
-streams, set it system-wide instead:
-
-```sh
-# /etc/systemd/logind.conf — pick the ones you want
-HandleLidSwitch=ignore
-HandleLidSwitchExternalPower=ignore
-```
-
-then `sudo systemctl restart systemd-logind`. GNOME and KDE expose the same
-choice in their power settings.
-
-### Desktop integration
-
-Three portal-backed facts, each with a documented fallback so a minimal desktop
-degrades rather than breaks: light/dark from the XDG appearance portal (falling
-back to dark), reduced motion from the XDG settings portal then `kdeglobals`
-(falling back to motion allowed), and keep-awake from logind's `idle` inhibit
-plus, when the display opt-in is on, `org.freedesktop.ScreenSaver.Inhibit`
-and, when the lid opt-in is on, logind's `handle-lid-switch` inhibit (each
-falling back to a no-op).
-Bluetooth presence and power come from sysfs and BlueZ directly, because the
-wizard needs to tell "no adapter" from "adapter off".
-
-## Protocol
-
-Ports, byte layouts and JSON shapes match the other Dish clients so all four
-are interchangeable to a satellite. The authoritative contract lives in
-[`satellite/docs/contract.md`](https://github.com/TinkerNorth/satellite/blob/main/docs/contract.md);
-the client-side mirror is
-[`src/core/model/Protocol.h`](src/core/model/Protocol.h).
-
-| | |
+| App | Where to get it |
 |---|---|
-| Protocol version | 1 |
-| Discovery | UDP 9879 broadcast beacons, plus mDNS `_satellite._udp.local.` |
-| Pairing and REST API | HTTPS 9443, self-signed certificate, TOFU-pinned |
-| Streaming | UDP 9876 |
-| REST auth | `X-Device-Id` + `X-Hmac-Proof` = hex(HMAC-SHA256(pairingKey, `"satellite-proof:"` + deviceId)) |
-| Topology | REST only: `PUT /api/connections` upserts the whole desired controller set |
-| Session key | HKDF-SHA256(ikm = pairingKey, salt = sessionSalt, info = `"satellite-session-v1"` \|\| token) |
-| AEAD | ChaCha20-Poly1305 IETF |
-| Nonce | direction(1) \| 0x00 x7 \| counter(4 BE) |
-| AAD | token (4 bytes, BE) |
-| Packet | `token(4) \| counter(4 BE) \| ciphertext+tag` |
-| Up | INPUT 0x0001, HEARTBEAT 0x0002, MOTION 0x000A, BATTERY 0x000B, TOUCHPAD 0x000C |
-| Down | HEARTBEAT_ACK 0x0003, RUMBLE 0x0009, LIGHTBAR 0x000D, SESSION_CLOSE 0x000F |
-| Input report | 12 bytes XUSB, little-endian |
-| Heartbeat | every 2 s; not responding at 2 misses, dead at 5 |
+| Satellite (Windows, Linux) | [GitHub releases](https://github.com/TinkerNorth/satellite/releases/latest) |
+| Dish for Android | [Google Play](https://play.google.com/store/apps/details?id=com.tinkernorth.dish), or the APK from [GitHub releases](https://github.com/TinkerNorth/dish-android/releases/latest) |
+| Dish for iOS | Not yet released |
+| Dish for macOS | [GitHub releases](https://github.com/TinkerNorth/dish-mac/releases/latest) |
+| Dish for Windows | [GitHub releases](https://github.com/TinkerNorth/dish-windows/releases/latest) |
+| Dish for Linux | [GitHub releases](https://github.com/TinkerNorth/dish-linux/releases/latest) |
 
-## Translations
+## Getting started
 
-Six catalogues in `translations/`: English, Bosnian, German, Spanish, French
-and Brazilian Portuguese. They compile to `.qm` files embedded in the binary at
-`:/i18n/`, and the app picks one at startup by walking `QLocale::uiLanguages()`
-so the desktop's preferred UI language wins over the regional format setting.
+1. Install Satellite on the PC you play on and start it. Its dashboard shows a 4-digit PIN under Device Pairing, with a new one every five minutes.
+2. Install Dish for Linux on the computer your controller is connected to, plug the controller in or pair it over Bluetooth, and start Dish. Both computers have to be on the same local network.
+3. Pair them. Open Connections: the PC appears under Found once Satellite answers (Scan looks again). Press Pair… and type the PIN from the dashboard. If Dish shows you a PIN instead, approve the request on the dashboard. Dish remembers the PC, so you only pair once.
+4. Play. On Home, Set up a controller walks you through the controller, the PC and what it should be to your games; Bind… on a controller's card does the same in one page. Emulate as picks the type the game sees, from the types Satellite offers, and Apply makes it live.
 
-English is a real catalogue rather than the untranslated fallback: a `%n`
-message carries one source string but needs one form per plural category, and
-Bosnian has three. Vocabulary is sourced from `dish-android`, whose catalogues
-are older and reviewed.
+## What it does
 
-`scripts/check-translations.sh` re-runs `lupdate` in CI and fails on any diff,
-so a new user-facing string cannot land without its catalogue entry. Coverage
-is reported but never enforced; translating a string is a separate act from
-extracting it.
+Dish reads each controller on your computer and sends it to the PC you bound it to, where Satellite turns it into a virtual controller. Input travels over UDP on your own network, encrypted with a key the two computers agree on when they pair. Several controllers can go to several PCs at once.
 
-## Testing
+Every controller the system recognises works over USB and Bluetooth on the Standard path, through SDL. Over USB, Dish can also take a DualSense, DualShock 4, Switch Pro Controller, 8BitDo pad in HID mode, PDP Switch pad or Steam Controller on the Direct path, reading it without SDL's rate cap; the Controllers page shows which path each one is on. Bluetooth is never Direct, and Xbox pads stay on Standard because the kernel's own driver holds them. Dish carries the list of controllers the whole Dish family recognises and keeps it current, so a newer list can teach it a controller without a new release.
 
-```sh
-scripts/build.sh test
-# or, against an existing debug-preset tree
-ctest --preset debug --parallel
+Motion, touchpad and battery go to the PC. Rumble, the light bar, player lights, adaptive triggers and the mute lamp come back from the game, and a DualSense or DualShock 4 can carry the PC's sound and your voice through its own speaker and microphone. What reaches the game also depends on the type you emulate and on the PC; Satellite's README has that table.
+
+I don't own every controller. The 2015 and 2026 Steam Controllers on the Direct path, every controller on a Steam Controller receiver, two of the same controller on Direct at once, and DualSense HD haptics are built but not yet confirmed on real hardware.
+
+Each controller's inspector tests what its path carries: rumble, the light bar, player lights, adaptive triggers, the mic lamp, the speaker, the microphone and the sticks, all from Dish alone, then asks whether it worked. Between that and the PC's own view, you can tell whether a problem is the controller, Dish or the PC.
+
+Dish doesn't need Satellite to play on a Sunshine, Apollo or Wolf host. Under Connections, Moonlight hosts finds them on your network or takes an address, and Dish shows a PIN to type into the host's page. Dish is then the controller for that host; it holds the session open but never shows the stream.
+
+Closing the window keeps controllers streaming behind a tray icon. Settings can keep the computer awake while you play, and even with the lid closed. Dish closes its sessions before the computer suspends and reopens them on resume (Moonlight sessions don't come back by themselves yet). It follows your desktop's light or dark theme and speaks English, Bosnian, German, Spanish, French and Brazilian Portuguese.
+
+## Requirements
+
+Linux on x86_64. There are no ARM builds yet. The .deb needs Debian 13 (or Ubuntu 25.10 or 26.04), the .rpm Fedora 44 or 45, and the AppImage needs glibc 2.35 or newer (Ubuntu 22.04 and later). Ubuntu 24.04 ships Qt 6.4, below the Qt 6.7 Dish needs, so it has no package of its own and uses the AppImage.
+
+Permissions: Dish never asks for root. The Direct path, and a Bluetooth DualSense or DualShock 4's light bar, motion, touchpad, adaptive triggers and player lights, need read and write access to the controller's hidraw node, which Dish's udev rule (`70-dish-hidraw.rules`) gives to the user at the seat and, for sessions without logind, to the `input` group. The .deb and .rpm install it and reload udev; the AppImage and the Flatpak can't, and Dish tells you when a controller needs it. Without the rule every controller still streams on the Standard path, and a Bluetooth Sony pad keeps only rumble. SteamOS needs nothing installed, because its own rules already open those nodes.
+
+The tray icon needs a StatusNotifier host. KDE, Xfce, Cinnamon, MATE, LXQt, sway and Waybar have one; stock GNOME needs the AppIndicator extension, and without it closing the window quits Dish.
+
+Network: both computers on the same local network. Dish finds Satellite over mDNS (UDP 5353) and Satellite's older UDP beacon on port 9879, pairs and talks to it over HTTPS on TCP 9443, and streams on UDP 9876. A Moonlight host is paired over HTTP on port 47989 and called over TLS on 47984. A firewall on the Linux computer may need to let Dish send and receive on your local network.
+
+## Trust and privacy
+
+Every release has a `SHA256SUMS` file signed with cosign by the release workflow. To check a download on Linux, put `SHA256SUMS` beside it and run:
+
+```bash
+sha256sum --ignore-missing -c SHA256SUMS
 ```
 
-One `DishTests` executable links the `dish_core` library. It covers the pure
-core exhaustively, with no mocks and no sockets: the reducer FSMs (USB path
-switching, pairing, session lifecycle, capture mode, apply sequencing, the
-update check), `AsyncState` transitions, the wire encoders and decoders against
-interop vectors shared with the satellite and dish-android, session crypto,
-XUSB mapping and deadzones, HID report parsing and transport classification,
-the beacon and mDNS parsers, TOFU pinning, and every repository against a
-shared contract. The design system is tested too: palette completeness, WCAG
-contrast ratios in both themes, font-family probes, and placeholder integrity
-plus plural-form order across all six translation catalogues.
+On a Mac, `shasum -a 256 --ignore-missing -c SHA256SUMS` does the same. [SECURITY.md](SECURITY.md) has the signature and build provenance checks, and how to report a vulnerability.
 
-What CI cannot reach — a real window manager, a real pad, a real satellite — is
-covered by [`docs/QML_MANUAL_SMOKE_CHECKLIST.md`](docs/QML_MANUAL_SMOKE_CHECKLIST.md),
-which is run by hand before a release.
+The APT and DNF repositories sign their metadata with the repository key whose fingerprint is in [packaging/repo/README.md](packaging/repo/README.md), and apt and dnf check every download against it. The files on the release page carry no signature of their own: no distribution signs them, and the .rpm has no package signature. The checksum and its cosign signature are how you can tell a downloaded file came from this repository's release.
 
-## Contributing
+Dish for Linux works on your own network and has no account, no analytics and no ads. Three things can leave your computer, and each has a switch in Settings: a check for a new version against GitHub (Check for updates automatically, which starts off in the Flatpak), a check for a newer controller database at dish.tinkernorth.com (Check for controller updates automatically), and, if Dish crashes, one crash report to Sentry (Share crash reports). Crash reports are on by default. Controller input never leaves your network. The diagnostics file from Report a problem is something you send yourself; Dish never sends it. [PRIVACY.md](PRIVACY.md) says exactly what is stored and sent.
 
-See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the workflow, the LGPL header
-policy, hook setup and review expectations. Changes land on `main` through a
-pull request; `Linux CI`, `Security` and `CodeQL` run on every one.
+Dish for Linux is licensed under the GNU Lesser General Public License v3.0 or later ([LICENSE](LICENSE), with [COPYING.GPL3](COPYING.GPL3)). The third-party components and their licences are in [THIRD_PARTY.md](THIRD_PARTY.md).
 
-## Security
+## For developers
 
-Vulnerability disclosure: [`SECURITY.md`](SECURITY.md). Dish is LAN-only and
-talks to no TinkerNorth-operated server.
+Dish for Linux is C++20 with a Qt Quick interface, built with CMake. The presets in `CMakePresets.json` (`debug`, `release` and `package`) carry the same flags CI uses, warnings as errors included, and the scripts drive them:
 
-## License
+```bash
+scripts/install-deps.sh          # once: the toolchain CI installs (apt)
+scripts/build.sh debug test      # build, then run the tests
+scripts/ci-local.sh              # every CI gate, in CI's order
+```
 
-LGPL-3.0-or-later. See [`LICENSE`](LICENSE) for the LGPL and
-[`COPYING.GPL3`](COPYING.GPL3) for the GPL v3 it incorporates by reference.
+`scripts/package-in-container.sh` builds, installs and starts the .deb and .rpm in CI's containers, and `scripts/build-appimage.sh` builds the AppImage.
+
+Where things are written down:
+
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): the layers, the state primitives, the threads and the input hot path.
+- [docs/contract.md](docs/contract.md): where each part of the Satellite protocol lives in this tree.
+- [docs/MOONLIGHT_HOSTS.md](docs/MOONLIGHT_HOSTS.md): what Sunshine and Wolf actually do, for the Moonlight path.
+- [docs/PACKAGING.md](docs/PACKAGING.md): every package and channel, the udev rule, the update check and the desktop integration.
+- [docs/FLATHUB.md](docs/FLATHUB.md): the Flathub submission procedure, if it happens.
+- [docs/QML_CONTRACT.md](docs/QML_CONTRACT.md) and [docs/QML_UI_KIT.md](docs/QML_UI_KIT.md): the interface's binding surface and its component kit.
+- [docs/QML_MANUAL_SMOKE_CHECKLIST.md](docs/QML_MANUAL_SMOKE_CHECKLIST.md): what is checked by hand before a release.
+- [CHANGELOG.md](CHANGELOG.md): what changed in each release.
+
+[CONTRIBUTING.md](CONTRIBUTING.md) covers setting up, where code goes, the interface, translations, the code style, the tests, what CI runs and how a release is cut. Please read it before opening a pull request.
+
+## Getting help
+
+If something doesn't work, open an issue at [github.com/TinkerNorth/dish-linux/issues](https://github.com/TinkerNorth/dish-linux/issues/new/choose). The most useful thing you can attach is the diagnostics file: in Settings, open Diagnostics…, use Report a problem, say what happened, and press Continue in your mail app. The file leaves out pairing keys, addresses and the names of your PCs and devices; read it before you attach it, it's plain JSON. The same button starts a mail to support@tinkernorth.com if you'd rather write to me than open an issue. Thunderbird attaches the file for you; with other mail apps, attach it from the folder Dish opens.
+
+Please also say which Dish for Linux version you run and how you installed it, your distribution, which Satellite version or Moonlight host you use, and which controller. If the problem is in Satellite rather than here, its own repository is the better place. For a security problem, don't open a public issue; [SECURITY.md](SECURITY.md) says how to report it privately.

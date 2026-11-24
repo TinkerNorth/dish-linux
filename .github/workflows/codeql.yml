@@ -12,7 +12,7 @@ on:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   actions: read
@@ -32,6 +32,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Install build dependencies
         run: |
@@ -58,6 +60,19 @@ jobs:
       - name: Set up Qt
         uses: ./.github/actions/setup-qt
 
+      # CodeQL analyses first-party code. The vendored third-party source in
+      # the tree, third_party/enet (the dish_enet target), is compiled here,
+      # before CodeQL starts tracing, so the traced build below finds it up to
+      # date and does not extract it. A paths-ignore entry would not do this:
+      # for a traced C++ build GitHub documents that only the build steps
+      # decide what is analysed. OSV-Scanner watches the vendored code instead,
+      # by its upstream commit (scripts/osv-lockfile.sh), and
+      # scripts/check-version-consistency.sh holds this list to THIRD_PARTY.md.
+      - name: Build the vendored third-party code before tracing
+        run: |
+          cmake --preset release
+          cmake --build build-release --parallel --target dish_enet
+
       # Overlay (incremental) analysis exists only for build-mode "none", and
       # C++ here is a traced build, so left to its own defaults the action
       # tries overlay on every PR and default-branch run, warns that it cannot,
@@ -65,31 +80,21 @@ jobs:
       # Saying so up front is the action's documented manual-control mode for
       # exactly this: the same full database, without the warning.
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
+        uses: github/codeql-action/init@1bd86f2fdb4b86187fa4059f16f31a3202acc9ea # v4.39.4
         env:
           CODEQL_OVERLAY_DATABASE_MODE: none
         with:
           languages: ${{ matrix.language }}
           queries: security-extended,security-and-quality
 
-      # The configure flags live in CMakePresets.json (preset release), shared
-      # with linux-ci.yml and the local scripts. Two deliberate deltas against
-      # the old inline configure: the tree is build-release (the preset's
-      # binaryDir), and tests + translations are configured ON like the ci job
-      # (the traced build still compiles only Dish; setup-qt above provides
-      # the Linguist tools the translations flag requires).
+      # The configure (preset release, above) is shared with linux-ci.yml and
+      # the local scripts; the traced build compiles only Dish and the
+      # first-party code it needs.
       - name: Build
-        run: |
-          cmake --preset release
-          cmake --build build-release --parallel --target Dish
+        run: cmake --build build-release --parallel --target Dish
 
+      # Blocking, and the results upload to code scanning on every run.
       - name: Perform CodeQL analysis
-        # SARIF upload requires GitHub Advanced Security on private repos.
-        # `continue-on-error` keeps the analysis running and surfacing
-        # findings in the logs while GHAS enablement is still pending —
-        # see HANDOFF.md item 5.
-        continue-on-error: true
-        uses: github/codeql-action/analyze@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
+        uses: github/codeql-action/analyze@1bd86f2fdb4b86187fa4059f16f31a3202acc9ea # v4.39.4
         with:
           category: "/language:${{ matrix.language }}"
-          upload: failure-only

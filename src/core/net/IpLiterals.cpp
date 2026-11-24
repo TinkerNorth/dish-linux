@@ -3,6 +3,8 @@
 
 #include "core/net/IpLiterals.h"
 
+#include "core/Bits.h"
+
 #include <array>
 #include <cstdint>
 #include <optional>
@@ -11,6 +13,11 @@
 namespace dish::net {
 
 namespace {
+
+// One IPv6 group from two IPv4 octets, each already checked to be 0..255.
+std::uint16_t octetPair(int high, int low) {
+    return bits::low16((static_cast<std::uint32_t>(high) << 8U) | static_cast<std::uint32_t>(low));
+}
 
 bool isDigit(char c) { return c >= '0' && c <= '9'; }
 
@@ -107,8 +114,8 @@ static std::optional<std::vector<std::uint16_t>> hextetsOf(const std::string& pa
         if (isLast && allowEmbeddedV4 && piece.find('.') != std::string::npos) {
             const auto v4 = parseIpv4(piece);
             if (!v4.has_value()) { return std::nullopt; }
-            groups.push_back(static_cast<std::uint16_t>(((*v4)[0] << 8) | (*v4)[1]));
-            groups.push_back(static_cast<std::uint16_t>(((*v4)[2] << 8) | (*v4)[3]));
+            groups.push_back(octetPair((*v4)[0], (*v4)[1]));
+            groups.push_back(octetPair((*v4)[2], (*v4)[3]));
             continue;
         }
         const auto hextet = hextetOf(piece);
@@ -151,10 +158,7 @@ std::optional<std::array<std::uint8_t, 16>> parseIpv6(const std::string& host) {
     if (!full.has_value() || full->size() != 8) { return std::nullopt; }
 
     std::array<std::uint8_t, 16> bytes{};
-    for (std::size_t i = 0; i < 8; ++i) {
-        bytes[i * 2] = static_cast<std::uint8_t>((*full)[i] >> 8);
-        bytes[i * 2 + 1] = static_cast<std::uint8_t>((*full)[i] & 0xFF);
-    }
+    for (std::size_t i = 0; i < 8; ++i) { bits::storeBe16(bytes.data() + (i * 2), (*full)[i]); }
     return bytes;
 }
 
@@ -168,8 +172,8 @@ bool isPrivateIpv6(const std::array<std::uint8_t, 16>& b) {
         }
     }
     if (allZeroToFourteen && b[15] == 1) { return true; }
-    if (b[0] == 0xfc || b[0] == 0xfd) { return true; }          // fc00::/7 unique-local
-    if (b[0] == 0xfe && (b[1] & 0xc0) == 0x80) { return true; } // fe80::/10 link-local
+    if (b[0] == 0xfc || b[0] == 0xfd) { return true; } // fc00::/7 unique-local
+    if (b[0] == 0xfe && (bits::u32(b[1]) & 0xC0U) == 0x80U) { return true; } // fe80::/10 link-local
     return false;
 }
 

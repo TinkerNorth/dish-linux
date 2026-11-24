@@ -1,29 +1,42 @@
-# ThreadSanitizer suppressions.
+# ThreadSanitizer suppressions: uninstrumented third-party libraries only.
 #
-# Qt and the glib event dispatcher it uses ship uninstrumented, so the
-# happens-before edges they establish — the QDBusConnection thread's handoff in
-# particular — are invisible to TSan, and every object one of them allocates on
-# one thread and frees on another reads as a race between its own new and its
-# own delete.
+# Qt, glib, libdbus and libstdc++ ship uninstrumented, so the happens-before
+# edges they establish (the QDBusConnection thread's handoff in particular) are
+# invisible to TSan, and every object one of them allocates on one thread and
+# frees on another reads as a race between its own new and its own delete. The
+# fix would be instrumented builds of those libraries, which no distribution
+# ships; the suite builds against the packaged ones.
 #
 # `called_from_lib` suppresses TSan's INTERCEPTORS when the named library is the
 # immediate caller. A race in Dish's own code, or in an interceptor Dish calls,
-# still reports. Do not widen this to `race:` patterns.
+# still reports. Never a `race:` pattern, and never a first-party library.
+
+# QObject, QThread and the event loop: cross-thread deleteLater and the
+# queued-connection handoffs.
 called_from_lib:libQt6Core.so
+# The QDBusConnection thread that the screen-saver inhibit, the BlueZ probe,
+# logind and the Secret Service calls run on.
 called_from_lib:libQt6DBus.so
-# The HTTP thread QNetworkAccessManager runs the manifest fetch on.
+# The HTTP thread QNetworkAccessManager runs the manifest and controller
+# database fetches on.
 called_from_lib:libQt6Network.so
 # Qt 6.9 reimplemented QWaitCondition over std::condition_variable, so a Qt
-# thread handoff now enters the interceptor through libstdc++'s out-of-line
+# thread handoff enters the interceptor through libstdc++'s out-of-line
 # condition_variable::wait instead of a libQt6* frame, and the lines above no
-# longer match: TSan then reports "unlock of an unlocked mutex" against a
-# mutex living inside Qt-allocated memory it never saw locked (seen from
+# longer match: TSan then reports "unlock of an unlocked mutex" against a mutex
+# inside Qt-allocated memory it never saw locked (seen from
 # QNetworkAccessManager's worker startup under test_moonlight_binding_refcount).
-# It would hide a first-party std::condition_variable wait the same way.
-# SpeakerPlayoutEngine waited on one until its playout queue moved to
-# WorkerWake, a semaphore whose atomics TSan sees, and no first-party code waits
-# on one now: grep src/ for condition_variable before keeping this line.
+# It would hide a first-party std::condition_variable wait the same way, and no
+# first-party code waits on one (SpeakerPlayoutEngine's queue moved to
+# WorkerWake, a semaphore whose atomics TSan sees): grep src/ for
+# condition_variable before keeping this line.
 called_from_lib:libstdc++.so
+# Qt's event dispatcher on Linux is glib's main loop; its sources and the
+# GMainContext lock are taken from both the GUI and the D-Bus threads.
 called_from_lib:libglib-2.0.so
+# GObject's type registry, which glib's dispatcher initialises from whichever
+# thread first touches it.
 called_from_lib:libgobject-2.0.so
+# libdbus, under QtDBus: its connection lock and message refcounts cross the
+# D-Bus thread and the caller's.
 called_from_lib:libdbus-1.so

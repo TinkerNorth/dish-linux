@@ -3,6 +3,7 @@
 
 #include "SatelliteClient.h"
 
+#include "core/Bits.h"
 #include "Util/Endian.h"
 #include "core/wire/SessionCrypto.h"
 #include "source/system/ThreadPriority.h"
@@ -124,7 +125,7 @@ void SatelliteClient::setConnectionParams(const std::array<std::uint8_t, 4>& tok
         // Safe to restart only because the key rotated with the token; the recv
         // guard resets so the first server packet is accepted.
         sendCounter_.store(1, std::memory_order_release);
-        recvMark_.store(std::uint64_t{written} << 32, std::memory_order_release);
+        recvMark_.store(std::uint64_t{written} << 32U, std::memory_order_release);
         materialSeq_.endWrite();
     }
     missedAcks_.store(0, std::memory_order_relaxed);
@@ -152,29 +153,20 @@ SatelliteClient::encodeInputPayload(int settledVersion, std::uint8_t controllerI
     // the same way and neither side may depend on struct layout.
     InputFrame frame;
     frame.bytes[0] = controllerIndex;
-    frame.bytes[1] = static_cast<std::uint8_t>(buttons & 0xFFU);
-    frame.bytes[2] = static_cast<std::uint8_t>((buttons >> 8) & 0xFFU);
+    bits::storeLe16(frame.bytes.data() + 1, buttons);
     frame.bytes[3] = lt;
     frame.bytes[4] = rt;
-    auto storeLe16 = [&frame](std::size_t off, std::int16_t v) {
-        const auto u = static_cast<std::uint16_t>(v);
-        frame.bytes[off] = static_cast<std::uint8_t>(u & 0xFFU);
-        frame.bytes[off + 1] = static_cast<std::uint8_t>((u >> 8) & 0xFFU);
-    };
-    storeLe16(5, lx);
-    storeLe16(7, ly);
-    storeLe16(9, rx);
-    storeLe16(11, ry);
+    bits::storeLe16(frame.bytes.data() + 5, bits::asUint16(lx));
+    bits::storeLe16(frame.bytes.data() + 7, bits::asUint16(ly));
+    bits::storeLe16(frame.bytes.data() + 9, bits::asUint16(rx));
+    bits::storeLe16(frame.bytes.data() + 11, bits::asUint16(ry));
     const std::size_t reportBytes = 1 + static_cast<std::size_t>(proto::kInputPayloadBytes);
     if (!proto::settledCarriesExtendedButtons(settledVersion)) {
         frame.length = reportBytes;
         return frame;
     }
     const std::uint32_t known = extButtons & proto::kExtButtonsKnownMask;
-    frame.bytes[reportBytes] = static_cast<std::uint8_t>(known & 0xFFU);
-    frame.bytes[reportBytes + 1] = static_cast<std::uint8_t>((known >> 8) & 0xFFU);
-    frame.bytes[reportBytes + 2] = static_cast<std::uint8_t>((known >> 16) & 0xFFU);
-    frame.bytes[reportBytes + 3] = static_cast<std::uint8_t>((known >> 24) & 0xFFU);
+    bits::storeLe32(frame.bytes.data() + reportBytes, known);
     frame.length = kInputFrameMaxBytes;
     return frame;
 }
@@ -196,15 +188,10 @@ std::array<std::uint8_t, 17> SatelliteClient::encodeMotionPayload(
     std::array<std::uint8_t, 17> out{};
     out[0] = controllerIndex;
     auto storeLe16 = [&out](std::size_t off, std::int16_t v) {
-        const auto u = static_cast<std::uint16_t>(v);
-        out[off] = static_cast<std::uint8_t>(u & 0xFFU);
-        out[off + 1] = static_cast<std::uint8_t>((u >> 8) & 0xFFU);
+        bits::storeLe16(out.data() + off, bits::asUint16(v));
     };
     auto storeLe32 = [&out](std::size_t off, std::uint32_t v) {
-        out[off] = static_cast<std::uint8_t>(v & 0xFFU);
-        out[off + 1] = static_cast<std::uint8_t>((v >> 8) & 0xFFU);
-        out[off + 2] = static_cast<std::uint8_t>((v >> 16) & 0xFFU);
-        out[off + 3] = static_cast<std::uint8_t>((v >> 24) & 0xFFU);
+        bits::storeLe32(out.data() + off, v);
     };
     storeLe16(1, gyroX);
     storeLe16(3, gyroY);
@@ -251,9 +238,7 @@ std::array<std::uint8_t, 16> SatelliteClient::encodeTouchpadPayload(
     if (buttonPressed) { flags |= 0x04U; }
     out[1] = flags;
     auto storeLe16 = [&out](std::size_t off, std::int16_t v) {
-        const auto u = static_cast<std::uint16_t>(v);
-        out[off] = static_cast<std::uint8_t>(u & 0xFFU);
-        out[off + 1] = static_cast<std::uint8_t>((u >> 8) & 0xFFU);
+        bits::storeLe16(out.data() + off, bits::asUint16(v));
     };
     out[2] = finger0Id;
     storeLe16(3, finger0X);
@@ -261,10 +246,7 @@ std::array<std::uint8_t, 16> SatelliteClient::encodeTouchpadPayload(
     out[7] = finger1Id;
     storeLe16(8, finger1X);
     storeLe16(10, finger1Y);
-    out[12] = static_cast<std::uint8_t>(eventTimeMs & 0xFFU);
-    out[13] = static_cast<std::uint8_t>((eventTimeMs >> 8) & 0xFFU);
-    out[14] = static_cast<std::uint8_t>((eventTimeMs >> 16) & 0xFFU);
-    out[15] = static_cast<std::uint8_t>((eventTimeMs >> 24) & 0xFFU);
+    bits::storeLe32(out.data() + 12, eventTimeMs);
     return out;
 }
 
@@ -276,9 +258,7 @@ SatelliteClient::encodePointerPayload(std::uint8_t controllerIndex,
     out[1] = reducer::pointerFingerFlags(f);
     out[2] = reducer::pointerButtons(f);
     auto storeLe16 = [&out](int off, std::int16_t v) {
-        const auto u = static_cast<std::uint16_t>(v);
-        out[static_cast<std::size_t>(off)] = static_cast<std::uint8_t>(u & 0xFFU);
-        out[static_cast<std::size_t>(off) + 1] = static_cast<std::uint8_t>((u >> 8) & 0xFFU);
+        bits::storeLe16(out.data() + off, bits::asUint16(v));
     };
     out[3] = f.finger0Id;
     storeLe16(4, f.finger0X);
@@ -286,10 +266,7 @@ SatelliteClient::encodePointerPayload(std::uint8_t controllerIndex,
     out[8] = f.finger1Id;
     storeLe16(9, f.finger1X);
     storeLe16(11, f.finger1Y);
-    out[13] = static_cast<std::uint8_t>(f.eventTimeMs & 0xFFU);
-    out[14] = static_cast<std::uint8_t>((f.eventTimeMs >> 8) & 0xFFU);
-    out[15] = static_cast<std::uint8_t>((f.eventTimeMs >> 16) & 0xFFU);
-    out[16] = static_cast<std::uint8_t>((f.eventTimeMs >> 24) & 0xFFU);
+    bits::storeLe32(out.data() + 13, f.eventTimeMs);
     storeLe16(17, f.scrollV);
     return out;
 }
@@ -320,8 +297,7 @@ void SatelliteClient::sendTouchpad(int controllerIndex, bool finger0Active, std:
 
 std::array<std::uint8_t, 3> SatelliteClient::encodeAudioFrameHeader(std::uint8_t controllerIndex,
                                                                     std::uint16_t seq) {
-    return {controllerIndex, static_cast<std::uint8_t>(seq >> 8),
-            static_cast<std::uint8_t>(seq & 0xFFU)};
+    return {controllerIndex, bits::byteOf(bits::u32(seq), 1U), bits::byteOf(bits::u32(seq), 0U)};
 }
 
 bool SatelliteClient::sendMicAudio(int controllerIndex, std::uint16_t seq, const std::uint8_t* opus,
@@ -504,7 +480,7 @@ bool SatelliteClient::decryptIncoming(std::uint8_t* buf, std::size_t n,
     if (std::memcmp(buf, m.token.data(), m.token.size()) != 0) { return false; }
 
     const std::uint64_t mark = recvMark_.load(std::memory_order_acquire);
-    if ((mark >> 32) != generation) { return false; }
+    if ((mark >> 32U) != generation) { return false; }
     const auto last = static_cast<std::uint32_t>(mark);
     const std::uint32_t counter = util::readU32Be(buf + 4);
     if (last != 0 && counter <= last) { return false; }
@@ -515,7 +491,7 @@ bool SatelliteClient::decryptIncoming(std::uint8_t* buf, std::size_t n,
         return false;
     }
     std::uint64_t expected = mark;
-    return recvMark_.compare_exchange_strong(expected, (std::uint64_t{generation} << 32) | counter,
+    return recvMark_.compare_exchange_strong(expected, (std::uint64_t{generation} << 32U) | counter,
                                              std::memory_order_acq_rel, std::memory_order_acquire);
 }
 

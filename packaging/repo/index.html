@@ -87,10 +87,10 @@
   tells you one exists, and <code>apt upgrade</code> and <code>dnf upgrade</code>
   do the installing.</p>
 
-  <h2>Debian 13+ and derivatives</h2>
-  <p>The .deb needs the distro's Qt to be at least 6.7, which Debian 13
-  ships. On Ubuntu 24.04 LTS and anything older, skip to the AppImage or
-  Flatpak below.</p>
+  <h2>Debian 13, Ubuntu 25.10 and 26.04</h2>
+  <p>The .deb is built on Debian 13 against Debian's own Qt and depends only on
+  its public interface. On Ubuntu 24.04 LTS and anything older, skip to the
+  AppImage or Flatpak below.</p>
   <pre><code>curl -fsSL https://tinkernorth.github.io/dish-linux/gpg.key \
   | sudo gpg --dearmor -o /usr/share/keyrings/dish-archive-keyring.gpg
 
@@ -101,7 +101,10 @@ echo "deb [signed-by=/usr/share/keyrings/dish-archive-keyring.gpg] \
 sudo apt update
 sudo apt install dish</code></pre>
 
-  <h2>Fedora / RHEL / Rocky / Alma / openSUSE</h2>
+  <h2>Fedora 44 and 45</h2>
+  <p>The .rpm is built on Fedora 44 and signed with the repository key. (2.8.1's
+  was not signed, so this repository refused it.) Fedora 43 cannot install a
+  package built on Fedora 44: use the AppImage below.</p>
   <pre><code>sudo curl -fsSL -o /etc/yum.repos.d/dish.repo \
   https://tinkernorth.github.io/dish-linux/rpm/dish.repo
 

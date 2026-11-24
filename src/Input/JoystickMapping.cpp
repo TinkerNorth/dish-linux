@@ -3,6 +3,7 @@
 
 #include "JoystickMapping.h"
 
+#include "core/Bits.h"
 #include "core/input/Deadzones.h"
 
 #include <cstddef>
@@ -66,7 +67,9 @@ bool captureAxisPasses(int value) {
 
 bool captureButtonPasses() { return true; }
 
-bool captureHatPasses(int hatValue) { return (hatValue & 0xFF) != hat::kCentered; }
+bool captureHatPasses(int hatValue) {
+    return bits::lowByte(bits::asUint32(hatValue)) != hat::kCentered;
+}
 
 namespace {
 

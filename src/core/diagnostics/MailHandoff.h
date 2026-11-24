@@ -13,6 +13,8 @@
 
 #pragma once
 
+#include "core/Bits.h"
+
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
@@ -155,8 +157,8 @@ inline void appendEncoded(std::string& out, unsigned char ch) {
         return;
     }
     out.push_back('%');
-    out.push_back(kHex[static_cast<std::size_t>(ch >> 4)]);
-    out.push_back(kHex[static_cast<std::size_t>(ch & 0x0F)]);
+    out.push_back(kHex[bits::highNibble(ch)]);
+    out.push_back(kHex[bits::lowNibble(ch)]);
 }
 
 // The byte length of the UTF-8 sequence a lead byte starts; a stray continuation byte is one.

@@ -30,7 +30,7 @@ PAGES_DIR="${1:-}"
 STAGING_DIR="${2:-}"
 SUITE="${DISH_APT_SUITE:-stable}"
 COMPONENT="main"
-ARCH="amd64"
+ARCH="${DISH_APT_ARCH:-amd64}"
 ORIGIN="${DISH_APT_ORIGIN:-TinkerNorth}"
 LABEL="${DISH_APT_LABEL:-Dish}"
 DESCRIPTION="Dish Linux package repository"
@@ -52,7 +52,7 @@ fi
 pool_dir="$PAGES_DIR/debian/pool/${COMPONENT}/d/dish"
 mkdir -p "$pool_dir"
 shopt -s nullglob
-debs=("$STAGING_DIR"/dish_*_${ARCH}.deb)
+debs=("$STAGING_DIR"/dish_*_"${ARCH}".deb)
 if [ "${#debs[@]}" -eq 0 ]; then
     echo "::warning::No dish_*_${ARCH}.deb found in $STAGING_DIR; nothing to add"
 else

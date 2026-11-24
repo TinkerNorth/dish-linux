@@ -13,14 +13,15 @@
 namespace dish::util {
 
 inline void putU16Be(std::uint8_t* dst, std::uint16_t v) noexcept {
-    dst[0] = static_cast<std::uint8_t>((v >> 8) & 0xFFU);
-    dst[1] = static_cast<std::uint8_t>(v & 0xFFU);
+    const auto word = static_cast<std::uint32_t>(v);
+    dst[0] = static_cast<std::uint8_t>((word >> 8U) & 0xFFU);
+    dst[1] = static_cast<std::uint8_t>(word & 0xFFU);
 }
 
 inline void putU32Be(std::uint8_t* dst, std::uint32_t v) noexcept {
-    dst[0] = static_cast<std::uint8_t>((v >> 24) & 0xFFU);
-    dst[1] = static_cast<std::uint8_t>((v >> 16) & 0xFFU);
-    dst[2] = static_cast<std::uint8_t>((v >> 8) & 0xFFU);
+    dst[0] = static_cast<std::uint8_t>((v >> 24U) & 0xFFU);
+    dst[1] = static_cast<std::uint8_t>((v >> 16U) & 0xFFU);
+    dst[2] = static_cast<std::uint8_t>((v >> 8U) & 0xFFU);
     dst[3] = static_cast<std::uint8_t>(v & 0xFFU);
 }
 
@@ -31,18 +32,19 @@ inline void putU64Be(std::uint8_t* dst, std::uint64_t v) noexcept {
 }
 
 inline std::uint16_t readU16Be(const std::uint8_t* src) noexcept {
-    return static_cast<std::uint16_t>((static_cast<std::uint16_t>(src[0]) << 8) |
-                                      static_cast<std::uint16_t>(src[1]));
+    return static_cast<std::uint16_t>((static_cast<std::uint32_t>(src[0]) << 8U) |
+                                      static_cast<std::uint32_t>(src[1]));
 }
 
 inline std::uint32_t readU32Be(const std::uint8_t* src) noexcept {
-    return (static_cast<std::uint32_t>(src[0]) << 24) | (static_cast<std::uint32_t>(src[1]) << 16) |
-           (static_cast<std::uint32_t>(src[2]) << 8) | static_cast<std::uint32_t>(src[3]);
+    return (static_cast<std::uint32_t>(src[0]) << 24U) |
+           (static_cast<std::uint32_t>(src[1]) << 16U) |
+           (static_cast<std::uint32_t>(src[2]) << 8U) | static_cast<std::uint32_t>(src[3]);
 }
 
 inline std::uint64_t readU64Be(const std::uint8_t* src) noexcept {
     std::uint64_t v = 0;
-    for (std::size_t i = 0; i < 8; ++i) { v = (v << 8) | static_cast<std::uint64_t>(src[i]); }
+    for (std::size_t i = 0; i < 8; ++i) { v = (v << 8U) | static_cast<std::uint64_t>(src[i]); }
     return v;
 }
 

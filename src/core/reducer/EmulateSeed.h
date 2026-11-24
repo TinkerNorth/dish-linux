@@ -9,6 +9,7 @@
 
 #pragma once
 
+#include "core/Bits.h"
 #include "Models/Models.h"
 
 #include <QChar>
@@ -25,8 +26,8 @@ namespace dish::reducer {
 inline QString vidPidKey(int vendorId, int productId) {
     if (vendorId == 0 && productId == 0) { return {}; }
     return QStringLiteral("%1:%2")
-        .arg(vendorId & 0xFFFF, 4, 16, QLatin1Char('0'))
-        .arg(productId & 0xFFFF, 4, 16, QLatin1Char('0'));
+        .arg(bits::asUint32(vendorId) & 0xFFFFU, 4, 16, QLatin1Char('0'))
+        .arg(bits::asUint32(productId) & 0xFFFFU, 4, 16, QLatin1Char('0'));
 }
 
 // Both sides are lowercase protocol constants, so the compares are verbatim.

@@ -16,6 +16,132 @@ the repos share a version number.
 
 ---
 
+## [2.9.0] - 2026-11-23
+
+The Linux packages that 2.8.1 shipped broken work again: the Arch package
+starts, the DNF repository installs, and the .deb and the .rpm no longer
+depend on one exact build of the distribution's Qt. Underneath, the client
+moves to Qt 6.12.1 LTS, and every package the release publishes is now built,
+installed and started on every pull request.
+
+### Fixed
+
+- **The Arch package carries a working AppImage.** makepkg stripped
+  `/opt/dish/Dish.AppImage` as if it were a plain ELF binary, which cut the
+  image off the runtime: the `dish-bin` 2.8.1 in the pacman repository holds a
+  944 KB file where the release's AppImage is 53 MB, and it cannot start. The
+  PKGBUILD now turns stripping off, and the pull-request lane that builds the
+  package from the run's AppImage found it by comparing the installed file
+  with the one packaged.
+- **The DNF repository installs Dish.** Its `dish.repo` turns on `gpgcheck`,
+  and the 2.8.1 .rpm was never signed, so `dnf install dish` from the
+  repository refused 2.8.1 on every Fedora with "The package is not signed".
+  The release now signs the .rpm with the repository key before it is
+  published, so the downloadable file and the repository's copy are the same
+  signed bytes, and the repository build signs anything still unsigned. Every
+  pull request now installs Dish from freshly built APT and DNF repositories
+  in clean Debian and Fedora containers and launches it.
+- **The .deb and .rpm no longer pin one exact Qt build.** The QML's
+  ahead-of-time C++ called a private Qt symbol, so 2.8.1's .deb required
+  `qt6-declarative-private-abi (= 6.8.2)` and its .rpm
+  `Qt_6.10_PRIVATE_API`; the next Debian Qt update would have made the .deb
+  uninstallable, and on an up-to-date Fedora 44 the .rpm downgrades the
+  system's Qt. The QML now ships as bytecode, so the packages need Qt's public
+  interface only. The .deb installs on Debian 13 and Ubuntu 25.10 and 26.04,
+  and the .rpm, built on Fedora 44, on Fedora 44 and 45.
+- **The release verification recipe works.** `SECURITY.md` and
+  `CONTRIBUTING.md` named `v`-prefixed tags and the wrong signing workflow, so
+  following them failed on a good release; the commands now match the bare
+  tags and `_release_harden.yml`, and were run against 2.8.1. The SLSA
+  provenance, which `slsa-verifier` rejects because the generator is pinned by
+  commit, is verified with `cosign verify-blob-attestation` naming that
+  commit.
+
+### Changed
+
+- **Built with Qt 6.12.1, the current LTS.** CI and the AppImage move from
+  Qt 6.10.3 (out of support since April) to 6.12.1. The 6.10.3 pin existed
+  for a crash in Qt 6.9's compiled QML (QTBUG-142514); upstream's regression
+  test for it passes on 6.12.1, which throws the same TypeError 6.10.3 does.
+  The Flatpak moves to the KDE 6.11 runtime, the newest on Flathub.
+- **SDL2 2.32.10** in the AppImage and the Flatpak (from 2.30.9), and **one
+  SDL2 floor**: CMake now requires 2.24, the release that added the
+  `SDL_GameControllerPath` the code reads, and the documents and the Licenses
+  screen say the same. libsodium 1.0.22 in the Flatpak (from 1.0.20).
+- **sentry-native 0.17.6** in release builds (from 0.16.3), sentry-cli 3.8.2 for
+  the symbol uploads.
+- **The .rpm is built and tested on Fedora 44.** Fedora 42 reached its end of
+  life in May.
+- **The Licenses screen names ENet and OpenSSL**, which every build carries;
+  `THIRD_PARTY.md` now says what the AppImage and the Flatpak bundle.
+- **A new README.** It follows the shape every Dish README now shares: what
+  to download for each distribution and which releases each package installs
+  on, four steps to a working controller, the Moonlight host path, the
+  permissions the udev rule gives, and the three things that can leave the
+  computer, with a line for anyone still on 2.8.1. The old one said protocol
+  version 1 and that Dish talks to no TinkerNorth server. Its tray, suspend
+  and lid sections moved to `docs/PACKAGING.md`, the build requirements, the
+  language pick and the manual checklist to `CONTRIBUTING.md`.
+
+### Build and CI
+
+- Every pin lives in `scripts/tools.sh`, and
+  `scripts/check-version-consistency.sh` (run by `version-consistency.yml` and
+  first by `scripts/ci-local.sh`) fails a change that moves a copy without its
+  source: the version, the Qt and SDL2 floors, the Qt, SDL2, sentry-native and
+  KDE runtime pins, the container images, clang-format and the protocol
+  number. It also holds `README.md` to the tree: every relative link
+  resolves, every version it names is the project's or the Qt pin, the Qt
+  floor, the Debian and Fedora it says the packages are built on and the
+  AppImage's glibc match their sources, and the blocks every Dish README
+  shares match the canonical copy in `tests/fixtures/readme-family/` word
+  for word.
+- One build path: every CI gate is a script under `scripts/` that
+  `scripts/ci-local.sh` runs too, and `scripts/package-in-container.sh` runs
+  the .deb, .rpm, Arch and repository lanes locally in CI's containers. The
+  `scripts/ci_local.sh` forwarder is gone; `--no-tidy` is now `--quick`.
+- The APT, DNF and pacman repositories, the `dish-bin` package, the AppImage
+  and the Flatpak are built on every pull request, so a tag is not the first
+  time any of them runs. The repositories are signed with a throwaway key and
+  read back; nothing is published.
+- linuxdeploy, its Qt plugin, appimagetool and the AppImage runtime are fetched
+  at numbered releases and fail on a SHA-256 mismatch, instead of `continuous`
+  with a warning. The AppImage's smoke test now also requires the controller
+  database line.
+- The security gates and the release hardening are the fleet's shared
+  `_security.yml` and `_release_harden.yml`, byte-identical in every
+  repository, with the shared `check-action-pins.sh`, `osv-scan.sh` and
+  `security-allowlist.py` that `scripts/ci-local.sh` runs too. OSV-Scanner
+  2.7.1 now scans the sources this tree builds (ENet, SDL2, libsodium,
+  sentry-native, Catch2) by upstream commit through `scripts/osv-lockfile.sh`;
+  before, it found no packages and passed. Releases are signed with cosign
+  3.1.4 into one `<file>.sigstore.json` bundle per file instead of a `.sig`
+  and a `.crt`, scanned with Grype 0.122.1 and described by Syft 1.57.2, and
+  every pull request runs the hardening in dry-run mode on its own packages.
+- The Catch2 fallback moves to v3.16.1, and the coverage lane builds against
+  it. The AppImage build resolves the app's own QML module for linuxdeploy's
+  scanner and fails on any linuxdeploy error.
+- The Sentry symbol uploads and the Sentry release are strict: a failed
+  upload or release association fails the release (without the Sentry secrets
+  the steps skip, as in a fork).
+- CodeQL analyses first-party code only: the vendored ENet is built before
+  CodeQL starts tracing, and OSV-Scanner watches it. Dependency review runs on
+  every pull request.
+- clang-tidy is pinned at 23.1.4, and no bitwise operator in the code takes a
+  signed operand any more (its `bugprone-signed-bitwise` check found 481
+  sites): bytes and half-words widen through `src/core/Bits.h`, the helpers
+  Dish for Windows shares, before any shift or mask. A differential run of the
+  old and new code over the decoders, the button map, the HID descriptor
+  parser, the output reports and the Moonlight encoders found no change in
+  behaviour.
+- The release's bill of materials names what the packages carry: Qt, SDL2,
+  libsodium, Opus, OpenSSL, libcurl, sentry-native, ENet and Inter, at the
+  versions each package bundles, from the build rather than from what Syft can
+  see inside a package.
+- CodeQL blocks and uploads its results. Containers are pinned to release
+  tags, every checkout drops its credentials, the release tag pattern is
+  `[0-9]*.[0-9]*.[0-9]*`, and clang-format moves to 23.1.5 (no source change).
+
 ## [2.8.1] - 2026-11-23
 
 2.8.0 was tagged and never published: the release's Fedora package check read

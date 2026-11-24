@@ -560,11 +560,11 @@ std::string logMessage(const BundleLogEvent& event, HostAliases& aliases) {
         event.subjectIsHost ? aliases.aliasFor(event.subject) : aliases.scrubbed(event.subject);
     for (const std::string& detail : event.details) {
         if (detail.empty()) { continue; }
-        message += " ";
+        message += ' ';
         message += aliases.scrubbed(detail);
     }
     if (!event.host.empty()) {
-        message += " ";
+        message += ' ';
         message += aliases.aliasFor(event.host);
     }
     return message;

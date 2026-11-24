@@ -1,9 +1,10 @@
 name: Security
 
-# PR-time security gates for dish-linux. Pulls the shared jobs from
-# this repo's local copy of `_security.yml` (action-pin lint, allowlist-
-# expiry, OSV-Scanner, dependency-review, gitleaks). CodeQL lives in
-# codeql.yml because it has its own matrix.
+# Security gates on every pull request, every push to main and weekly. The jobs live in the
+# shared _security.yml (action-pin lint, allowlist expiry, OSV-Scanner, dependency review,
+# gitleaks), byte-identical across the fleet; CodeQL lives in codeql.yml because it has its
+# own matrix. Only the inputs that differ from _security.yml's defaults are passed, each with
+# its reason.
 
 on:
   push:
@@ -11,29 +12,28 @@ on:
   pull_request:
     branches: [main]
   schedule:
-    - cron: "0 6 * * 1" # weekly Monday 06:00 UTC
+    - cron: "0 6 * * 1" # weekly, Monday 06:00 UTC
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
-  pull-requests: read
-  security-events: write
 
 jobs:
   shared:
+    # Exactly what _security.yml declares; a narrower grant fails the call at startup.
+    permissions:
+      contents: read
+      pull-requests: read
     uses: ./.github/workflows/_security.yml
     with:
-      # dish-linux takes Qt6 from the official binaries (see
-      # .github/actions/setup-qt) and SDL2 from system packages, with no
-      # vendored source trees, so OSV-Scanner has nothing C++ specific to chew
-      # on. Scan the worktree for any package manifests OSV recognises
-      # (Gradle wrappers, CMake fetch declarations, etc.).
-      osv_scan_paths: |
-        .
-      gitleaks_enabled: true
+      osv_scan_paths: .
+      # Nothing this repository builds from source has a manifest OSV-Scanner reads (ENet
+      # vendored, SDL2 and libsodium as Flatpak modules, sentry-native and Catch2 through
+      # FetchContent), so the script names each by its upstream commit.
+      osv_lockfile_script: scripts/osv-lockfile.sh
+      # Dependency review runs on every pull request: the repository's Dependency graph and
+      # Dependabot alerts are on.
       dependency_review_enabled: true
-      action_pin_lint_enabled: true
-      allowlist_expiry_enabled: true

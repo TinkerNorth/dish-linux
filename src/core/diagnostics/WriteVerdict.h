@@ -9,6 +9,8 @@
 
 #pragma once
 
+#include "core/Bits.h"
+
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -98,8 +100,8 @@ inline std::string osErrorName(std::uint32_t code) {
 inline std::string hexByteText(std::uint8_t value) {
     constexpr std::string_view kDigits = "0123456789abcdef";
     std::string out(2, '0');
-    out[0] = kDigits[static_cast<std::size_t>(value >> 4)];
-    out[1] = kDigits[static_cast<std::size_t>(value & 0x0F)];
+    out[0] = kDigits[bits::highNibble(value)];
+    out[1] = kDigits[bits::lowNibble(value)];
     return out;
 }
 

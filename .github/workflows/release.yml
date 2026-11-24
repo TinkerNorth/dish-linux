@@ -2,16 +2,15 @@ name: Release
 
 on:
   push:
-    # Bare MAJOR.MINOR.PATCH tags, no v prefix: org convention for the
-    # product repos, because dish-android's pipeline requires bare tags.
-    # (Releases were previously v-prefixed; every version consumer below
-    # tolerates a legacy v by stripping it.)
-    tags: ["[0-9]*"]
+    # Bare MAJOR.MINOR.PATCH tags, no v prefix: the fleet convention. A
+    # prerelease (1.2.3-rc.1) matches too and publishes as a prerelease.
+    tags: ["[0-9]*.[0-9]*.[0-9]*"]
   workflow_dispatch:
     inputs:
       tag:
         description: "Tag to release (must already exist)"
         required: true
+        type: string
 
 # Packages a tagged commit four ways — .deb (Debian 13+), .rpm (Fedora/RHEL/
 # openSUSE), AppImage (everything else, including an LTS whose Qt is below the
@@ -75,20 +74,19 @@ concurrency:
 jobs:
   gates:
     name: PR-time gates against tag
-    # Must be a superset of _security.yml's own permissions block: a called
-    # workflow asking for more than the caller holds fails the run outright.
+    # Exactly what _security.yml declares: a called workflow asking for more
+    # than the caller holds fails the run outright.
     permissions:
       contents: read
       pull-requests: read
-      security-events: write
     uses: ./.github/workflows/_security.yml
     with:
-      osv_scan_paths: |
-        .
-      gitleaks_enabled: true
+      osv_scan_paths: .
+      # The same OSV inputs as security.yml, with the same reasons. Dependency
+      # review compares a pull request's dependency changes, and _security.yml
+      # runs it only on pull_request, so a tag passes false.
+      osv_lockfile_script: scripts/osv-lockfile.sh
       dependency_review_enabled: false
-      action_pin_lint_enabled: true
-      allowlist_expiry_enabled: true
 
   required-secrets:
     name: Required release secrets gate
@@ -102,7 +100,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [ "${{ github.ref_type }}" != "tag" ] || ! [[ "$GITHUB_REF_NAME" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+ ]]; then
+          if [ "${GITHUB_REF_TYPE}" != "tag" ] || ! [[ "${GITHUB_REF_NAME}" =~ ^[0-9]+\.[0-9]+\.[0-9]+ ]]; then
             echo "::notice::Non-release-tag run; cosign keyless gate is advisory."
             exit 0
           fi
@@ -155,7 +153,8 @@ jobs:
     name: Build .deb (Debian 13)
     needs: [gates, required-secrets]
     runs-on: ubuntu-24.04
-    container: debian:trixie
+    # DISH_DEB_IMAGE in scripts/tools.sh, the tag linux-ci.yml's package job uses.
+    container: debian:13.7
     timeout-minutes: 45
     # A container job's default shell is `sh`, which has neither `<<<` nor
     # `pipefail`; every step here assumes bash.
@@ -163,39 +162,18 @@ jobs:
       run:
         shell: bash
     steps:
-      - name: Install build and packaging dependencies
-        run: |
-          set -eux
-          cat > /etc/apt/apt.conf.d/99-dish-acquire <<'CONF'
-          Acquire::http::Timeout "15";
-          Acquire::https::Timeout "15";
-          Acquire::Retries "2";
-          CONF
-          apt-get update
-          apt-get install -y --no-install-recommends \
-            git ca-certificates \
-            build-essential cmake ninja-build pkg-config \
-            qt6-base-dev qt6-base-dev-tools qt6-declarative-dev qt6-svg-dev \
-            qt6-tools-dev qt6-tools-dev-tools qt6-l10n-tools \
-            libsodium-dev libsdl2-dev libssl-dev libopus-dev libdbus-1-dev \
-            libcurl4-openssl-dev curl \
-            dpkg-dev fakeroot file gzip \
-            librsvg2-bin desktop-file-utils appstream lintian
-
+      # The image has no git, so this checkout comes through the REST API.
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.tag || github.ref }}
+          persist-credentials: false
 
-      - name: Validate desktop entry and AppStream metadata
-        run: |
-          set -euo pipefail
-          desktop-file-validate packaging/dish.desktop
-          appstreamcli validate --no-net packaging/com.tinkernorth.Dish.metainfo.xml
+      - name: Install build and packaging dependencies
+        run: ./scripts/package-deps.sh deb
 
       # Configure + build + cpack live in scripts/build-deb.sh (the `package`
-      # preset), the same path linux-ci.yml's package job and a local
-      # `scripts/build-deb.sh` run.
+      # preset), the same path linux-ci.yml's package job runs.
       - name: Build the .deb
         env:
           # Empty for anything but a release from this repo: secrets are not
@@ -204,139 +182,21 @@ jobs:
           DISH_SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
         run: ./scripts/build-deb.sh
 
-      # Best effort: a symbol-upload hiccup must not fail a release. The org
-      # and project fall back to the numeric ids inside the DSN, which the
-      # Sentry API accepts in place of slugs. The build-tree binary is the
-      # unstripped one; packaging strips its own copy.
+      # Strict: a release whose crashes cannot be symbolicated is not finished,
+      # so a failed upload fails the job (scripts/sentry-cli.sh skips, with a
+      # notice, only when the Sentry secrets are absent, as in a fork).
       - name: Upload debug symbols to Sentry
-        continue-on-error: true
         env:
           SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
           SENTRY_ORG: ${{ vars.SENTRY_ORG }}
           SENTRY_PROJECT: ${{ vars.SENTRY_PROJECT }}
-          BUILD_TREE: build-package
-        run: |
-          set -euo pipefail
-          if [ -z "${SENTRY_AUTH_TOKEN:-}" ] || [ -z "${SENTRY_DSN:-}" ]; then
-            echo "::notice::SENTRY_AUTH_TOKEN or SENTRY_DSN unset; skipping symbol upload."
-            exit 0
-          fi
-          if [ -z "${SENTRY_ORG:-}" ]; then
-            SENTRY_ORG="$(sed -nE 's#.*@o([0-9]+)\..*#\1#p' <<<"$SENTRY_DSN")"; export SENTRY_ORG
-          fi
-          if [ -z "${SENTRY_PROJECT:-}" ]; then
-            SENTRY_PROJECT="${SENTRY_DSN##*/}"; export SENTRY_PROJECT
-          fi
-          bin="$(find "$BUILD_TREE" -maxdepth 2 -type f -name dish -perm -u+x | head -1)"
-          [ -n "$bin" ] || { echo "::warning::no dish binary under $BUILD_TREE"; exit 0; }
-          cli="${RUNNER_TEMP}/sentry-cli"
-          curl -fsSL --retry 3 -o "$cli" https://github.com/getsentry/sentry-cli/releases/download/3.7.0/sentry-cli-Linux-x86_64
-          echo "cec71d46a7cc394c94b6e75f1601985c710d457376c546ef3975567b3671563b  $cli" | sha256sum -c -
-          chmod +x "$cli"
-          "$cli" debug-files upload --include-sources "$bin"
+        run: ./scripts/sentry-cli.sh symbols build-package
 
-      - name: lintian
-        run: lintian --fail-on error --tag-display-limit 0 dist/*.deb
-
-      - name: Assert package contents
-        run: |
-          set -euo pipefail
-          contents="$(dpkg-deb -c dist/*.deb)"
-          for path in \
-            ./usr/bin/dish \
-            ./usr/lib/udev/rules.d/70-dish-hidraw.rules \
-            ./usr/share/applications/com.tinkernorth.Dish.desktop \
-            ./usr/share/metainfo/com.tinkernorth.Dish.metainfo.xml \
-            ./usr/share/icons/hicolor/scalable/apps/com.tinkernorth.Dish.svg \
-            ./usr/share/doc/dish/copyright
-          do
-            grep -qE " ${path}\$" <<<"${contents}" \
-              || { echo "::error::${path} missing from the .deb"; exit 1; }
-          done
-          icon="$(sed -n 's/^Icon=//p' packaging/dish.desktop)"
-          grep -q "/apps/${icon}\." <<<"${contents}" \
-            || { echo "::error::Icon=${icon} names no installed icon"; exit 1; }
-
-      # Nothing else can stand in for this. Unit tests, lints and a contents
-      # check all pass against a build tree, and a build tree is exactly what
-      # hides a missing runtime dependency: a QML module resolves from the Qt
-      # install during development and from a Depends: line afterwards.
-      - name: Install the package and launch it
-        run: |
-          set -euo pipefail
-          apt-get install -y ./dist/*.deb
-          export QT_QPA_PLATFORM=offscreen
-          export XDG_RUNTIME_DIR=/tmp/dish-runtime
-          mkdir -p "$XDG_RUNTIME_DIR"
-          # The SVG handler is a run-time plugin, so its absence shows up as
-          # "Unsupported image format" per glyph rather than as a link error.
-          echo "--- Qt image-format plugins ---"
-          ls -1 /usr/lib/*/qt6/plugins/imageformats/ 2>/dev/null || echo "(no imageformats directory)"
-          dpkg -S /usr/lib/*/qt6/plugins/imageformats/libqsvg.so 2>/dev/null \
-            || echo "libqsvg.so is absent — no package here provides it"
-          # Signalled by hand rather than through `timeout`, which reports 124
-          # whether the child shut down cleanly or had to be killed — the one
-          # distinction this step exists to make. Every wait below is bounded,
-          # because an unbounded one is how this step once sat for 40 minutes
-          # and took the job's timeout with it.
-          set +e
-          dish >/tmp/launch.log 2>&1 &
-          app=$!
-          sleep 20
-          started=0
-          kill -0 "$app" 2>/dev/null && started=1
-          needed_kill=0
-          if [ "$started" = 1 ]; then
-            kill -TERM "$app"
-            waited=0
-            while [ "$waited" -lt 15 ] && kill -0 "$app" 2>/dev/null; do
-              sleep 1
-              waited=$((waited + 1))
-            done
-            if kill -0 "$app" 2>/dev/null; then
-              kill -KILL "$app"
-              needed_kill=1
-            fi
-          fi
-          wait "$app"
-          rc=$?
-          set -e
-          cat /tmp/launch.log
-          if grep -qE 'is not installed|failed to load component|Cannot load library|no such file' /tmp/launch.log; then
-            echo "::error::the installed package cannot load its Qt/QML runtime"
-            exit 1
-          fi
-          # Fatal: the app renders no iconography at all when this fires, and
-          # the only symptom is a log flood nobody reads. It stayed a warning
-          # only until the Depends: line was right.
-          if grep -q 'Error decoding:' /tmp/launch.log; then
-            echo "::error::the installed app cannot decode its brand SVGs — the Qt SVG image plugin is missing or unloadable"
-            exit 1
-          fi
-          # The bundled controller database is a resource compiled into the static dish_core. A
-          # binary that lost it still starts, with no controller list and "bundled version 0" on
-          # the Diagnostics page, so only its own start-up line can tell.
-          if ! grep -qE 'controller database: bundled dbVersion [1-9][0-9]* with [1-9][0-9]* records' /tmp/launch.log; then
-            echo "::error::the installed app did not load its bundled controller database"
-            exit 1
-          fi
-          if [ "$started" != 1 ]; then
-            echo "::error::dish exited on its own (${rc}) instead of staying up"
-            exit 1
-          fi
-          # SIGTERM is what a logout sends. Ignoring it means ~AppModel never
-          # runs, so the input thread is not stopped and QSettings never writes
-          # what the session changed.
-          if [ "$needed_kill" = 1 ]; then
-            echo "::error::dish did not exit on SIGTERM; it needed SIGKILL"
-            exit 1
-          fi
-          if [ "$rc" != 0 ]; then
-            echo "::error::dish shut down on SIGTERM but exited ${rc}"
-            exit 1
-          fi
-          echo "::notice::dish came up, shut down on SIGTERM and exited 0"
+      # Metadata, lintian, payload, install and launch: the script
+      # linux-ci.yml's package job runs.
+      - name: Check, install and launch the .deb
+        run: ./scripts/test-package.sh deb
 
       # Stable-name copy for the /releases/latest/download/ permalink; the
       # dash (vs the versioned name's underscores) keeps it clear of the
@@ -361,164 +221,62 @@ jobs:
     name: Build .rpm (Fedora)
     needs: [gates, required-secrets]
     runs-on: ubuntu-24.04
-    container: fedora:42
+    # DISH_RPM_IMAGE in scripts/tools.sh, the tag linux-ci.yml's rpm job uses.
+    container: fedora:44
     timeout-minutes: 45
-    # A container job's default shell is `sh`, which has neither `<<<` nor
-    # `pipefail`; every step here assumes bash.
     defaults:
       run:
         shell: bash
     steps:
-      - name: Install build and packaging dependencies
-        run: |
-          set -eux
-          dnf -y install --setopt=install_weak_deps=False \
-            git-core ca-certificates \
-            gcc-c++ cmake ninja-build pkgconf-pkg-config rpm-build \
-            qt6-qtbase-devel qt6-qtdeclarative-devel qt6-qtsvg-devel qt6-qttools-devel \
-            libsodium-devel SDL2-devel openssl-devel opus-devel dbus-devel \
-            libcurl-devel \
-            librsvg2-tools desktop-file-utils libappstream-glib gzip
-          dnf -y install --allowerasing curl
-
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.tag || github.ref }}
+          persist-credentials: false
+
+      - name: Install build and packaging dependencies
+        run: ./scripts/package-deps.sh rpm
 
       # Same rails as the .deb: scripts/build-rpm.sh drives the `package`
       # preset and swaps the cpack generator.
       - name: Build the .rpm
         env:
-          # Empty for anything but a release from this repo: secrets are not
-          # exposed to forks, so a fork build carries no DSN, cannot upload,
-          # and skips building the SDK entirely.
           DISH_SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
         run: ./scripts/build-rpm.sh
 
-      # Best effort: a symbol-upload hiccup must not fail a release. The org
-      # and project fall back to the numeric ids inside the DSN, which the
-      # Sentry API accepts in place of slugs. The build-tree binary is the
-      # unstripped one; packaging strips its own copy.
+      # Strict: a release whose crashes cannot be symbolicated is not finished,
+      # so a failed upload fails the job (scripts/sentry-cli.sh skips, with a
+      # notice, only when the Sentry secrets are absent, as in a fork).
       - name: Upload debug symbols to Sentry
-        continue-on-error: true
         env:
           SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
           SENTRY_ORG: ${{ vars.SENTRY_ORG }}
           SENTRY_PROJECT: ${{ vars.SENTRY_PROJECT }}
-          BUILD_TREE: build-package
+        run: ./scripts/sentry-cli.sh symbols build-package
+
+      # dnf refuses an unsigned package from the DNF repository, whose .repo
+      # sets gpgcheck=1, so the .rpm is signed with the repository key before
+      # it is hardened: the downloadable file and the repository's copy are
+      # then the same bytes. linux-ci.yml's rpm job rehearses this step with
+      # a throwaway key (scripts/check-rpm-signing.sh).
+      - name: Sign the .rpm with the repository key
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+          GPG_KEY_ID: ${{ secrets.GPG_KEY_ID }}
         run: |
           set -euo pipefail
-          if [ -z "${SENTRY_AUTH_TOKEN:-}" ] || [ -z "${SENTRY_DSN:-}" ]; then
-            echo "::notice::SENTRY_AUTH_TOKEN or SENTRY_DSN unset; skipping symbol upload."
+          if [ -z "${GPG_PRIVATE_KEY:-}" ] || [ -z "${GPG_KEY_ID:-}" ]; then
+            echo "::warning::GPG_PRIVATE_KEY / GPG_KEY_ID not set; the .rpm ships unsigned and rpm-publish skips."
             exit 0
           fi
-          if [ -z "${SENTRY_ORG:-}" ]; then
-            SENTRY_ORG="$(sed -nE 's#.*@o([0-9]+)\..*#\1#p' <<<"$SENTRY_DSN")"; export SENTRY_ORG
-          fi
-          if [ -z "${SENTRY_PROJECT:-}" ]; then
-            SENTRY_PROJECT="${SENTRY_DSN##*/}"; export SENTRY_PROJECT
-          fi
-          bin="$(find "$BUILD_TREE" -maxdepth 2 -type f -name dish -perm -u+x | head -1)"
-          [ -n "$bin" ] || { echo "::warning::no dish binary under $BUILD_TREE"; exit 0; }
-          cli="${RUNNER_TEMP}/sentry-cli"
-          curl -fsSL --retry 3 -o "$cli" https://github.com/getsentry/sentry-cli/releases/download/3.7.0/sentry-cli-Linux-x86_64
-          echo "cec71d46a7cc394c94b6e75f1601985c710d457376c546ef3975567b3671563b  $cli" | sha256sum -c -
-          chmod +x "$cli"
-          "$cli" debug-files upload --include-sources "$bin"
+          printf '%s' "$GPG_PRIVATE_KEY" | gpg --batch --import
+          ./packaging/repo/sign-rpm.sh dist/dish-[0-9]*.rpm
 
-      - name: Assert package contents and scriptlets
-        run: |
-          set -euo pipefail
-          rpm -qlp dist/*.rpm
-          rpm -qp --requires dist/*.rpm
-          # Without the reload a pad plugged in before the install keeps its
-          # root-only node and every USB-direct claim fails.
-          rpm -qp --scripts dist/*.rpm | grep -q 'udevadm control' \
-            || { echo "::error::rpm carries no udev reload scriptlet"; exit 1; }
-          rpm -qlp dist/*.rpm | grep -qx '/usr/lib/udev/rules.d/70-dish-hidraw.rules' \
-            || { echo "::error::udev rule missing or at the wrong path"; exit 1; }
-
-      - name: Install the package and launch it
-        run: |
-          set -euo pipefail
-          dnf -y install ./dist/*.rpm
-          export QT_QPA_PLATFORM=offscreen
-          export XDG_RUNTIME_DIR=/tmp/dish-runtime
-          mkdir -p "$XDG_RUNTIME_DIR"
-          # Fedora builds Qt with journald logging, and Qt then writes its
-          # messages to the journal whenever stderr is not a terminal: the
-          # log this step reads stayed empty, so every check on it was blind.
-          export QT_FORCE_STDERR_LOGGING=1
-          # The SVG handler is a run-time plugin, so its absence shows up as
-          # "Unsupported image format" per glyph rather than as a link error.
-          echo "--- Qt image-format plugins ---"
-          ls -1 /usr/lib64/qt6/plugins/imageformats/ 2>/dev/null || echo "(no imageformats directory)"
-          rpm -qf /usr/lib64/qt6/plugins/imageformats/libqsvg.so 2>/dev/null \
-            || echo "libqsvg.so is absent — no package here provides it"
-          # Signalled by hand rather than through `timeout`, which reports 124
-          # whether the child shut down cleanly or had to be killed — the one
-          # distinction this step exists to make. Every wait below is bounded,
-          # because an unbounded one is how this step once sat for 40 minutes
-          # and took the job's timeout with it.
-          set +e
-          dish >/tmp/launch.log 2>&1 &
-          app=$!
-          sleep 20
-          started=0
-          kill -0 "$app" 2>/dev/null && started=1
-          needed_kill=0
-          if [ "$started" = 1 ]; then
-            kill -TERM "$app"
-            waited=0
-            while [ "$waited" -lt 15 ] && kill -0 "$app" 2>/dev/null; do
-              sleep 1
-              waited=$((waited + 1))
-            done
-            if kill -0 "$app" 2>/dev/null; then
-              kill -KILL "$app"
-              needed_kill=1
-            fi
-          fi
-          wait "$app"
-          rc=$?
-          set -e
-          cat /tmp/launch.log
-          if grep -qE 'is not installed|failed to load component|Cannot load library|no such file' /tmp/launch.log; then
-            echo "::error::the installed package cannot load its Qt/QML runtime"
-            exit 1
-          fi
-          # Fatal: the app renders no iconography at all when this fires, and
-          # the only symptom is a log flood nobody reads. It stayed a warning
-          # only until the Depends: line was right.
-          if grep -q 'Error decoding:' /tmp/launch.log; then
-            echo "::error::the installed app cannot decode its brand SVGs — the Qt SVG image plugin is missing or unloadable"
-            exit 1
-          fi
-          # The bundled controller database is a resource compiled into the static dish_core. A
-          # binary that lost it still starts, with no controller list and "bundled version 0" on
-          # the Diagnostics page, so only its own start-up line can tell.
-          if ! grep -qE 'controller database: bundled dbVersion [1-9][0-9]* with [1-9][0-9]* records' /tmp/launch.log; then
-            echo "::error::the installed app did not load its bundled controller database"
-            exit 1
-          fi
-          if [ "$started" != 1 ]; then
-            echo "::error::dish exited on its own (${rc}) instead of staying up"
-            exit 1
-          fi
-          # SIGTERM is what a logout sends. Ignoring it means ~AppModel never
-          # runs, so the input thread is not stopped and QSettings never writes
-          # what the session changed.
-          if [ "$needed_kill" = 1 ]; then
-            echo "::error::dish did not exit on SIGTERM; it needed SIGKILL"
-            exit 1
-          fi
-          if [ "$rc" != 0 ]; then
-            echo "::error::dish shut down on SIGTERM but exited ${rc}"
-            exit 1
-          fi
-          echo "::notice::dish came up, shut down on SIGTERM and exited 0"
+      # Payload, udev scriptlet, install and launch (with Qt's journald
+      # logging sent back to stderr): the script linux-ci.yml's rpm job runs.
+      - name: Check, install and launch the .rpm
+        run: ./scripts/test-package.sh rpm
 
       # Stable-name copy for the /releases/latest/download/ permalink.
       - name: Stage stable-name alias
@@ -545,6 +303,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.tag || github.ref }}
+          persist-credentials: false
 
       # Build tools, the xcb runtime, Qt and an SDL2 newer than jammy's: the
       # action appimage-ci.yml runs too, so the pull-request lane builds the
@@ -563,37 +322,25 @@ jobs:
           DISH_SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
         run: scripts/build-appimage.sh
 
-      # Best effort: a symbol-upload hiccup must not fail a release. The org
-      # and project fall back to the numeric ids inside the DSN, which the
-      # Sentry API accepts in place of slugs. The build-tree binary is the
-      # unstripped one; packaging strips its own copy.
+      # The bill of materials of what the packages carry (scripts/write-sbom.sh),
+      # shipped beside the AppImage so the hardening folds it into the product
+      # SBOM; appimage-ci.yml writes and checks it on every pull request.
+      - name: Write and check the components SBOM
+        run: |
+          set -euo pipefail
+          scripts/write-sbom.sh build-appimage/AppDir dist/dish-linux-components.spdx.json
+          scripts/check-sbom.sh dist/dish-linux-components.spdx.json
+
+      # Strict: a release whose crashes cannot be symbolicated is not finished,
+      # so a failed upload fails the job (scripts/sentry-cli.sh skips, with a
+      # notice, only when the Sentry secrets are absent, as in a fork).
       - name: Upload debug symbols to Sentry
-        continue-on-error: true
         env:
           SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
           SENTRY_ORG: ${{ vars.SENTRY_ORG }}
           SENTRY_PROJECT: ${{ vars.SENTRY_PROJECT }}
-          BUILD_TREE: build-appimage
-        run: |
-          set -euo pipefail
-          if [ -z "${SENTRY_AUTH_TOKEN:-}" ] || [ -z "${SENTRY_DSN:-}" ]; then
-            echo "::notice::SENTRY_AUTH_TOKEN or SENTRY_DSN unset; skipping symbol upload."
-            exit 0
-          fi
-          if [ -z "${SENTRY_ORG:-}" ]; then
-            SENTRY_ORG="$(sed -nE 's#.*@o([0-9]+)\..*#\1#p' <<<"$SENTRY_DSN")"; export SENTRY_ORG
-          fi
-          if [ -z "${SENTRY_PROJECT:-}" ]; then
-            SENTRY_PROJECT="${SENTRY_DSN##*/}"; export SENTRY_PROJECT
-          fi
-          bin="$(find "$BUILD_TREE" -maxdepth 2 -type f -name dish -perm -u+x | head -1)"
-          [ -n "$bin" ] || { echo "::warning::no dish binary under $BUILD_TREE"; exit 0; }
-          cli="${RUNNER_TEMP}/sentry-cli"
-          curl -fsSL --retry 3 -o "$cli" https://github.com/getsentry/sentry-cli/releases/download/3.7.0/sentry-cli-Linux-x86_64
-          echo "cec71d46a7cc394c94b6e75f1601985c710d457376c546ef3975567b3671563b  $cli" | sha256sum -c -
-          chmod +x "$cli"
-          "$cli" debug-files upload --include-sources "$bin"
+        run: ./scripts/sentry-cli.sh symbols build-appimage
 
       # Stable-name copy for the /releases/latest/download/ permalink.
       # No .zsync/.sha256 alias: AppImageUpdate matches the versioned
@@ -608,6 +355,7 @@ jobs:
             dist/*.AppImage
             dist/*.AppImage.sha256
             dist/*.AppImage.zsync
+            dist/dish-linux-components.spdx.json
           if-no-files-found: error
 
   # =========================================================================
@@ -631,66 +379,34 @@ jobs:
           # without the SVG loader the scalable icon is "Format not
           # recognized".
           sudo apt-get install -y --no-install-recommends flatpak flatpak-builder elfutils librsvg2-common ca-certificates
-          sudo flatpak remote-add --if-not-exists flathub \
-            https://dl.flathub.org/repo/flathub.flatpakrepo
-          sudo flatpak install -y --noninteractive flathub \
-            org.kde.Platform//6.10 org.kde.Sdk//6.10
 
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.tag || github.ref }}
+          persist-credentials: false
 
-      - name: Stage version
-        id: ver
-        run: |
-          set -euo pipefail
-          tag="${GITHUB_REF_NAME:-${{ inputs.tag }}}"
-          echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
-
+      # The KDE runtime branch comes from scripts/tools.sh; the same script
+      # flatpak-ci.yml runs on a pull request.
       - name: Build and export bundle
+        env:
+          TAG: ${{ inputs.tag || github.ref_name }}
         run: |
           set -euo pipefail
-          flatpak-builder --force-clean --disable-rofiles-fuse \
-            --repo=build-flatpak/repo build-flatpak/build \
-            packaging/flatpak/com.tinkernorth.Dish.yml
-          mkdir -p dist
-          flatpak build-bundle build-flatpak/repo \
-            "dist/Dish-${{ steps.ver.outputs.version }}-x86_64.flatpak" \
-            com.tinkernorth.Dish
+          ./scripts/build-flatpak.sh "$TAG"
           # Stable-name copy for the /releases/latest/download/ permalink.
-          cp "dist/Dish-${{ steps.ver.outputs.version }}-x86_64.flatpak" \
-            dist/Dish-x86_64.flatpak
+          cp "dist/Dish-${TAG}-x86_64.flatpak" dist/Dish-x86_64.flatpak
 
-      # Best effort, like the package jobs. flatpak-builder strips the app
+      # Strict, like the package jobs. flatpak-builder strips the app
       # into /app/lib/debug while finishing the module, so the .debug files
       # under the build tree carry the build-id Sentry matches a crash to.
       - name: Upload debug symbols to Sentry
-        continue-on-error: true
         env:
           SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
           SENTRY_ORG: ${{ vars.SENTRY_ORG }}
           SENTRY_PROJECT: ${{ vars.SENTRY_PROJECT }}
-          DEBUG_TREE: build-flatpak/build/files/lib/debug
-        run: |
-          set -euo pipefail
-          if [ -z "${SENTRY_AUTH_TOKEN:-}" ] || [ -z "${SENTRY_DSN:-}" ]; then
-            echo "::notice::SENTRY_AUTH_TOKEN or SENTRY_DSN unset; skipping symbol upload."
-            exit 0
-          fi
-          if [ -z "${SENTRY_ORG:-}" ]; then
-            SENTRY_ORG="$(sed -nE 's#.*@o([0-9]+)\..*#\1#p' <<<"$SENTRY_DSN")"; export SENTRY_ORG
-          fi
-          if [ -z "${SENTRY_PROJECT:-}" ]; then
-            SENTRY_PROJECT="${SENTRY_DSN##*/}"; export SENTRY_PROJECT
-          fi
-          [ -d "$DEBUG_TREE" ] || { echo "::warning::no debug tree at $DEBUG_TREE"; exit 0; }
-          cli="${RUNNER_TEMP}/sentry-cli"
-          curl -fsSL --retry 3 -o "$cli" https://github.com/getsentry/sentry-cli/releases/download/3.7.0/sentry-cli-Linux-x86_64
-          echo "cec71d46a7cc394c94b6e75f1601985c710d457376c546ef3975567b3671563b  $cli" | sha256sum -c -
-          chmod +x "$cli"
-          "$cli" debug-files upload "$DEBUG_TREE"
+        run: ./scripts/sentry-cli.sh debug-tree build-flatpak/build/files/lib/debug
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -720,6 +436,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.tag || github.ref }}
+          persist-credentials: false
 
       - name: Write latest.json (stable tags only)
         id: emit
@@ -728,7 +445,7 @@ jobs:
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          version="${TAG#v}"
+          version="${TAG}"
           case "${version}" in
             *-*)
               echo "::notice::Prerelease tag ${TAG}: skipping latest.json so the stable permalink keeps serving the last stable release."
@@ -887,36 +604,16 @@ jobs:
         with:
           ref: ${{ inputs.tag || github.ref }}
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Create the release and associate commits
-        continue-on-error: true
         env:
           SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
           SENTRY_ORG: ${{ vars.SENTRY_ORG }}
           SENTRY_PROJECT: ${{ vars.SENTRY_PROJECT }}
-        run: |
-          set -euo pipefail
-          if [ -z "${SENTRY_AUTH_TOKEN:-}" ] || [ -z "${SENTRY_DSN:-}" ]; then
-            echo "::notice::SENTRY_AUTH_TOKEN or SENTRY_DSN unset; skipping the Sentry release."
-            exit 0
-          fi
-          if [ -z "${SENTRY_ORG:-}" ]; then
-            SENTRY_ORG="$(sed -nE 's#.*@o([0-9]+)\..*#\1#p' <<<"$SENTRY_DSN")"; export SENTRY_ORG
-          fi
-          if [ -z "${SENTRY_PROJECT:-}" ]; then
-            SENTRY_PROJECT="${SENTRY_DSN##*/}"; export SENTRY_PROJECT
-          fi
-          tag="${{ inputs.tag || github.ref_name }}"
-          version="dish-linux@${tag#v}"
-          cli="${RUNNER_TEMP}/sentry-cli"
-          curl -fsSL --retry 3 -o "$cli" https://github.com/getsentry/sentry-cli/releases/download/3.7.0/sentry-cli-Linux-x86_64
-          echo "cec71d46a7cc394c94b6e75f1601985c710d457376c546ef3975567b3671563b  $cli" | sha256sum -c -
-          chmod +x "$cli"
-          "$cli" releases new "$version"
-          "$cli" releases set-commits "$version" --auto
-          "$cli" releases finalize "$version"
-          "$cli" deploys new -e production -r "$version"
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: ./scripts/sentry-cli.sh release "$TAG"
 
 
   # =========================================================================
@@ -936,11 +633,14 @@ jobs:
       contents: write
     if: ${{ github.ref_type == 'tag' && !contains(github.ref_name, '-') }}
     steps:
+      # No persisted credential: this job pushes gh-pages, but through the
+      # clone below that carries GITHUB_TOKEN itself, not through this checkout.
       - name: Checkout main (for build scripts)
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.tag || github.ref }}
           path: main
+          persist-credentials: false
 
       - name: Gate on GPG signing secret
         id: gate
@@ -956,9 +656,9 @@ jobs:
             echo "skip=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Install apt-utils + GPG
+      - name: Install the repository tools
         if: steps.gate.outputs.skip != 'true'
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends apt-utils gnupg
+        run: sudo main/scripts/package-deps.sh repos
 
       - name: Import signing key
         if: steps.gate.outputs.skip != 'true'
@@ -985,12 +685,12 @@ jobs:
           set -euo pipefail
           if git -C main ls-remote --exit-code --heads origin gh-pages >/dev/null 2>&1; then
             git clone --branch gh-pages --depth 1 \
-              "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git" pages
+              "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" pages
           else
             # First publish: initialize the orphan gh-pages branch with the
             # landing page and gpg.key already in place.
             git clone --depth 1 \
-              "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git" pages
+              "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" pages
             git -C pages checkout --orphan gh-pages
             git -C pages rm -rf . || true
             cp main/packaging/repo/index.html pages/index.html
@@ -1044,11 +744,14 @@ jobs:
       contents: write
     if: ${{ github.ref_type == 'tag' && !contains(github.ref_name, '-') }}
     steps:
+      # No persisted credential: this job pushes gh-pages, but through the
+      # clone below that carries GITHUB_TOKEN itself, not through this checkout.
       - name: Checkout main (for build scripts)
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.tag || github.ref }}
           path: main
+          persist-credentials: false
 
       - name: Gate on GPG signing secret
         id: gate
@@ -1064,9 +767,9 @@ jobs:
             echo "skip=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Install createrepo_c + GPG
+      - name: Install the repository tools
         if: steps.gate.outputs.skip != 'true'
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends createrepo-c gnupg
+        run: sudo main/scripts/package-deps.sh repos
 
       - name: Import signing key
         if: steps.gate.outputs.skip != 'true'
@@ -1091,7 +794,7 @@ jobs:
         run: |
           set -euo pipefail
           git clone --branch gh-pages --depth 1 \
-            "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git" pages
+            "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" pages
 
       - name: Build DNF repo
         if: steps.gate.outputs.skip != 'true'
@@ -1136,7 +839,8 @@ jobs:
     needs: [publish, rpm-publish]
     timeout-minutes: 20
     runs-on: ubuntu-24.04
-    container: archlinux:base-devel
+    # DISH_ARCH_IMAGE in scripts/tools.sh, the tag linux-ci.yml's arch lane uses.
+    container: archlinux:base-devel-20261108.0.623074
     permissions:
       contents: write
     if: ${{ github.ref_type == 'tag' && !contains(github.ref_name, '-') }}
@@ -1157,16 +861,19 @@ jobs:
             echo "skip=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Install tooling
-        if: steps.gate.outputs.skip != 'true'
-        run: pacman -Syu --noconfirm git pacman-contrib
-
-      - name: Checkout main (for the PKGBUILD)
+      # No persisted credential: this job pushes gh-pages, but through the
+      # clone below that carries GITHUB_TOKEN itself, not through this checkout.
+      - name: Checkout main (for the PKGBUILD and the scripts)
         if: steps.gate.outputs.skip != 'true'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.tag || github.ref }}
           path: main
+          persist-credentials: false
+
+      - name: Install tooling
+        if: steps.gate.outputs.skip != 'true'
+        run: main/scripts/package-deps.sh arch
 
       - name: Import signing key
         if: steps.gate.outputs.skip != 'true'
@@ -1176,37 +883,15 @@ jobs:
           printf '%s' "$GPG_PRIVATE_KEY" | gpg --batch --import
           gpg --list-secret-keys --keyid-format=long
 
-      # makepkg refuses to run as root, and the container runs as root:
-      # build as a throwaway user. updpkgsums re-downloads the sources from
-      # the release the publish job just flipped live, so the repo package
-      # is built from (and checksummed against) the published bytes, not a
-      # parallel local copy. -d skips dependency checks: a -bin package()
-      # only copies files, and fuse2/hicolor are runtime deps.
+      # updpkgsums re-downloads the sources from the release the publish job
+      # just flipped live, so the repository package is built from (and
+      # checksummed against) the published bytes. linux-ci.yml's arch lane
+      # runs the same script on every pull request with a local AppImage.
       - name: Build dish-bin package
         if: steps.gate.outputs.skip != 'true'
         env:
           TAG: ${{ inputs.tag || github.ref_name }}
-        run: |
-          set -euo pipefail
-          version="${TAG#v}"
-          useradd -m builder
-          builddir=/home/builder/dish-bin
-          mkdir -p "$builddir"
-          cp main/packaging/aur/PKGBUILD main/packaging/aur/dish-bin.install "$builddir/"
-          sed -i "s/^pkgver=.*/pkgver=${version}/; s/^pkgrel=.*/pkgrel=1/" "$builddir/PKGBUILD"
-          chown -R builder:builder "$builddir"
-          su builder -c "cd '$builddir' && updpkgsums && PACKAGER='dish-release-bot <releases@tinkernorth.invalid>' makepkg -d --noconfirm"
-          ls -l "$builddir"/*.pkg.tar.zst
-
-      - name: Sign package
-        if: steps.gate.outputs.skip != 'true'
-        env:
-          GPG_KEY_ID: ${{ secrets.GPG_KEY_ID }}
-        run: |
-          set -euo pipefail
-          for pkg in /home/builder/dish-bin/*.pkg.tar.zst; do
-            gpg --batch --yes --default-key "$GPG_KEY_ID" --detach-sign "$pkg"
-          done
+        run: main/scripts/build-arch-package.sh "$TAG"
 
       - name: Check out gh-pages branch (rpm-publish has already touched it)
         if: steps.gate.outputs.skip != 'true'
@@ -1215,30 +900,15 @@ jobs:
         run: |
           set -euo pipefail
           git clone --branch gh-pages --depth 1 \
-            "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git" pages
+            "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" pages
 
-      # repo-add emits dish.db / dish.files as symlinks to the .tar.gz
-      # files; GitHub Pages does not serve symlinks, so replace each with a
-      # real copy before committing.
+      # Signs each package, adds it to the signed database and replaces
+      # repo-add's symlinks with copies (Pages serves no symlinks).
       - name: Build pacman repo
         if: steps.gate.outputs.skip != 'true'
         env:
           GPG_KEY_ID: ${{ secrets.GPG_KEY_ID }}
-        run: |
-          set -euo pipefail
-          repo_dir=pages/arch/x86_64
-          mkdir -p "$repo_dir"
-          cp /home/builder/dish-bin/*.pkg.tar.zst /home/builder/dish-bin/*.pkg.tar.zst.sig "$repo_dir/"
-          (
-            cd "$repo_dir"
-            repo-add --sign --key "$GPG_KEY_ID" dish.db.tar.gz ./*.pkg.tar.zst
-            for link in $(find . -maxdepth 1 -type l); do
-              target="$(readlink -f "$link")"
-              rm "$link"
-              cp "$target" "$link"
-            done
-          )
-          ls -l "$repo_dir"
+        run: main/packaging/repo/build-pacman-repo.sh "$(pwd)/pages" "$(pwd)/main/dist/arch"
 
       - name: Commit + push
         if: steps.gate.outputs.skip != 'true'

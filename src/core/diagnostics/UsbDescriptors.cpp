@@ -3,6 +3,8 @@
 
 #include "core/diagnostics/UsbDescriptors.h"
 
+#include "core/Bits.h"
+
 #include <sodium.h>
 
 #include <algorithm>
@@ -23,9 +25,7 @@ constexpr std::uint8_t kTransferTypeMask = 0x03;
 constexpr std::uint16_t kMaxPacketSizeMask = 0x07FF;
 constexpr std::size_t kHeaderBytes = 2;
 
-std::uint16_t le16(const std::uint8_t* at) {
-    return static_cast<std::uint16_t>(at[0] | (at[1] << 8));
-}
+std::uint16_t le16(const std::uint8_t* at) { return bits::loadLe16(at); }
 
 // One descriptor's bytes as the walk met it; empty when the next header lies about its length.
 struct DescriptorView {
@@ -140,8 +140,8 @@ std::string hexOf(const std::uint8_t* bytes, std::size_t len) {
     std::string out;
     out.reserve(len * 2);
     for (std::size_t i = 0; i < len; ++i) {
-        out.push_back(kDigits[static_cast<std::size_t>(bytes[i] >> 4)]);
-        out.push_back(kDigits[static_cast<std::size_t>(bytes[i] & 0x0F)]);
+        out.push_back(kDigits[bits::highNibble(bytes[i])]);
+        out.push_back(kDigits[bits::lowNibble(bytes[i])]);
     }
     return out;
 }
@@ -156,8 +156,8 @@ std::string sha256Hex(const DescriptorBytes& bytes) {
 }
 
 std::string bcdText(std::uint16_t bcd) {
-    const std::array<std::uint8_t, 2> bigEndian{static_cast<std::uint8_t>(bcd >> 8),
-                                                static_cast<std::uint8_t>(bcd & 0xFF)};
+    std::array<std::uint8_t, 2> bigEndian{};
+    bits::storeBe16(bigEndian.data(), bcd);
     return hexOf(bigEndian.data(), bigEndian.size());
 }
 

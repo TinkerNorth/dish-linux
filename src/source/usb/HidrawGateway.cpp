@@ -3,6 +3,7 @@
 
 #include "source/usb/HidrawGateway.h"
 
+#include "core/Bits.h"
 #include "core/input/UsbOutputReports.h"
 #include "source/system/ThreadPriority.h"
 #include "source/usb/UsbSysfs.h"
@@ -44,6 +45,10 @@ constexpr int kVidMicrosoft = 0x045E;
 // Long enough that an idle pad costs almost nothing, short enough that a
 // release observes running=false promptly.
 constexpr int kReadPollTimeoutMs = 100;
+// The poll results that end the read loop: the node errored, hung up or went away.
+constexpr std::uint32_t kPollGone = static_cast<std::uint32_t>(POLLERR) |
+                                    static_cast<std::uint32_t>(POLLHUP) |
+                                    static_cast<std::uint32_t>(POLLNVAL);
 
 std::string readSysfsLine(const std::string& path) {
     std::ifstream in(path);
@@ -166,10 +171,10 @@ void readEndpointInfo(const std::string& ifaceDir, UsbDeviceInfo& info) {
         if (name.rfind("ep_", 0) != 0) { continue; }
         const auto addr = parseHex(name.substr(3));
         if (!addr) { continue; }
-        if ((*addr & 0x80) != 0) {
+        if (bits::anySet(static_cast<std::uint32_t>(*addr), 0x80U)) {
             info.endpointInAddress = *addr;
             std::string endpointDir = ifaceDir;
-            endpointDir += "/";
+            endpointDir += '/';
             endpointDir += name;
             if (const auto mp = parseHex(readSysfsLine(endpointDir + "/wMaxPacketSize"))) {
                 info.endpointInMaxPacket = *mp;
@@ -279,7 +284,9 @@ ReadOutcome readOneReport(pollfd& pfd, std::array<std::uint8_t, 128>& buf, std::
     const int ready = ::poll(&pfd, 1, kReadPollTimeoutMs);
     if (ready < 0) { return errno == EINTR ? ReadOutcome::Idle : ReadOutcome::Stop; }
     if (ready == 0) { return ReadOutcome::Idle; }
-    if ((pfd.revents & (POLLERR | POLLHUP | POLLNVAL)) != 0) { return ReadOutcome::Stop; }
+    if (bits::anySet(bits::u32(static_cast<std::uint16_t>(pfd.revents)), kPollGone)) {
+        return ReadOutcome::Stop;
+    }
 
     const ssize_t n = ::read(pfd.fd, buf.data(), buf.size());
     if (n < 0) {

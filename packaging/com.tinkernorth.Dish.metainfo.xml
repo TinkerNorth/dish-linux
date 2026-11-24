@@ -111,6 +111,13 @@
   <!-- Kept in step with project(Dish VERSION ...); version-consistency.yml
        fails the PR that moves one without the other. -->
   <releases>
+    <release version="2.9.0" date="2026-11-23" type="stable">
+      <url type="details">https://github.com/TinkerNorth/dish-linux/releases/tag/2.9.0</url>
+      <description>
+        <p>The Linux packages that 2.8.1 shipped broken work again. The Arch package carries the whole AppImage and starts; the DNF repository installs Dish, because the .rpm is now signed with the repository key; and the .deb and the .rpm depend only on the public interface of the distribution's Qt, so a Qt update no longer breaks them. The .deb installs on Debian 13 and on Ubuntu 25.10 and 26.04, the .rpm on Fedora 44 and 45.</p>
+        <p>Dish is built with Qt 6.12.1, the current long-term release, and the AppImage and the Flatpak carry SDL2 2.32.10.</p>
+      </description>
+    </release>
     <release version="2.8.1" date="2026-11-23" type="stable">
       <url type="details">https://github.com/TinkerNorth/dish-linux/releases/tag/2.8.1</url>
       <description>

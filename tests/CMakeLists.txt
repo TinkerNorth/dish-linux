@@ -1,13 +1,16 @@
 # FetchContent fallback so contributors don't need a system Catch2 package.
-# The tag is pinned: an unpinned FetchContent makes the test suite's result
-# depend on whatever upstream tagged today.
+# Pinned to the release's commit, not its tag name: an unpinned FetchContent
+# makes the test suite's result depend on whatever upstream tagged today. The
+# coverage lane (scripts/coverage.sh) builds against this fallback, so it is
+# proven on every pull request; assets/licenses/licenses.json names the same
+# release (scripts/check-version-consistency.sh).
 find_package(Catch2 3 QUIET)
 if(NOT Catch2_FOUND)
     include(FetchContent)
     FetchContent_Declare(
         Catch2
         GIT_REPOSITORY https://github.com/catchorg/Catch2.git
-        GIT_TAG        v3.5.4)
+        GIT_TAG        08092139210881f01a34e60c5f2fd6afa0ea4024) # v3.16.1
     FetchContent_MakeAvailable(Catch2)
     list(APPEND CMAKE_MODULE_PATH ${catch2_SOURCE_DIR}/extras)
 endif()
@@ -55,6 +58,8 @@ set(DISH_TEST_SOURCES
     test_hex.cpp
     test_endian.cpp
     test_models.cpp
+    test_byte_boundaries.cpp
+    test_bits.cpp
     test_beacon_parser.cpp
     test_mdns_discovery.cpp
     test_stable_key.cpp

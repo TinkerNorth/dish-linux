@@ -9,11 +9,17 @@
 #   DISH_VERSION=1.2.3 scripts/build-appimage.sh
 #
 # Needs a Qt >= 6.7 on CMAKE_PREFIX_PATH with qmake on PATH (CI uses
-# .github/actions/setup-qt), plus libsodium and SDL2 development packages.
+# .github/actions/setup-qt, which runs scripts/install-qt.sh), plus libsodium
+# and an SDL2 >= 2.24 (scripts/build-sdl2.sh on jammy). The tools that build
+# the bundle (linuxdeploy, its Qt plugin, appimagetool and the AppImage
+# runtime) are fetched at the releases and SHA-256s scripts/tools.sh pins; a
+# download that does not match fails the build.
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${repo_root}"
+# shellcheck source=scripts/tools.sh
+source scripts/tools.sh
 
 arch="${ARCH:-x86_64}"
 build_dir="${repo_root}/build-appimage"
@@ -51,24 +57,21 @@ DESTDIR="${appdir}" cmake --install "${build_dir}/cmake" --component Runtime
 install -Dm644 packaging/udev/70-dish-hidraw.rules \
     "${appdir}/usr/share/dish/70-dish-hidraw.rules"
 
-# Both tools publish only a rolling `continuous` tag, so pin by SHA-256 the way
-# release.yml pins cosign. Record a new digest with `curl -fsSL <url> | sha256sum`.
-LINUXDEPLOY_URL="https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-${arch}.AppImage"
-LINUXDEPLOY_QT_URL="https://github.com/linuxdeploy/linuxdeploy-plugin-qt/releases/download/continuous/linuxdeploy-plugin-qt-${arch}.AppImage"
-
-fetch_tool() {
-    local url="$1" out="$2" want="${3:-}"
-    curl -fsSL --retry 3 --retry-delay 2 -o "${out}" "${url}"
-    if [ -n "${want}" ]; then
-        echo "${want}  ${out}" | sha256sum -c -
-    else
-        echo "::warning::${out##*/} not checksum-pinned; record $(sha256sum "${out}" | cut -d' ' -f1)"
-    fi
-    chmod +x "${out}"
-}
-
-fetch_tool "${LINUXDEPLOY_URL}"    "${tools_dir}/linuxdeploy"           "${LINUXDEPLOY_SHA256:-}"
-fetch_tool "${LINUXDEPLOY_QT_URL}" "${tools_dir}/linuxdeploy-plugin-qt" "${LINUXDEPLOY_QT_SHA256:-}"
+fetch_pinned \
+    "https://github.com/linuxdeploy/linuxdeploy/releases/download/${DISH_LINUXDEPLOY_VERSION}/linuxdeploy-${arch}.AppImage" \
+    "${tools_dir}/linuxdeploy" "${DISH_LINUXDEPLOY_SHA256}"
+fetch_pinned \
+    "https://github.com/linuxdeploy/linuxdeploy-plugin-qt/releases/download/${DISH_LINUXDEPLOY_QT_VERSION}/linuxdeploy-plugin-qt-${arch}.AppImage" \
+    "${tools_dir}/linuxdeploy-plugin-qt" "${DISH_LINUXDEPLOY_QT_SHA256}"
+fetch_pinned \
+    "https://github.com/AppImage/appimagetool/releases/download/${DISH_APPIMAGETOOL_VERSION}/appimagetool-${arch}.AppImage" \
+    "${tools_dir}/appimagetool" "${DISH_APPIMAGETOOL_SHA256}"
+fetch_pinned \
+    "https://github.com/AppImage/type2-runtime/releases/download/${DISH_APPIMAGE_RUNTIME_VERSION}/runtime-${arch}" \
+    "${tools_dir}/runtime-${arch}" "${DISH_APPIMAGE_RUNTIME_SHA256}"
+chmod +x "${tools_dir}/linuxdeploy" "${tools_dir}/linuxdeploy-plugin-qt" "${tools_dir}/appimagetool"
+# linuxdeploy finds its plugins on PATH; this puts the pinned Qt plugin first.
+export PATH="${tools_dir}:${PATH}"
 
 # A container without FUSE cannot mount an AppImage.
 export APPIMAGE_EXTRACT_AND_RUN=1
@@ -77,6 +80,19 @@ export APPIMAGE_EXTRACT_AND_RUN=1
 # is compiled into the binary by qt_add_qml_module, so without this the AppImage
 # builds clean and dies at startup on `module "QtQuick" is not installed`.
 export QML_SOURCES_PATHS="${repo_root}/src/qml"
+# Every page imports Dish.Chrome, the app's own module, compiled into the binary
+# under qrc:/qt/qml/Dish/Chrome. The scanner only searches Qt's qml directory,
+# so it reported the module missing. Hand it the module's qmldir and qmltypes
+# (and nothing else) as an import path: the scanner then resolves it, follows
+# its dependencies, and deploys just those two files, whose generated qmldir
+# says `prefer :/qt/qml/Dish/Chrome/`, so the engine still loads the compiled
+# module from the binary.
+chrome_module="${build_dir}/cmake/Dish/Chrome"
+scan_imports="${build_dir}/qml-imports"
+mkdir -p "${scan_imports}/Dish/Chrome"
+cp "${chrome_module}/qmldir" "${scan_imports}/Dish/Chrome/"
+cp "${chrome_module}"/*.qmltypes "${scan_imports}/Dish/Chrome/"
+export QML_MODULES_PATHS="${scan_imports}"
 # Qt6::Svg is linked, but the image-format plugin that renders the window icon
 # is loaded at run time and has no DT_NEEDED to be found by.
 export EXTRA_QT_MODULES="svg"
@@ -103,22 +119,42 @@ fi
 # from the distribution; nothing but this line puts it in the AppImage.
 export EXTRA_PLATFORM_PLUGINS="${wayland_platforms};libqoffscreen.so"
 
+# Its log is kept: an ERROR from linuxdeploy or its Qt plugin (a QML module it
+# could not find, a library it could not resolve) fails the build below rather
+# than scrolling past.
+deploy_log="${build_dir}/linuxdeploy.log"
 "${tools_dir}/linuxdeploy" \
     --appdir "${appdir}" \
     --executable "${appdir}/usr/bin/dish" \
     --desktop-file "${appdir}/usr/share/applications/com.tinkernorth.Dish.desktop" \
     --icon-file "${appdir}/usr/share/icons/hicolor/scalable/apps/com.tinkernorth.Dish.svg" \
     --icon-file "${appdir}/usr/share/icons/hicolor/512x512/apps/com.tinkernorth.Dish.png" \
-    --plugin qt
+    --plugin qt 2>&1 | tee "${deploy_log}"
 
-# The qt plugin deploys wayland-shell-integration and the decoration plugin
-# but not the client buffer integrations, and a Wayland session with zero
-# buffer integrations aborts at the first expose ("Available client buffer
-# integrations: QList()", then QRhi fails and Qt Quick qFatals). Copy the
-# directory it forgets; the packaging pass below pulls its libraries.
-if [ -d "${qt_plugin_dir}/wayland-graphics-integration-client" ]; then
-    cp -r "${qt_plugin_dir}/wayland-graphics-integration-client" \
-        "${appdir}/usr/plugins/"
+# linuxdeploy-plugin-qt's newest numbered release predates Qt 6.10's Wayland
+# layout: it deploys the platform plugin but none of the Wayland plugin
+# directories, and a Wayland session without them aborts at the first expose
+# (with zero client buffer integrations, "Available client buffer
+# integrations: QList()", then QRhi fails and Qt Quick qFatals; with no shell
+# integration the window never maps). Copy each directory the Qt has, then let
+# a second linuxdeploy pass pull in the libraries they link.
+for wayland_dir in wayland-graphics-integration-client wayland-shell-integration \
+    wayland-decoration-client; do
+    if [ -d "${qt_plugin_dir}/${wayland_dir}" ]; then
+        rm -rf "${appdir}/usr/plugins/${wayland_dir}"
+        cp -r "${qt_plugin_dir}/${wayland_dir}" "${appdir}/usr/plugins/"
+    fi
+done
+"${tools_dir}/linuxdeploy" --appdir "${appdir}" \
+    --desktop-file "${appdir}/usr/share/applications/com.tinkernorth.Dish.desktop" \
+    2>&1 | tee -a "${deploy_log}"
+if grep -E '(^|\] )ERROR:' "${deploy_log}"; then
+    echo "::error::linuxdeploy reported an error while building the AppDir (above)" >&2
+    exit 1
+fi
+if ! grep -q 'prefer :/qt/qml/Dish/Chrome/' "${appdir}/usr/qml/Dish/Chrome/qmldir" 2>/dev/null; then
+    echo "::error::the AppDir's Dish/Chrome/qmldir does not defer to the compiled module" >&2
+    exit 1
 fi
 must_have=(
     "platforms/libqxcb.so"
@@ -147,23 +183,22 @@ rm -f "${out}" "${out}.zsync"
 # straight off the newest GitHub release instead of a full manual re-download.
 # appimagetool also emits the matching .zsync index, which release.yml uploads
 # beside the AppImage; the draft-then-flip publish keeps `releases/latest` atomic,
-# so the pattern never resolves to a half-uploaded release.
-export LDAI_UPDATE_INFORMATION="${DISH_APPIMAGE_UPDATE_INFO:-gh-releases-zsync|TinkerNorth|dish-linux|latest|Dish-*-${arch}.AppImage.zsync}"
-# LDAI_OUTPUT, the appimage plugin's own variable, not the OUTPUT it still
-# honours but names as deprecated. The desktop file is named again so this
-# pass does not have to guess it from the AppDir and say so.
-LDAI_OUTPUT="${out}" "${tools_dir}/linuxdeploy" --appdir "${appdir}" \
-    --desktop-file "${appdir}/usr/share/applications/com.tinkernorth.Dish.desktop" \
-    --output appimage
-
-# appimagetool drops the .zsync next to the AppImage or in the CWD depending
-# on version; normalise into dist/ and fail soft (the AppImage itself is fine
-# without it, the delta channel just stays dark).
-if [ ! -f "${out}.zsync" ] && [ -f "$(basename "${out}").zsync" ]; then
-    mv "$(basename "${out}").zsync" "${out}.zsync"
-fi
+# so the pattern never resolves to a half-uploaded release. appimagetool is
+# called directly with the pinned runtime: left to itself it downloads the
+# newest runtime at build time, which is the unpinned input this replaces.
+update_info="${DISH_APPIMAGE_UPDATE_INFO:-gh-releases-zsync|TinkerNorth|dish-linux|latest|Dish-*-${arch}.AppImage.zsync}"
+(
+    cd "${dist_dir}"
+    ARCH="${arch}" "${tools_dir}/appimagetool" \
+        --runtime-file "${tools_dir}/runtime-${arch}" \
+        --updateinformation "${update_info}" \
+        "${appdir}" "${out}"
+)
+# The delta channel is part of what ships: a bundle without its index fails
+# the build rather than going out with updates silently dark.
 if [ ! -f "${out}.zsync" ]; then
-    echo "::warning::appimagetool emitted no .zsync; AppImageUpdate delta updates unavailable for this build"
+    echo "::error::appimagetool emitted no ${out}.zsync" >&2
+    exit 1
 fi
 
 # A Qt Quick bundle missing one QML module builds perfectly and fails on the
@@ -213,72 +248,19 @@ chmod 700 "${xdg_runtime}"
 # DT_RUNPATH linuxdeploy writes, so an inherited environment loads the build
 # tree's libraries and the bundle is never tested. Whatever the app needs has
 # to come from the AppDir, which is the point.
-#
-# Signalled by hand rather than run under `timeout`, which reports 124 whether
-# the app shut down cleanly or had to be killed, and which cannot tell either
-# from an app that never started. Every wait is bounded.
-set +e
-env -i \
+# scripts/launch-check.sh is the gate the .deb and .rpm lanes run on the
+# installed package: it starts the app, signals it, and fails on a loader
+# error, an SVG decode failure, a missing controller database line, an early
+# exit, or a shutdown that needed SIGKILL. env execs AppRun, so the process it
+# signals is the app itself.
+scripts/launch-check.sh "${smoke_log}" \
+    env -i \
     HOME="${smoke_home}" \
     PATH="/usr/bin:/bin" \
     XDG_RUNTIME_DIR="${xdg_runtime}" \
     QT_QPA_PLATFORM=offscreen \
-    "${apprun}" >"${smoke_log}" 2>&1 &
-app=$!
-sleep 20
-started=0
-kill -0 "${app}" 2>/dev/null && started=1
-needed_kill=0
-if [ "${started}" = 1 ]; then
-    kill -TERM "${app}" 2>/dev/null
-    waited=0
-    while [ "${waited}" -lt 15 ] && kill -0 "${app}" 2>/dev/null; do
-        sleep 1
-        waited=$((waited + 1))
-    done
-    if kill -0 "${app}" 2>/dev/null; then
-        kill -KILL "${app}" 2>/dev/null
-        needed_kill=1
-    fi
-fi
-wait "${app}"
-rc=$?
-set -e
-
-# Printed either way: an exit code on its own says nothing about why.
-echo "--- smoke log ---"
-cat "${smoke_log}"
-echo "--- end smoke log ---"
-if grep -qE 'is not installed|Cannot load library|failed to load component|No such file or directory' \
-        "${smoke_log}"; then
-    echo "::error::the AppImage cannot load its Qt/QML runtime" >&2
-    exit 1
-fi
-# The same line the .deb and .rpm lanes treat as fatal. The SVG handler is a
-# run-time plugin deployed through EXTRA_QT_MODULES, a list kept by hand, and
-# its absence shows up as a decode failure per glyph rather than as any of the
-# loader phrases above.
-if grep -q 'Error decoding:' "${smoke_log}"; then
-    echo "::error::the AppImage cannot decode its brand SVGs; the Qt SVG image plugin is missing or unloadable" >&2
-    exit 1
-fi
-if [ "${started}" != 1 ]; then
-    echo "::error::the AppImage exited on its own (${rc}) instead of staying up" >&2
-    exit 1
-fi
-# SIGTERM is what a logout sends. Ignoring it means ~AppModel never runs, so
-# the input thread is not stopped and QSettings never writes what the session
-# changed.
-if [ "${needed_kill}" = 1 ]; then
-    echo "::error::the AppImage did not exit on SIGTERM; it needed SIGKILL" >&2
-    exit 1
-fi
-if [ "${rc}" != 0 ]; then
-    echo "::error::the AppImage shut down on SIGTERM but exited ${rc}" >&2
-    exit 1
-fi
+    "${apprun}"
 rm -rf "${smoke_dir}"
-echo "    came up, shut down on SIGTERM and exited 0"
 
 sha256sum "${out}" | tee "${out}.sha256"
 

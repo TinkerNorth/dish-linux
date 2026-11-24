@@ -22,6 +22,7 @@
 
 #pragma once
 
+#include "core/Bits.h"
 #include "core/moonlight/MoonlightProtocol.h"
 #include "core/reducer/TouchpadModeResolve.h"
 
@@ -130,18 +131,17 @@ struct SourceCapabilities {
 
 inline std::uint8_t sourceCapabilityBits(const SourceCapabilities& source) {
     // Analog triggers are present on every pad Dish forwards.
-    std::uint8_t bits = moonproto::kCapAnalogTriggers;
+    std::uint32_t caps = bits::u32(moonproto::kCapAnalogTriggers);
     if (source.rumble) {
-        bits =
-            static_cast<std::uint8_t>(bits | moonproto::kCapRumble | moonproto::kCapTriggerRumble);
+        caps |= bits::u32(moonproto::kCapRumble) | bits::u32(moonproto::kCapTriggerRumble);
     }
     if (source.motion) {
-        bits = static_cast<std::uint8_t>(bits | moonproto::kCapAccelerometer | moonproto::kCapGyro);
+        caps |= bits::u32(moonproto::kCapAccelerometer) | bits::u32(moonproto::kCapGyro);
     }
-    if (source.touchpad) { bits = static_cast<std::uint8_t>(bits | moonproto::kCapTouchpad); }
-    if (source.battery) { bits = static_cast<std::uint8_t>(bits | moonproto::kCapBattery); }
-    if (source.lightbar) { bits = static_cast<std::uint8_t>(bits | moonproto::kCapRgbLed); }
-    return bits;
+    if (source.touchpad) { caps |= bits::u32(moonproto::kCapTouchpad); }
+    if (source.battery) { caps |= bits::u32(moonproto::kCapBattery); }
+    if (source.lightbar) { caps |= bits::u32(moonproto::kCapRgbLed); }
+    return bits::lowByte(caps);
 }
 
 // The most a host's emulated device of this type can carry, whatever the pad
@@ -156,13 +156,15 @@ inline std::uint8_t sourceCapabilityBits(const SourceCapabilities& source) {
 // into its PS5 joypad.
 inline std::uint8_t typeCapabilityCeiling(std::uint8_t controllerType) {
     if (controllerType == moonproto::kControllerTypePs) {
-        return static_cast<std::uint8_t>(moonproto::kCapAnalogTriggers | moonproto::kCapRumble |
-                                         moonproto::kCapTriggerRumble | moonproto::kCapTouchpad |
-                                         moonproto::kCapAccelerometer | moonproto::kCapGyro |
-                                         moonproto::kCapBattery | moonproto::kCapRgbLed);
+        return bits::lowByte(
+            bits::u32(moonproto::kCapAnalogTriggers) | bits::u32(moonproto::kCapRumble) |
+            bits::u32(moonproto::kCapTriggerRumble) | bits::u32(moonproto::kCapTouchpad) |
+            bits::u32(moonproto::kCapAccelerometer) | bits::u32(moonproto::kCapGyro) |
+            bits::u32(moonproto::kCapBattery) | bits::u32(moonproto::kCapRgbLed));
     }
-    return static_cast<std::uint8_t>(moonproto::kCapAnalogTriggers | moonproto::kCapRumble |
-                                     moonproto::kCapTriggerRumble | moonproto::kCapBattery);
+    return bits::lowByte(
+        bits::u32(moonproto::kCapAnalogTriggers) | bits::u32(moonproto::kCapRumble) |
+        bits::u32(moonproto::kCapTriggerRumble) | bits::u32(moonproto::kCapBattery));
 }
 
 // Auto resolves HERE, on the client, before anything reaches the wire: a source
@@ -226,15 +228,15 @@ inline std::uint32_t declaredButtons(std::uint8_t declaredCaps) {
 // create_new_joypad (control/input_handler.cpp) reads ACCELEROMETER and GYRO and no other bit:
 // every PlayStation pad it builds is one DualSense with a touchpad whatever the arrival said.
 inline constexpr std::uint8_t kCapsReadAtArrival =
-    moonproto::kCapAccelerometer | moonproto::kCapGyro;
+    bits::lowByte(bits::u32(moonproto::kCapAccelerometer) | bits::u32(moonproto::kCapGyro));
 
 // Whether announcing `wanted` over the pad the host built from `held` gets the user another pad.
 // A host keeps a number it holds and skips a second arrival for it, so another pad costs a replug,
 // and a replug unplugs the pad in the game: nothing the host never reads is worth one.
 inline bool hostBuildsAnotherPad(const AnnouncedPad& held, const AnnouncedPad& wanted) {
     const bool anotherType = held.type != wanted.type;
-    const int changedBits = held.capabilities ^ wanted.capabilities;
-    const bool anotherMotion = (changedBits & kCapsReadAtArrival) != 0;
+    const std::uint32_t changedBits = bits::u32(held.capabilities) ^ bits::u32(wanted.capabilities);
+    const bool anotherMotion = bits::anySet(changedBits, kCapsReadAtArrival);
     return anotherType || anotherMotion;
 }
 

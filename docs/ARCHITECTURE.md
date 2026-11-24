@@ -222,20 +222,22 @@ Machines that follow this pattern and are wired into the running app:
 | [`ApplyBindingMachine`](../src/core/reducer/ApplyBindingMachine.h) | `AppViewModel::applyBinding` |
 | [`BindingPresence`](../src/core/reducer/BindingPresence.h) | `AppModel::rebuild` |
 | [`CapabilitySolver`](../src/core/reducer/CapabilitySolver.h) | `AppViewModel::capabilityForCandidate` |
-| [`UpdateMachine`](../src/core/reducer/UpdateMachine.h) | `UpdateCoordinator` |
+| [`UpdateMachine`](../src/core/reducer/UpdateMachine.h) | [`UpdateChecker`](../src/update/UpdateChecker.h) |
 
 Three more exist as pure, tested specifications with no live coordinator yet;
 see [Not yet implemented](#not-yet-implemented).
 
-`UpdateMachine` is the newest and the most conventional application of the
-pattern: phases Disabled through Ready and Failed, events for every arrival
-from the network, the preferences and the connectivity probe, and effects
-(`FetchManifest`, `StartDownload`, `VerifyAndPromote`, `DiscardStaged`,
-`SweepStaging`, `ScheduleNextCheck`, `Notify`) that `UpdateCoordinator`
-executes against a dedicated `QNetworkAccessManager` on the main thread and a
-worker thread that owns a second one for the payload. Scheduling constants live
-on the machine, not in the coordinator, so the backoff ladder and the yank rule
-are pinned by unit tests rather than observed by waiting.
+`UpdateMachine` is the most conventional application of the pattern, and the
+smallest, because Dish for Linux never installs its own update: a distribution
+package or the Flatpak owns the binary. Its phases are Disabled, Idle,
+Checking, UpToDate, Available and Failed; it stops at Available and the UI
+links out, so there is no download, no staging and no apply arm. Events cover
+every arrival from the manifest fetch, the preferences and the connectivity
+probe, and the effects (`FetchManifest`, `ScheduleNextCheck`,
+`PersistLastCheck`, `Notify`) are executed by `update/UpdateChecker` against
+its manifest gateway and timers on the main thread. Scheduling constants live
+on the machine, not in the checker, so the startup delay, the interval and the
+backoff are pinned by unit tests rather than observed by waiting.
 
 ### Choosing between them
 
@@ -410,7 +412,7 @@ from the claim's own output worker, which owns its `FeedbackState`
 shadow; the SDL bridge builds the same report on the SDL thread (its shadow
 lives in the pad's record there) and hands SDL the body, which SDL frames
 for the link, including the Bluetooth report id and CRC. A Direct claim that
-has gone away carries nothing — there is deliberately no fallback to Standard,
+has gone away carries nothing: there is deliberately no fallback to Standard,
 because a pad on the Direct path is not open on the SDL path at the same time.
 
 † `SlotFeedbackInputs::standardEffects`. SDL names no driver publicly, but it
@@ -436,7 +438,7 @@ every DS5 report starts from a fresh memset and the firmware applies whatever
 the valid flags claim, so each builder re-asserts the last lamp or an unrelated
 colour change would be a lamp-off write. The lamp is also driven locally the
 moment mute toggles (the button must never feel dead waiting on a host
-round-trip); a later host write repaints it — last writer wins on the PAD,
+round-trip); a later host write repaints it; last writer wins on the PAD,
 while the app UI always shows the local mute truth (`MicMuteStore`).
 
 ### Controller audio: routes, verdict, engines
@@ -452,7 +454,7 @@ which matches the pad's USB product string (iProduct, read from sysfs by the
 hidraw gateway's enumeration, which lists every USB pad, not just claimed ones;
 the same string pipewire and pulse embed in the pad's audio device names)
 against the endpoint names SDL enumerates, and resolves EVERY ambiguity to "no
-route" (two DualSenses share a string; so does a DS4 — a wrong route is worse
+route" (two DualSenses share a string, and so does a DS4: a wrong route is worse
 than none). `AppModel::resolveAudioRoutes` re-runs it on USB and claim changes
 and on SDL's audio hotplug events (pumped by the bridge's event loop, forwarded
 as `audioDevicesChanged`), and a changed route re-binds the bound slots so
@@ -470,7 +472,7 @@ next audio hotplug event re-resolves.
 The host's live verdict is a third layer: `WifiConnectionManager::probeHostAudio`
 reads `GET /api/server/capabilities` after every session PUT and folds it via
 [`HostAudioVerdict`](../src/core/reducer/HostAudioVerdict.h) into per-session
-connection state — conservative "no audio" until a probe answers, reset with
+connection state: conservative "no audio" until a probe answers, reset with
 the session. The descriptor's three audio caps read it too, with the route,
 the slot's switch and the engines' refusal ledger
 ([`AudioRefusal`](../src/core/audio/AudioRefusal.h)), because a cap is a
@@ -507,10 +509,10 @@ the family has actuators); a slot that cannot play the waveform leaves the cap
 off and the host reduces the lanes to rumble for it instead. Both talk SDL
 only through
 [`AudioDeviceGateway`](../src/source/audio/AudioDeviceGateway.h);
-`SdlAudioGateway` owns `SDL_INIT_AUDIO`'s lifecycle — deliberately NOT the SDL
+`SdlAudioGateway` owns `SDL_INIT_AUDIO`'s lifecycle, deliberately NOT the SDL
 bridge, whose gamepad subsystems stop and start without taking a live stream
 down. THE PRIVACY INVARIANT: muted or ineligible means the capture device is
-CLOSED and zero `sendMicAudio` calls happen — not silence sent in their place —
+CLOSED and zero `sendMicAudio` calls happen, not silence sent in their place,
 enforced structurally by the reconcile and per-window by the session's enabled
 flag, and pinned by the engine tests. The DualSense's own mute button is a
 decoder-owned latch (`MicMuteLatch`) folded into `wButtons` as `kXusbMicMute`
@@ -652,7 +654,7 @@ CI), so each needs a device-in-the-loop test pass.
 - **Translations are tested.** `test_translations` pins locale fallback, the
   per-language `numerusform` order, and placeholder integrity across every
   catalogue. `scripts/check-translations.sh` re-runs `lupdate` in CI and fails
-  on any diff, so a new string cannot land without its catalogue entry — and
+  on any diff, so a new string cannot land without its catalogue entry, and
   fails again if any catalogue still has an unfinished entry, so it cannot land
   without its words either.
 - **The update checker is tested the same way.** Test names are prefixed so

@@ -1,16 +1,24 @@
 # Flathub submission
 
-Flathub is the software-centre path (GNOME Software, KDE Discover) on every
-distro, the only path on Steam Deck's immutable desktop, and the answer for
-an LTS whose Qt is below this project's floor. Once listed, updates are
-automatic: the store rebuilds every tagged release. The manifest is ready at
-[`packaging/flatpak/flathub/com.tinkernorth.Dish.yml`](../packaging/flatpak/flathub/com.tinkernorth.Dish.yml);
-this file is the submission procedure.
+Status: **not submitted.** Dish is not on Flathub, and whether it will be is
+undecided. Nothing in CI or the release builds the Flathub manifest; the
+Flatpak users can get today is the sideloaded `Dish-x86_64.flatpak` bundle on
+each GitHub Release, which has no update origin.
+
+Flathub would be the software-centre path (GNOME Software, KDE Discover) on
+every distro, the only path on Steam Deck's immutable desktop, and the answer
+for an LTS whose Qt is below this project's floor. Once listed, updates would
+be automatic: the store rebuilds every tagged release. The manifest template
+is
+[`packaging/flatpak/flathub/com.tinkernorth.Dish.yml`](../packaging/flatpak/flathub/com.tinkernorth.Dish.yml).
+Its runtime and dependency pins are kept equal to the sideload manifest's by
+`scripts/check-version-consistency.sh`; its dish source still names release
+0.1.0 and is set at submission. This file is the submission procedure.
 
 ## Before submitting
 
-1. A published release must exist. The manifest builds from a pinned git
-   tag; fill its `commit:` placeholder with `git rev-list -n 1 <tag>`.
+1. Pick the published release to submit. Set the template's `tag:` to it and
+   its `commit:` to `git rev-list -n 1 <tag>`.
 
 2. Screenshots are in `docs/screenshots/` and referenced from the
    AppStream metainfo, pinned to the release tag. When retaking them,

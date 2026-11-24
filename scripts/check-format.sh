@@ -6,8 +6,9 @@
 # script so the workflow and scripts/ci-local.sh cannot drift on the file set
 # or the invocation. Check-only; the pre-commit hook is the autofix path.
 #
-# CI pins clang-format 22.1.4 (PyPI via pipx). Another version can disagree
-# on braced-init lists; treat a surprise verdict with suspicion.
+# CI pins clang-format at DISH_CLANG_FORMAT_VERSION in scripts/tools.sh (PyPI
+# via pipx), and scripts/ci-local.sh refuses another version: a different
+# clang-format disagrees on layout.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 

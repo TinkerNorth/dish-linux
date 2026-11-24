@@ -38,6 +38,7 @@
 
 #pragma once
 
+#include "core/Bits.h"
 #include "core/model/Protocol.h"
 
 #include <cctype>
@@ -94,7 +95,7 @@ struct PadAudioRoute {
 
 // Same vendor:product packing the USB path keys everything on.
 inline int padAudioKey(int vendorId, int productId) {
-    return (vendorId << 16) | (productId & 0xFFFF);
+    return bits::packHigh16Low16(vendorId, productId);
 }
 
 namespace detail {

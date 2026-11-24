@@ -7,6 +7,7 @@
 
 #pragma once
 
+#include "core/Bits.h"
 #include "core/controllerdb/ControllerRecord.h"
 
 #include <array>
@@ -167,7 +168,7 @@ constexpr std::optional<std::uint16_t> hexWord(std::string_view text) {
         if (!digit && !lowerHex) { return std::nullopt; }
         const std::uint32_t nibble = digit ? static_cast<std::uint32_t>(ch - '0')
                                            : static_cast<std::uint32_t>(ch - 'a' + 10);
-        value = (value << 4) | nibble;
+        value = (value << 4U) | nibble;
     }
     return static_cast<std::uint16_t>(value);
 }
@@ -190,7 +191,8 @@ inline std::string hexWordText(std::uint16_t word) {
     constexpr std::string_view kDigits = "0123456789abcdef";
     std::string out(4, '0');
     for (int i = 3; i >= 0; --i) {
-        const auto nibble = static_cast<std::size_t>((word >> ((3 - i) * 4)) & 0xF);
+        const auto shift = static_cast<unsigned>(3 - i) * 4U;
+        const auto nibble = static_cast<std::size_t>((bits::u32(word) >> shift) & 0xFU);
         out[static_cast<std::size_t>(i)] = kDigits[nibble];
     }
     return out;
