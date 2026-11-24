@@ -65,7 +65,9 @@ sentry_in_appimage=false
 if nm "${appdir}/usr/bin/dish" 2>/dev/null | grep -q ' sentry_init$'; then sentry_in_appimage=true; fi
 
 # The build host's distribution, so a scanner matches its packages' advisories.
-distro="$(. /etc/os-release && echo "${ID}-${VERSION_ID}")"
+os_id="$(sed -n 's/^ID=//p' /etc/os-release | tr -d '"')"
+os_version="$(sed -n 's/^VERSION_ID=//p' /etc/os-release | tr -d '"')"
+distro="${os_id}-${os_version}"
 
 python3 - "${bundled}" "${out}" "${version}" "${sentry_in_appimage}" "${distro}" <<'PY'
 import datetime, json, os, re, sys, uuid
