@@ -123,6 +123,17 @@ the repos share a version number.
 - CodeQL analyses first-party code only: the vendored ENet is built before
   CodeQL starts tracing, and OSV-Scanner watches it. Dependency review runs on
   every pull request.
+- clang-tidy is pinned at 23.1.4, and no bitwise operator in the code takes a
+  signed operand any more (its `bugprone-signed-bitwise` check found 481
+  sites): bytes and half-words widen through `src/core/Bits.h`, the helpers
+  Dish for Windows shares, before any shift or mask. A differential run of the
+  old and new code over the decoders, the button map, the HID descriptor
+  parser, the output reports and the Moonlight encoders found no change in
+  behaviour.
+- The release's bill of materials names what the packages carry: Qt, SDL2,
+  libsodium, Opus, OpenSSL, libcurl, sentry-native, ENet and Inter, at the
+  versions each package bundles, from the build rather than from what Syft can
+  see inside a package.
 - CodeQL blocks and uploads its results. Containers are pinned to release
   tags, every checkout drops its credentials, the release tag pattern is
   `[0-9]*.[0-9]*.[0-9]*`, and clang-format moves to 23.1.5 (no source change).
