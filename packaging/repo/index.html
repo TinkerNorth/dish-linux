@@ -87,11 +87,10 @@
   tells you one exists, and <code>apt upgrade</code> and <code>dnf upgrade</code>
   do the installing.</p>
 
-  <h2>Debian 13</h2>
-  <p>The .deb is built on Debian 13 against Debian's own Qt. The 2.8.1 package
-  asks for that exact Qt build, so on Ubuntu, take the AppImage below; from the
-  next release on, the .deb also installs on Ubuntu 25.10 and 26.04. On Ubuntu
-  24.04 LTS and anything older, skip to the AppImage or Flatpak below.</p>
+  <h2>Debian 13, Ubuntu 25.10 and 26.04</h2>
+  <p>The .deb is built on Debian 13 against Debian's own Qt and depends only on
+  its public interface. On Ubuntu 24.04 LTS and anything older, skip to the
+  AppImage or Flatpak below.</p>
   <pre><code>curl -fsSL https://tinkernorth.github.io/dish-linux/gpg.key \
   | sudo gpg --dearmor -o /usr/share/keyrings/dish-archive-keyring.gpg
 
@@ -102,17 +101,10 @@ echo "deb [signed-by=/usr/share/keyrings/dish-archive-keyring.gpg] \
 sudo apt update
 sudo apt install dish</code></pre>
 
-  <h2>Fedora</h2>
-  <p>The 2.8.1 package in this repository is broken: the repository asks dnf
-  to check each package's signature, and the 2.8.1 .rpm is not signed, so
-  <code>dnf install dish</code> stops with "The package is not signed". The
-  next release is signed, built on Fedora 44, and installs from here on Fedora
-  44 and 45. Until then, on Fedora 42 and 43, install the downloaded package
-  directly; on Fedora 44 that package would downgrade the system's Qt, so use
-  the AppImage below.</p>
-  <pre><code>curl -fsSLO https://github.com/TinkerNorth/dish-linux/releases/latest/download/dish-x86_64.rpm
-sudo dnf install ./dish-x86_64.rpm</code></pre>
-  <p>Once the next release is out, the repository is the path:</p>
+  <h2>Fedora 44 and 45</h2>
+  <p>The .rpm is built on Fedora 44 and signed with the repository key. (2.8.1's
+  was not signed, so this repository refused it.) Fedora 43 cannot install a
+  package built on Fedora 44: use the AppImage below.</p>
   <pre><code>sudo curl -fsSL -o /etc/yum.repos.d/dish.repo \
   https://tinkernorth.github.io/dish-linux/rpm/dish.repo
 

@@ -6,7 +6,7 @@ Dish is made of two parts. The Dish apps run on the device that holds your contr
 
 ## Download
 
-Dish for Linux 2.8.1 is the current release. Every link below always points at the newest one. Every build is x86_64.
+Dish for Linux 2.9.0 is the current release. Every link below always points at the newest one. Every build is x86_64.
 
 Debian 13: add the APT repository once, and `apt upgrade` keeps Dish current with the rest of your system.
 
@@ -19,18 +19,19 @@ echo "deb [signed-by=/usr/share/keyrings/dish-archive-keyring.gpg] \
 sudo apt update && sudo apt install dish
 ```
 
-The 2.8.1 .deb is built on Debian 13 against Debian's own Qt and asks for that exact Qt build, so on Ubuntu and other derivatives, take the AppImage below. From the next release on, the .deb asks only for Qt's public interface, and also installs on Ubuntu 25.10 and 26.04.
+The .deb is built on Debian 13 against Debian's own Qt and asks only for its public interface, so it also installs on Ubuntu 25.10 and 26.04. The previous release's .deb asked for one exact build of Debian's Qt, so on Ubuntu take this release.
 
-Fedora: the 2.8.1 package in Dish's DNF repository is broken. The repository tells dnf to check every package's signature, and the 2.8.1 .rpm is not signed, so `dnf install dish` stops with "The package is not signed". The fix is on its way with the next release. Until then, on Fedora 42 and 43, download the package and install it directly:
+Fedora 44 and 45: add the DNF repository once, and `dnf upgrade` keeps it current.
 
 ```bash
-curl -fsSLO https://github.com/TinkerNorth/dish-linux/releases/latest/download/dish-x86_64.rpm
-sudo dnf install ./dish-x86_64.rpm
+sudo curl -fsSL -o /etc/yum.repos.d/dish.repo \
+  https://tinkernorth.github.io/dish-linux/rpm/dish.repo
+sudo dnf install dish
 ```
 
-dnf notes that it skipped the OpenPGP check for a local file. The 2.8.1 .rpm was built on Fedora 42 against Fedora's Qt 6.10, so on Fedora 44, which has moved to Qt 6.11, dnf would downgrade your system's Qt to install it; there, use the AppImage below. The next release is built on Fedora 44 and signed, and installs from the repository on Fedora 44 and 45.
+The .rpm is built on Fedora 44 and signed with the repository key, which the repository's `gpgcheck` asks for. The previous release's .rpm was not signed, so the repository refused it; this release installs from it. Fedora 43, which reaches its end of life on 2026-12-01, cannot install a package built on Fedora 44: use the AppImage below.
 
-If you'd rather not add the APT repository, [dish-amd64.deb](https://github.com/TinkerNorth/dish-linux/releases/latest/download/dish-amd64.deb) installs the same package once (`sudo apt install ./dish-amd64.deb`), and you install later versions by hand. Both packages install the udev rule described under Requirements.
+If you'd rather not add a repository, [dish-amd64.deb](https://github.com/TinkerNorth/dish-linux/releases/latest/download/dish-amd64.deb) and [dish-x86_64.rpm](https://github.com/TinkerNorth/dish-linux/releases/latest/download/dish-x86_64.rpm) install the same package once (`sudo apt install ./dish-amd64.deb` or `sudo dnf install ./dish-x86_64.rpm`), and you install later versions by hand. Both packages install the udev rule described under Requirements.
 
 Any other x86_64 Linux, Ubuntu and the Steam Deck included: download **[Dish-x86_64.AppImage](https://github.com/TinkerNorth/dish-linux/releases/latest/download/Dish-x86_64.AppImage)**. It carries its own Qt and runs on glibc 2.35 or newer.
 
@@ -50,7 +51,17 @@ sudo udevadm control --reload-rules && sudo udevadm trigger
 
 If you'd rather have the sandbox, [Dish-x86_64.flatpak](https://github.com/TinkerNorth/dish-linux/releases/latest/download/Dish-x86_64.flatpak) is a Flatpak bundle on the KDE runtime from Flathub. Dish is not on Flathub itself, so the bundle doesn't update, and its update check starts switched off. Like the AppImage it can't install the udev rule; when a controller needs it, Dish names the copy inside the bundle and the commands to install it.
 
-Arch Linux: the 2.8.1 package in Dish's pacman repository is broken. It installs an AppImage that cannot start. The fix is on its way with the next release; until then, use the AppImage above.
+Arch Linux: add the signed pacman repository once, and `pacman -Syu` keeps Dish current. It installs the AppImage above, with the udev rule, the desktop entry and the icon.
+
+```bash
+curl -fsSL https://tinkernorth.github.io/dish-linux/gpg.key | sudo pacman-key --add -
+sudo pacman-key --lsign-key 96FFAACB78FE75D18CEEE332C398179512D6BDF3
+printf '\n[dish]\nSigLevel = Required DatabaseOptional\nServer = https://tinkernorth.github.io/dish-linux/arch/$arch\n' \
+  | sudo tee -a /etc/pacman.conf
+sudo pacman -Syu dish-bin
+```
+
+The previous release's package installed an AppImage cut short, which could not start; this one carries the whole AppImage.
 
 Dish never updates itself. It checks for a new release and shows a notice that links to it, and your package manager or the AppImage's updater does the rest. All files and older versions are on the [releases page](https://github.com/TinkerNorth/dish-linux/releases), and the repositories have their own page at [tinkernorth.github.io/dish-linux](https://tinkernorth.github.io/dish-linux/).
 
@@ -90,7 +101,7 @@ Closing the window keeps controllers streaming behind a tray icon. Settings can 
 
 ## Requirements
 
-Linux on x86_64. There are no ARM builds yet. The .deb needs Debian 13, the 2.8.1 .rpm needs a Fedora with Qt 6.10, and the AppImage needs glibc 2.35 or newer (Ubuntu 22.04 and later). Ubuntu 24.04 ships Qt 6.4, below the Qt 6.7 Dish needs, so it has no package of its own and uses the AppImage.
+Linux on x86_64. There are no ARM builds yet. The .deb needs Debian 13 (or Ubuntu 25.10 or 26.04), the .rpm Fedora 44 or 45, and the AppImage needs glibc 2.35 or newer (Ubuntu 22.04 and later). Ubuntu 24.04 ships Qt 6.4, below the Qt 6.7 Dish needs, so it has no package of its own and uses the AppImage.
 
 Permissions: Dish never asks for root. The Direct path, and a Bluetooth DualSense or DualShock 4's light bar, motion, touchpad, adaptive triggers and player lights, need read and write access to the controller's hidraw node, which Dish's udev rule (`70-dish-hidraw.rules`) gives to the user at the seat and, for sessions without logind, to the `input` group. The .deb and .rpm install it and reload udev; the AppImage and the Flatpak can't, and Dish tells you when a controller needs it. Without the rule every controller still streams on the Standard path, and a Bluetooth Sony pad keeps only rumble. SteamOS needs nothing installed, because its own rules already open those nodes.
 

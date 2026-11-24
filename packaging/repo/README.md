@@ -10,7 +10,7 @@ share their layout and scripts; keep them in step.
 ## End-user install (Debian 13)
 
 The `.deb` is built on Debian 13; `docs/PACKAGING.md` lists the releases it
-is tested on (from the release after 2.8.1, Ubuntu 25.10 and 26.04 too).
+is tested on (Debian 13, Ubuntu 25.10 and 26.04).
 Ubuntu 24.04 LTS ships Qt 6.4.2; its answer is the AppImage or the Flatpak,
 not this repo.
 
@@ -33,7 +33,7 @@ sudo apt install dish
 
 The `.rpm` is built on Fedora 44 and signed with the repository key, which
 dish.repo's `gpgcheck=1` requires (2.8.1's was not signed, so this path
-refuses 2.8.1; see the README's Download section for what works today).
+refused 2.8.1).
 
 ```bash
 # Drop the .repo file (it already references the gpg key). One-time:

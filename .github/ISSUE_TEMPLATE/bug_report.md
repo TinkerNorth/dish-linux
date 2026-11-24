@@ -28,7 +28,7 @@ assignees: ''
 - Distribution: [e.g. Debian 13, Fedora 44, Ubuntu 24.04, Arch, SteamOS]
 - Package: [.deb from the APT repository, .rpm, AppImage, Flatpak, dish-bin, built from source]
 - Display server: [Wayland / X11]
-- App version: [Settings, About; e.g. 2.8.1]
+- App version: [Settings, About; e.g. 2.9.0]
 - Controller: [e.g. Xbox Series X, DualSense, Steam Controller] and how it is connected [USB, Bluetooth, USB direct]
 - Satellite version, if the bug involves a session: [e.g. 2.3.0]
 

@@ -16,7 +16,46 @@ the repos share a version number.
 
 ---
 
-## [Unreleased]
+## [2.9.0] - 2026-11-23
+
+The Linux packages that 2.8.1 shipped broken work again: the Arch package
+starts, the DNF repository installs, and the .deb and the .rpm no longer
+depend on one exact build of the distribution's Qt. Underneath, the client
+moves to Qt 6.12.1 LTS, and every package the release publishes is now built,
+installed and started on every pull request.
+
+### Fixed
+
+- **The Arch package carries a working AppImage.** makepkg stripped
+  `/opt/dish/Dish.AppImage` as if it were a plain ELF binary, which cut the
+  image off the runtime: the `dish-bin` 2.8.1 in the pacman repository holds a
+  944 KB file where the release's AppImage is 53 MB, and it cannot start. The
+  PKGBUILD now turns stripping off, and the pull-request lane that builds the
+  package from the run's AppImage found it by comparing the installed file
+  with the one packaged.
+- **The DNF repository installs Dish.** Its `dish.repo` turns on `gpgcheck`,
+  and the 2.8.1 .rpm was never signed, so `dnf install dish` from the
+  repository refused 2.8.1 on every Fedora with "The package is not signed".
+  The release now signs the .rpm with the repository key before it is
+  published, so the downloadable file and the repository's copy are the same
+  signed bytes, and the repository build signs anything still unsigned. Every
+  pull request now installs Dish from freshly built APT and DNF repositories
+  in clean Debian and Fedora containers and launches it.
+- **The .deb and .rpm no longer pin one exact Qt build.** The QML's
+  ahead-of-time C++ called a private Qt symbol, so 2.8.1's .deb required
+  `qt6-declarative-private-abi (= 6.8.2)` and its .rpm
+  `Qt_6.10_PRIVATE_API`; the next Debian Qt update would have made the .deb
+  uninstallable, and on an up-to-date Fedora 44 the .rpm downgrades the
+  system's Qt. The QML now ships as bytecode, so the packages need Qt's public
+  interface only. The .deb installs on Debian 13 and Ubuntu 25.10 and 26.04,
+  and the .rpm, built on Fedora 44, on Fedora 44 and 45.
+- **The release verification recipe works.** `SECURITY.md` and
+  `CONTRIBUTING.md` named `v`-prefixed tags and the wrong signing workflow, so
+  following them failed on a good release; the commands now match the bare
+  tags and `_release_harden.yml`, and were run against 2.8.1. The SLSA
+  provenance, which `slsa-verifier` rejects because the generator is pinned by
+  commit, is verified with `cosign verify-blob-attestation` naming that
+  commit.
 
 ### Changed
 
@@ -36,48 +75,13 @@ the repos share a version number.
 - **The Licenses screen names ENet and OpenSSL**, which every build carries;
   `THIRD_PARTY.md` now says what the AppImage and the Flatpak bundle.
 - **A new README.** It follows the shape every Dish README now shares: what
-  to download for each distribution, what 2.8.1's packages really need (the
-  .deb Debian 13's own Qt, the .rpm Fedora's Qt 6.10, so not Fedora 44 until
-  the next release), the broken Arch package and the AppImage to use instead,
-  four steps to a working controller, the Moonlight host path, the
+  to download for each distribution and which releases each package installs
+  on, four steps to a working controller, the Moonlight host path, the
   permissions the udev rule gives, and the three things that can leave the
-  computer. The old one said protocol version 1 and that Dish talks to no
-  TinkerNorth server. Its tray, suspend and lid sections moved to
-  `docs/PACKAGING.md`, the build requirements, the language pick and the
-  manual checklist to `CONTRIBUTING.md`.
-
-### Fixed
-
-- **The DNF repository installs Dish.** Its `dish.repo` turns on `gpgcheck`,
-  and the 2.8.1 .rpm was never signed, so `dnf install dish` from the
-  repository refused 2.8.1 on every Fedora with "The package is not signed".
-  The release now signs the .rpm with the repository key before it is
-  published, so the downloadable file and the repository's copy are the same
-  signed bytes, and the repository build signs anything still unsigned. Every
-  pull request now installs Dish from freshly built APT and DNF repositories
-  in clean Debian and Fedora containers and launches it.
-- **The .deb and .rpm no longer pin one exact Qt build.** The QML's
-  ahead-of-time C++ called a private Qt symbol, so 2.8.1's .deb required
-  `qt6-declarative-private-abi (= 6.8.2)` and its .rpm
-  `Qt_6.10_PRIVATE_API`; the next Debian Qt update would have made the .deb
-  uninstallable, and on an up-to-date Fedora 44 the .rpm downgrades the
-  system's Qt. The QML now ships as bytecode, so the packages need Qt's public
-  interface only. The .deb installs on Debian 13 and Ubuntu 25.10 and 26.04,
-  and the .rpm, built on Fedora 44, on Fedora 44 and 45.
-- **The Arch package carries a working AppImage.** makepkg stripped
-  `/opt/dish/Dish.AppImage` as if it were a plain ELF binary, which cut the
-  image off the runtime: the `dish-bin` 2.8.1 in the pacman repository holds a
-  944 KB file where the release's AppImage is 53 MB, and it cannot start. The
-  PKGBUILD now turns stripping off, and the pull-request lane that builds the
-  package from the run's AppImage found it by comparing the installed file
-  with the one packaged.
-- **The release verification recipe works.** `SECURITY.md` and
-  `CONTRIBUTING.md` named `v`-prefixed tags and the wrong signing workflow, so
-  following them failed on a good release; the commands now match the bare
-  tags and `_release_harden.yml`, and were run against 2.8.1. The SLSA
-  provenance, which `slsa-verifier` rejects because the generator is pinned by
-  commit, is verified with `cosign verify-blob-attestation` naming that
-  commit.
+  computer, with a line for anyone still on 2.8.1. The old one said protocol
+  version 1 and that Dish talks to no TinkerNorth server. Its tray, suspend
+  and lid sections moved to `docs/PACKAGING.md`, the build requirements, the
+  language pick and the manual checklist to `CONTRIBUTING.md`.
 
 ### Build and CI
 
