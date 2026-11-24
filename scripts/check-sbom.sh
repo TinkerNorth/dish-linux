@@ -8,8 +8,10 @@
 #
 # The list of what ships is assets/licenses/licenses.json, the manifest the
 # in-app Licenses screen renders. Every entry but Catch2 (test-only, never in
-# a package) must appear in the document as a package of that name, case
-# aside; where the manifest names an exact version (not a floor such as
+# a package) and libcurl, the Sentry SDK's transport, which a build ships only
+# when the SDK is linked into the AppImage (a release build; the Flatpak takes
+# it from the KDE runtime), must appear in the document as a package of that
+# name, case aside; where the manifest names an exact version (not a floor such as
 # "6.7+", nor "system"), a package of that name must carry it, a short commit
 # matching its full form.
 set -euo pipefail
@@ -26,6 +28,10 @@ missing = []
 for library in libraries:
     artifact = library["artifact"]
     if artifact == "Catch2":
+        continue
+    if artifact == "libcurl" and not any(
+            p["name"] == "sentry-native" and "the AppImage" in p.get("comment", "")
+            for p in document["packages"]):
         continue
     named = [p for p in document["packages"] if p["name"].lower() == artifact.lower()]
     if not named:

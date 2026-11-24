@@ -20,8 +20,9 @@
 #     distribution package the build host installed it from, at that package's
 #     version; and sentry-native when the AppImage's dish links it;
 #   * in the Flatpak: the modules packaging/flatpak/com.tinkernorth.Dish.yml
-#     builds (libsodium, SDL2, sentry-native at the scripts/tools.sh pins), and
-#     the KDE runtime it runs on, which provides Qt, Opus, OpenSSL and libcurl.
+#     builds (libsodium, SDL2, sentry-native at the scripts/tools.sh pins). Qt,
+#     Opus, OpenSSL and libcurl come from the KDE runtime, which Flathub ships
+#     and the bundle does not carry, so they are not this document's.
 #
 # The .deb and the .rpm bundle no library: they depend on the distribution's.
 # Each package's comment says which artifacts carry it. scripts/check-sbom.sh
@@ -63,13 +64,17 @@ done < <(find "${appdir}/usr/lib" -maxdepth 1 -type f -name '*.so*' -print0 | so
 sentry_in_appimage=false
 if nm "${appdir}/usr/bin/dish" 2>/dev/null | grep -q ' sentry_init$'; then sentry_in_appimage=true; fi
 
-python3 - "${bundled}" "${out}" "${version}" "${sentry_in_appimage}" <<'PY'
+# The build host's distribution, so a scanner matches its packages' advisories.
+distro="$(. /etc/os-release && echo "${ID}-${VERSION_ID}")"
+
+python3 - "${bundled}" "${out}" "${version}" "${sentry_in_appimage}" "${distro}" <<'PY'
 import datetime, json, os, re, sys, uuid
 
-bundled_path, out, version, sentry_in_appimage = sys.argv[1:]
+bundled_path, out, version, sentry_in_appimage, distro = sys.argv[1:]
+distro_id = distro.split("-", 1)[0]
 env = os.environ
 qt, sdl, sodium = env["DISH_QT_VERSION"], env["DISH_SDL2_VERSION"], env["DISH_LIBSODIUM_VERSION"]
-sentry, enet, kde = env["DISH_SENTRY_NATIVE_VERSION"], env["DISH_ENET_COMMIT"], env["DISH_KDE_RUNTIME"]
+sentry, enet = env["DISH_SENTRY_NATIVE_VERSION"], env["DISH_ENET_COMMIT"]
 
 packages = {}
 
@@ -108,13 +113,14 @@ for line in open(bundled_path, encoding="utf-8"):
         continue
     for pattern, name, licence in upstream:
         if re.match(pattern, owner):
-            plain = re.sub(r"^\d+:", "", pkg_version).split("-")[0].split("+")[0]
-            add(name, plain, licence, "NOASSERTION", ["the AppImage"],
-                f"pkg:deb/ubuntu/{owner}@{pkg_version}")
+            # The package's own version, so a scanner compares it with the
+            # distribution's fixed versions, which carry its revision.
+            add(name, pkg_version or "NOASSERTION", licence, "NOASSERTION", ["the AppImage"],
+                f"pkg:deb/{distro_id}/{owner}@{pkg_version}?distro={distro}")
             break
     else:
         add(owner, pkg_version or "NOASSERTION", "NOASSERTION", "NOASSERTION", ["the AppImage"],
-            f"pkg:deb/ubuntu/{owner}@{pkg_version}" if pkg_version else "")
+            f"pkg:deb/{distro_id}/{owner}@{pkg_version}?distro={distro}" if pkg_version else "")
 if sentry_in_appimage == "true":
     add("sentry-native", sentry, "MIT", "https://github.com/getsentry/sentry-native",
         ["the AppImage", "the .deb", "the .rpm"], f"pkg:github/getsentry/sentry-native@{sentry}")
@@ -126,9 +132,6 @@ add("SDL2", sdl, "Zlib", f"https://github.com/libsdl-org/SDL/releases/tag/releas
     ["the Flatpak"], f"pkg:generic/libsdl-org/SDL2@{sdl}")
 add("sentry-native", sentry, "MIT", "https://github.com/getsentry/sentry-native", ["the Flatpak"],
     f"pkg:github/getsentry/sentry-native@{sentry}")
-for name, licence in (("qtbase", "LGPL-3.0-only"), ("opus", "BSD-3-Clause"),
-                      ("openssl", "Apache-2.0"), ("libcurl", "curl")):
-    add(name, f"org.kde.Platform//{kde}", licence, "https://flathub.org/", ["the Flatpak (from the KDE runtime)"])
 
 root = "SPDXRef-Package-dish-linux"
 spdx_packages = [{
