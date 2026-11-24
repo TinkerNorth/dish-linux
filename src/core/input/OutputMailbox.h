@@ -36,13 +36,13 @@ struct OutputState {
 };
 
 namespace output {
-inline constexpr std::uint32_t kRumble = 1U << 0;
-inline constexpr std::uint32_t kLightbar = 1U << 1;
-inline constexpr std::uint32_t kTriggerEffects = 1U << 2;
-inline constexpr std::uint32_t kPlayerLeds = 1U << 3;
-inline constexpr std::uint32_t kMicLed = 1U << 4;
-inline constexpr std::uint32_t kPadLink = 1U << 5;
-inline constexpr std::uint32_t kTriggerRumble = 1U << 6;
+inline constexpr std::uint32_t kRumble = 1U << 0U;
+inline constexpr std::uint32_t kLightbar = 1U << 1U;
+inline constexpr std::uint32_t kTriggerEffects = 1U << 2U;
+inline constexpr std::uint32_t kPlayerLeds = 1U << 3U;
+inline constexpr std::uint32_t kMicLed = 1U << 4U;
+inline constexpr std::uint32_t kPadLink = 1U << 5U;
+inline constexpr std::uint32_t kTriggerRumble = 1U << 6U;
 } // namespace output
 
 // One pad's feedback on its way to the thread that drives the pad. A producer (a session's

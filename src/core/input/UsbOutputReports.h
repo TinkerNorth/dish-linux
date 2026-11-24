@@ -25,6 +25,7 @@
 
 #pragma once
 
+#include "core/Bits.h"
 #include "core/input/UsbReportParsers.h"
 
 #include <cstddef>
@@ -173,14 +174,14 @@ inline void switchEncodeMotor(std::uint8_t* out, std::uint16_t magnitude) {
     }
     out[0] = 0x00;
     out[1] = static_cast<std::uint8_t>(0x01U + code->high);
-    out[2] = static_cast<std::uint8_t>(0x40U + ((code->low >> 8) & 0xFFU));
-    out[3] = static_cast<std::uint8_t>(code->low & 0xFFU);
+    out[2] = static_cast<std::uint8_t>(0x40U + bits::byteOf(bits::u32(code->low), 1U));
+    out[3] = bits::byteOf(bits::u32(code->low), 0U);
 }
 
 inline void zero(std::uint8_t* out, std::size_t n) { std::memset(out, 0, n); }
 
 // The high byte of a 16-bit magnitude: DS4 and DualSense motors are 8-bit.
-inline std::uint8_t hi8(std::uint16_t v) { return static_cast<std::uint8_t>(v >> 8); }
+inline std::uint8_t hi8(std::uint16_t v) { return bits::byteOf(bits::u32(v), 1U); }
 
 // DualSense output report 0x02 valid flags and mic-mute fields, in this file's
 // convention: the report id lives at out[0], so these are hid-playstation's
@@ -211,7 +212,8 @@ inline constexpr std::uint8_t kDs5PowerSaveMicMute = 0x10;
 // can see.
 inline void reassertDs5MicMuteLed(const FeedbackState& st, std::uint8_t* out) {
     if (!st.ds5MicMuteLedSet) { return; }
-    out[2] |= kDs5ValidFlag1MicMuteLed | kDs5ValidFlag1PowerSave;
+    out[2] = bits::lowByte(bits::u32(out[2]) | bits::u32(kDs5ValidFlag1MicMuteLed) |
+                           bits::u32(kDs5ValidFlag1PowerSave));
     out[kDs5MicMuteLedByte] = st.ds5MicMuteLed;
     out[kDs5PowerSaveByte] = st.ds5MicMuteLed == kMicMuteLedOff ? 0x00 : kDs5PowerSaveMicMute;
 }
@@ -243,10 +245,7 @@ inline constexpr std::size_t kTritonRightSpeedByte = 7;
 
 namespace detail {
 
-inline void putLe16(std::uint8_t* out, std::uint16_t v) {
-    out[0] = static_cast<std::uint8_t>(v & 0xFFU);
-    out[1] = static_cast<std::uint8_t>(v >> 8);
-}
+inline void putLe16(std::uint8_t* out, std::uint16_t v) { bits::storeLe16(out, v); }
 
 } // namespace detail
 
@@ -391,7 +390,7 @@ inline std::size_t buildTriggerEffectsReport(HidParser p, const FeedbackState& s
     if (outCap < 63) { return 0; }
     detail::zero(out, 63);
     out[0] = 0x02;
-    out[1] = 0x04 | 0x08; // valid_flag0: right + left trigger-effect blocks
+    out[1] = 0x0C; // valid_flag0: right (0x04) and left (0x08) trigger-effect blocks
     std::memcpy(out + 11, right, kTriggerEffectBlockBytes);
     std::memcpy(out + 22, left, kTriggerEffectBlockBytes);
     detail::reassertDs5MicMuteLed(st, out);

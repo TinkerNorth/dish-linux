@@ -3,6 +3,7 @@
 
 #include "source/usb/OutputWorker.h"
 
+#include "core/Bits.h"
 #include "core/thread/TrackedMutex.h"
 
 #include <chrono>
@@ -119,7 +120,7 @@ void OutputWorker::sleepUntilWorkOrDue() {
 
 // The Switch Pro takes a packet only when its low nibble advances.
 std::uint8_t OutputWorker::nextSeq() {
-    seq_ = static_cast<std::uint8_t>((seq_ + 1) & 0x0FU);
+    seq_ = bits::lowByte((bits::u32(seq_) + 1U) & 0x0FU);
     return seq_;
 }
 

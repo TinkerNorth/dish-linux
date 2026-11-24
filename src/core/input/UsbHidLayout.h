@@ -12,6 +12,7 @@
 
 #pragma once
 
+#include "core/Bits.h"
 #include "core/input/GamepadButtonLayouts.h"
 
 #include <array>
@@ -71,16 +72,17 @@ inline std::uint32_t extractBits(const std::uint8_t* d, std::size_t dlen, std::u
     std::uint32_t v = 0;
     for (std::uint8_t i = 0; i < bits && i < 32; i++) {
         const std::uint32_t bi = bitOff + i;
-        if (static_cast<std::size_t>(bi >> 3) >= dlen) { break; }
-        if (((d[bi >> 3] >> (bi & 7u)) & 1u) != 0) { v |= (1u << i); }
+        const std::size_t byteIndex = bi >> 3U;
+        if (byteIndex >= dlen) { break; }
+        if (((bits::u32(d[byteIndex]) >> (bi & 7U)) & 1U) != 0) { v |= (1U << i); }
     }
     return v;
 }
 
 inline std::int32_t toSigned(std::uint32_t raw, std::uint8_t bits, std::int32_t logicalMin) {
     if (logicalMin < 0 && bits > 0 && bits < 32) {
-        const std::uint32_t signBit = 1u << (bits - 1);
-        if ((raw & signBit) != 0) { return static_cast<std::int32_t>(raw | ~((1u << bits) - 1u)); }
+        const std::uint32_t signBit = 1U << (bits - 1U);
+        if ((raw & signBit) != 0) { return bits::asInt32(raw | ~((1U << bits) - 1U)); }
     }
     return static_cast<std::int32_t>(raw);
 }
@@ -328,10 +330,10 @@ inline HidItem readLongItem(const std::uint8_t* desc, std::size_t len, std::size
 inline HidItem readShortItem(const std::uint8_t* desc, std::size_t len, std::uint8_t prefix,
                              std::size_t& i) {
     HidItem item;
-    const std::uint8_t bSize = prefix & 0x03u;
+    const std::uint8_t bSize = bits::lowByte(bits::u32(prefix) & 0x03U);
     item.dataLen = bSize == 3 ? 4 : bSize;
-    item.type = (prefix >> 2) & 0x03u;
-    item.tag = (prefix >> 4) & 0x0Fu;
+    item.type = bits::lowByte((bits::u32(prefix) >> 2U) & 0x03U);
+    item.tag = bits::lowByte((bits::u32(prefix) >> 4U) & 0x0FU);
     if (i + item.dataLen > len) {
         item.truncated = true;
         return item;
