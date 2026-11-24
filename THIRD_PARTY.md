@@ -531,6 +531,7 @@ of every AppImage.
 | OSV-Scanner | 2.7.1 | `Apache-2.0` | Scans the tree and the pinned sources on every pull request. |
 | gitleaks | 8.30.1 | `MIT` | Scans the history for secrets on every pull request. |
 | clang-format | 23.1.5 | `Apache-2.0 WITH LLVM-exception` | The formatter gate. |
+| clang-tidy | 23.1.4 | `Apache-2.0 WITH LLVM-exception` | The lint gate. |
 
 The AppImage runtime's notice (its `LICENSE`, MIT):
 

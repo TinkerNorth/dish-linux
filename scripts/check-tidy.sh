@@ -16,6 +16,16 @@
 # CONTRIBUTING.md, clang-tidy).
 set -euo pipefail
 cd "$(dirname "$0")/.."
+# shellcheck source=scripts/tools.sh
+source scripts/tools.sh
+
+# The pinned clang-tidy only: another version is another set of checks, and a
+# green run with it says nothing about CI's verdict.
+got="$(clang-tidy --version 2>/dev/null | grep -oE 'version [0-9]+\.[0-9]+\.[0-9]+' | head -1 | cut -d' ' -f2 || true)"
+if [ "${got}" != "${DISH_CLANG_TIDY_VERSION}" ]; then
+    echo "clang-tidy ${got:-none} on PATH, the pin is ${DISH_CLANG_TIDY_VERSION}: pipx install clang-tidy==${DISH_CLANG_TIDY_VERSION}" >&2
+    exit 1
+fi
 
 find src -type f \( -name '*.cpp' -o -name '*.h' \) \
     ! -path 'src/UI/*' \

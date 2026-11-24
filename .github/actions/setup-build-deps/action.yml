@@ -35,7 +35,7 @@ runs:
         sudo apt-get install -y --no-install-recommends \
           build-essential cmake ninja-build pkg-config ccache \
           libsodium-dev libsdl2-dev libssl-dev libopus-dev \
-          catch2 clang-tidy "${extra_packages[@]}"
+          catch2 "${extra_packages[@]}"
 
     - name: Restore compiler cache
       uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0

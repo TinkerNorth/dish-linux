@@ -34,6 +34,10 @@ export DISH_AQTINSTALL_VERSION="3.3.0"
 
 # The formatter every C++ repo in the fleet pins (PyPI wheel through pipx).
 export DISH_CLANG_FORMAT_VERSION="23.1.5"
+# The linter, the PyPI wheel too (it carries its own clang resource headers),
+# so CI and a developer run the same checks instead of whatever clang-tidy the
+# distribution ships.
+export DISH_CLANG_TIDY_VERSION="23.1.4"
 
 # SDL2 built from source for the AppImage (jammy's 2.0.20 is below the floor)
 # and as a Flatpak module. The floor the code needs is in CMakeLists.txt.

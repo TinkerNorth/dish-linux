@@ -65,15 +65,16 @@ jobs:
         with:
           python-version: "3.12"
 
-      # The version every C++ repo in the fleet pins (DISH_CLANG_FORMAT_VERSION
-      # in scripts/tools.sh): Ubuntu's own clang-format disagrees with it on
-      # layout, so the matching wheel comes from PyPI.
-      - name: Install clang-format (pinned)
+      # The versions every C++ repo in the fleet pins (DISH_CLANG_FORMAT_VERSION
+      # and DISH_CLANG_TIDY_VERSION in scripts/tools.sh), as PyPI wheels:
+      # Ubuntu's own disagree on layout and on the checks.
+      - name: Install clang-format and clang-tidy (pinned)
         if: env.DISH_LINTS == 'true'
         run: |
           set -euo pipefail
           source scripts/tools.sh
           pipx install "clang-format==${DISH_CLANG_FORMAT_VERSION}"
+          pipx install "clang-tidy==${DISH_CLANG_TIDY_VERSION}"
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
       - name: clang-format (check only)

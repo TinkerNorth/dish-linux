@@ -45,7 +45,7 @@ fi
 if ! command -v apt-get >/dev/null 2>&1; then
     echo "This script drives apt (Debian/Ubuntu, what CI runs). On another distro install:" >&2
     echo "  gcc/clang, cmake, ninja, pkg-config, Qt 6.7+ (base, declarative, svg, tools/linguist)," >&2
-    echo "  libsodium, SDL2, OpenSSL, Opus and DBus development headers, catch2, clang-tidy," >&2
+    echo "  libsodium, SDL2, OpenSSL, Opus and DBus development headers, catch2," >&2
     echo "  librsvg2 tools, and clang-format ${DISH_CLANG_FORMAT_VERSION} (pipx install clang-format==${DISH_CLANG_FORMAT_VERSION})." >&2
     exit 1
 fi
@@ -57,10 +57,11 @@ sudo apt-get install -y --no-install-recommends \
     qt6-base-dev qt6-base-dev-tools qt6-declarative-dev qt6-svg-dev \
     qt6-tools-dev qt6-l10n-tools \
     libsodium-dev libsdl2-dev libssl-dev libopus-dev libdbus-1-dev catch2 \
-    librsvg2-bin clang-tidy pipx
+    librsvg2-bin pipx
 
-step "clang-format ${DISH_CLANG_FORMAT_VERSION} (pipx; the pin every CI lane uses)"
+step "clang-format ${DISH_CLANG_FORMAT_VERSION} and clang-tidy ${DISH_CLANG_TIDY_VERSION} (pipx; the pins every CI lane uses)"
 pipx install --force "clang-format==${DISH_CLANG_FORMAT_VERSION}"
+pipx install --force "clang-tidy==${DISH_CLANG_TIDY_VERSION}"
 pipx ensurepath
 if ! command -v clang-format >/dev/null 2>&1; then
     echo "[NOTE] clang-format installed via pipx; open a new shell (pipx ensurepath) to pick it up."

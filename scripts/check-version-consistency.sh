@@ -194,6 +194,7 @@ for row in \
     "OSV-Scanner|${DISH_OSV_SCANNER_VERSION}" \
     "gitleaks|${DISH_GITLEAKS_VERSION}" \
     "clang-format|${DISH_CLANG_FORMAT_VERSION}" \
+    "clang-tidy|${DISH_CLANG_TIDY_VERSION}" \
     "cosign|$(sed -nE 's/^ +COSIGN_VERSION: "([0-9.]+)".*/\1/p' "${harden}")" \
     "Syft|$(sed -nE 's/^ +SYFT_VERSION: "([0-9.]+)".*/\1/p' "${harden}")" \
     "Grype|$(sed -nE 's/^ +GRYPE_VERSION: "([0-9.]+)".*/\1/p' "${harden}")"
