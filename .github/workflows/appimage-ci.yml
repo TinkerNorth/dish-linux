@@ -41,6 +41,15 @@ jobs:
       - name: Build AppImage
         run: scripts/build-appimage.sh
 
+      # The bill of materials of what the packages carry, from this build and
+      # the pins, the document release.yml ships beside the AppImage; checked
+      # against the libraries the Licenses screen lists.
+      - name: Write and check the components SBOM
+        run: |
+          set -euo pipefail
+          scripts/write-sbom.sh build-appimage/AppDir dist/dish-linux-components.spdx.json
+          scripts/check-sbom.sh dist/dish-linux-components.spdx.json
+
       # The platform plugins that went into the bundle, in the log, so a
       # failure of the script's name check comes with the whole list.
       - name: List the bundled platform plugins
@@ -56,7 +65,9 @@ jobs:
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: linux-appimage-ci
-          path: dist/*.AppImage
+          path: |
+            dist/*.AppImage
+            dist/dish-linux-components.spdx.json
           retention-days: 7
           if-no-files-found: error
 
@@ -96,3 +107,18 @@ jobs:
           appimage="$(find appimage -maxdepth 1 -name 'Dish-*-x86_64.AppImage' -print -quit)"
           [ -n "${appimage}" ] || { echo "::error::no AppImage downloaded"; exit 1; }
           ./scripts/check-arch-package.sh "${appimage}"
+
+  # The shared hardening in dry-run mode over the AppImage and the components
+  # SBOM, as release.yml's harden job runs over them: Syft folds the SBOM into
+  # the product one and Grype scans the result. Throwaway key, nothing leaves
+  # the runner.
+  release-dry-run:
+    name: Release hardening (dry run)
+    needs: [appimage]
+    permissions:
+      contents: read
+    uses: ./.github/workflows/_release_harden.yml
+    with:
+      artifact-pattern: linux-appimage-ci
+      product: dish
+      dry-run: true

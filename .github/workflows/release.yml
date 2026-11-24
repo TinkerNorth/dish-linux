@@ -322,6 +322,15 @@ jobs:
           DISH_SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
         run: scripts/build-appimage.sh
 
+      # The bill of materials of what the packages carry (scripts/write-sbom.sh),
+      # shipped beside the AppImage so the hardening folds it into the product
+      # SBOM; appimage-ci.yml writes and checks it on every pull request.
+      - name: Write and check the components SBOM
+        run: |
+          set -euo pipefail
+          scripts/write-sbom.sh build-appimage/AppDir dist/dish-linux-components.spdx.json
+          scripts/check-sbom.sh dist/dish-linux-components.spdx.json
+
       # Strict: a release whose crashes cannot be symbolicated is not finished,
       # so a failed upload fails the job (scripts/sentry-cli.sh skips, with a
       # notice, only when the Sentry secrets are absent, as in a fork).
@@ -346,6 +355,7 @@ jobs:
             dist/*.AppImage
             dist/*.AppImage.sha256
             dist/*.AppImage.zsync
+            dist/dish-linux-components.spdx.json
           if-no-files-found: error
 
   # =========================================================================
