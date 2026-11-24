@@ -9,6 +9,7 @@
 
 #pragma once
 
+#include "core/Bits.h"
 #include "core/input/GamepadButtonLayouts.h"
 #include "core/input/StickHealth.h"
 #include "core/model/Protocol.h"
@@ -39,7 +40,7 @@ enum class WireButton : std::uint8_t {
 };
 
 struct WireButtonBit {
-    int bit = 0;
+    std::uint32_t bit = 0;
     WireButton button = WireButton::DpadUp;
 };
 
@@ -66,7 +67,7 @@ inline constexpr std::array<WireButtonBit, 16> kWireButtonBits{{
 inline std::vector<WireButton> pressedButtons(std::uint16_t wButtons) {
     std::vector<WireButton> pressed;
     for (const auto& entry : kWireButtonBits) {
-        if ((wButtons & entry.bit) != 0) { pressed.push_back(entry.button); }
+        if ((bits::u32(wButtons) & entry.bit) != 0) { pressed.push_back(entry.button); }
     }
     return pressed;
 }

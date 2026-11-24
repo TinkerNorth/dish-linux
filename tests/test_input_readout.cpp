@@ -29,7 +29,7 @@ namespace proto = dish::proto;
 
 namespace {
 constexpr int kWordBits = 16;
-constexpr int kEveryBit = 0xFFFF;
+constexpr std::uint32_t kEveryBit = 0xFFFFU;
 } // namespace
 
 TEST_CASE("an idle report holds no button down", "[diagnostics][input]") {
@@ -44,9 +44,9 @@ TEST_CASE("held buttons read in wire-bit order", "[diagnostics][input]") {
 }
 
 TEST_CASE("every bit of the XUSB word names exactly one button", "[diagnostics][input]") {
-    int covered = 0;
+    std::uint32_t covered = 0U;
     for (const auto& entry : kWireButtonBits) {
-        REQUIRE((covered & entry.bit) == 0);
+        REQUIRE((covered & entry.bit) == 0U);
         covered |= entry.bit;
         const auto word = static_cast<std::uint16_t>(entry.bit);
         REQUIRE(pressedButtons(word) == std::vector<WireButton>{entry.button});

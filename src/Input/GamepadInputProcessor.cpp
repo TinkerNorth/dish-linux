@@ -3,6 +3,7 @@
 
 #include "GamepadInputProcessor.h"
 
+#include "core/Bits.h"
 #include "core/input/Deadzones.h"
 
 #include <chrono>
@@ -18,13 +19,11 @@ namespace {
 constexpr int kReadAttempts = 10'000;
 
 std::uint32_t packDeadzones(const GamepadInputProcessor::Deadzones& dz) {
-    return static_cast<std::uint32_t>(static_cast<std::uint16_t>(dz.stickFlat)) |
-           (static_cast<std::uint32_t>(dz.triggerFlat) << 16);
+    return bits::u32(bits::asUint16(dz.stickFlat)) | (bits::u32(dz.triggerFlat) << 16U);
 }
 
 GamepadInputProcessor::Deadzones unpackDeadzones(std::uint32_t packed) {
-    return {static_cast<std::int16_t>(static_cast<std::uint16_t>(packed & 0xFFFFU)),
-            static_cast<std::uint8_t>((packed >> 16) & 0xFFU)};
+    return {bits::asInt16(bits::low16(packed)), bits::byteOf(packed, 2U)};
 }
 
 template <typename Read> bool readWithRetry(Read&& read) {
