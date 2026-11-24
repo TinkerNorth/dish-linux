@@ -16,6 +16,7 @@
 
 #pragma once
 
+#include "core/Bits.h"
 #include "core/input/GamepadButtonLayouts.h"
 #include "core/input/ExtendedButtons.h"
 #include "core/input/SteamTrackpads.h"
@@ -245,8 +246,7 @@ inline std::int16_t scaleSwitchStickAuto(std::uint16_t raw12, AxisAutoRange& axi
 }
 
 inline std::int16_t rdLe16(const std::uint8_t* b, int off) {
-    return static_cast<std::int16_t>(static_cast<std::uint16_t>(b[off]) |
-                                     (static_cast<std::uint16_t>(b[off + 1]) << 8));
+    return bits::asInt16(bits::loadLe16(b + off));
 }
 
 // Switch Pro IMU default scaling; no factory calibration is read.
@@ -265,39 +265,28 @@ inline std::int16_t switchAccelToWire(std::int16_t raw) {
 }
 
 // The 4-bit HID hat value runs 0..7 clockwise from North; >= 8 is neutral.
-inline std::uint16_t setDpadFromHat(std::uint16_t buttons, std::uint8_t hat) {
-    buttons =
-        static_cast<std::uint16_t>(buttons & ~(layout::kXusbDpadUp | layout::kXusbDpadDown |
-                                               layout::kXusbDpadLeft | layout::kXusbDpadRight));
-    switch (hat & 0x0F) {
-    case 0:
-        buttons |= layout::kXusbDpadUp;
-        break;
-    case 1:
-        buttons |= static_cast<std::uint16_t>(layout::kXusbDpadUp | layout::kXusbDpadRight);
-        break;
-    case 2:
-        buttons |= layout::kXusbDpadRight;
-        break;
-    case 3:
-        buttons |= static_cast<std::uint16_t>(layout::kXusbDpadDown | layout::kXusbDpadRight);
-        break;
-    case 4:
-        buttons |= layout::kXusbDpadDown;
-        break;
-    case 5:
-        buttons |= static_cast<std::uint16_t>(layout::kXusbDpadDown | layout::kXusbDpadLeft);
-        break;
-    case 6:
-        buttons |= layout::kXusbDpadLeft;
-        break;
-    case 7:
-        buttons |= static_cast<std::uint16_t>(layout::kXusbDpadUp | layout::kXusbDpadLeft);
-        break;
+inline std::uint32_t setDpadFromHat(std::uint32_t buttons, std::uint8_t hat) {
+    buttons &= ~layout::kXusbDpadMask;
+    switch (bits::u32(hat) & 0x0FU) {
+    case 0U:
+        return buttons | layout::kXusbDpadUp;
+    case 1U:
+        return buttons | layout::kXusbDpadUp | layout::kXusbDpadRight;
+    case 2U:
+        return buttons | layout::kXusbDpadRight;
+    case 3U:
+        return buttons | layout::kXusbDpadDown | layout::kXusbDpadRight;
+    case 4U:
+        return buttons | layout::kXusbDpadDown;
+    case 5U:
+        return buttons | layout::kXusbDpadDown | layout::kXusbDpadLeft;
+    case 6U:
+        return buttons | layout::kXusbDpadLeft;
+    case 7U:
+        return buttons | layout::kXusbDpadUp | layout::kXusbDpadLeft;
     default:
-        break;
+        return buttons;
     }
-    return buttons;
 }
 
 // Integer math only, to stay FPU-free on the read thread.
@@ -328,21 +317,21 @@ inline bool decodeDualShock4(const std::uint8_t* buf, std::size_t len, ParsedRep
     s.rx = scaleU8Centered(buf[3], false);
     s.ry = scaleU8Centered(buf[4], true);
 
-    std::uint16_t b = 0;
-    if ((buf[5] & 0x10) != 0) { b |= layout::kXusbX; }
-    if ((buf[5] & 0x20) != 0) { b |= layout::kXusbA; }
-    if ((buf[5] & 0x40) != 0) { b |= layout::kXusbB; }
-    if ((buf[5] & 0x80) != 0) { b |= layout::kXusbY; }
-    if ((buf[6] & 0x01) != 0) { b |= layout::kXusbLeftShoulder; }
-    if ((buf[6] & 0x02) != 0) { b |= layout::kXusbRightShoulder; }
-    if ((buf[6] & 0x10) != 0) { b |= layout::kXusbBack; }
-    if ((buf[6] & 0x20) != 0) { b |= layout::kXusbStart; }
-    if ((buf[6] & 0x40) != 0) { b |= layout::kXusbLeftThumb; }
-    if ((buf[6] & 0x80) != 0) { b |= layout::kXusbRightThumb; }
+    std::uint32_t b = 0U;
+    if (bits::anySet(buf[5], 0x10U)) { b |= layout::kXusbX; }
+    if (bits::anySet(buf[5], 0x20U)) { b |= layout::kXusbA; }
+    if (bits::anySet(buf[5], 0x40U)) { b |= layout::kXusbB; }
+    if (bits::anySet(buf[5], 0x80U)) { b |= layout::kXusbY; }
+    if (bits::anySet(buf[6], 0x01U)) { b |= layout::kXusbLeftShoulder; }
+    if (bits::anySet(buf[6], 0x02U)) { b |= layout::kXusbRightShoulder; }
+    if (bits::anySet(buf[6], 0x10U)) { b |= layout::kXusbBack; }
+    if (bits::anySet(buf[6], 0x20U)) { b |= layout::kXusbStart; }
+    if (bits::anySet(buf[6], 0x40U)) { b |= layout::kXusbLeftThumb; }
+    if (bits::anySet(buf[6], 0x80U)) { b |= layout::kXusbRightThumb; }
     // PS/Guide button.
-    if (len > 7 && (buf[7] & 0x01) != 0) { b |= layout::kXusbGuide; }
-    b = setDpadFromHat(b, static_cast<std::uint8_t>(buf[5] & 0x0F));
-    s.wButtons = b;
+    if (len > 7 && bits::anySet(buf[7], 0x01U)) { b |= layout::kXusbGuide; }
+    b = setDpadFromHat(b, bits::lowByte(bits::u32(buf[5]) & 0x0FU));
+    s.wButtons = bits::low16(b);
 
     s.lt = buf[8];
     s.rt = buf[9];
@@ -365,24 +354,18 @@ inline bool decodeDualShock4(const std::uint8_t* buf, std::size_t len, ParsedRep
     if (len >= 43) {
         const std::uint8_t* t0 = buf + 35;
         const std::uint8_t* t1 = buf + 39;
-        const bool f0Touch = (t0[0] & 0x80) == 0;
-        const bool f1Touch = (t1[0] & 0x80) == 0;
+        const bool f0Touch = !bits::anySet(t0[0], 0x80U);
+        const bool f1Touch = !bits::anySet(t1[0], 0x80U);
         s.finger0Active = f0Touch;
-        s.finger0Id = static_cast<std::uint8_t>(t0[0] & 0x7F);
-        s.finger0X = touchAbsToInt16(static_cast<std::int32_t>(t0[1]) |
-                                         ((static_cast<std::int32_t>(t0[2]) & 0x0F) << 8),
-                                     1919);
-        s.finger0Y = touchAbsToInt16(
-            (static_cast<std::int32_t>(t0[2]) >> 4) | (static_cast<std::int32_t>(t0[3]) << 4), 941);
+        s.finger0Id = bits::lowByte(bits::u32(t0[0]) & 0x7FU);
+        s.finger0X = touchAbsToInt16(bits::loadPacked12Low(t0 + 1), 1919);
+        s.finger0Y = touchAbsToInt16(bits::loadPacked12High(t0 + 2), 941);
         s.finger1Active = f1Touch;
-        s.finger1Id = static_cast<std::uint8_t>(t1[0] & 0x7F);
-        s.finger1X = touchAbsToInt16(static_cast<std::int32_t>(t1[1]) |
-                                         ((static_cast<std::int32_t>(t1[2]) & 0x0F) << 8),
-                                     1919);
-        s.finger1Y = touchAbsToInt16(
-            (static_cast<std::int32_t>(t1[2]) >> 4) | (static_cast<std::int32_t>(t1[3]) << 4), 941);
+        s.finger1Id = bits::lowByte(bits::u32(t1[0]) & 0x7FU);
+        s.finger1X = touchAbsToInt16(bits::loadPacked12Low(t1 + 1), 1919);
+        s.finger1Y = touchAbsToInt16(bits::loadPacked12High(t1 + 2), 941);
         // The clickable pad is buf[7] bit 0x02.
-        s.touchpadButton = len > 7 && (buf[7] & 0x02) != 0;
+        s.touchpadButton = len > 7 && bits::anySet(buf[7], 0x02U);
         s.touchpadValid = true;
     }
 
@@ -390,8 +373,8 @@ inline bool decodeDualShock4(const std::uint8_t* buf, std::size_t len, ParsedRep
     // charge in tenths, bit 0x10 the cable. With the cable in, 10 is still
     // charging, 11 is full, and 12..15 are the firmware's error states.
     if (len >= 31) {
-        const auto tenths = static_cast<std::uint8_t>(buf[30] & 0x0F);
-        const bool cable = (buf[30] & 0x10) != 0;
+        const auto tenths = bits::lowByte(bits::u32(buf[30]) & 0x0FU);
+        const bool cable = bits::anySet(buf[30], 0x10U);
         s.batteryValid = true;
         if (!cable) {
             s.batteryLevel = detail::sonyTenthsToPercent(tenths);
@@ -448,25 +431,25 @@ inline bool decodeDualSense(const std::uint8_t* buf, std::size_t len, ParsedRepo
     s.lt = buf[5];
     s.rt = buf[6];
 
-    std::uint16_t b = 0;
-    if ((buf[8] & 0x10) != 0) { b |= layout::kXusbX; }
-    if ((buf[8] & 0x20) != 0) { b |= layout::kXusbA; }
-    if ((buf[8] & 0x40) != 0) { b |= layout::kXusbB; }
-    if ((buf[8] & 0x80) != 0) { b |= layout::kXusbY; }
-    if ((buf[9] & 0x01) != 0) { b |= layout::kXusbLeftShoulder; }
-    if ((buf[9] & 0x02) != 0) { b |= layout::kXusbRightShoulder; }
-    if ((buf[9] & 0x10) != 0) { b |= layout::kXusbBack; }
-    if ((buf[9] & 0x20) != 0) { b |= layout::kXusbStart; }
-    if ((buf[9] & 0x40) != 0) { b |= layout::kXusbLeftThumb; }
-    if ((buf[9] & 0x80) != 0) { b |= layout::kXusbRightThumb; }
+    std::uint32_t b = 0U;
+    if (bits::anySet(buf[8], 0x10U)) { b |= layout::kXusbX; }
+    if (bits::anySet(buf[8], 0x20U)) { b |= layout::kXusbA; }
+    if (bits::anySet(buf[8], 0x40U)) { b |= layout::kXusbB; }
+    if (bits::anySet(buf[8], 0x80U)) { b |= layout::kXusbY; }
+    if (bits::anySet(buf[9], 0x01U)) { b |= layout::kXusbLeftShoulder; }
+    if (bits::anySet(buf[9], 0x02U)) { b |= layout::kXusbRightShoulder; }
+    if (bits::anySet(buf[9], 0x10U)) { b |= layout::kXusbBack; }
+    if (bits::anySet(buf[9], 0x20U)) { b |= layout::kXusbStart; }
+    if (bits::anySet(buf[9], 0x40U)) { b |= layout::kXusbLeftThumb; }
+    if (bits::anySet(buf[9], 0x80U)) { b |= layout::kXusbRightThumb; }
     // PS button.
-    if (len > 10 && (buf[10] & 0x01) != 0) { b |= layout::kXusbGuide; }
+    if (len > 10 && bits::anySet(buf[10], 0x01U)) { b |= layout::kXusbGuide; }
     // Mic-mute lives beside the PS button and the touchpad click in button
     // byte 10 (0x04 next to 0x01 and 0x02). The press is an edge, the wire bit
     // is a state: flip the latch on the way down only, so holding the button
     // does not chatter the mute on and off at report rate.
     if (mute != nullptr) {
-        const bool muteDown = (buf[10] & 0x04) != 0;
+        const bool muteDown = bits::anySet(buf[10], 0x04U);
         if (muteDown && !mute->held.load(std::memory_order_relaxed)) {
             mute->muted.store(!mute->muted.load(std::memory_order_relaxed),
                               std::memory_order_relaxed);
@@ -474,8 +457,8 @@ inline bool decodeDualSense(const std::uint8_t* buf, std::size_t len, ParsedRepo
         mute->held.store(muteDown, std::memory_order_relaxed);
         if (mute->muted.load(std::memory_order_relaxed)) { b |= layout::kXusbMicMute; }
     }
-    b = setDpadFromHat(b, static_cast<std::uint8_t>(buf[8] & 0x0F));
-    s.wButtons = b;
+    b = setDpadFromHat(b, bits::lowByte(bits::u32(buf[8]) & 0x0FU));
+    s.wButtons = bits::low16(b);
     const bool isTheEdge = sticks.productId == kPidDualSenseEdge;
     s.extButtons = isTheEdge ? dualSenseEdgeExtendedButtons(buf[10]) : 0;
 
@@ -496,24 +479,16 @@ inline bool decodeDualSense(const std::uint8_t* buf, std::size_t len, ParsedRepo
     if (len >= 41) {
         const std::uint8_t* t0 = buf + 33;
         const std::uint8_t* t1 = buf + 37;
-        s.finger0Active = (t0[0] & 0x80) == 0;
-        s.finger0Id = static_cast<std::uint8_t>(t0[0] & 0x7F);
-        s.finger0X = touchAbsToInt16(static_cast<std::int32_t>(t0[1]) |
-                                         ((static_cast<std::int32_t>(t0[2]) & 0x0F) << 8),
-                                     1919);
-        s.finger0Y = touchAbsToInt16((static_cast<std::int32_t>(t0[2]) >> 4) |
-                                         (static_cast<std::int32_t>(t0[3]) << 4),
-                                     1079);
-        s.finger1Active = (t1[0] & 0x80) == 0;
-        s.finger1Id = static_cast<std::uint8_t>(t1[0] & 0x7F);
-        s.finger1X = touchAbsToInt16(static_cast<std::int32_t>(t1[1]) |
-                                         ((static_cast<std::int32_t>(t1[2]) & 0x0F) << 8),
-                                     1919);
-        s.finger1Y = touchAbsToInt16((static_cast<std::int32_t>(t1[2]) >> 4) |
-                                         (static_cast<std::int32_t>(t1[3]) << 4),
-                                     1079);
+        s.finger0Active = !bits::anySet(t0[0], 0x80U);
+        s.finger0Id = bits::lowByte(bits::u32(t0[0]) & 0x7FU);
+        s.finger0X = touchAbsToInt16(bits::loadPacked12Low(t0 + 1), 1919);
+        s.finger0Y = touchAbsToInt16(bits::loadPacked12High(t0 + 2), 1079);
+        s.finger1Active = !bits::anySet(t1[0], 0x80U);
+        s.finger1Id = bits::lowByte(bits::u32(t1[0]) & 0x7FU);
+        s.finger1X = touchAbsToInt16(bits::loadPacked12Low(t1 + 1), 1919);
+        s.finger1Y = touchAbsToInt16(bits::loadPacked12High(t1 + 2), 1079);
         // Pad-click.
-        s.touchpadButton = len > 10 && (buf[10] & 0x02) != 0;
+        s.touchpadButton = len > 10 && bits::anySet(buf[10], 0x02U);
         s.touchpadValid = true;
     }
 
@@ -522,8 +497,8 @@ inline bool decodeDualSense(const std::uint8_t* buf, std::size_t len, ParsedRepo
     // charging, 2 full, 0xA/0xB a temperature or voltage fault, 0xF a
     // charging fault. A fault has no charge worth showing.
     if (len >= 54) {
-        const auto tenths = static_cast<std::uint8_t>(buf[53] & 0x0F);
-        const auto state = static_cast<std::uint8_t>(buf[53] >> 4);
+        const auto tenths = bits::lowByte(bits::u32(buf[53]) & 0x0FU);
+        const auto state = bits::lowByte(bits::u32(buf[53]) >> 4U);
         s.batteryValid = true;
         switch (state) {
         case 0x0:
@@ -562,40 +537,34 @@ inline bool decodeSwitchProUsb(const std::uint8_t* buf, std::size_t len, ParsedR
     const std::uint8_t bs = buf[4];
     const std::uint8_t bl = buf[5];
 
-    std::uint16_t b = 0;
-    if ((br & 0x01) != 0) { b |= layout::kXusbX; }
-    if ((br & 0x02) != 0) { b |= layout::kXusbY; }
-    if ((br & 0x04) != 0) { b |= layout::kXusbA; }
-    if ((br & 0x08) != 0) { b |= layout::kXusbB; }
-    if ((br & 0x40) != 0) { b |= layout::kXusbRightShoulder; }
-    if ((bs & 0x01) != 0) { b |= layout::kXusbBack; }
-    if ((bs & 0x02) != 0) { b |= layout::kXusbStart; }
-    if ((bs & 0x04) != 0) { b |= layout::kXusbRightThumb; }
-    if ((bs & 0x08) != 0) { b |= layout::kXusbLeftThumb; }
-    if ((bs & 0x10) != 0) { b |= layout::kXusbGuide; } // Home
-    if ((bl & 0x01) != 0) { b |= layout::kXusbDpadDown; }
-    if ((bl & 0x02) != 0) { b |= layout::kXusbDpadUp; }
-    if ((bl & 0x04) != 0) { b |= layout::kXusbDpadRight; }
-    if ((bl & 0x08) != 0) { b |= layout::kXusbDpadLeft; }
-    if ((bl & 0x40) != 0) { b |= layout::kXusbLeftShoulder; }
-    s.wButtons = b;
+    std::uint32_t b = 0U;
+    if (bits::anySet(br, 0x01U)) { b |= layout::kXusbX; }
+    if (bits::anySet(br, 0x02U)) { b |= layout::kXusbY; }
+    if (bits::anySet(br, 0x04U)) { b |= layout::kXusbA; }
+    if (bits::anySet(br, 0x08U)) { b |= layout::kXusbB; }
+    if (bits::anySet(br, 0x40U)) { b |= layout::kXusbRightShoulder; }
+    if (bits::anySet(bs, 0x01U)) { b |= layout::kXusbBack; }
+    if (bits::anySet(bs, 0x02U)) { b |= layout::kXusbStart; }
+    if (bits::anySet(bs, 0x04U)) { b |= layout::kXusbRightThumb; }
+    if (bits::anySet(bs, 0x08U)) { b |= layout::kXusbLeftThumb; }
+    if (bits::anySet(bs, 0x10U)) { b |= layout::kXusbGuide; } // Home
+    if (bits::anySet(bl, 0x01U)) { b |= layout::kXusbDpadDown; }
+    if (bits::anySet(bl, 0x02U)) { b |= layout::kXusbDpadUp; }
+    if (bits::anySet(bl, 0x04U)) { b |= layout::kXusbDpadRight; }
+    if (bits::anySet(bl, 0x08U)) { b |= layout::kXusbDpadLeft; }
+    if (bits::anySet(bl, 0x40U)) { b |= layout::kXusbLeftShoulder; }
+    s.wButtons = bits::low16(b);
     s.extButtons = ((bs & kSwitchCaptureBit) != 0) ? extbtn::kMisc1 : 0;
 
     // ZL/ZR are digital on the Pro.
-    s.lt = (bl & 0x80) != 0 ? 255 : 0;
-    s.rt = (br & 0x80) != 0 ? 255 : 0;
+    s.lt = bits::anySet(bl, 0x80U) ? 255 : 0;
+    s.rt = bits::anySet(br, 0x80U) ? 255 : 0;
 
-    // 12-bit fields packed across byte boundaries. The shifts promote to int,
-    // so each result is narrowed back explicitly; every value fits 12 bits, so
-    // no bit is lost.
-    const auto lx = static_cast<std::uint16_t>(static_cast<std::uint16_t>(buf[6]) |
-                                               ((static_cast<std::uint16_t>(buf[7]) & 0x0F) << 8));
-    const auto ly = static_cast<std::uint16_t>((static_cast<std::uint16_t>(buf[7]) >> 4) |
-                                               (static_cast<std::uint16_t>(buf[8]) << 4));
-    const auto rx = static_cast<std::uint16_t>(static_cast<std::uint16_t>(buf[9]) |
-                                               ((static_cast<std::uint16_t>(buf[10]) & 0x0F) << 8));
-    const auto ry = static_cast<std::uint16_t>((static_cast<std::uint16_t>(buf[10]) >> 4) |
-                                               (static_cast<std::uint16_t>(buf[11]) << 4));
+    // 12-bit fields packed across byte boundaries.
+    const std::uint16_t lx = bits::loadPacked12Low(buf + 6);
+    const std::uint16_t ly = bits::loadPacked12High(buf + 7);
+    const std::uint16_t rx = bits::loadPacked12Low(buf + 9);
+    const std::uint16_t ry = bits::loadPacked12High(buf + 10);
 
     s.lx = scaleSwitchStickAuto(lx, sticks.lx);
     s.ly = scaleSwitchStickAuto(ly, sticks.ly);
@@ -608,9 +577,9 @@ inline bool decodeSwitchProUsb(const std::uint8_t* buf, std::size_t len, ParsedR
     // number the framework layers show for this pad.
     {
         static constexpr std::uint8_t kStepPercent[] = {5, 25, 50, 75, 100};
-        const auto step = static_cast<std::uint8_t>(buf[2] >> 5);
-        const bool charging = (buf[2] & 0x10) != 0;
-        const bool hostPowered = (buf[2] & 0x01) != 0;
+        const auto step = bits::lowByte(bits::u32(buf[2]) >> 5U);
+        const bool charging = bits::anySet(buf[2], 0x10U);
+        const bool hostPowered = bits::anySet(buf[2], 0x01U);
         s.batteryValid = true;
         s.batteryLevel = step <= 4 ? kStepPercent[step] : kPadBatteryLevelUnknown;
         if (charging) {
@@ -646,23 +615,23 @@ inline bool decodeGenericHid(const std::uint8_t* buf, std::size_t len, ParsedRep
     s.ly = scaleU8Centered(buf[1], true);
     s.rx = scaleU8Centered(buf[2], false);
     s.ry = scaleU8Centered(buf[3], true);
-    std::uint16_t b = 0;
-    b = setDpadFromHat(b, static_cast<std::uint8_t>(buf[4] & 0x0F));
+    std::uint32_t b = 0U;
+    b = setDpadFromHat(b, bits::lowByte(bits::u32(buf[4]) & 0x0FU));
     const std::uint8_t btnLo = buf[4];
     const std::uint8_t btnHi = len > 5 ? buf[5] : 0;
-    if ((btnLo & 0x10) != 0) { b |= layout::kXusbA; }
-    if ((btnLo & 0x20) != 0) { b |= layout::kXusbB; }
-    if ((btnLo & 0x40) != 0) { b |= layout::kXusbX; }
-    if ((btnLo & 0x80) != 0) { b |= layout::kXusbY; }
-    if ((btnHi & 0x01) != 0) { b |= layout::kXusbLeftShoulder; }
-    if ((btnHi & 0x02) != 0) { b |= layout::kXusbRightShoulder; }
-    if ((btnHi & 0x04) != 0) { b |= layout::kXusbBack; }
-    if ((btnHi & 0x08) != 0) { b |= layout::kXusbStart; }
-    if ((btnHi & 0x10) != 0) { b |= layout::kXusbLeftThumb; }
-    if ((btnHi & 0x20) != 0) { b |= layout::kXusbRightThumb; }
-    s.wButtons = b;
-    s.lt = (btnHi & 0x40) != 0 ? 255 : 0;
-    s.rt = (btnHi & 0x80) != 0 ? 255 : 0;
+    if (bits::anySet(btnLo, 0x10U)) { b |= layout::kXusbA; }
+    if (bits::anySet(btnLo, 0x20U)) { b |= layout::kXusbB; }
+    if (bits::anySet(btnLo, 0x40U)) { b |= layout::kXusbX; }
+    if (bits::anySet(btnLo, 0x80U)) { b |= layout::kXusbY; }
+    if (bits::anySet(btnHi, 0x01U)) { b |= layout::kXusbLeftShoulder; }
+    if (bits::anySet(btnHi, 0x02U)) { b |= layout::kXusbRightShoulder; }
+    if (bits::anySet(btnHi, 0x04U)) { b |= layout::kXusbBack; }
+    if (bits::anySet(btnHi, 0x08U)) { b |= layout::kXusbStart; }
+    if (bits::anySet(btnHi, 0x10U)) { b |= layout::kXusbLeftThumb; }
+    if (bits::anySet(btnHi, 0x20U)) { b |= layout::kXusbRightThumb; }
+    s.wButtons = bits::low16(b);
+    s.lt = bits::anySet(btnHi, 0x40U) ? 255 : 0;
+    s.rt = bits::anySet(btnHi, 0x80U) ? 255 : 0;
     return true;
 }
 
@@ -715,7 +684,7 @@ inline std::int16_t steamClampI16(std::int64_t v) {
 
 // Valve's 26000 full scale, so the throw saturates before the raw rail.
 inline std::uint8_t steamTriggerToWire(std::uint8_t raw) {
-    std::int32_t v = (static_cast<std::int32_t>(raw) << 7) | raw;
+    auto v = static_cast<std::int32_t>((bits::u32(raw) << 7U) | bits::u32(raw));
     if (v > kSteamTriggerMaxAnalog) { v = kSteamTriggerMaxAnalog; }
     return static_cast<std::uint8_t>((v * 255) / kSteamTriggerMaxAnalog);
 }
@@ -806,11 +775,10 @@ inline bool decodeSteamController(const std::uint8_t* buf, std::size_t len, Pars
     if (buf[0] != 0x01 || buf[1] != 0x00) { return false; }
     if (buf[2] != kSteamStateType) { return false; }
 
-    const std::uint32_t btn = static_cast<std::uint32_t>(buf[8]) |
-                              (static_cast<std::uint32_t>(buf[9]) << 8) |
-                              (static_cast<std::uint32_t>(buf[10]) << 16);
+    const std::uint32_t btn =
+        bits::u32(buf[8]) | (bits::u32(buf[9]) << 8U) | (bits::u32(buf[10]) << 16U);
 
-    std::uint16_t b = 0;
+    std::uint32_t b = 0U;
     if ((btn & kSteamSouth) != 0) { b |= layout::kXusbA; }
     if ((btn & kSteamEast) != 0) { b |= layout::kXusbB; }
     if ((btn & kSteamWest) != 0) { b |= layout::kXusbX; }
@@ -850,7 +818,7 @@ inline bool decodeSteamController(const std::uint8_t* buf, std::size_t len, Pars
     const SteamTrackpadRoute route = routeSteamTrackpads(st.trackpadPick, SteamTrackpads::Pad2015,
                                                          steamPads(buf, btn), st.padScroll);
     if (route.rightStickClick) { b |= layout::kXusbRightThumb; }
-    s.wButtons = b;
+    s.wButtons = bits::low16(b);
     s.extButtons = steamExtendedButtons(btn);
     s.rx = route.rightStickX;
     s.ry = route.rightStickY;
@@ -864,7 +832,8 @@ inline bool decodeSteamController(const std::uint8_t* buf, std::size_t len, Pars
     const std::int16_t gz = rdLe16(buf, 38);
     // An all-zero block means the IMU setting never took; publishing it would
     // stream a dead sensor.
-    if ((ax | ay | az | gx | gy | gz) != 0) {
+    const bool anyAxisMoved = ax != 0 || ay != 0 || az != 0 || gx != 0 || gy != 0 || gz != 0;
+    if (anyAxisMoved) {
         s.gyroX = steamGyroToWire(gx);
         s.gyroY = steamGyroToWire(gz);
         s.gyroZ = steamGyroToWire(gy);
@@ -1124,23 +1093,16 @@ inline constexpr std::size_t kTritonWirelessLen = 2;
 inline constexpr std::uint8_t kTritonWirelessDisconnect = 1;
 inline constexpr std::uint8_t kTritonWirelessConnect = 2;
 
-inline std::uint16_t rdLeU16(const std::uint8_t* b, int off) {
-    return static_cast<std::uint16_t>(static_cast<std::uint16_t>(b[off]) |
-                                      (static_cast<std::uint16_t>(b[off + 1]) << 8));
-}
+inline std::uint16_t rdLeU16(const std::uint8_t* b, int off) { return bits::loadLe16(b + off); }
 
-inline std::uint32_t rdLeU32(const std::uint8_t* b, int off) {
-    return static_cast<std::uint32_t>(b[off]) | (static_cast<std::uint32_t>(b[off + 1]) << 8) |
-           (static_cast<std::uint32_t>(b[off + 2]) << 16) |
-           (static_cast<std::uint32_t>(b[off + 3]) << 24);
-}
+inline std::uint32_t rdLeU32(const std::uint8_t* b, int off) { return bits::loadLe32(b + off); }
 
 inline std::uint16_t tritonButtonsToXusb(std::uint32_t buttons) {
-    std::uint16_t b = 0;
+    std::uint32_t b = 0U;
     for (const TritonButton& bit : kTritonButtonMap) {
-        if ((buttons & bit.triton) != 0) { b = static_cast<std::uint16_t>(b | bit.xusb); }
+        if ((buttons & bit.triton) != 0) { b |= bits::u32(bit.xusb); }
     }
-    return b;
+    return bits::low16(b);
 }
 
 inline std::uint32_t tritonExtendedButtons(std::uint32_t buttons) {
@@ -1340,8 +1302,7 @@ inline std::size_t buildTritonConfigReport(SteamConfig stage, int index, std::ui
     out[1] = kSteamSetSettingsValues;
     out[2] = kSteamOneSettingLength;
     out[3] = setting.number;
-    out[4] = static_cast<std::uint8_t>(setting.value & 0xFFU);
-    out[5] = static_cast<std::uint8_t>(setting.value >> 8);
+    bits::storeLe16(out + 4, setting.value);
     return kTritonFeatureReportBytes;
 }
 
