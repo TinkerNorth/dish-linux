@@ -3,6 +3,8 @@
 
 #include "core/wire/SessionCrypto.h"
 
+#include "core/Bits.h"
+
 #include <sodium.h>
 
 #include <cstring>
@@ -29,14 +31,8 @@ void buildNonceAndAad(std::uint8_t direction, std::uint32_t counter, std::uint32
                       std::uint8_t nonce[kCryptoNonceSize], std::uint8_t aad[4]) {
     std::memset(nonce, 0, kCryptoNonceSize);
     nonce[0] = direction;
-    nonce[8] = static_cast<std::uint8_t>(counter >> 24);
-    nonce[9] = static_cast<std::uint8_t>(counter >> 16);
-    nonce[10] = static_cast<std::uint8_t>(counter >> 8);
-    nonce[11] = static_cast<std::uint8_t>(counter);
-    aad[0] = static_cast<std::uint8_t>(token >> 24);
-    aad[1] = static_cast<std::uint8_t>(token >> 16);
-    aad[2] = static_cast<std::uint8_t>(token >> 8);
-    aad[3] = static_cast<std::uint8_t>(token);
+    bits::storeBe32(nonce + 8, counter);
+    bits::storeBe32(aad, token);
 }
 
 } // namespace
@@ -52,10 +48,7 @@ void deriveSessionKey(const std::uint8_t pairingKey[kCryptoKeySize],
     constexpr std::size_t kLabelLen = sizeof(infoLabel) - 1; // 20, no trailing NUL
     std::uint8_t info[kLabelLen + 4 + 1];
     std::memcpy(info, infoLabel, kLabelLen);
-    info[kLabelLen + 0] = static_cast<std::uint8_t>(token >> 24);
-    info[kLabelLen + 1] = static_cast<std::uint8_t>(token >> 16);
-    info[kLabelLen + 2] = static_cast<std::uint8_t>(token >> 8);
-    info[kLabelLen + 3] = static_cast<std::uint8_t>(token);
+    bits::storeBe32(info + kLabelLen, token);
     info[kLabelLen + 4] = 0x01;
 
     std::uint8_t t1[crypto_auth_hmacsha256_BYTES];
@@ -88,7 +81,8 @@ bool verifyHmacProof(const std::uint8_t pairingKey[kCryptoKeySize], const std::s
         const int hi = hexNibbleAt(proofHex[i * 2]);
         const int lo = hexNibbleAt(proofHex[i * 2 + 1]);
         if (hi < 0 || lo < 0) { return false; }
-        supplied[i] = static_cast<std::uint8_t>((hi << 4) | lo);
+        supplied[i] =
+            bits::fromNibbles(static_cast<std::uint8_t>(hi), static_cast<std::uint8_t>(lo));
     }
     const std::string msg = "satellite-proof:" + deviceId;
     std::uint8_t expected[crypto_auth_hmacsha256_BYTES];

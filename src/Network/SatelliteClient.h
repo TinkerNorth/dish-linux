@@ -8,6 +8,7 @@
 
 #pragma once
 
+#include "core/Bits.h"
 #include "core/diagnostics/WireCounters.h"
 #include "core/model/Protocol.h"
 #include "core/reducer/LatencyWindow.h"
@@ -125,27 +126,33 @@ class SatelliteClient {
                     std::int16_t lx, std::int16_t ly, std::int16_t rx, std::int16_t ry,
                     std::uint32_t extButtons);
 
+    // `base` with `cap` set when `has` holds; the capability words are std::uint16_t, which an
+    // OR would promote to int.
+    static std::uint16_t withCapability(std::uint16_t base, std::uint16_t cap, bool has) {
+        return has ? bits::low16(bits::u32(base) | bits::u32(cap)) : base;
+    }
+
     static std::uint16_t withLightbarCapability(std::uint16_t base, bool hasLightbar) {
-        return static_cast<std::uint16_t>(base | (hasLightbar ? kCapLightbar : 0));
+        return withCapability(base, kCapLightbar, hasLightbar);
     }
 
     static std::uint16_t withMotionCapability(std::uint16_t base, bool hasMotion) {
-        return static_cast<std::uint16_t>(base | (hasMotion ? kCapMotion : 0));
+        return withCapability(base, kCapMotion, hasMotion);
     }
 
     static std::uint16_t withRumbleCapability(std::uint16_t base, bool hasRumble) {
-        return static_cast<std::uint16_t>(base | (hasRumble ? kCapRumble : 0));
+        return withCapability(base, kCapRumble, hasRumble);
     }
 
     // Protocol 2. These advertise an ACTUATOR, not a pad feature: the satellite
     // gates 0x0010 / 0x0011 on them, so a slot that cannot land the report must
     // not set the bit or the host's effect goes into a hole.
     static std::uint16_t withTriggerEffectsCapability(std::uint16_t base, bool hasTriggerEffects) {
-        return static_cast<std::uint16_t>(base | (hasTriggerEffects ? kCapTriggerEffects : 0));
+        return withCapability(base, kCapTriggerEffects, hasTriggerEffects);
     }
 
     static std::uint16_t withPlayerLedsCapability(std::uint16_t base, bool hasPlayerLeds) {
-        return static_cast<std::uint16_t>(base | (hasPlayerLeds ? kCapPlayerLeds : 0));
+        return withCapability(base, kCapPlayerLeds, hasPlayerLeds);
     }
 
     // Controller audio. Same actuator/source rule: kCapMic promises the client
@@ -153,18 +160,18 @@ class SatelliteClient {
     // that it plays 0x0013. Independent directions — the fold sets each only
     // where the matching audio route exists (core/reducer/FeedbackRouting.h).
     static std::uint16_t withMicCapability(std::uint16_t base, bool hasMic) {
-        return static_cast<std::uint16_t>(base | (hasMic ? kCapMic : 0));
+        return withCapability(base, kCapMic, hasMic);
     }
 
     static std::uint16_t withSpeakerCapability(std::uint16_t base, bool hasSpeaker) {
-        return static_cast<std::uint16_t>(base | (hasSpeaker ? kCapSpeaker : 0));
+        return withCapability(base, kCapSpeaker, hasSpeaker);
     }
 
     // Protocol 3. kCapHapticAudio promises the client plays 0x0015 into the
     // pad's own actuator lanes; without it the host reduces those lanes to
     // 0x0009 rumble, so the bit is set only where the 4-channel route exists.
     static std::uint16_t withHapticAudioCapability(std::uint16_t base, bool hasHapticAudio) {
-        return static_cast<std::uint16_t>(base | (hasHapticAudio ? kCapHapticAudio : 0));
+        return withCapability(base, kCapHapticAudio, hasHapticAudio);
     }
 
     // Protocol 4. The house rule again: the bit says this pad SOURCES the
@@ -172,7 +179,7 @@ class SatelliteClient {
     // buttons sets it.
     static std::uint16_t withExtendedButtonsCapability(std::uint16_t base,
                                                        bool hasExtendedButtons) {
-        return static_cast<std::uint16_t>(base | (hasExtendedButtons ? kCapExtendedButtons : 0));
+        return withCapability(base, kCapExtendedButtons, hasExtendedButtons);
     }
 
     // Axes are the satellite's right-handed frame (+X right, +Y up, +Z toward

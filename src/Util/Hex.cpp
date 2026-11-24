@@ -24,8 +24,9 @@ std::string toHex(const std::uint8_t* data, std::size_t size) {
     std::string out;
     out.resize(size * 2);
     for (std::size_t i = 0; i < size; ++i) {
-        out[(2 * i) + 0] = kHexChars[(data[i] >> 4) & 0x0F];
-        out[(2 * i) + 1] = kHexChars[data[i] & 0x0F];
+        const auto byte = static_cast<unsigned>(data[i]);
+        out[(2 * i) + 0] = kHexChars[(byte >> 4U) & 0x0FU];
+        out[(2 * i) + 1] = kHexChars[byte & 0x0FU];
     }
     return out;
 }
@@ -42,7 +43,8 @@ std::optional<std::vector<std::uint8_t>> fromHex(std::string_view hex) {
         const int hi = hexDigit(hex[i]);
         const int lo = hexDigit(hex[i + 1]);
         if (hi < 0 || lo < 0) { return std::nullopt; }
-        out.push_back(static_cast<std::uint8_t>((hi << 4) | lo));
+        out.push_back(static_cast<std::uint8_t>((static_cast<unsigned>(hi) << 4U) |
+                                                static_cast<unsigned>(lo)));
     }
     return out;
 }

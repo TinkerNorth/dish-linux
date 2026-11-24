@@ -3,6 +3,8 @@
 
 #include "core/diagnostics/Json.h"
 
+#include "core/Bits.h"
+
 #include <array>
 #include <cmath>
 #include <cstddef>
@@ -54,8 +56,8 @@ void appendEscaped(std::string& out, char ch) {
     const auto byte = static_cast<unsigned char>(ch);
     if (byte < kFirstPrintable) {
         out += "\\u00";
-        out.push_back(kHex[static_cast<std::size_t>(byte >> 4)]);
-        out.push_back(kHex[static_cast<std::size_t>(byte & 0x0F)]);
+        out.push_back(kHex[bits::highNibble(byte)]);
+        out.push_back(kHex[bits::lowNibble(byte)]);
         return;
     }
     out.push_back(ch);

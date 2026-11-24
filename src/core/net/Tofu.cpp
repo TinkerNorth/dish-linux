@@ -3,6 +3,8 @@
 
 #include "core/net/Tofu.h"
 
+#include "core/Bits.h"
+
 #include <sodium.h>
 
 #include <array>
@@ -38,8 +40,8 @@ std::string sha256FingerprintHex(const std::uint8_t* bytes, std::size_t len) {
     std::string out;
     out.reserve(digest.size() * 2);
     for (const unsigned char b : digest) {
-        out.push_back(kHex[b >> 4]);
-        out.push_back(kHex[b & 0x0F]);
+        out.push_back(kHex[bits::highNibble(b)]);
+        out.push_back(kHex[bits::lowNibble(b)]);
     }
     return out;
 }
