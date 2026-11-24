@@ -3,6 +3,7 @@
 
 #include "WifiConnectionManager.h"
 
+#include "core/Bits.h"
 #include "PairingOutcome.h"
 #include "core/net/IpLiterals.h"
 #include "source/connection/DiscoveryGateway.h"
@@ -798,10 +799,7 @@ WifiConnectionManager::sessionMaterialFrom(const models::SessionResponse& resp,
     }
     SessionMaterial m;
     std::copy_n(tok->begin(), 4, m.token.begin());
-    const std::uint32_t tokenBe = (static_cast<std::uint32_t>(m.token[0]) << 24) |
-                                  (static_cast<std::uint32_t>(m.token[1]) << 16) |
-                                  (static_cast<std::uint32_t>(m.token[2]) << 8) |
-                                  static_cast<std::uint32_t>(m.token[3]);
+    const std::uint32_t tokenBe = bits::loadBe32(m.token.data());
     wire::deriveSessionKey(pairingKey.data(), salt->data(), tokenBe, m.sessionKey.data());
     return m;
 }

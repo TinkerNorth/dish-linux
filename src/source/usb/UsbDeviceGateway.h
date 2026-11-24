@@ -10,6 +10,7 @@
 
 #pragma once
 
+#include "core/Bits.h"
 #include "core/controllerdb/ExpectCheck.h"
 #include "core/controllerdb/PadModel.h"
 #include "core/diagnostics/ReportCapture.h"
@@ -60,7 +61,7 @@ struct UsbDeviceInfo {
     dish::controllerdb::PadModel model;
     diagnostics::UsbHardwareFacts hardware;
 
-    int vpKey() const { return (vendorId << 16) | (productId & 0xFFFF); }
+    int vpKey() const { return bits::packHigh16Low16(vendorId, productId); }
     dish::controllerdb::ObservedHardware observedEndpoints() const;
 };
 

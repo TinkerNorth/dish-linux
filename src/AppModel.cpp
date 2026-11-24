@@ -3,6 +3,7 @@
 
 #include "AppModel.h"
 
+#include "core/Bits.h"
 #include "Util/HostBattery.h"
 #include "core/reducer/BatteryRouting.h"
 
@@ -916,7 +917,7 @@ void AppModel::settleAwaitingFrameworkControllers() {
     QSet<int> present;
     for (const auto& d : bridge_->devices()) {
         if (d.vendorId == 0 || d.productId == 0) { continue; }
-        present.insert((d.vendorId << 16) | (d.productId & 0xFFFF));
+        present.insert(bits::packHigh16Low16(d.vendorId, d.productId));
     }
     for (const auto& [key, c] : usbManager_->controllers()) {
         if (reducer::shouldSettleAwaitingFramework(c.phase, present.contains(key))) {
@@ -933,7 +934,7 @@ void AppModel::syncFrameworkPresence() {
     QSet<int> current;
     for (const auto& d : bridge_->devices()) {
         if (d.vendorId == 0 || d.productId == 0) { continue; }
-        const int key = (d.vendorId << 16) | (d.productId & 0xFFFF);
+        const int key = bits::packHigh16Low16(d.vendorId, d.productId);
         current.insert(key);
         if (!lastFrameworkVpKeys_.contains(key)) {
             usbManager_->onFrameworkUp(d.vendorId, d.productId, key);
@@ -941,8 +942,9 @@ void AppModel::syncFrameworkPresence() {
     }
     for (int key : lastFrameworkVpKeys_) {
         if (!current.contains(key)) {
-            const int vendorId = (key >> 16) & 0xFFFF;
-            const int productId = key & 0xFFFF;
+            const std::uint32_t word = bits::asUint32(key);
+            const int vendorId = static_cast<int>(word >> 16U);
+            const int productId = static_cast<int>(word & 0xFFFFU);
             usbManager_->onFrameworkDown(vendorId, productId);
         }
     }

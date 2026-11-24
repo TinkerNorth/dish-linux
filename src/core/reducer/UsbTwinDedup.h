@@ -23,6 +23,8 @@
 
 #pragma once
 
+#include "core/Bits.h"
+
 #include <algorithm>
 #include <cstdint>
 #include <map>
@@ -51,8 +53,7 @@ struct RoutedDevice {
 };
 
 inline std::int64_t twinModelKey(int vendorId, int productId) {
-    return (static_cast<std::int64_t>(vendorId) << 32) |
-           (static_cast<std::int64_t>(productId) & 0xFFFFFFFF);
+    return bits::packHigh32Low32(vendorId, productId);
 }
 
 inline std::set<std::string> suppressedRoutedIds(const std::vector<SyntheticTwin>& synthetics,

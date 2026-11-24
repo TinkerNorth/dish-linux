@@ -117,11 +117,12 @@ inline std::optional<ThermalState> thermalStateOf(const std::vector<ThermalZoneR
     std::optional<ThermalState> worst;
     for (const ThermalZoneReading& zone : zones) {
         if (!zone.milliCelsius.has_value()) { continue; }
+        const std::int64_t zoneMilliCelsius = *zone.milliCelsius;
         for (const ThermalTrip& trip : zone.trips) {
             const std::optional<ThermalState> meaning = stateOfTripType(trip.type);
             const bool enabled = trip.milliCelsius > 0;
             if (!meaning.has_value() || !enabled) { continue; }
-            const bool crossed = *zone.milliCelsius >= trip.milliCelsius;
+            const bool crossed = zoneMilliCelsius >= trip.milliCelsius;
             const ThermalState state = crossed ? *meaning : ThermalState::Nominal;
             if (!worst.has_value() || state > *worst) { worst = state; }
         }

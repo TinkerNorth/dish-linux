@@ -3,6 +3,7 @@
 
 #include "source/usb/UsbGamepadManager.h"
 
+#include "core/Bits.h"
 #include "source/store/UsbPathPreferenceStore.h"
 
 #include "Input/TouchGate.h"
@@ -139,7 +140,8 @@ class ClaimedPadPublisher {
     // the host battery on the wire, and a level in tenths moves minutes apart.
     void mirrorBattery(const UsbReport& r) const {
         if (!r.batteryValid) { return; }
-        const auto packed = static_cast<std::uint16_t>((r.batteryLevel << 8) | r.batteryStatus);
+        const std::uint16_t packed =
+            bits::low16((bits::u32(r.batteryLevel) << 8U) | bits::u32(r.batteryStatus));
         if (packed == lastBattery_->load(std::memory_order_relaxed)) { return; }
         lastBattery_->store(packed, std::memory_order_relaxed);
         if (observer_ != nullptr) {

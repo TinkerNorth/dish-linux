@@ -9,6 +9,8 @@
 
 #pragma once
 
+#include "core/Bits.h"
+
 #include <cstdint>
 #include <map>
 #include <optional>
@@ -25,9 +27,7 @@ struct DeviceId {
     std::uint16_t productId = 0;
 
     bool operator==(const DeviceId&) const = default;
-    std::uint32_t key() const {
-        return (static_cast<std::uint32_t>(vendorId) << 16) | static_cast<std::uint32_t>(productId);
-    }
+    std::uint32_t key() const { return (bits::u32(vendorId) << 16U) | bits::u32(productId); }
 };
 
 // input.protocol.ref. Unknown is a family a later database names that this

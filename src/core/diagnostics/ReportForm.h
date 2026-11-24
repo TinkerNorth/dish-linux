@@ -65,7 +65,7 @@ inline std::string reportSubject(std::string_view categoryWords, std::string_vie
     subject += categoryWords;
     subject += " \xC2\xB7 ";
     subject += kAppDisplayName;
-    subject += " ";
+    subject += ' ';
     subject += version;
     subject += " on ";
     subject += model;
