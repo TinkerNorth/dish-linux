@@ -6,6 +6,8 @@
 
 #pragma once
 
+#include "core/Bits.h"
+
 #include <cstdint>
 
 namespace dish::reducer {
@@ -19,7 +21,7 @@ inline constexpr int kBackoffMaxShift = 6;            // 1000<<6 == 64000 → ca
 inline std::int64_t backoffDelayMs(int attempt) {
     const int shift =
         (attempt <= 1) ? 0 : ((attempt - 1) > kBackoffMaxShift ? kBackoffMaxShift : (attempt - 1));
-    const std::int64_t delay = kBackoffBaseMs << shift;
+    const std::int64_t delay = kBackoffBaseMs * bits::pow2(static_cast<unsigned>(shift));
     return delay > kBackoffMaxMs ? kBackoffMaxMs : delay;
 }
 

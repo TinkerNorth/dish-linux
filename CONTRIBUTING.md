@@ -202,6 +202,20 @@ license: the project is LGPL-3.0-or-later end-to-end (`LICENSE`,
   See `CMakeLists.txt` for the exact set; in short:
   `-Wall -Wextra -Wpedantic -Wshadow -Wnon-virtual-dtor -Wold-style-cast
   -Wcast-align -Wconversion -Wsign-conversion -Wdouble-promotion -Wformat=2`.
+- Bitwise operators take unsigned operands only (clang-tidy's
+  `bugprone-signed-bitwise`). A `std::uint8_t` or `std::uint16_t` is promoted
+  to `int` before an operator sees it, so bytes widen through `bits::u32()`
+  first, shift counts and masks are unsigned literals (`8U`, `0xFFU`), a
+  narrower result is taken explicitly (`bits::lowByte`, `bits::low16`), and a
+  signed value is made last by a named conversion (`bits::asInt16`). The
+  helpers, and the multi-byte loads and stores built on them, are in
+  `src/core/Bits.h`, shared with Dish for Windows:
+
+  ```cpp
+  const std::int16_t gyroX = bits::asInt16(bits::loadLe16(buf + 13));
+  const std::uint32_t pressed = bits::u32(buf[5]) & 0xF0U;
+  ```
+
 - Match the surrounding style. Headers go in the order: project, Qt, libs,
   std, separated by blank lines (see `src/AppModel.h` for the pattern).
 
