@@ -73,7 +73,7 @@ rm -rf "${out}"
 mkdir -p "${out}"
 echo "=== ${lane} lane in ${image} ==="
 git ls-files -z --cached --others --exclude-standard \
-    | COPYFILE_DISABLE=1 tar --null -T - -cf - \
+    | COPYFILE_DISABLE=1 tar --no-xattrs --null -T - -cf - \
     | docker run --rm -i "${platform[@]+"${platform[@]}"}" \
         --cpuset-cpus "0-$((cpus - 1))" --memory "${memory}" \
         -v "${out}:/out" "${extra[@]+"${extra[@]}"}" \
